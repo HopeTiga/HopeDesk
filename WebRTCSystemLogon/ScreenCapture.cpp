@@ -1,9 +1,7 @@
 ﻿#include "ScreenCapture.h"
 #include <algorithm>
-#include "Logger.h"
 #include <thread>
-
-ScreenCapture* ScreenCapture::s_instance = nullptr;
+#include "Logger.h"
 
 // RAII 辅助类
 class ScopeGuard {
@@ -35,20 +33,12 @@ ScreenCapture::ScreenCapture()
 
     winLogonSwitcher = std::make_unique<WinLogon>();
 
-     winLogonSwitcher->SwitchToDefaultDesktop();
-    
+    winLogonSwitcher->SwitchToDefaultDesktop();
+
 }
 
 ScreenCapture::~ScreenCapture() {
     stopCapture();
-
-    // Unhook desktop switch detection
-    if (desktopSwitchHook) {
-        UnhookWinEvent(desktopSwitchHook);
-        desktopSwitchHook = nullptr;
-    }
-
-    s_instance = nullptr;
 
     if (isOnWinLogonDesktop && winLogonSwitcher) {
         winLogonSwitcher->SwitchToDefaultDesktop();
@@ -60,24 +50,12 @@ ScreenCapture::~ScreenCapture() {
 bool ScreenCapture::initialize() {
     Logger::getInstance()->info("=== Starting DXGI ScreenCapture initialization ===");
 
-    // Set static instance for callback
-    s_instance = this;
 
     // Check if callback is set
     if (!frameCallback) {
         Logger::getInstance()->warning("frameCallback not set! You must call setFrameCallback() before startCapture()!");
     }
 
-    // Install desktop switch detection hook
-    desktopSwitchHook = SetWinEventHook(
-        EVENT_SYSTEM_DESKTOPSWITCH, EVENT_SYSTEM_DESKTOPSWITCH,
-        NULL, WinEventProc, 0, 0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
-    );
-
-    if (desktopSwitchHook) {
-        Logger::getInstance()->info("Desktop switch detection hook installed");
-    }
 
     DWORD sessionId = 0;
     DWORD processId = GetCurrentProcessId();
@@ -87,12 +65,12 @@ bool ScreenCapture::initialize() {
     try {
         if (!initializeDXGI()) {
             Logger::getInstance()->error("Failed to initialize DXGI");
-			winLogonSwitcher->SwitchToWinLogonDesktop();
+            winLogonSwitcher->SwitchToWinLogonDesktop();
             desktopSwitchInProgress = true;
-            if( !initializeDXGI()) {
+            if (!initializeDXGI()) {
                 Logger::getInstance()->error("Failed to initialize DXGI on WinLogon desktop");
                 return false;
-			}
+            }
         }
         Logger::getInstance()->info("DXGI initialized successfully");
 
@@ -269,10 +247,13 @@ bool ScreenCapture::initializeDXGI() {
     desc.Usage = D3D11_USAGE_STAGING;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
-    hr = d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTexture);
-    if (FAILED(hr)) {
-        Logger::getInstance()->error("Failed to create staging texture");
-        return false;
+    // 创建三个 staging textures
+    for (int i = 0; i < 3; i++) {
+        hr = d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTextures[i]);
+        if (FAILED(hr)) {
+            Logger::getInstance()->error("Failed to create staging texture " + std::to_string(i));
+            return false;
+        }
     }
 
     return true;
@@ -395,7 +376,7 @@ bool ScreenCapture::captureFrame() {
     }
 
     // 使用 16ms 超时（约60fps）
-    hr = dxgiDuplication->AcquireNextFrame(16, &frameInfo, &desktopResource);
+    hr = dxgiDuplication->AcquireNextFrame(0, &frameInfo, &desktopResource);
 
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
         // 正常情况，没有新帧
@@ -504,15 +485,31 @@ void ScreenCapture::processUpdateRegions(DXGI_OUTDUPL_FRAME_INFO* frameInfo) {
 }
 
 bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
-    if (!texture || !d3dContext || !stagingTexture) {
+    if (!texture || !d3dContext || !stagingTextures[currentTexture]) {
         Logger::getInstance()->error("Invalid texture or D3D context");
         return false;
     }
 
-    d3dContext->CopyResource(stagingTexture.Get(), texture);
+    d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
 
     D3D11_MAPPED_SUBRESOURCE mapped;
-    HRESULT hr = d3dContext->Map(stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+
+    // 尝试非阻塞映射
+    HRESULT hr = d3dContext->Map(
+        stagingTextures[currentTexture].Get(),
+        0,
+        D3D11_MAP_READ,
+        0,  // 非阻塞标志
+        &mapped);
+
+    if (hr == DXGI_ERROR_WAS_STILL_DRAWING) {
+
+        Logger::getInstance()->info("Staging texture still in use by GPU, skipping frame");
+        // GPU 还在使用这个缓冲区，切换到下一个
+        currentTexture = (currentTexture + 1) % 3;
+
+        return false;  // 跳过本帧
+    }
 
     if (FAILED(hr)) {
         Logger::getInstance()->error("Failed to map texture: 0x" +
@@ -522,7 +519,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
 
     auto frame = getFrameFromPool();
     if (!frame) {
-        d3dContext->Unmap(stagingTexture.Get(), 0);
+        d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
         return false;
     }
 
@@ -626,7 +623,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         }
     }
 
-    d3dContext->Unmap(stagingTexture.Get(), 0);
+    d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
 
     frame->width = config.width;
     frame->height = config.height;
@@ -666,10 +663,10 @@ void ScreenCapture::encodeFrame(std::shared_ptr<CapturedFrame> frame) {
 
     if (frameCallback) {
 
-        frameCallback(yuvBuffer.data(), yuvBuffer.size(), frame->width,frame->height);
+        frameCallback(yuvBuffer.data(), yuvBuffer.size(), frame->width, frame->height);
 
     }
-  
+
 }
 
 bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
@@ -772,57 +769,6 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
     return true;
 }
 
-bool ScreenCapture::handleDeviceLost() {
-    Logger::getInstance()->warning("Attempting to recover from device lost");
-
-    if (dxgiDuplication) {
-        dxgiDuplication.Reset();
-    }
-
-    if (reinitializeDXGI()) {
-        Logger::getInstance()->info("Successfully recovered from device lost");
-        return true;
-    }
-
-    return false;
-}
-
-bool ScreenCapture::reinitializeDXGI() {
-    HRESULT hr = dxgiOutput1->DuplicateOutput(d3dDevice.Get(), &dxgiDuplication);
-    if (FAILED(hr)) {
-        Logger::getInstance()->error("Failed to reinitialize desktop duplication: 0x" +
-            std::to_string(static_cast<unsigned int>(hr)));
-        return false;
-    }
-
-    Logger::getInstance()->info("Desktop duplication reinitialized successfully");
-    return true;
-}
-
-void ScreenCapture::reinitializeDXGIResources() {
-    if (dxgiDuplication) {
-        dxgiDuplication.Reset();
-    }
-
-    stagingTexture.Reset();
-    desktopTexture.Reset();
-
-    D3D11_TEXTURE2D_DESC desc = {};
-    desc.Width = config.width;
-    desc.Height = config.height;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-    HRESULT hr = d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTexture);
-    if (FAILED(hr)) {
-        Logger::getInstance()->error("Failed to recreate staging texture");
-    }
-}
-
 void ScreenCapture::stopCapture() {
     if (!capturing.load()) {
         Logger::getInstance()->info("Capture not running, nothing to stop");
@@ -878,8 +824,12 @@ void ScreenCapture::releaseResources() {
         dxgiDuplication.Reset();
     }
 
-    stagingTexture.Reset();
-    desktopTexture.Reset();
+    for (int i = 0; i < 3; i++) {
+
+        stagingTextures[i].Reset();
+
+    }
+
     dxgiOutput1.Reset();
     dxgiOutput.Reset();
     dxgiAdapter.Reset();
@@ -899,45 +849,6 @@ void ScreenCapture::releaseResources() {
     Logger::getInstance()->info("Resources released");
 }
 
-void CALLBACK ScreenCapture::WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event,
-    HWND hwnd, LONG idObject, LONG idChild,
-    DWORD dwEventThread, DWORD dwmsEventTime) {
-
-    // 获取日志器实例
-    Logger* logger = Logger::getInstance();
-
-    // 将事件类型转换为可读字符串
-    std::string eventStr;
-    switch (event) {
-    case EVENT_SYSTEM_DESKTOPSWITCH:
-        eventStr = "EVENT_SYSTEM_DESKTOPSWITCH";
-        break;
-        // 添加其他需要跟踪的事件类型
-    default:
-        eventStr = "Unknown Event (0x" +
-            std::to_string(event) + ")";
-    }
-
-    // 记录完整事件信息
-    logger->debug(
-        "Received event: " + eventStr +
-        "\n\tHWND: " + std::to_string(reinterpret_cast<uintptr_t>(hwnd)) +
-        "\n\tObject: " + std::to_string(idObject) +
-        "\n\tChild: " + std::to_string(idChild) +
-        "\n\tThread: " + std::to_string(dwEventThread) +
-        "\n\tTime: " + std::to_string(dwmsEventTime)
-    );
-
-    if (event == EVENT_SYSTEM_DESKTOPSWITCH && s_instance) {
-        logger->info("Handling desktop switch event");
-        s_instance->handleDesktopSwitch();
-    }
-}
-
-void ScreenCapture::handleDesktopSwitch() {
-  
-
-}
 
 void ScreenCapture::releaseResourceDXGI()
 {
@@ -945,8 +856,12 @@ void ScreenCapture::releaseResourceDXGI()
         dxgiDuplication.Reset();
     }
 
-    stagingTexture.Reset();
-    desktopTexture.Reset();
+    for (int i = 0; i < 3; i++) {
+
+        stagingTextures[i].Reset();
+
+    }
+
     dxgiOutput1.Reset();
     dxgiOutput.Reset();
     dxgiAdapter.Reset();
