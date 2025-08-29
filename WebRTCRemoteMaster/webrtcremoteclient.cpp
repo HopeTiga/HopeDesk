@@ -357,10 +357,30 @@ void WebRTCRemoteClient::connect(std::string ip)
     }
 
     // 连接到服务器
-    auto ep = boost::asio::connect(webSocket->next_layer(), results);
+
+     boost::system::error_code ec;
+
+    boost::asio::connect(webSocket->next_layer(), results,ec);
+
+    if(ec){
+
+        Logger::getInstance()->info("connect webSocketServer faild :" + ec.what());
+
+        return;
+
+    }
 
     // 执行 WebSocket 握手
-    webSocket->handshake(host, "/");
+    webSocket->handshake(host, "/",ec);
+
+    if(ec){
+
+        Logger::getInstance()->info("handshake webSocketServer faild :" + ec.what());
+
+        return;
+
+    }
+
 
     webSocketRuns = true;
 
@@ -368,266 +388,272 @@ void WebRTCRemoteClient::connect(std::string ip)
 
         boost::beast::flat_buffer buffer;
 
-        while (webSocketRuns) {
+        try{
+            while (webSocketRuns) {
 
-            co_await  webSocket->async_read(buffer,boost::asio::use_awaitable);
+                co_await  webSocket->async_read(buffer,boost::asio::use_awaitable);
 
-            std::string dataStr = boost::beast::buffers_to_string(buffer.data());
+                std::string dataStr = boost::beast::buffers_to_string(buffer.data());
 
-            buffer.consume(buffer.size());
+                buffer.consume(buffer.size());
 
-            boost::json::object json = boost::json::parse(dataStr).as_object();
+                boost::json::object json = boost::json::parse(dataStr).as_object();
 
-            if(this->state == WebRTCRemoteState::followerRemote && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
+                if(this->state == WebRTCRemoteState::followerRemote && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
 
-                std::shared_ptr<WriterData> writerData =  std::make_shared<WriterData>(dataStr.data(),dataStr.size());
+                    std::shared_ptr<WriterData> writerData =  std::make_shared<WriterData>(dataStr.data(),dataStr.size());
 
-                writerAsync(writerData);
+                    writerAsync(writerData);
 
-                continue;
-            }
-
-
-            if(json.contains("requestType")){
-                int64_t requestType = json["requestType"].as_int64();
-                int64_t responseState = json["state"].as_int64();
-
-                if(WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER){
-                    if(responseState == 200){
-                        connetState = WebRTCConnetState::connect;
-                        LOG_INFO("%s",json["message"].as_string().c_str());
-
-                        if(!initializePeerConnection()){
-                            LOG_ERROR("initializePeerConnection failed!");
-                        }
-                    }
-                }else if(WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST){
-
-                    if(responseState == 200){
-                        LOG_DEBUG("json:%s",boost::json::serialize(json).c_str());
-
-                        if(json.contains("webRTCRemoteState")){
-                            WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
-
-                            // 只在状态未设置时进行角色分配，避免重复处理
-                            if(state.load() == WebRTCRemoteState::nullRemote){
-
-                                // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
-                                if(remoteState == WebRTCRemoteState::masterRemote){
-
-                                    state = WebRTCRemoteState::followerRemote;
-
-                                    targetID = std::string(json["accountID"].as_string().c_str());
-
-                                    this->followData = dataStr;
-
-                                    WindowsServiceManager::deleteService(systemService);
-
-                                    WindowsServiceManager::registerService(systemService, systemServiceExe);
-
-                                    if (WindowsServiceManager::startService(systemService)) {
-                                        // 启动写协程
-                                        Logger::getInstance()->info("Starting writer coroutine...");
-
-                                        boost::asio::co_spawn(ioContext,[this,dataStr]()mutable->boost::asio::awaitable<void>{
-
-                                            try {
-                                                tcpSocket = std::make_unique<boost::asio::ip::tcp::socket>(ioContext);
-
-                                                Logger::getInstance()->info("tcpSocket connect start!");
-
-                                                // 诊断：尝试解析地址
-                                                boost::system::error_code ec;
-                                                auto address = boost::asio::ip::make_address("127.0.0.1", ec);
-                                                if (ec) {
-                                                    Logger::getInstance()->error("Failed to parse address 127.0.0.1: " + ec.message());
-                                                    co_return;
-                                                }
-
-                                                boost::asio::ip::tcp::endpoint endpoint(address, 19998);
-
-                                                // 使用带超时的连接（可选）
-                                                auto connect_result = co_await boost::asio::async_connect(
-                                                    *tcpSocket,
-                                                    std::array{endpoint},
-                                                    boost::asio::use_awaitable
-                                                    );
-
-                                                this->followRemoteHandle();
-
-                                                socketRuns = true;
-
-                                                followRunning = true;
-
-                                                wrtierCoroutineAsync();
-
-                                                receiveCoroutineAysnc();
-
-                                                // 发送初始数据
-                                                std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
-
-                                                Logger::getInstance()->info(dataStr);
-
-                                                writerAsync(writerData);
+                    continue;
+                }
 
 
-                                            } catch (const boost::system::system_error& e) {
-                                                // 只处理这三种连接断开错误
-                                                if (e.code() == boost::asio::error::connection_reset ||
-                                                    e.code() == boost::asio::error::connection_aborted ||
-                                                    e.code() == boost::asio::error::broken_pipe) {
-                                                    Logger::getInstance()->warning("Connection lost in write: " + e.code().message());
+                if(json.contains("requestType")){
+                    int64_t requestType = json["requestType"].as_int64();
+                    int64_t responseState = json["state"].as_int64();
 
-                                                } else {
-                                                    // 其他boost错误都当标准异常处理
-                                                    Logger::getInstance()->error("Boost system error in write: " + std::string(e.what()));
-                                                }
-                                            } catch (const std::exception& e) {
-                                                Logger::getInstance()->error("Exception in write operation: " + std::string(e.what()));
-                                            }
+                    if(WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER){
+                        if(responseState == 200){
+                            connetState = WebRTCConnetState::connect;
+                            LOG_INFO("%s",json["message"].as_string().c_str());
 
-
-                                        },[this](std::exception_ptr p) {
-                                                                  LOG_ERROR("writerCoroutineAsync Error");
-                                                              });
-
-                                        continue;
-                                    }
-
-
-                                }
-                                // 对方是followerRemote(发送端)，我们需要成为masterRemote(接收端)
-                                else if(remoteState == WebRTCRemoteState::followerRemote){
-                                    state = WebRTCRemoteState::masterRemote;
-                                    targetID = std::string(json["accountID"].as_string().c_str());
-
-                                    // 接收端初始化解码器
-                                    // if(!initializeDecoder()){
-                                    //     LOG_ERROR("Failed to initialize decoder");
-                                    // }
-                                }
+                            if(!initializePeerConnection()){
+                                LOG_ERROR("initializePeerConnection failed!");
                             }
                         }
+                    }else if(WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST){
 
-                        if(json.contains("type")){
-                            std::string type(json["type"].as_string().c_str());
+                        if(responseState == 200){
+                            LOG_DEBUG("json:%s",boost::json::serialize(json).c_str());
 
-                            if(type == "offer"){
-                                // 只有当我们不是发起者时才响应offer
-                                if(!isInit.load()){
-                                    Logger::getInstance()->info("Received offer, processing as answerer");
+                            if(json.contains("webRTCRemoteState")){
+                                WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
-                                    if(json.contains("accountID")){
+                                // 只在状态未设置时进行角色分配，避免重复处理
+                                if(state.load() == WebRTCRemoteState::nullRemote){
+
+                                    // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
+                                    if(remoteState == WebRTCRemoteState::masterRemote){
+
+                                        state = WebRTCRemoteState::followerRemote;
+
                                         targetID = std::string(json["accountID"].as_string().c_str());
-                                        Logger::getInstance()->info("Set target ID from offer: " + targetID);
+
+                                        this->followData = dataStr;
+
+                                        WindowsServiceManager::deleteService(systemService);
+
+                                        WindowsServiceManager::registerService(systemService, systemServiceExe);
+
+                                        if (WindowsServiceManager::startService(systemService)) {
+                                            // 启动写协程
+                                            Logger::getInstance()->info("Starting writer coroutine...");
+
+                                            boost::asio::co_spawn(ioContext,[this,dataStr]()mutable->boost::asio::awaitable<void>{
+
+                                                try {
+                                                    tcpSocket = std::make_unique<boost::asio::ip::tcp::socket>(ioContext);
+
+                                                    Logger::getInstance()->info("tcpSocket connect start!");
+
+                                                    // 诊断：尝试解析地址
+                                                    boost::system::error_code ec;
+                                                    auto address = boost::asio::ip::make_address("127.0.0.1", ec);
+                                                    if (ec) {
+                                                        Logger::getInstance()->error("Failed to parse address 127.0.0.1: " + ec.message());
+                                                        co_return;
+                                                    }
+
+                                                    boost::asio::ip::tcp::endpoint endpoint(address, 19998);
+
+                                                    // 使用带超时的连接（可选）
+                                                    auto connect_result = co_await boost::asio::async_connect(
+                                                        *tcpSocket,
+                                                        std::array{endpoint},
+                                                        boost::asio::use_awaitable
+                                                        );
+
+                                                    this->followRemoteHandle();
+
+                                                    socketRuns = true;
+
+                                                    followRunning = true;
+
+                                                    wrtierCoroutineAsync();
+
+                                                    receiveCoroutineAysnc();
+
+                                                    // 发送初始数据
+                                                    std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
+
+                                                    Logger::getInstance()->info(dataStr);
+
+                                                    writerAsync(writerData);
+
+
+                                                } catch (const boost::system::system_error& e) {
+                                                    // 只处理这三种连接断开错误
+                                                    if (e.code() == boost::asio::error::connection_reset ||
+                                                        e.code() == boost::asio::error::connection_aborted ||
+                                                        e.code() == boost::asio::error::broken_pipe) {
+                                                        Logger::getInstance()->warning("Connection lost in write: " + e.code().message());
+
+                                                    } else {
+                                                        // 其他boost错误都当标准异常处理
+                                                        Logger::getInstance()->error("Boost system error in write: " + std::string(e.what()));
+                                                    }
+                                                } catch (const std::exception& e) {
+                                                    Logger::getInstance()->error("Exception in write operation: " + std::string(e.what()));
+                                                }
+
+
+                                            },[this](std::exception_ptr p) {
+                                                                      LOG_ERROR("writerCoroutineAsync Error");
+                                                                  });
+
+                                            continue;
+                                        }
+
+
                                     }
+                                    // 对方是followerRemote(发送端)，我们需要成为masterRemote(接收端)
+                                    else if(remoteState == WebRTCRemoteState::followerRemote){
+                                        state = WebRTCRemoteState::masterRemote;
+                                        targetID = std::string(json["accountID"].as_string().c_str());
 
-                                    std::string sdp(json["sdp"].as_string().c_str());
-                                    Logger::getInstance()->info("Offer SDP length: " + std::to_string(sdp.length()));
-                                    Logger::getInstance()->info("Offer SDP preview: " + sdp.substr(0, 200) + "...");
-
-                                    if(!peerConnection) {
-                                        Logger::getInstance()->error("PeerConnection is null, cannot process offer");
-                                        continue;
+                                        // 接收端初始化解码器
+                                        // if(!initializeDecoder()){
+                                        //     LOG_ERROR("Failed to initialize decoder");
+                                        // }
                                     }
-
-                                    // 创建远程描述
-                                    webrtc::SdpParseError error;
-                                    std::unique_ptr<webrtc::SessionDescriptionInterface> remoteDesc(
-                                        webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
-
-                                    if(!remoteDesc) {
-                                        Logger::getInstance()->error("Failed to parse offer SDP: " + error.description);
-                                        continue;
-                                    }
-
-                                    Logger::getInstance()->info("Setting remote description (offer)");
-                                    peerConnection->SetRemoteDescription(
-                                        SetRemoteDescriptionObserver::Create().get(),
-                                        remoteDesc.release()
-                                        );
-
-                                    // 创建并发送answer
-                                    Logger::getInstance()->info("Creating answer");
-                                    webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-
-                                    createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
-                                    peerConnection->CreateAnswer(createAnswerObserver.get(), options);
-
-                                    isInit = true;
-                                    Logger::getInstance()->info("Offer processed successfully, answer creation initiated");
-                                } else {
-                                    Logger::getInstance()->warning("Received offer but already initialized, ignoring");
                                 }
+                            }
 
-                            } else if(type == "candidate"){
-                                Logger::getInstance()->info("Received ICE candidate");
+                            if(json.contains("type")){
+                                std::string type(json["type"].as_string().c_str());
 
-                                std::string candidateStr(json["candidate"].as_string().c_str());
-                                std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
-                                int mlineIndex = json.contains("mlineIndex") ? static_cast<int>(json["mlineIndex"].as_int64()) : 0;
+                                if(type == "offer"){
+                                    // 只有当我们不是发起者时才响应offer
+                                    if(!isInit.load()){
+                                        Logger::getInstance()->info("Received offer, processing as answerer");
 
-                                Logger::getInstance()->info("ICE candidate SDP: " + candidateStr.substr(0, 100) + "...");
-                                Logger::getInstance()->info("ICE candidate mid: " + mid);
-                                Logger::getInstance()->info("ICE candidate mline index: " + std::to_string(mlineIndex));
+                                        if(json.contains("accountID")){
+                                            targetID = std::string(json["accountID"].as_string().c_str());
+                                            Logger::getInstance()->info("Set target ID from offer: " + targetID);
+                                        }
 
-                                if (peerConnection) {
-                                    webrtc::SdpParseError error;
-                                    std::unique_ptr<webrtc::IceCandidateInterface> candidate(
-                                        webrtc::CreateIceCandidate(mid, mlineIndex, candidateStr, &error));
+                                        std::string sdp(json["sdp"].as_string().c_str());
+                                        Logger::getInstance()->info("Offer SDP length: " + std::to_string(sdp.length()));
+                                        Logger::getInstance()->info("Offer SDP preview: " + sdp.substr(0, 200) + "...");
 
-                                    if(!candidate) {
-                                        Logger::getInstance()->error("Failed to parse ICE candidate: " + error.description);
-                                        continue;
-                                    }
+                                        if(!peerConnection) {
+                                            Logger::getInstance()->error("PeerConnection is null, cannot process offer");
+                                            continue;
+                                        }
 
-                                    Logger::getInstance()->info("Adding ICE candidate to peer connection");
-                                    bool success = peerConnection->AddIceCandidate(candidate.get());
+                                        // 创建远程描述
+                                        webrtc::SdpParseError error;
+                                        std::unique_ptr<webrtc::SessionDescriptionInterface> remoteDesc(
+                                            webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
 
-                                    if(success) {
-                                        Logger::getInstance()->info("ICE candidate added successfully");
+                                        if(!remoteDesc) {
+                                            Logger::getInstance()->error("Failed to parse offer SDP: " + error.description);
+                                            continue;
+                                        }
+
+                                        Logger::getInstance()->info("Setting remote description (offer)");
+                                        peerConnection->SetRemoteDescription(
+                                            SetRemoteDescriptionObserver::Create().get(),
+                                            remoteDesc.release()
+                                            );
+
+                                        // 创建并发送answer
+                                        Logger::getInstance()->info("Creating answer");
+                                        webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+
+                                        createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
+                                        peerConnection->CreateAnswer(createAnswerObserver.get(), options);
+
+                                        isInit = true;
+                                        Logger::getInstance()->info("Offer processed successfully, answer creation initiated");
                                     } else {
-                                        Logger::getInstance()->error("Failed to add ICE candidate");
+                                        Logger::getInstance()->warning("Received offer but already initialized, ignoring");
                                     }
-                                } else {
-                                    Logger::getInstance()->error("PeerConnection is null, cannot add ICE candidate");
-                                }
 
-                            } else {
-                                Logger::getInstance()->warning("Unknown signaling message type: " + type);
+                                } else if(type == "candidate"){
+                                    Logger::getInstance()->info("Received ICE candidate");
+
+                                    std::string candidateStr(json["candidate"].as_string().c_str());
+                                    std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
+                                    int mlineIndex = json.contains("mlineIndex") ? static_cast<int>(json["mlineIndex"].as_int64()) : 0;
+
+                                    Logger::getInstance()->info("ICE candidate SDP: " + candidateStr.substr(0, 100) + "...");
+                                    Logger::getInstance()->info("ICE candidate mid: " + mid);
+                                    Logger::getInstance()->info("ICE candidate mline index: " + std::to_string(mlineIndex));
+
+                                    if (peerConnection) {
+                                        webrtc::SdpParseError error;
+                                        std::unique_ptr<webrtc::IceCandidateInterface> candidate(
+                                            webrtc::CreateIceCandidate(mid, mlineIndex, candidateStr, &error));
+
+                                        if(!candidate) {
+                                            Logger::getInstance()->error("Failed to parse ICE candidate: " + error.description);
+                                            continue;
+                                        }
+
+                                        Logger::getInstance()->info("Adding ICE candidate to peer connection");
+                                        bool success = peerConnection->AddIceCandidate(candidate.get());
+
+                                        if(success) {
+                                            Logger::getInstance()->info("ICE candidate added successfully");
+                                        } else {
+                                            Logger::getInstance()->error("Failed to add ICE candidate");
+                                        }
+                                    } else {
+                                        Logger::getInstance()->error("PeerConnection is null, cannot add ICE candidate");
+                                    }
+
+                                } else {
+                                    Logger::getInstance()->warning("Unknown signaling message type: " + type);
+                                }
                             }
                         }
-                    }
-                    // 在处理重启消息的地方添加日志
-                }else if(WebRTCRequestState(requestType) == WebRTCRequestState::RESTART){
+                        // 在处理重启消息的地方添加日志
+                    }else if(WebRTCRequestState(requestType) == WebRTCRequestState::RESTART){
 
-                    if(responseState == 200){
+                        if(responseState == 200){
 
-                        releaseSource();
+                            releaseSource();
 
-                        initializePeerConnection();
+                            initializePeerConnection();
 
-                        this->state = WebRTCRemoteState::nullRemote;
+                            this->state = WebRTCRemoteState::nullRemote;
 
-                        sendRequestToTarget();
-                    }
-                }else if(WebRTCRequestState(requestType) == WebRTCRequestState::STOPREMOTE){
+                            sendRequestToTarget();
+                        }
+                    }else if(WebRTCRequestState(requestType) == WebRTCRequestState::STOPREMOTE){
 
-                    if(responseState == 200){
+                        if(responseState == 200){
 
-                        followRunning = false;
+                            followRunning = false;
 
-                        releaseSource();
+                            releaseSource();
 
-                        initializePeerConnection();
+                            initializePeerConnection();
 
-                        this->state = WebRTCRemoteState::nullRemote;
+                            this->state = WebRTCRemoteState::nullRemote;
 
-                        this->disConnectRemoteHandle();
+                            this->disConnectRemoteHandle();
 
+                        }
                     }
                 }
             }
+
+        }catch(const std::exception& e){
+
+            Logger::getInstance()->error("webSocket Read coroutine Error: " + std::string(e.what()));
         }
 
     }, [this](std::exception_ptr p) {
@@ -641,9 +667,13 @@ void WebRTCRemoteClient::connect(std::string ip)
     });
 
     boost::json::object request;
+
     request["requestType"] = static_cast<int>(WebRTCRequestState::REGISTER);
+
     request["accountID"] = this->accountID;
+
     std::string requestStr = boost::json::serialize(request);
+
     webSocket->write(boost::asio::buffer(requestStr));
 }
 
@@ -1140,9 +1170,13 @@ void WebRTCRemoteClient::releaseSource()
 
     // 2. 关闭连接
     if (peerConnection) {
+
         peerConnection->Close();
     }
+
+
     if (dataChannel) {
+
         dataChannel->Close();
     }
 
@@ -1163,14 +1197,17 @@ void WebRTCRemoteClient::releaseSource()
 
     // 6. 停止并释放线程
     if (signalingThread) {
+
         signalingThread->Stop();
         signalingThread.reset();
     }
     if (workerThread) {
+
         workerThread->Stop();
         workerThread.reset();
     }
     if (networkThread) {
+
         networkThread->Stop();
         networkThread.reset();
     }
@@ -1206,6 +1243,7 @@ void WebRTCRemoteClient::releaseSource()
         WindowsServiceManager::stopService(systemService);
 
     }
+
 }
 
 
@@ -1374,6 +1412,23 @@ void WebRTCRemoteClient::setVideoFrameCallback(VideoFrameCallback callback)
 
 void WebRTCRemoteClient::disConnect()
 {
+    webSocketRuns = false;
+
+    if (webSocket && webSocket->is_open()) {
+
+        try{
+
+            webSocket->next_layer().cancel();
+
+            webSocket->close(boost::beast::websocket::close_code::normal);
+
+        }catch(std::exception &e){
+
+            Logger::getInstance()->info(e.what());
+
+        }
+    }
+
 
     if(state == WebRTCRemoteState::followerRemote){
 
@@ -1381,25 +1436,20 @@ void WebRTCRemoteClient::disConnect()
 
         followRunning = false;
 
-        tcpSocket->close();
+        if(tcpSocket && tcpSocket->is_open()){
+
+            tcpSocket->close();
+
+        }
 
         WindowsServiceManager::stopService(systemService);
 
 
-    }else if(state == WebRTCRemoteState::masterRemote){
-
-        releaseSource();
-
     }
+
+    releaseSource();
 
     connetState = WebRTCConnetState::none;
-
-    webSocketRuns = false;
-
-    if (webSocket) {
-
-        webSocket->close(boost::beast::websocket::close_code::normal);
-    }
 
 }
 
