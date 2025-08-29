@@ -358,7 +358,7 @@ void WebRTCRemoteClient::connect(std::string ip)
 
     // 连接到服务器
 
-     boost::system::error_code ec;
+    boost::system::error_code ec;
 
     boost::asio::connect(webSocket->next_layer(), results,ec);
 
@@ -657,14 +657,14 @@ void WebRTCRemoteClient::connect(std::string ip)
         }
 
     }, [this](std::exception_ptr p) {
-        try {
-            if (p) {
-                    std::rethrow_exception(p);
-                }
-        }  catch (const std::exception& e) {
-           Logger::getInstance()->error("webSocket Read coroutine Error: " + std::string(e.what()));
-        }
-    });
+                              try {
+                                  if (p) {
+                                      std::rethrow_exception(p);
+                                  }
+                              }  catch (const std::exception& e) {
+                                  Logger::getInstance()->error("webSocket Read coroutine Error: " + std::string(e.what()));
+                              }
+                          });
 
     boost::json::object request;
 
@@ -1299,81 +1299,6 @@ std::string WebRTCRemoteClient::getTargetID() const
 void WebRTCRemoteClient::setTargetID(const std::string &newTargetID)
 {
     targetID = newTargetID;
-}
-
-
-
-void WebRTCRemoteClient::ioContextEventLoop()
-{
-
-    if(state == WebRTCRemoteState::masterRemote){
-
-        boost::asio::co_spawn(ioContext,[this]()-> boost::asio::awaitable<void>{
-            Logger::getInstance()->info("Decoder coroutine started");
-            try {
-                while(isReceive){
-                    if(trackFrameQueues.empty()){
-                        Logger::getInstance()->debug("Queue empty, waiting for data...");
-                        try {
-                            co_await this->channel.async_receive(boost::asio::use_awaitable);
-                        } catch (const boost::system::system_error& e) {
-                            Logger::getInstance()->error("Channel receive error: " + e.code().message());
-                            if (e.code() == boost::asio::error::operation_aborted) {
-                                Logger::getInstance()->info("Channel closed, exiting decoder coroutine");
-                                break;
-                            }
-                            throw; // 重新抛出以便外层捕获
-                        }
-                    }
-
-                    // 检查队列是否为空（防止竞态条件）
-                    if(trackFrameQueues.empty()) {
-                        continue;
-                    }
-
-                    auto data = trackFrameQueues.front();
-                    trackFrameQueues.pop();
-
-                    Logger::getInstance()->info("Processing frame, size: " + std::to_string(data.size()));
-
-                    if (videoFrameCallback) {
-                        LOG_DEBUG("videoFrameCallback");
-                        Logger::getInstance()->debug("Calling video frame callback");
-                        //videoFrameCallback();
-                    }
-
-                }
-            } catch (const boost::system::system_error& e) {
-                Logger::getInstance()->error("Decoder coroutine system error: " + std::string(e.what()));
-                Logger::getInstance()->error("Error code: " + std::to_string(e.code().value()) + " - " + e.code().message());
-                Logger::getInstance()->error("Error category: " + std::string(e.code().category().name()));
-            } catch (const std::exception& e) {
-                Logger::getInstance()->error("Decoder coroutine exception: " + std::string(e.what()));
-            } catch (...) {
-                Logger::getInstance()->error("Decoder coroutine unknown exception");
-            }
-
-            Logger::getInstance()->info("Decoder coroutine ended");
-            co_return;
-
-        },[this](std::exception_ptr p) {
-                                  try {
-                                      if (p) {
-                                          std::rethrow_exception(p);
-                                      }
-                                  } catch (const boost::system::system_error& e) {
-                                      Logger::getInstance()->error("Decoder coroutine handler system error: " + std::string(e.what()));
-                                      Logger::getInstance()->error("Error code: " + std::to_string(e.code().value()) + " - " + e.code().message());
-                                      Logger::getInstance()->error("Error category: " + std::string(e.code().category().name()));
-                                  } catch (const std::exception& e) {
-                                      Logger::getInstance()->error("Decoder coroutine handler exception: " + std::string(e.what()));
-                                  } catch (...) {
-                                      Logger::getInstance()->error("Decoder coroutine handler unknown exception");
-                                  }
-                              });
-
-    }
-
 }
 
 void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)

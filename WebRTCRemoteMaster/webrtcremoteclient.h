@@ -357,8 +357,6 @@ private:
 
 private:
 
-    void ioContextEventLoop();
-
     // 发送端功能
     bool initializePeerConnection();
 
@@ -417,7 +415,7 @@ private:
 
     std::string systemService = "WinlogonCaptureService2";
 
-    std::string systemServiceExe = "E:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
+    std::string systemServiceExe = "D:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
 };
 
 #endif // WEBRTCREMOTECLIENT_H
