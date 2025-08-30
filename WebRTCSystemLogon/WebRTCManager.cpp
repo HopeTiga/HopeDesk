@@ -89,9 +89,7 @@ void DataChannelObserverImpl::OnMessage(const webrtc::DataBuffer& buffer)
     const std::byte* data = reinterpret_cast<const std::byte*>(buffer.data.data());
     size_t size = buffer.size();
 
-    manager->ioContext.post([=]() mutable {
-        manager->processDataChannelMessage(std::vector<std::byte>(data, data + size));
-        });
+    manager->processDataChannelMessage(std::vector<std::byte>(data, data + size));
 }
 
 // SetLocalDescriptionObserver实现
@@ -276,6 +274,7 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
         if (!inputInjector) {
             Logger::getInstance()->warning("InputInjector creation failed, using KeyMouseSimulator");
         }
+
 }
 
 void WebRTCManager::sendSignalingMessage(const boost::json::object& message) {
@@ -1095,8 +1094,6 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
             bool needsShift = false;
             unsigned char actualKey = windowsKey;
 
-            handleSymbolKeyMapping(actualKey, needsShift);
-
             if (needsShift) {
                 modifiers |= 0x01;
             }
@@ -1153,7 +1150,6 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
 
             bool needsShift = false;
             unsigned char actualKey = windowsKey;
-            handleSymbolKeyMapping(actualKey, needsShift);
 
             if (needsShift) {
                 modifiers |= 0x01;
@@ -1228,56 +1224,9 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
     }
 }
 
-void WebRTCManager::handleSymbolKeyMapping(unsigned char& windowsKey, bool& needsShift)
-{
-    needsShift = false;
 
-    if (windowsKey >= VK_OEM_1 && windowsKey <= VK_OEM_8) {
-        return;
-    }
 
-    if (windowsKey >= VK_LEFT && windowsKey <= VK_DOWN) {
-        return;
-    }
-
-    switch (windowsKey) {
-    case '!': windowsKey = 0x31; needsShift = true; break;
-    case '@': windowsKey = 0x32; needsShift = true; break;
-    case '#': windowsKey = 0x33; needsShift = true; break;
-    case '$': windowsKey = 0x34; needsShift = true; break;
-    case '%': windowsKey = 0x35; needsShift = true; break;
-    case '^': windowsKey = 0x36; needsShift = true; break;
-    case '&': windowsKey = 0x37; needsShift = true; break;
-    case '*': windowsKey = 0x38; needsShift = true; break;
-    case '(': windowsKey = 0x39; needsShift = true; break;
-    case ')': windowsKey = 0x30; needsShift = true; break;
-    case ':': windowsKey = VK_OEM_1; needsShift = true; break;
-    case '+': windowsKey = VK_OEM_PLUS; needsShift = true; break;
-    case '<': windowsKey = VK_OEM_COMMA; needsShift = true; break;
-    case '_': windowsKey = VK_OEM_MINUS; needsShift = true; break;
-    case '>': windowsKey = VK_OEM_PERIOD; needsShift = true; break;
-    case '?': windowsKey = VK_OEM_2; needsShift = true; break;
-    case '{': windowsKey = VK_OEM_4; needsShift = true; break;
-    case '|': windowsKey = VK_OEM_5; needsShift = true; break;
-    case '}': windowsKey = VK_OEM_6; needsShift = true; break;
-    case '"': windowsKey = VK_OEM_7; needsShift = true; break;
-    case '~': windowsKey = VK_OEM_3; needsShift = true; break;
-    case ';': windowsKey = VK_OEM_1; break;
-    case '=': windowsKey = VK_OEM_PLUS; break;
-    case ',': windowsKey = VK_OEM_COMMA; break;
-    case '-': windowsKey = VK_OEM_MINUS; break;
-    case '.': windowsKey = VK_OEM_PERIOD; break;
-    case '/': windowsKey = VK_OEM_2; break;
-    case '[': windowsKey = VK_OEM_4; break;
-    case '\\': windowsKey = VK_OEM_5; break;
-    case ']': windowsKey = VK_OEM_6; break;
-    case '\'': windowsKey = VK_OEM_7; break;
-    case '`': windowsKey = VK_OEM_3; break;
-    default:
-        break;
-    }
-}
-
+// processDataChannelMessage中的case 3和case 4保持不变，但确保日志正确
 WebRTCManager::~WebRTCManager() {
     Cleanup();
 }

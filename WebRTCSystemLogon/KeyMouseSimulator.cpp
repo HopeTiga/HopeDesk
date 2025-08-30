@@ -11,7 +11,6 @@ KeyMouseSimulator::KeyMouseSimulator()
     try {
         logger = Logger::getInstance();
         logger->info("KeyMouseSimulator constructor started");
-        InitializeVkToScanCodeMap();
         logger->info("KeyMouseSimulator constructor completed");
     }
     catch (...) {
@@ -39,7 +38,6 @@ bool KeyMouseSimulator::Initialize() {
     logger->info("Initialize() called - entering function");
     logger->info("Creating Interception context...");
 
-    // 直接创建context，和服务代码一样简单
     logger->info("About to call interception_create_context()...");
     interceptionContext = interception_create_context();
     logger->info("interception_create_context() returned");
@@ -55,15 +53,11 @@ bool KeyMouseSimulator::Initialize() {
 
     logger->info("Context created successfully");
 
-    // 获取设备，和服务代码一样
     interceptionKeyboard = INTERCEPTION_KEYBOARD(0);
     interceptionMouse = INTERCEPTION_MOUSE(0);
 
     logger->info("Device ID - Keyboard: " + std::to_string(interceptionKeyboard) +
         ", Mouse: " + std::to_string(interceptionMouse));
-
-    // 不需要检查设备是否有效，服务代码也没检查
-    // 因为即使invalid，send函数也能工作
 
     isInitialized = true;
     logger->info("Initialization completed successfully");
@@ -80,7 +74,6 @@ bool KeyMouseSimulator::SendKey(WORD scanCode, bool down, bool extended) {
         InterceptionKeyStroke keystroke = { 0 };
         keystroke.code = scanCode;
 
-        // 设置按键状态
         if (down) {
             keystroke.state = INTERCEPTION_KEY_DOWN;
         }
@@ -88,7 +81,6 @@ bool KeyMouseSimulator::SendKey(WORD scanCode, bool down, bool extended) {
             keystroke.state = INTERCEPTION_KEY_UP;
         }
 
-        // 如果是扩展键，添加E0标志
         if (extended) {
             keystroke.state |= INTERCEPTION_KEY_E0;
         }
@@ -127,13 +119,11 @@ bool KeyMouseSimulator::MouseMove(int x, int y, bool absolute) {
         mousestroke.state = 0;
 
         if (absolute) {
-            // 重要！转换为归一化坐标 (0-65535)，就像SendInput一样
             mousestroke.flags = INTERCEPTION_MOUSE_MOVE_ABSOLUTE;
             mousestroke.x = (x * 65535) / GetSystemMetrics(SM_CXSCREEN);
             mousestroke.y = (y * 65535) / GetSystemMetrics(SM_CYSCREEN);
         }
         else {
-            // 相对移动保持不变
             mousestroke.flags = INTERCEPTION_MOUSE_MOVE_RELATIVE;
             mousestroke.x = x;
             mousestroke.y = y;
@@ -167,9 +157,8 @@ bool KeyMouseSimulator::MouseButtonDown(int buttonType, int x, int y) {
         return false;
     }
 
-    // 如果提供了坐标，先移动鼠标
     if (x >= 0 && y >= 0) {
-        MouseMove(x, y, true);  // 这里会自动进行归一化
+        MouseMove(x, y, true);
     }
 
     InterceptionMouseStroke mousestroke = { 0 };
@@ -225,81 +214,175 @@ bool KeyMouseSimulator::MouseWheel(int wheelDelta) {
     return interception_send(interceptionContext, interceptionMouse, &stroke, 1) == 1;
 }
 
-bool KeyMouseSimulator::KeyDown(BYTE vkCode, BYTE modifiers) {
-    // 按下修饰键
-    if (modifiers & 0x02 && !modifierState.ctrl) { // Ctrl
-        SendKey(0x1D, true);  // SCANCODE_CTRL_LEFT
-        modifierState.ctrl = true;
-    }
-    if (modifiers & 0x04 && !modifierState.alt) { // Alt  
-        SendKey(0x38, true);  // SCANCODE_ALT_LEFT
-        modifierState.alt = true;
-    }
-    if (modifiers & 0x01 && !modifierState.shift) { // Shift
-        SendKey(0x2A, true);  // SCANCODE_SHIFT_LEFT
-        modifierState.shift = true;
-    }
-    if (modifiers & 0x08 && !modifierState.win) { // Windows
-        SendKey(0x5B, true, true);  // SCANCODE_LWIN (extended)
-        modifierState.win = true;
+bool KeyMouseSimulator::IsNumLockOn() {
+    return (GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
+}
+
+bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
+    if (vkCode > 0xFE) {
+        logger->error("无效的VK码: " + std::to_string(vkCode));
+        return false;
     }
 
-    // 按下主键
-    WORD scanCode = VkToScanCode(vkCode);
+    // 检查是否是数字键盘按键
+    if (vkCode >= VK_NUMPAD0 && vkCode <= VK_NUMPAD9) {
+        bool numLockOn = IsNumLockOn();
+        logger->debug("NumLock状态: " + std::string(numLockOn ? "开启" : "关闭"));
+
+        if (numLockOn) {
+            // NumLock开启：发送数字，使用非扩展键
+            WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+            if (scanCode == 0) {
+                logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+                return false;
+            }
+
+            logger->debug("发送数字键盘数字: " + std::to_string(vkCode - VK_NUMPAD0) +
+                ", 扫描码: " + std::to_string(scanCode) + ", 扩展键: false");
+            return SendKey(scanCode, true, false);  // 强制非扩展键
+        }
+        else {
+            // NumLock关闭：发送导航键，使用扩展键
+            WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+            if (scanCode == 0) {
+                logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+                return false;
+            }
+
+            logger->debug("发送数字键盘导航键: VK" + std::to_string(vkCode) +
+                ", 扫描码: " + std::to_string(scanCode) + ", 扩展键: true");
+            return SendKey(scanCode, true, true);   // 强制扩展键
+        }
+    }
+
+    // 处理其他特殊数字键盘按键
+    if (vkCode == VK_DECIMAL || vkCode == VK_SUBTRACT || vkCode == VK_ADD ||
+        vkCode == VK_MULTIPLY || vkCode == VK_DIVIDE) {
+        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        if (scanCode == 0) {
+            logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+            return false;
+        }
+
+        // 这些键通常不受NumLock影响，根据实际需要调整
+        bool isExtended = (vkCode == VK_DIVIDE) ? true : false;  // 除号是扩展键
+        logger->debug("发送数字键盘特殊键: VK" + std::to_string(vkCode) +
+            ", 扫描码: " + std::to_string(scanCode) +
+            ", 扩展键: " + (isExtended ? "true" : "false"));
+        return SendKey(scanCode, true, isExtended);
+    }
+
+    // 处理普通按键
+    WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+    if (scanCode == 0) {
+        logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+        return false;
+    }
+
     bool isExtended = IsExtendedKey(scanCode);
     return SendKey(scanCode, true, isExtended);
 }
 
-bool KeyMouseSimulator::KeyUp(BYTE vkCode, BYTE modifiers) {
-    // 释放主键
+bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
+    if (vkCode > 0xFE) {
+        logger->error("无效的VK码: " + std::to_string(vkCode));
+        return false;
+    }
+
+    // 检查是否是数字键盘按键
+    if (vkCode >= VK_NUMPAD0 && vkCode <= VK_NUMPAD9) {
+        bool numLockOn = IsNumLockOn();
+
+        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        if (scanCode == 0) {
+            logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+            return false;
+        }
+
+        if (numLockOn) {
+            return SendKey(scanCode, false, false);  // 数字，非扩展键
+        }
+        else {
+            return SendKey(scanCode, false, true);   // 导航键，扩展键
+        }
+    }
+
+    // 处理其他特殊数字键盘按键
+    if (vkCode == VK_DECIMAL || vkCode == VK_SUBTRACT || vkCode == VK_ADD ||
+        vkCode == VK_MULTIPLY || vkCode == VK_DIVIDE) {
+        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        if (scanCode == 0) {
+            logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+            return false;
+        }
+
+        bool isExtended = (vkCode == VK_DIVIDE) ? true : false;
+        return SendKey(scanCode, false, isExtended);
+    }
+
+    // 处理普通按键
+    WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+    if (scanCode == 0) {
+        logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+        return false;
+    }
+
+    bool isExtended = IsExtendedKey(scanCode);
+    return SendKey(scanCode, false, isExtended);
+}
+
+WORD KeyMouseSimulator::VkToScanCode(DWORD vkCode) {
+    // Try extended mapping first, then regular mapping
+    WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC_EX);
+    if (scanCode == 0) {
+        scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+    }
+    return scanCode;
+}
+
+bool KeyMouseSimulator::SendKeyCombo(BYTE vkCode, BYTE modifiers) {
+    // Press modifiers first
+    if (modifiers & 0x02) { // Ctrl
+        SendKey(0x1D, true);
+    }
+    if (modifiers & 0x04) { // Alt  
+        SendKey(0x38, true);
+    }
+    if (modifiers & 0x01) { // Shift
+        SendKey(0x2A, true);
+    }
+    if (modifiers & 0x08) { // Windows
+        SendKey(0x5B, true, true);
+    }
+
+    // Press main key
     WORD scanCode = VkToScanCode(vkCode);
     bool isExtended = IsExtendedKey(scanCode);
+    SendKey(scanCode, true, isExtended);
+
+    // Release main key
     SendKey(scanCode, false, isExtended);
 
-    // 释放修饰键（逆序）
-    if (modifiers & 0x08 && modifierState.win) { // Windows
-        SendKey(0x5B, false, true);  // SCANCODE_LWIN (extended)
-        modifierState.win = false;
+    // Release modifiers in reverse order
+    if (modifiers & 0x08) { // Windows
+        SendKey(0x5B, false, true);
     }
-    if (modifiers & 0x01 && modifierState.shift) { // Shift
-        SendKey(0x2A, false);  // SCANCODE_SHIFT_LEFT
-        modifierState.shift = false;
+    if (modifiers & 0x01) { // Shift
+        SendKey(0x2A, false);
     }
-    if (modifiers & 0x04 && modifierState.alt) { // Alt
-        SendKey(0x38, false);  // SCANCODE_ALT_LEFT
-        modifierState.alt = false;
+    if (modifiers & 0x04) { // Alt
+        SendKey(0x38, false);
     }
-    if (modifiers & 0x02 && modifierState.ctrl) { // Ctrl
-        SendKey(0x1D, false);  // SCANCODE_CTRL_LEFT
-        modifierState.ctrl = false;
+    if (modifiers & 0x02) { // Ctrl
+        SendKey(0x1D, false);
     }
 
     return true;
 }
 
-bool KeyMouseSimulator::SendKeyCombo(BYTE vkCode, BYTE modifiers) {
-    if (!KeyDown(vkCode, modifiers)) {
-        return false;
-    }
-
-    Sleep(50);
-
-    return KeyUp(vkCode, modifiers);
-}
-
 void KeyMouseSimulator::ForceStop() {
     isDestroying = true;
     logger->info("Force stopping simulator...");
-}
-
-WORD KeyMouseSimulator::VkToScanCode(WORD vkCode) {
-    auto it = vkToScanCode.find(vkCode);
-    if (it != vkToScanCode.end()) {
-        return it->second;
-    }
-
-    // 如果映射表中没有，使用Windows API
-    return MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
 }
 
 bool KeyMouseSimulator::IsExtendedKey(WORD scanCode) {
@@ -324,103 +407,4 @@ bool KeyMouseSimulator::IsExtendedKey(WORD scanCode) {
         return true;
     }
     return false;
-}
-
-
-void KeyMouseSimulator::InitializeVkToScanCodeMap() {
-    // 基础按键映射
-    vkToScanCode[VK_ESCAPE] = 0x01;
-    vkToScanCode['1'] = 0x02;
-    vkToScanCode['2'] = 0x03;
-    vkToScanCode['3'] = 0x04;
-    vkToScanCode['4'] = 0x05;
-    vkToScanCode['5'] = 0x06;
-    vkToScanCode['6'] = 0x07;
-    vkToScanCode['7'] = 0x08;
-    vkToScanCode['8'] = 0x09;
-    vkToScanCode['9'] = 0x0A;
-    vkToScanCode['0'] = 0x0B;
-    vkToScanCode[VK_OEM_MINUS] = 0x0C;
-    vkToScanCode[VK_OEM_PLUS] = 0x0D;
-    vkToScanCode[VK_BACK] = 0x0E;
-    vkToScanCode[VK_TAB] = 0x0F;
-
-    // 字母键
-    vkToScanCode['Q'] = 0x10;
-    vkToScanCode['W'] = 0x11;
-    vkToScanCode['E'] = 0x12;
-    vkToScanCode['R'] = 0x13;
-    vkToScanCode['T'] = 0x14;
-    vkToScanCode['Y'] = 0x15;
-    vkToScanCode['U'] = 0x16;
-    vkToScanCode['I'] = 0x17;
-    vkToScanCode['O'] = 0x18;
-    vkToScanCode['P'] = 0x19;
-    vkToScanCode[VK_OEM_4] = 0x1A;  // [
-    vkToScanCode[VK_OEM_6] = 0x1B;  // ]
-    vkToScanCode[VK_RETURN] = 0x1C;
-    vkToScanCode[VK_CONTROL] = 0x1D;
-    vkToScanCode[VK_LCONTROL] = 0x1D;
-
-    vkToScanCode['A'] = 0x1E;
-    vkToScanCode['S'] = 0x1F;
-    vkToScanCode['D'] = 0x20;
-    vkToScanCode['F'] = 0x21;
-    vkToScanCode['G'] = 0x22;
-    vkToScanCode['H'] = 0x23;
-    vkToScanCode['J'] = 0x24;
-    vkToScanCode['K'] = 0x25;
-    vkToScanCode['L'] = 0x26;
-    vkToScanCode[VK_OEM_1] = 0x27;  // ;
-    vkToScanCode[VK_OEM_7] = 0x28;  // '
-    vkToScanCode[VK_OEM_3] = 0x29;  // `
-    vkToScanCode[VK_SHIFT] = 0x2A;
-    vkToScanCode[VK_LSHIFT] = 0x2A;
-    vkToScanCode[VK_OEM_5] = 0x2B;  // \
-                
-    vkToScanCode['Z'] = 0x2C;
-    vkToScanCode['X'] = 0x2D;
-    vkToScanCode['C'] = 0x2E;
-    vkToScanCode['V'] = 0x2F;
-    vkToScanCode['B'] = 0x30;
-    vkToScanCode['N'] = 0x31;
-    vkToScanCode['M'] = 0x32;
-    vkToScanCode[VK_OEM_COMMA] = 0x33;
-    vkToScanCode[VK_OEM_PERIOD] = 0x34;
-    vkToScanCode[VK_OEM_2] = 0x35;  // /
-    vkToScanCode[VK_RSHIFT] = 0x36;
-    vkToScanCode[VK_MULTIPLY] = 0x37;
-    vkToScanCode[VK_MENU] = 0x38;
-    vkToScanCode[VK_LMENU] = 0x38;
-    vkToScanCode[VK_SPACE] = 0x39;
-    vkToScanCode[VK_CAPITAL] = 0x3A;
-
-    // F键
-    vkToScanCode[VK_F1] = 0x3B;
-    vkToScanCode[VK_F2] = 0x3C;
-    vkToScanCode[VK_F3] = 0x3D;
-    vkToScanCode[VK_F4] = 0x3E;
-    vkToScanCode[VK_F5] = 0x3F;
-    vkToScanCode[VK_F6] = 0x40;
-    vkToScanCode[VK_F7] = 0x41;
-    vkToScanCode[VK_F8] = 0x42;
-    vkToScanCode[VK_F9] = 0x43;
-    vkToScanCode[VK_F10] = 0x44;
-    vkToScanCode[VK_F11] = 0x57;
-    vkToScanCode[VK_F12] = 0x58;
-
-    // 扩展键（需要E0前缀）
-    vkToScanCode[VK_DELETE] = 0x53;
-    vkToScanCode[VK_LEFT] = 0x4B;
-    vkToScanCode[VK_RIGHT] = 0x4D;
-    vkToScanCode[VK_UP] = 0x48;
-    vkToScanCode[VK_DOWN] = 0x50;
-    vkToScanCode[VK_INSERT] = 0x52;
-    vkToScanCode[VK_HOME] = 0x47;
-    vkToScanCode[VK_END] = 0x4F;
-    vkToScanCode[VK_PRIOR] = 0x49;  // Page Up
-    vkToScanCode[VK_NEXT] = 0x51;   // Page Down
-    vkToScanCode[VK_LWIN] = 0x5B;
-    vkToScanCode[VK_RWIN] = 0x5C;
-    vkToScanCode[VK_APPS] = 0x5D;
 }

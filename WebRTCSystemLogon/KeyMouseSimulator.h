@@ -3,7 +3,6 @@
 #include <interception/interception.h>
 #include <memory>
 #include <vector>
-#include <unordered_map>
 #include <atomic>
 #include "Logger.h"
 
@@ -16,18 +15,10 @@ private:
     std::atomic<bool> isInitialized;
     std::atomic<bool> isDestroying;
 
-    // VK到扫描码的映射表
-    std::unordered_map<WORD, WORD> vkToScanCode;
-
-    // 修饰键状态跟踪
-    struct ModifierState {
-        bool ctrl = false;
-        bool alt = false;
-        bool shift = false;
-        bool win = false;
-    } modifierState;
-
 public:
+
+    bool IsNumLockOn();
+
     KeyMouseSimulator();
     ~KeyMouseSimulator();
 
@@ -42,19 +33,15 @@ public:
 
     // 键盘操作 - 直接使用扫描码
     bool SendKey(WORD scanCode, bool down = true, bool extended = false);
-    bool KeyDown(BYTE vkCode, BYTE modifiers = 0);
-    bool KeyUp(BYTE vkCode, BYTE modifiers = 0);
+    bool KeyDown(DWORD vkCode, BYTE modifiers = 0);
+    bool KeyUp(DWORD vkCode, BYTE modifiers = 0);
     bool SendKeyCombo(BYTE vkCode, BYTE modifiers);
 
-    // VK码转扫描码
-    WORD VkToScanCode(WORD vkCode);
-
+    // VK码转扫描码 - 直接用Windows API
+    WORD VkToScanCode(DWORD vkCode);
     // 检查扩展键
     bool IsExtendedKey(WORD scanCode);
 
     // 强制停止
     void ForceStop();
-
-private:
-    void InitializeVkToScanCodeMap();
 };

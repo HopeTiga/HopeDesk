@@ -280,8 +280,6 @@ private:
 
     void processDataChannelMessage(const std::vector<std::byte>& bytes);
 
-    void handleSymbolKeyMapping(unsigned char& windowsKey, bool& needsShift);
-
 private:
 
     std::string accountID;
@@ -326,6 +324,9 @@ private:
     moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
 
     std::unique_ptr<WinLogon> winLogon;
+
     winrt::Windows::UI::Input::Preview::Injection::InputInjector inputInjector;
+
     std::unique_ptr<KeyMouseSimulator> keyMouseSim;
+
 };
