@@ -1301,7 +1301,7 @@ void WebRTCRemoteClient::setTargetID(const std::string &newTargetID)
     targetID = newTargetID;
 }
 
-void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)
+void WebRTCRemoteClient::writerRemote(char *data, size_t size)
 {
     if(state.load() == WebRTCRemoteState::masterRemote){
         if(!dataChannel) {

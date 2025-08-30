@@ -15,7 +15,8 @@
 #include <atomic>
 #include <QMap>
 #include <QElapsedTimer>
-#include <mutex>
+
+#include "windowshook.h"
 
 class WebRTCRemoteClient;
 struct VideoFrame;
@@ -42,7 +43,7 @@ public:
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
 
-    WebRTCRemoteClient* webRTCRemoteClient;
+    void setWebRTCRemoteClient(WebRTCRemoteClient *webRTCRemoteClient);
 
 protected:
     // OpenGL函数
@@ -50,14 +51,6 @@ protected:
     void resizeGL(int w, int h) override;
     void paintGL() override;
 
-    // 事件处理
-    void mousePressEvent(QMouseEvent* event) override;
-    void mouseReleaseEvent(QMouseEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
-    void keyPressEvent(QKeyEvent* event) override;
-    void keyReleaseEvent(QKeyEvent* event) override;
-    void wheelEvent(QWheelEvent *event) override;
-    void resizeEvent(QResizeEvent* event) override;
 
 private Q_SLOTS:
     void updateFPS();
@@ -72,9 +65,6 @@ private:
 
     // 初始化顶点数据
     void initializeVertexData();
-
-    // 初始化按键映射
-    void initKeyMap();
 
     // 初始化UI控件
     void initializeControls();
@@ -95,6 +85,7 @@ private:
     void initializePBOs();
 
 private:
+    WebRTCRemoteClient* webRTCRemoteClient;
     // OpenGL资源
     QOpenGLShaderProgram* shaderProgram;
     GLuint textureId;
@@ -136,9 +127,6 @@ private:
     std::atomic<bool> hasVideo;
     std::atomic<bool> needsTextureUpdate;
 
-    // 按键映射
-    QMap<int, char> keyMap;
-
     // 着色器源码
     static const char* vertexShaderSource;
     static const char* fragmentShaderSource;
@@ -177,8 +165,14 @@ private:
     static constexpr int SIDEBAR_TRIGGER_ZONE = 1;  // 触发区域宽度
     static constexpr int HIDE_DELAY = 1500;          // 自动隐藏延迟（毫秒）
 
+    std::unique_ptr<WindowsHook> windowsHook;
+
     // QWidget interface
 protected:
     void enterEvent(QEnterEvent *event);
     void leaveEvent(QEvent *event);
+
+    // QWidget interface
+protected:
+    void resizeEvent(QResizeEvent *event);
 };

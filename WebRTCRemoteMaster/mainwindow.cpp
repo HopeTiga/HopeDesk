@@ -1029,7 +1029,7 @@ void MainWindow::onSendRequestClicked()
         }
 
         // 设置WebRTC客户端
-        videoWidget->webRTCRemoteClient = webRTCRemoteClient;
+        videoWidget->setWebRTCRemoteClient(webRTCRemoteClient);
 
         // 设置回调
         webRTCRemoteClient->setVideoFrameCallback([this](std::shared_ptr<VideoFrame> frame) {

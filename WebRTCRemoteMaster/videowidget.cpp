@@ -126,6 +126,7 @@ VideoWidget::VideoWidget(QWidget* parent)
     , sidebarAnimation(nullptr)
     , isFullScreenMode(false)
     , sidebarVisible(false)
+    ,windowsHook(nullptr)
 {
     QIcon windowIcon(":/logo/res/Wilson_DST.png");
     if (!windowIcon.isNull()) {
@@ -180,7 +181,7 @@ VideoWidget::VideoWidget(QWidget* parent)
 
     // 初始化控件
     initializeControls();
-    initKeyMap();
+
 }
 
 VideoWidget::~VideoWidget()
@@ -325,6 +326,7 @@ void VideoWidget::updateControlsPosition()
 
 void VideoWidget::resizeEvent(QResizeEvent* event)
 {
+    windowsHook->setVideoSize(event->size().width(),event->size().height());
     QOpenGLWidget::resizeEvent(event);
     updateControlsPosition();
 }
@@ -368,6 +370,21 @@ void VideoWidget::exitFullScreen()
     updateControlsPosition();
 
     qDebug() << "退出全屏模式";
+}
+
+void VideoWidget::setWebRTCRemoteClient(WebRTCRemoteClient *webRTCRemoteClient)
+{
+    this->webRTCRemoteClient = webRTCRemoteClient;
+
+    windowsHook = std::make_unique<WindowsHook>();
+
+    windowsHook->setTargetWidget(this);
+
+    windowsHook->setRemoteClient(this->webRTCRemoteClient);
+
+    windowsHook->setVideoSize(this->width(),this->height());
+
+    windowsHook->startHook();
 }
 
 void VideoWidget::onFullScreenClicked()
@@ -792,300 +809,5 @@ void VideoWidget::updateFPS()
     }
 }
 
-void VideoWidget::initKeyMap()
-{
-    keyMap.clear();
 
-    // 基本控制键
-    keyMap.insert(Qt::Key_Left, VK_LEFT);
-    keyMap.insert(Qt::Key_Up, VK_UP);
-    keyMap.insert(Qt::Key_Right, VK_RIGHT);
-    keyMap.insert(Qt::Key_Down, VK_DOWN);
 
-    // 特殊键
-    keyMap.insert(Qt::Key_Backspace, VK_BACK);
-    keyMap.insert(Qt::Key_Tab, VK_TAB);
-    keyMap.insert(Qt::Key_Return, VK_RETURN);
-    keyMap.insert(Qt::Key_Enter, VK_RETURN);
-    keyMap.insert(Qt::Key_Shift, VK_SHIFT);
-    keyMap.insert(Qt::Key_Control, VK_CONTROL);
-    keyMap.insert(Qt::Key_Alt, VK_MENU);
-    keyMap.insert(Qt::Key_Escape, VK_ESCAPE);
-    keyMap.insert(Qt::Key_Space, VK_SPACE);
-
-    // 数字键 (0-9)
-    for (int i = 0; i <= 9; i++) {
-        keyMap.insert(Qt::Key_0 + i, 0x30 + i);
-    }
-
-    // 字母键 (A-Z)
-    for (int i = 0; i < 26; i++) {
-        keyMap.insert(Qt::Key_A + i, 0x41 + i);
-    }
-
-    // 功能键 (F1-F24)
-    for (int i = 0; i < 24; i++) {
-        keyMap.insert(Qt::Key_F1 + i, VK_F1 + i);
-    }
-
-    // ===== 重要：添加Shift+数字键的直接映射 =====
-    keyMap.insert(Qt::Key_Exclam, 0x31);      // ! -> 1键
-    keyMap.insert(Qt::Key_At, 0x32);          // @ -> 2键
-    keyMap.insert(Qt::Key_NumberSign, 0x33);  // # -> 3键
-    keyMap.insert(Qt::Key_Dollar, 0x34);      // $ -> 4键
-    keyMap.insert(Qt::Key_Percent, 0x35);     // % -> 5键
-    keyMap.insert(Qt::Key_AsciiCircum, 0x36); // ^ -> 6键
-    keyMap.insert(Qt::Key_Ampersand, 0x37);   // & -> 7键
-    keyMap.insert(Qt::Key_Asterisk, 0x38);    // * -> 8键
-    keyMap.insert(Qt::Key_ParenLeft, 0x39);   // ( -> 9键
-    keyMap.insert(Qt::Key_ParenRight, 0x30);  // ) -> 0键
-
-    // ===== 其他Shift+符号键的映射 =====
-    keyMap.insert(Qt::Key_Colon, VK_OEM_1);        // : -> ;键
-    keyMap.insert(Qt::Key_Plus, VK_OEM_PLUS);      // + -> =键
-    keyMap.insert(Qt::Key_Less, VK_OEM_COMMA);     // < -> ,键
-    keyMap.insert(Qt::Key_Underscore, VK_OEM_MINUS);// _ -> -键
-    keyMap.insert(Qt::Key_Greater, VK_OEM_PERIOD); // > -> .键
-    keyMap.insert(Qt::Key_Question, VK_OEM_2);     // ? -> /键
-    keyMap.insert(Qt::Key_BraceLeft, VK_OEM_4);    // { -> [键
-    keyMap.insert(Qt::Key_Bar, VK_OEM_5);          // | -> \键
-    keyMap.insert(Qt::Key_BraceRight, VK_OEM_6);   // } -> ]键
-    keyMap.insert(Qt::Key_QuoteDbl, VK_OEM_7);     // " -> '键
-    keyMap.insert(Qt::Key_AsciiTilde, VK_OEM_3);   // ~ -> `键
-
-    // ===== 基础符号键（不需要Shift） =====
-    keyMap.insert(Qt::Key_Semicolon, VK_OEM_1);      // ;
-    keyMap.insert(Qt::Key_Equal, VK_OEM_PLUS);       // =
-    keyMap.insert(Qt::Key_Comma, VK_OEM_COMMA);      // ,
-    keyMap.insert(Qt::Key_Minus, VK_OEM_MINUS);      // -
-    keyMap.insert(Qt::Key_Period, VK_OEM_PERIOD);    // .
-    keyMap.insert(Qt::Key_Slash, VK_OEM_2);          // /
-    keyMap.insert(Qt::Key_BracketLeft, VK_OEM_4);    // [
-    keyMap.insert(Qt::Key_Backslash, VK_OEM_5);      // \
-    keyMap.insert(Qt::Key_BracketRight, VK_OEM_6);   // ]
-    keyMap.insert(Qt::Key_Apostrophe, VK_OEM_7);     // '
-    keyMap.insert(Qt::Key_QuoteLeft, VK_OEM_3);      // `
-}
-
-// 事件处理函数保持不变...
-void VideoWidget::wheelEvent(QWheelEvent *event)
-{
-    int wheelValue = 0;
-
-    if (!event->pixelDelta().isNull()) {
-        wheelValue = event->pixelDelta().y();
-    }
-    else if (!event->angleDelta().isNull()) {
-        wheelValue = event->angleDelta().y();
-    } else {
-        return;
-    }
-
-    short wheelType = 5;
-    size_t total = sizeof(short) + sizeof(int);
-    unsigned char * wheelEventData = new unsigned char[total];
-
-    std::memcpy(wheelEventData, &wheelType, sizeof(short));
-    std::memcpy(wheelEventData + sizeof(short), &wheelValue, sizeof(int));
-
-    if (webRTCRemoteClient) {
-        webRTCRemoteClient->writerRemote(wheelEventData, total);
-    } else {
-        delete[] wheelEventData;
-    }
-}
-
-void VideoWidget::mousePressEvent(QMouseEvent* event)
-{
-    int widgetX = event->pos().x();
-    int widgetY = event->pos().y();
-
-    int videoX = 0;
-    int videoY = 0;
-
-    if (videoWidth > 0 && videoHeight > 0) {
-        videoX = (widgetX * videoWidth) / width();
-        videoY = (widgetY * videoHeight) / height();
-        videoX = qBound(0, videoX, videoWidth - 1);
-        videoY = qBound(0, videoY, videoHeight - 1);
-    }
-
-    short mouseType = 0;
-    if (event->button() == Qt::LeftButton) {
-        mouseType = 0;
-    }
-    else if (event->button() == Qt::RightButton) {
-        mouseType = 1;
-    }
-    else if (event->button() == Qt::MiddleButton) {
-        mouseType = 2;
-    }
-
-    size_t total = sizeof(int) * 2 + sizeof(short) * 2;
-    unsigned char* mousePress = new unsigned char[total];
-    short type = 1;
-
-    std::memcpy(mousePress, &type, sizeof(short));
-    std::memcpy(mousePress + sizeof(short), &mouseType, sizeof(short));
-    std::memcpy(mousePress + sizeof(short) * 2, &videoX, sizeof(int));
-    std::memcpy(mousePress + sizeof(short) * 2 + sizeof(int), &videoY, sizeof(int));
-
-    if (webRTCRemoteClient) {
-        webRTCRemoteClient->writerRemote(mousePress, total);
-    } else {
-        delete[] mousePress;
-    }
-}
-
-void VideoWidget::mouseReleaseEvent(QMouseEvent* event)
-{
-    int widgetX = event->pos().x();
-    int widgetY = event->pos().y();
-
-    int videoX = 0;
-    int videoY = 0;
-
-    if (videoWidth > 0 && videoHeight > 0) {
-        videoX = (widgetX * videoWidth) / width();
-        videoY = (widgetY * videoHeight) / height();
-        videoX = qBound(0, videoX, videoWidth - 1);
-        videoY = qBound(0, videoY, videoHeight - 1);
-    }
-
-    short mouseType = 0;
-    if (event->button() == Qt::LeftButton) {
-        mouseType = 0;
-    }
-    else if (event->button() == Qt::RightButton) {
-        mouseType = 1;
-    }
-    else if (event->button() == Qt::MiddleButton) {
-        mouseType = 2;
-    }
-
-    size_t total = sizeof(int) * 2 + sizeof(short) * 2;
-    unsigned char* mousePress = new unsigned char[total];
-    short type = 2;
-
-    std::memcpy(mousePress, &type, sizeof(short));
-    std::memcpy(mousePress + sizeof(short), &mouseType, sizeof(short));
-    std::memcpy(mousePress + sizeof(short) * 2, &videoX, sizeof(int));
-    std::memcpy(mousePress + sizeof(short) * 2 + sizeof(int), &videoY, sizeof(int));
-
-    if (webRTCRemoteClient) {
-        webRTCRemoteClient->writerRemote(mousePress, total);
-    } else {
-        delete[] mousePress;
-    }
-}
-
-void VideoWidget::mouseMoveEvent(QMouseEvent* event)
-{
-    int widgetX = event->pos().x();
-    int widgetY = event->pos().y();
-
-    if (lastSentMousePos.x() >= 0) {
-        int dx = abs(widgetX - lastSentMousePos.x());
-        int dy = abs(widgetY - lastSentMousePos.y());
-
-        if (dx < MOUSE_MOVE_THRESHOLD && dy < MOUSE_MOVE_THRESHOLD) {
-            return;
-        }
-    }
-
-    lastSentMousePos = event->pos();
-
-    int videoX = 0;
-    int videoY = 0;
-
-    if (videoWidth > 0 && videoHeight > 0) {
-        videoX = (widgetX * videoWidth) / width();
-        videoY = (widgetY * videoHeight) / height();
-        videoX = qBound(0, videoX, videoWidth - 1);
-        videoY = qBound(0, videoY, videoHeight - 1);
-    }
-
-    size_t total = sizeof(int) * 2 + sizeof(short);
-    unsigned char* mouseMovePress = new unsigned char[total];
-    short type = 0;
-
-    std::memcpy(mouseMovePress, &type, sizeof(short));
-    std::memcpy(mouseMovePress + sizeof(short), &videoX, sizeof(int));
-    std::memcpy(mouseMovePress + sizeof(short) + sizeof(int), &videoY, sizeof(int));
-
-    if (webRTCRemoteClient) {
-        webRTCRemoteClient->writerRemote(mouseMovePress, total);
-    } else {
-        delete[] mouseMovePress;
-    }
-}
-
-void VideoWidget::keyPressEvent(QKeyEvent* event)
-{
-    int qtKey = event->key();
-
-    if (!keyMap.contains(qtKey)) {
-        qDebug() << "Unmapped key:" << Qt::hex << qtKey << event->text();
-        return;
-    }
-
-    unsigned char windowsKey = keyMap[qtKey];
-    short type = 3;
-
-    bool shiftPressed = event->modifiers() & Qt::ShiftModifier;
-    bool ctrlPressed = event->modifiers() & Qt::ControlModifier;
-    bool altPressed = event->modifiers() & Qt::AltModifier;
-
-    size_t total = sizeof(short) + sizeof(char) + sizeof(char);
-    unsigned char* keyPress = new unsigned char[total];
-
-    char modifiers = 0;
-    if (shiftPressed) modifiers |= 0x01;
-    if (ctrlPressed) modifiers |= 0x02;
-    if (altPressed) modifiers |= 0x04;
-
-    std::memcpy(keyPress, &type, sizeof(short));
-    std::memcpy(keyPress + sizeof(short), &windowsKey, sizeof(char));
-    std::memcpy(keyPress + sizeof(short) + sizeof(char), &modifiers, sizeof(char));
-
-    if (webRTCRemoteClient) {
-        webRTCRemoteClient->writerRemote(keyPress, total);
-    } else {
-        delete[] keyPress;
-    }
-}
-
-void VideoWidget::keyReleaseEvent(QKeyEvent* event)
-{
-    int qtKey = event->key();
-
-    if (!keyMap.contains(qtKey)) {
-        qDebug() << "Unmapped key:" << Qt::hex << qtKey << event->text();
-        return;
-    }
-
-    unsigned char windowsKey = keyMap[qtKey];
-    short type = 4;
-
-    bool shiftPressed = event->modifiers() & Qt::ShiftModifier;
-    bool ctrlPressed = event->modifiers() & Qt::ControlModifier;
-    bool altPressed = event->modifiers() & Qt::AltModifier;
-
-    size_t total = sizeof(short) + sizeof(char) + sizeof(char);
-    unsigned char* keyPress = new unsigned char[total];
-
-    char modifiers = 0;
-    if (shiftPressed) modifiers |= 0x01;
-    if (ctrlPressed) modifiers |= 0x02;
-    if (altPressed) modifiers |= 0x04;
-
-    std::memcpy(keyPress, &type, sizeof(short));
-    std::memcpy(keyPress + sizeof(short), &windowsKey, sizeof(char));
-    std::memcpy(keyPress + sizeof(short) + sizeof(char), &modifiers, sizeof(char));
-
-    if (webRTCRemoteClient) {
-        webRTCRemoteClient->writerRemote(keyPress, total);
-    } else {
-        delete[] keyPress;
-    }
-}
