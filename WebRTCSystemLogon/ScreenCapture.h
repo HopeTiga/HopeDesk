@@ -76,12 +76,16 @@ private:
     bool initializeDXGI();
     void initializeFramePool(size_t poolSize);
 
+    bool initializeGPUConverter();
+
     // Capture and processing
     void captureThreadFunc();
     bool captureFrame();
     bool processFrame(ID3D11Texture2D* texture);
     void encodeFrame(std::shared_ptr<CapturedFrame> frame);
     bool convertBGRAToYUV420(const uint8_t* bgraData, int stride, std::vector<uint8_t>& yuvBuffer);
+
+    bool convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std::vector<uint8_t>& yuvBuffer);
 
     // Frame pool management
     std::shared_ptr<CapturedFrame> getFrameFromPool();
@@ -103,6 +107,10 @@ private:
     Microsoft::WRL::ComPtr<IDXGIOutput> dxgiOutput;
     Microsoft::WRL::ComPtr<IDXGIOutput1> dxgiOutput1;
     Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dxgiDuplication;
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
+    Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> stagingBuffer;  // 用于读回数据
 
     // OBS-style buffer management
     static constexpr int NUM_BUFFERS = 3;

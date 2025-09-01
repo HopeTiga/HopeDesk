@@ -1,6 +1,7 @@
 ﻿#include "ScreenCapture.h"
 #include <algorithm>
 #include <thread>
+#include <d3dcompiler.h> 
 #include "Logger.h"
 
 // RAII 辅助类
@@ -74,6 +75,10 @@ bool ScreenCapture::initialize() {
         }
         Logger::getInstance()->info("DXGI initialized successfully");
 
+        if (!initializeGPUConverter()) {
+            Logger::getInstance()->warning("GPU YUV converter initialization failed, will use CPU");
+        }
+
         const int yuvSize = config.width * config.height * 3 / 2;
         yuvBuffer.resize(yuvSize);
         Logger::getInstance()->info("YUV buffer allocated: " + std::to_string(yuvSize) + " bytes");
@@ -93,6 +98,8 @@ bool ScreenCapture::initialize() {
         return false;
     }
 }
+
+
 
 void ScreenCapture::initializeFramePool(size_t poolSize) {
     for (size_t i = 0; i < poolSize; ++i) {
@@ -259,6 +266,271 @@ bool ScreenCapture::initializeDXGI() {
     return true;
 }
 
+// 修正 initializeGPUConverter 函数中的shader
+bool ScreenCapture::initializeGPUConverter() {
+    // 修正后的Compute Shader源码
+    const char* shaderSource = R"(
+        Texture2D<float4> inputTexture : register(t0);
+        RWStructuredBuffer<uint> outputBuffer : register(u0);
+        
+        cbuffer Constants : register(b0) {
+            uint width;
+            uint height;
+            uint ySize;
+            uint uvSize;
+        }
+        
+        [numthreads(16, 16, 1)]
+        void main(uint3 id : SV_DispatchThreadID) {
+            if (id.x >= width || id.y >= height) return;
+            
+            // 读取BGRA像素
+            float4 color = inputTexture.Load(int3(id.x, id.y, 0));
+            
+            // 关键修正：BGRA格式的正确映射
+            // DirectX中 BGRA 格式实际存储顺序是 B-G-R-A
+            // 但在shader中读取时：
+            // color.b = B通道 (蓝色) 
+            // color.g = G通道 (绿色)
+            // color.r = R通道 (红色)
+            // color.a = A通道 (透明度)
+            
+            float b = color.b * 255.0f;  // 修正：B在b通道
+            float g = color.g * 255.0f;  // G在g通道
+            float r = color.r * 255.0f;  // 修正：R在r通道
+            
+            // 使用CPU相同的公式
+            uint y = (uint)((66 * r + 129 * g + 25 * b) / 256 + 16);
+            y = min(y, 255u);
+            
+            // 写入Y数据
+            uint yIndex = id.y * width + id.x;
+            uint arrayIndex = yIndex / 4;
+            uint byteOffset = yIndex % 4;
+            uint shiftAmount = byteOffset * 8;
+            uint mask = 0xFF << shiftAmount;
+            uint value = y << shiftAmount;
+            
+            InterlockedAnd(outputBuffer[arrayIndex], ~mask);
+            InterlockedOr(outputBuffer[arrayIndex], value);
+            
+            // UV通道处理
+            if ((id.x % 2 == 0) && (id.y % 2 == 0)) {
+                float4 c00 = color;
+                float4 c10 = inputTexture.Load(int3(min(id.x + 1, width - 1), id.y, 0));
+                float4 c01 = inputTexture.Load(int3(id.x, min(id.y + 1, height - 1), 0));
+                float4 c11 = inputTexture.Load(int3(min(id.x + 1, width - 1), min(id.y + 1, height - 1), 0));
+                
+                // 修正通道映射
+                float4 avg = (c00 + c10 + c01 + c11) * 0.25f * 255.0f;
+                float avgB = avg.b;  // 修正：B在b通道
+                float avgG = avg.g;  // G在g通道
+                float avgR = avg.r;  // 修正：R在r通道
+                
+                // 使用CPU相同的公式
+                uint u = (uint)((-38 * avgR - 74 * avgG + 112 * avgB) / 256 + 128);
+                uint v = (uint)((112 * avgR - 94 * avgG - 18 * avgB) / 256 + 128);
+                u = clamp(u, 0u, 255u);
+                v = clamp(v, 0u, 255u);
+                
+                uint uvIndex = (id.y / 2) * (width / 2) + (id.x / 2);
+                
+                // U数据
+                uint uPos = ySize + uvIndex;
+                uint uArrayIndex = uPos / 4;
+                uint uByteOffset = uPos % 4;
+                uint uShift = uByteOffset * 8;
+                
+                InterlockedAnd(outputBuffer[uArrayIndex], ~(0xFF << uShift));
+                InterlockedOr(outputBuffer[uArrayIndex], u << uShift);
+                
+                // V数据
+                uint vPos = ySize + uvSize + uvIndex;
+                uint vArrayIndex = vPos / 4;
+                uint vByteOffset = vPos % 4;
+                uint vShift = vByteOffset * 8;
+                
+                InterlockedAnd(outputBuffer[vArrayIndex], ~(0xFF << vShift));
+                InterlockedOr(outputBuffer[vArrayIndex], v << vShift);
+            }
+        }
+    )";
+
+    // 编译Compute Shader
+    Microsoft::WRL::ComPtr<ID3DBlob> shaderBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+
+    HRESULT hr = D3DCompile(
+        shaderSource, strlen(shaderSource), nullptr, nullptr, nullptr,
+        "main", "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0,
+        &shaderBlob, &errorBlob
+    );
+
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            Logger::getInstance()->error("Shader compilation error: " +
+                std::string((char*)errorBlob->GetBufferPointer()));
+        }
+        return false;
+    }
+
+    hr = d3dDevice->CreateComputeShader(
+        shaderBlob->GetBufferPointer(),
+        shaderBlob->GetBufferSize(),
+        nullptr,
+        &yuvComputeShader
+    );
+
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to create compute shader");
+        return false;
+    }
+
+    // 创建输出缓冲区（使用StructuredBuffer）
+    const UINT yuvBufferSize = config.width * config.height * 3 / 2;
+    const UINT bufferSizeInUints = (yuvBufferSize + 3) / 4;  // 向上取整到4字节边界
+
+    D3D11_BUFFER_DESC bufferDesc = {};
+    bufferDesc.ByteWidth = bufferSizeInUints * sizeof(UINT);
+    bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+    bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    bufferDesc.StructureByteStride = sizeof(UINT);
+
+    // 初始化为0
+    std::vector<UINT> initialData(bufferSizeInUints, 0);
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem = initialData.data();
+
+    hr = d3dDevice->CreateBuffer(&bufferDesc, &initData, &yuvOutputBuffer);
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to create output buffer");
+        return false;
+    }
+
+    // 创建UAV
+    D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+    uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+    uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+    uavDesc.Buffer.FirstElement = 0;
+    uavDesc.Buffer.NumElements = bufferSizeInUints;
+
+    hr = d3dDevice->CreateUnorderedAccessView(yuvOutputBuffer.Get(), &uavDesc, &yuvUAV);
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to create UAV");
+        return false;
+    }
+
+    // 创建staging buffer用于读回CPU
+    bufferDesc.Usage = D3D11_USAGE_STAGING;
+    bufferDesc.BindFlags = 0;
+    bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    bufferDesc.MiscFlags = 0;
+
+    hr = d3dDevice->CreateBuffer(&bufferDesc, nullptr, &stagingBuffer);
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to create staging buffer");
+        return false;
+    }
+
+    Logger::getInstance()->info("GPU YUV converter initialized successfully");
+    return true;
+}
+
+// 修正 convertBGRAToYUV420_GPU 函数
+bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std::vector<uint8_t>& yuvBuffer) {
+    if (!yuvComputeShader || !sourceTexture) {
+        return false;
+    }
+
+    // 创建源纹理的SRV
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srcSRV;
+    HRESULT hr = d3dDevice->CreateShaderResourceView(sourceTexture, &srvDesc, &srcSRV);
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to create SRV");
+        return false;
+    }
+
+    // 设置常量缓冲区
+    struct Constants {
+        UINT width;
+        UINT height;
+        UINT ySize;
+        UINT uvSize;
+    } constants;
+
+    constants.width = config.width;
+    constants.height = config.height;
+    constants.ySize = config.width * config.height;
+    constants.uvSize = constants.ySize / 4;
+
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth = sizeof(Constants);
+    cbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA cbInitData = {};
+    cbInitData.pSysMem = &constants;
+
+    Microsoft::WRL::ComPtr<ID3D11Buffer> constantBuffer;
+    hr = d3dDevice->CreateBuffer(&cbDesc, &cbInitData, &constantBuffer);
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to create constant buffer");
+        return false;
+    }
+
+    // 清空输出缓冲区（重要！避免残留数据）
+    const UINT bufferSizeInUints = (constants.ySize * 3 / 2 + 3) / 4;
+    std::vector<UINT> clearData(bufferSizeInUints, 0);
+    d3dContext->UpdateSubresource(yuvOutputBuffer.Get(), 0, nullptr, clearData.data(), 0, 0);
+
+    // 设置Compute Shader资源
+    d3dContext->CSSetShader(yuvComputeShader.Get(), nullptr, 0);
+    d3dContext->CSSetShaderResources(0, 1, srcSRV.GetAddressOf());
+    d3dContext->CSSetUnorderedAccessViews(0, 1, yuvUAV.GetAddressOf(), nullptr);
+    d3dContext->CSSetConstantBuffers(0, 1, constantBuffer.GetAddressOf());
+
+    // Dispatch
+    UINT dispatchX = (config.width + 15) / 16;
+    UINT dispatchY = (config.height + 15) / 16;
+    d3dContext->Dispatch(dispatchX, dispatchY, 1);
+
+    // 清理绑定
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    ID3D11UnorderedAccessView* nullUAV = nullptr;
+    ID3D11Buffer* nullCB = nullptr;
+    d3dContext->CSSetShaderResources(0, 1, &nullSRV);
+    d3dContext->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
+    d3dContext->CSSetConstantBuffers(0, 1, &nullCB);
+
+    // 拷贝到staging buffer
+    d3dContext->CopyResource(stagingBuffer.Get(), yuvOutputBuffer.Get());
+
+    // 读回CPU
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    hr = d3dContext->Map(stagingBuffer.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to map staging buffer");
+        return false;
+    }
+
+    const int yuvSize = config.width * config.height * 3 / 2;
+    if (yuvBuffer.size() != yuvSize) {
+        yuvBuffer.resize(yuvSize);
+    }
+
+    // 只拷贝实际的YUV数据大小
+    memcpy(yuvBuffer.data(), mapped.pData, yuvSize);
+    d3dContext->Unmap(stagingBuffer.Get(), 0);
+
+    return true;
+}
+
 bool ScreenCapture::startCapture() {
     if (capturing.load()) {
         Logger::getInstance()->warning("Capture already started");
@@ -376,7 +648,7 @@ bool ScreenCapture::captureFrame() {
     }
 
     // 使用 16ms 超时（约60fps）
-    hr = dxgiDuplication->AcquireNextFrame(0, &frameInfo, &desktopResource);
+    hr = dxgiDuplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
 
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
         // 正常情况，没有新帧
@@ -488,6 +760,37 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     if (!texture || !d3dContext || !stagingTextures[currentTexture]) {
         Logger::getInstance()->error("Invalid texture or D3D context");
         return false;
+    }
+
+    bool gpuSuccess = false;
+    if (yuvComputeShader) {
+        // 直接使用源纹理进行GPU转换
+        std::vector<uint8_t> tempYuvBuffer;
+        gpuSuccess = convertBGRAToYUV420_GPU(texture, tempYuvBuffer);
+
+        if (gpuSuccess) {
+            // GPU转换成功，直接创建帧
+            auto frame = getFrameFromPool();
+            if (!frame) {
+                return false;
+            }
+
+            // 将YUV数据复制到frame（这里可以优化为直接使用YUV数据）
+            frame->bgraData = std::move(tempYuvBuffer);
+            frame->width = config.width;
+            frame->height = config.height;
+            frame->stride = config.width;  // YUV的stride不同
+            frame->timestamp = std::chrono::steady_clock::now();
+
+            frameQueue.enqueue(frame);
+
+            if (encoderChannel.is_open()) {
+                boost::system::error_code ec;
+                encoderChannel.try_send(ec);
+            }
+
+            return true;
+        }
     }
 
     d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
@@ -655,19 +958,28 @@ void ScreenCapture::encodeFrame(std::shared_ptr<CapturedFrame> frame) {
         return;
     }
 
-
-    if (!convertBGRAToYUV420(frame->bgraData.data(), frame->stride, yuvBuffer)) {
-        Logger::getInstance()->error("Failed to convert BGRA to YUV420");
-        return;
+    // 检查是否已经是YUV格式（GPU转换的结果）
+    if (frame->stride == config.width) {  // YUV格式的标志
+        // 直接使用，不需要转换
+        if (frameCallback) {
+            frameCallback(frame->bgraData.data(), frame->bgraData.size(),
+                frame->width, frame->height);
+        }
     }
+    else {
+        // BGRA格式，需要CPU转换
+        if (!convertBGRAToYUV420(frame->bgraData.data(), frame->stride, yuvBuffer)) {
+            Logger::getInstance()->error("Failed to convert BGRA to YUV420");
+            return;
+        }
 
-    if (frameCallback) {
-
-        frameCallback(yuvBuffer.data(), yuvBuffer.size(), frame->width, frame->height);
-
+        if (frameCallback) {
+            frameCallback(yuvBuffer.data(), yuvBuffer.size(),
+                frame->width, frame->height);
+        }
     }
-
 }
+
 
 bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
     std::vector<uint8_t>& yuvBuffer) {
@@ -769,6 +1081,7 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
     return true;
 }
 
+
 void ScreenCapture::stopCapture() {
     if (!capturing.load()) {
         Logger::getInstance()->info("Capture not running, nothing to stop");
@@ -840,6 +1153,19 @@ void ScreenCapture::releaseResources() {
 
     yuvBuffer.clear();
     yuvBuffer.shrink_to_fit();
+
+    if (yuvComputeShader) {
+        yuvComputeShader.Reset();
+    }
+    if (yuvOutputBuffer) {
+        yuvOutputBuffer.Reset();
+    }
+    if (yuvUAV) {
+        yuvUAV.Reset();
+    }
+    if (stagingBuffer) {
+        stagingBuffer.Reset();
+    }
 
     std::shared_ptr<CapturedFrame> frame;
     while (framePool.try_dequeue(frame)) {
