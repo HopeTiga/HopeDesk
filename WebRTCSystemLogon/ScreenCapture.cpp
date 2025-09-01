@@ -210,6 +210,8 @@ bool ScreenCapture::initializeDXGI() {
 
                 this->initializeDXGI();
 
+                this->initializeGPUConverter();
+
                 desktopSwitchInProgress = true;
 
             }
@@ -220,6 +222,8 @@ bool ScreenCapture::initializeDXGI() {
                 winLogonSwitcher->SwitchToDefaultDesktop();
 
                 this->initializeDXGI();
+
+                this->initializeGPUConverter();
 
                 desktopSwitchInProgress = false;
 
@@ -633,6 +637,7 @@ bool ScreenCapture::captureFrame() {
     if (!dxgiDuplication) {
         this->releaseResourceDXGI();
         this->initializeDXGI();
+        this->initializeGPUConverter();
         return false;
     }
 
@@ -659,6 +664,7 @@ bool ScreenCapture::captureFrame() {
         if (hr == DXGI_ERROR_ACCESS_LOST) {
             this->releaseResourceDXGI();
             this->initializeDXGI();
+            this->initializeGPUConverter();
             hasFrame = false;
             return false;
         }
@@ -673,6 +679,8 @@ bool ScreenCapture::captureFrame() {
 
                 this->initializeDXGI();
 
+                this->initializeGPUConverter();
+
                 desktopSwitchInProgress = true;
 
             }
@@ -683,6 +691,8 @@ bool ScreenCapture::captureFrame() {
                 winLogonSwitcher->SwitchToDefaultDesktop();
 
                 this->initializeDXGI();
+
+                this->initializeGPUConverter();
 
                 desktopSwitchInProgress = false;
 
@@ -1194,4 +1204,21 @@ void ScreenCapture::releaseResourceDXGI()
     dxgiDevice.Reset();
     d3dContext.Reset();
     d3dDevice.Reset();
+
+    yuvBuffer.clear();
+    yuvBuffer.shrink_to_fit();
+
+    if (yuvComputeShader) {
+        yuvComputeShader.Reset();
+    }
+    if (yuvOutputBuffer) {
+        yuvOutputBuffer.Reset();
+    }
+    if (yuvUAV) {
+        yuvUAV.Reset();
+    }
+    if (stagingBuffer) {
+        stagingBuffer.Reset();
+    }
+
 }
