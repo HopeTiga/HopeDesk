@@ -88,9 +88,15 @@ void main()
         yuv.x = yuv.x - 0.0625;
         yuv.yz = yuv.yz - 0.5;
         vec3 rgb = yuv2rgb * yuv;
+        rgb = rgb * 1.1;
         FragColor = vec4(clamp(rgb, 0.0, 1.0), 1.0);
     } else {
-        FragColor = texture(videoTexture, TexCoord);
+        vec4 color = texture(videoTexture, TexCoord);
+
+        // RGB也增强10%
+        color.rgb = color.rgb * 1.1;
+
+        FragColor = vec4(clamp(color.rgb, 0.0, 1.0), 1.0);
     }
 }
 )";
