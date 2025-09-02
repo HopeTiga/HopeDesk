@@ -272,6 +272,12 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
         return SendKey(scanCode, true, isExtended);
     }
 
+    if (vkCode == 0xBF) {  // 主键盘的 "/" 键
+        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        // 强制不使用扩展键标志，因为主键盘的 "/" 不是扩展键
+        return SendKey(scanCode, true, false);  // 注意这里是 false
+    }
+
     // 处理普通按键
     WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
     if (scanCode == 0) {
@@ -318,6 +324,12 @@ bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
 
         bool isExtended = (vkCode == VK_DIVIDE) ? true : false;
         return SendKey(scanCode, false, isExtended);
+    }
+
+    if (vkCode == 0xBF) {  // 主键盘的 "/" 键
+        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        // 强制不使用扩展键标志，因为主键盘的 "/" 不是扩展键
+        return SendKey(scanCode, false, false);  // 注意这里是 false
     }
 
     // 处理普通按键
