@@ -630,10 +630,8 @@ void ScreenCapture::captureThreadFunc() {
 }
 
 
-
 bool ScreenCapture::captureFrame() {
     // 检查是否需要重新初始化（桌面切换后）
-
     if (!dxgiDuplication) {
         this->releaseResourceDXGI();
         this->initializeDXGI();
@@ -670,54 +668,37 @@ bool ScreenCapture::captureFrame() {
         }
 
         if (hr == DXGI_ERROR_INVALID_CALL) {
-
             if (!desktopSwitchInProgress) {
-
                 this->releaseResourceDXGI();
-
                 winLogonSwitcher->SwitchToWinLogonDesktop();
-
                 this->initializeDXGI();
-
                 this->initializeGPUConverter();
-
                 desktopSwitchInProgress = true;
-
             }
             else {
-
                 this->releaseResourceDXGI();
-
                 winLogonSwitcher->SwitchToDefaultDesktop();
-
                 this->initializeDXGI();
-
                 this->initializeGPUConverter();
-
                 desktopSwitchInProgress = false;
-
             }
 
             Logger::getInstance()->info("desktopSwitchInProgress");
-
             hasFrame = false;
-
             return false;
         }
         Logger::getInstance()->error("AcquireNextFrame failed: 0x" +
             std::to_string(static_cast<unsigned int>(hr)));
-
         hasFrame = false;
-
         return false;
     }
 
     hasFrame = true;
 
-    // 处理更新区域（局部刷新）
-    if (frameInfo.TotalMetadataBufferSize > 0) {
-        processUpdateRegions(&frameInfo);
-    }
+    // 注释掉脏矩形处理
+    // if (frameInfo.TotalMetadataBufferSize > 0) {
+    //     processUpdateRegions(&frameInfo);
+    // }
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> acquiredTexture;
     hr = desktopResource.As(&acquiredTexture);
@@ -734,38 +715,7 @@ bool ScreenCapture::captureFrame() {
     return result;
 }
 
-void ScreenCapture::processUpdateRegions(DXGI_OUTDUPL_FRAME_INFO* frameInfo) {
-    if (frameInfo->TotalMetadataBufferSize == 0) {
-        return;
-    }
-
-    std::vector<BYTE> metadataBuffer(frameInfo->TotalMetadataBufferSize);
-    UINT bufferSize = frameInfo->TotalMetadataBufferSize;
-
-    // 获取移动矩形
-    DXGI_OUTDUPL_MOVE_RECT* moveRects = reinterpret_cast<DXGI_OUTDUPL_MOVE_RECT*>(metadataBuffer.data());
-    UINT moveCount = 0;
-    HRESULT hr = dxgiDuplication->GetFrameMoveRects(bufferSize, moveRects, &moveCount);
-
-    if (SUCCEEDED(hr) && moveCount > 0) {
-        Logger::getInstance()->debug("Move rects: " + std::to_string(moveCount));
-    }
-
-    // 获取脏矩形
-    RECT* dirtyRectsPtr = reinterpret_cast<RECT*>(metadataBuffer.data());
-    UINT dirtyCount = 0;
-    hr = dxgiDuplication->GetFrameDirtyRects(bufferSize, dirtyRectsPtr, &dirtyCount);
-
-    if (SUCCEEDED(hr) && dirtyCount > 0) {
-        dirtyRects.clear();
-        dirtyRects.reserve(dirtyCount);
-        for (UINT i = 0; i < dirtyCount; i++) {
-            dirtyRects.push_back(dirtyRectsPtr[i]);
-        }
-        Logger::getInstance()->debug("Dirty rects: " + std::to_string(dirtyCount));
-    }
-}
-
+// 2. processFrame() 函数 - 简化，去掉脏矩形逻辑
 bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     if (!texture || !d3dContext || !stagingTextures[currentTexture]) {
         Logger::getInstance()->error("Invalid texture or D3D context");
@@ -816,11 +766,9 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         &mapped);
 
     if (hr == DXGI_ERROR_WAS_STILL_DRAWING) {
-
         Logger::getInstance()->info("Staging texture still in use by GPU, skipping frame");
         // GPU 还在使用这个缓冲区，切换到下一个
         currentTexture = (currentTexture + 1) % 3;
-
         return false;  // 跳过本帧
     }
 
@@ -840,99 +788,17 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     const size_t bytesPerRow = config.width * 4;
     uint8_t* dstData = frame->bgraData.data();
 
-    // 优化1: 只在有脏矩形时才保存上一帧
-    bool hasChanges = !dirtyRects.empty();
-
-    if (hasChanges && !lastFrameData.empty()) {
-        // 优化2: 合并相邻的脏矩形以减少拷贝次数
-        std::vector<RECT> mergedRects;
-        mergedRects.reserve(dirtyRects.size());
-
-        // 简单的矩形合并 - 如果矩形相距很近就合并
-        for (const auto& rect : dirtyRects) {
-            bool merged = false;
-
-            for (auto& mergedRect : mergedRects) {
-                // 如果矩形相距小于32像素，就合并
-                if (abs(rect.left - mergedRect.right) < 32 ||
-                    abs(mergedRect.left - rect.right) < 32) {
-                    if (abs(rect.top - mergedRect.top) < 100 &&
-                        abs(rect.bottom - mergedRect.bottom) < 100) {
-                        // 合并矩形
-                        mergedRect.left = std::min(mergedRect.left, rect.left);
-                        mergedRect.top = std::min(mergedRect.top, rect.top);
-                        mergedRect.right = std::max(mergedRect.right, rect.right);
-                        mergedRect.bottom = std::max(mergedRect.bottom, rect.bottom);
-                        merged = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!merged) {
-                mergedRects.push_back(rect);
-            }
-        }
-
-        // 优化3: 使用 memcpy 批量拷贝而不是逐行拷贝
-        if (mergedRects.size() < dirtyRects.size() / 2 || mergedRects.size() > 10) {
-            // 如果合并效果不好或者矩形太多，就全帧拷贝
-            if (mapped.RowPitch == bytesPerRow) {
-                memcpy(dstData, srcData, bytesPerRow * config.height);
-            }
-            else {
-                for (int row = 0; row < config.height; ++row) {
-                    memcpy(dstData + row * bytesPerRow,
-                        srcData + row * mapped.RowPitch,
-                        bytesPerRow);
-                }
-            }
-        }
-        else {
-            // 先拷贝上一帧
-            memcpy(dstData, lastFrameData.data(), lastFrameData.size());
-
-            // 只更新合并后的脏矩形区域
-            for (const auto& rect : mergedRects) {
-                int left = std::max(0L, rect.left);
-                int top = std::max(0L, rect.top);
-                int right = std::min((long)config.width, rect.right);
-                int bottom = std::min((long)config.height, rect.bottom);
-
-                if (left < right && top < bottom) {
-                    int width = right - left;
-
-                    // 优化4: 批量拷贝整个矩形区域而不是逐行
-                    if (mapped.RowPitch == bytesPerRow) {
-                        // pitch相同，可以一次性拷贝整个矩形
-                        const uint8_t* srcRect = srcData + top * mapped.RowPitch + left * 4;
-                        uint8_t* dstRect = dstData + top * bytesPerRow + left * 4;
-                        size_t rectSize = width * 4 * (bottom - top);
-                        memcpy(dstRect, srcRect, rectSize);
-                    }
-                    else {
-                        // pitch不同，按行拷贝
-                        for (int row = top; row < bottom; ++row) {
-                            const uint8_t* srcRow = srcData + row * mapped.RowPitch + left * 4;
-                            uint8_t* dstRow = dstData + row * bytesPerRow + left * 4;
-                            memcpy(dstRow, srcRow, width * 4);
-                        }
-                    }
-                }
-            }
-        }
+    // 简化：总是全帧拷贝，去掉脏矩形优化
+    if (mapped.RowPitch == bytesPerRow) {
+        // pitch相同，可以一次性拷贝
+        memcpy(dstData, srcData, bytesPerRow * config.height);
     }
     else {
-        // 全帧拷贝
-        if (mapped.RowPitch == bytesPerRow) {
-            memcpy(dstData, srcData, bytesPerRow * config.height);
-        }
-        else {
-            for (int row = 0; row < config.height; ++row) {
-                memcpy(dstData + row * bytesPerRow,
-                    srcData + row * mapped.RowPitch,
-                    bytesPerRow);
-            }
+        // pitch不同，按行拷贝
+        for (int row = 0; row < config.height; ++row) {
+            memcpy(dstData + row * bytesPerRow,
+                srcData + row * mapped.RowPitch,
+                bytesPerRow);
         }
     }
 
@@ -958,6 +824,9 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         boost::system::error_code ec;
         encoderChannel.try_send(ec);
     }
+
+    // 切换到下一个缓冲区
+    currentTexture = (currentTexture + 1) % 3;
 
     return true;
 }

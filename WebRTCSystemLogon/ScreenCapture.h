@@ -96,9 +96,6 @@ private:
 
     void releaseResourceDXGI();
 
-    void processUpdateRegions(DXGI_OUTDUPL_FRAME_INFO* frameInfo);
-    std::vector<RECT> dirtyRects;
-
     // DirectX resources
     Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
@@ -152,5 +149,4 @@ private:
     std::chrono::milliseconds frameInterval;
     std::chrono::steady_clock::time_point lastFrameTime;
 
-    std::vector<uint8_t> lastFrameData;
 };
