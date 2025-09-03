@@ -1,26 +1,103 @@
 ﻿#include "ScreenCapture.h"
 #include <algorithm>
 #include <thread>
-#include <d3dcompiler.h> 
+#include <d3dcompiler.h>
+#include <dxgi1_5.h>
 #include "Logger.h"
+
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "d3dcompiler.lib")
+
+// ========== 脏矩形处理结构 ==========
+struct DirtyRegionTracker {
+    std::vector<RECT> dirtyRects;
+    std::vector<DXGI_OUTDUPL_MOVE_RECT> moveRects;
+    std::vector<uint8_t> metadataBuffer;
+    bool hasUpdates = false;
+    bool fullFrameRequired = true;
+
+    DirtyRegionTracker() {
+        metadataBuffer.reserve(16384);
+    }
+
+    void Reset() {
+        dirtyRects.clear();
+        moveRects.clear();
+        hasUpdates = false;
+    }
+};
+
+// ========== GPU纹理环形缓冲 ==========
+struct GPUTextureRing {
+    static constexpr int RING_SIZE = 6;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> textures[RING_SIZE];
+    Microsoft::WRL::ComPtr<ID3D11Query> queries[RING_SIZE];
+    std::atomic<int> writeIndex{ 0 };
+    std::atomic<int> readIndex{ 0 };
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* context = nullptr;
+
+    bool Initialize(ID3D11Device* d3dDevice, ID3D11DeviceContext* d3dContext, int width, int height) {
+        device = d3dDevice;
+        context = d3dContext;
+
+        D3D11_TEXTURE2D_DESC desc = {};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+
+        D3D11_QUERY_DESC queryDesc = {};
+        queryDesc.Query = D3D11_QUERY_EVENT;
+
+        for (int i = 0; i < RING_SIZE; i++) {
+            HRESULT hr = device->CreateTexture2D(&desc, nullptr, &textures[i]);
+            if (FAILED(hr)) return false;
+
+            hr = device->CreateQuery(&queryDesc, &queries[i]);
+            if (FAILED(hr)) return false;
+        }
+        return true;
+    }
+
+    ID3D11Texture2D* GetWriteTexture() {
+        return textures[writeIndex % RING_SIZE].Get();
+    }
+
+    void MarkWriteComplete() {
+        int idx = writeIndex % RING_SIZE;
+        context->End(queries[idx].Get());
+        writeIndex++;
+    }
+
+    ID3D11Texture2D* TryGetReadTexture() {
+        int idx = readIndex % RING_SIZE;
+        BOOL dataAvailable = FALSE;
+        HRESULT hr = context->GetData(queries[idx].Get(), &dataAvailable, sizeof(BOOL), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+
+        if (SUCCEEDED(hr) && dataAvailable) {
+            readIndex++;
+            return textures[idx].Get();
+        }
+        return nullptr;
+    }
+};
 
 // RAII 辅助类
 class ScopeGuard {
 public:
     template<typename Func>
     explicit ScopeGuard(Func&& func) : m_func(std::forward<Func>(func)), m_active(true) {}
-
-    ~ScopeGuard() {
-        if (m_active) {
-            m_func();
-        }
-    }
-
+    ~ScopeGuard() { if (m_active) { m_func(); } }
     void dismiss() { m_active = false; }
-
     ScopeGuard(const ScopeGuard&) = delete;
     ScopeGuard& operator=(const ScopeGuard&) = delete;
-
 private:
     std::function<void()> m_func;
     bool m_active;
@@ -33,9 +110,10 @@ ScreenCapture::ScreenCapture()
         boost::asio::make_work_guard(encoderContext));
 
     winLogonSwitcher = std::make_unique<WinLogon>();
-
     winLogonSwitcher->SwitchToDefaultDesktop();
 
+    dirtyTracker = std::make_unique<DirtyRegionTracker>();
+    gpuRing = std::make_unique<GPUTextureRing>();
 }
 
 ScreenCapture::~ScreenCapture() {
@@ -49,14 +127,11 @@ ScreenCapture::~ScreenCapture() {
 }
 
 bool ScreenCapture::initialize() {
-    Logger::getInstance()->info("=== Starting DXGI ScreenCapture initialization ===");
+    Logger::getInstance()->info("=== Starting DXGI ScreenCapture initialization (Zero-Copy Optimized) ===");
 
-
-    // Check if callback is set
-    if (!frameCallback) {
-        Logger::getInstance()->warning("frameCallback not set! You must call setFrameCallback() before startCapture()!");
+    if (!frameCallback && !gpuEncoderCallback) {
+        Logger::getInstance()->warning("No callback set! Call setFrameCallback() or setGPUEncoderCallback()!");
     }
-
 
     DWORD sessionId = 0;
     DWORD processId = GetCurrentProcessId();
@@ -89,7 +164,8 @@ bool ScreenCapture::initialize() {
         lastFrameTime = std::chrono::steady_clock::now();
 
         Logger::getInstance()->info("Frame rate set to " + std::to_string(config.fps) + " fps");
-
+        Logger::getInstance()->info("Zero-Copy: " + std::string(config.enableZeroCopy ? "Enabled" : "Disabled"));
+        Logger::getInstance()->info("Dirty Rectangles: " + std::string(config.enableDirtyRects ? "Enabled" : "Disabled"));
         Logger::getInstance()->info("=== DXGI ScreenCapture initialization completed ===");
         return true;
     }
@@ -98,8 +174,6 @@ bool ScreenCapture::initialize() {
         return false;
     }
 }
-
-
 
 void ScreenCapture::initializeFramePool(size_t poolSize) {
     for (size_t i = 0; i < poolSize; ++i) {
@@ -130,13 +204,10 @@ bool ScreenCapture::initializeDXGI() {
     D3D_FEATURE_LEVEL featureLevels[] = {
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0,
-        D3D_FEATURE_LEVEL_10_1,
-        D3D_FEATURE_LEVEL_10_0
     };
 
     UINT createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     createFlags |= D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
-    createFlags |= D3D11_CREATE_DEVICE_SINGLETHREADED;
 
 #ifdef _DEBUG
     createFlags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -160,6 +231,16 @@ bool ScreenCapture::initializeDXGI() {
         Logger::getInstance()->error("Failed to create D3D11 device: 0x" +
             std::to_string(static_cast<unsigned int>(hr)));
         return false;
+    }
+
+    // 尝试获取D3D11.1接口
+    hr = d3dDevice.As(&d3dDevice1);
+    if (SUCCEEDED(hr)) {
+        hr = d3dContext.As(&d3dContext1);
+        useAdvancedFeatures = SUCCEEDED(hr);
+        if (useAdvancedFeatures) {
+            Logger::getInstance()->info("D3D11.1 features available");
+        }
     }
 
     hr = d3dDevice.As(&dxgiDevice);
@@ -186,6 +267,12 @@ bool ScreenCapture::initializeDXGI() {
         return false;
     }
 
+    // 尝试获取DXGI 1.5
+    hr = dxgiOutput.As(&dxgiOutput5);
+    if (SUCCEEDED(hr)) {
+        Logger::getInstance()->info("DXGI 1.5 features available");
+    }
+
     static bool init = false;
 
     hr = dxgiOutput1->DuplicateOutput(d3dDevice.Get(), &dxgiDuplication);
@@ -195,40 +282,25 @@ bool ScreenCapture::initializeDXGI() {
             Logger::getInstance()->error("Desktop duplication not available (may be in use by another process)");
         }
         else if (hr == E_ACCESSDENIED) {
-
             if (init == true) return false;
-
             init = true;
 
             Logger::getInstance()->error("Access denied for desktop duplication");
 
             if (!desktopSwitchInProgress) {
-
                 this->releaseResourceDXGI();
-
                 winLogonSwitcher->SwitchToWinLogonDesktop();
-
                 this->initializeDXGI();
-
                 this->initializeGPUConverter();
-
                 desktopSwitchInProgress = true;
-
             }
             else {
-
                 this->releaseResourceDXGI();
-
                 winLogonSwitcher->SwitchToDefaultDesktop();
-
                 this->initializeDXGI();
-
                 this->initializeGPUConverter();
-
                 desktopSwitchInProgress = false;
-
             }
-
         }
         else {
             Logger::getInstance()->error("Failed to duplicate output: 0x" +
@@ -248,6 +320,50 @@ bool ScreenCapture::initializeDXGI() {
     Logger::getInstance()->info("Desktop dimensions: " + std::to_string(config.width) +
         "x" + std::to_string(config.height));
 
+    // 初始化GPU环形缓冲
+    if (!gpuRing->Initialize(d3dDevice.Get(), d3dContext.Get(), config.width, config.height)) {
+        Logger::getInstance()->error("Failed to initialize GPU ring buffer");
+        return false;
+    }
+
+    // 创建共享纹理用于零拷贝
+    if (config.enableZeroCopy) {
+        D3D11_TEXTURE2D_DESC sharedDesc = {};
+        sharedDesc.Width = config.width;
+        sharedDesc.Height = config.height;
+        sharedDesc.MipLevels = 1;
+        sharedDesc.ArraySize = 1;
+        sharedDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        sharedDesc.SampleDesc.Count = 1;
+        sharedDesc.Usage = D3D11_USAGE_DEFAULT;
+        sharedDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        sharedDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+
+        hr = d3dDevice->CreateTexture2D(&sharedDesc, nullptr, &sharedTexture);
+        if (FAILED(hr)) {
+            Logger::getInstance()->error("Failed to create shared texture");
+            config.enableZeroCopy = false;
+        }
+        else {
+            // 获取共享句柄
+            Microsoft::WRL::ComPtr<IDXGIResource> dxgiResource;
+            hr = sharedTexture.As(&dxgiResource);
+            if (SUCCEEDED(hr)) {
+                hr = dxgiResource->GetSharedHandle(&sharedHandle);
+                if (SUCCEEDED(hr)) {
+                    Logger::getInstance()->info("Shared texture created for zero-copy");
+
+                    // 获取keyed mutex
+                    hr = sharedTexture.As(&keyedMutex);
+                    if (FAILED(hr)) {
+                        Logger::getInstance()->warning("Failed to get keyed mutex");
+                    }
+                }
+            }
+        }
+    }
+
+    // 创建staging textures（后备方案）
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = config.width;
     desc.Height = config.height;
@@ -258,8 +374,7 @@ bool ScreenCapture::initializeDXGI() {
     desc.Usage = D3D11_USAGE_STAGING;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
-    // 创建三个 staging textures
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < NUM_BUFFERS; i++) {
         hr = d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTextures[i]);
         if (FAILED(hr)) {
             Logger::getInstance()->error("Failed to create staging texture " + std::to_string(i));
@@ -270,9 +385,7 @@ bool ScreenCapture::initializeDXGI() {
     return true;
 }
 
-// 修正 initializeGPUConverter 函数中的shader
 bool ScreenCapture::initializeGPUConverter() {
-    // 修正后的Compute Shader源码
     const char* shaderSource = R"(
         Texture2D<float4> inputTexture : register(t0);
         RWStructuredBuffer<uint> outputBuffer : register(u0);
@@ -288,26 +401,15 @@ bool ScreenCapture::initializeGPUConverter() {
         void main(uint3 id : SV_DispatchThreadID) {
             if (id.x >= width || id.y >= height) return;
             
-            // 读取BGRA像素
             float4 color = inputTexture.Load(int3(id.x, id.y, 0));
             
-            // 关键修正：BGRA格式的正确映射
-            // DirectX中 BGRA 格式实际存储顺序是 B-G-R-A
-            // 但在shader中读取时：
-            // color.b = B通道 (蓝色) 
-            // color.g = G通道 (绿色)
-            // color.r = R通道 (红色)
-            // color.a = A通道 (透明度)
+            float b = color.b * 255.0f;
+            float g = color.g * 255.0f;
+            float r = color.r * 255.0f;
             
-            float b = color.b * 255.0f;  // 修正：B在b通道
-            float g = color.g * 255.0f;  // G在g通道
-            float r = color.r * 255.0f;  // 修正：R在r通道
-            
-            // 使用CPU相同的公式
             uint y = (uint)((66 * r + 129 * g + 25 * b) / 256 + 16);
             y = min(y, 255u);
             
-            // 写入Y数据
             uint yIndex = id.y * width + id.x;
             uint arrayIndex = yIndex / 4;
             uint byteOffset = yIndex % 4;
@@ -318,20 +420,17 @@ bool ScreenCapture::initializeGPUConverter() {
             InterlockedAnd(outputBuffer[arrayIndex], ~mask);
             InterlockedOr(outputBuffer[arrayIndex], value);
             
-            // UV通道处理
             if ((id.x % 2 == 0) && (id.y % 2 == 0)) {
                 float4 c00 = color;
                 float4 c10 = inputTexture.Load(int3(min(id.x + 1, width - 1), id.y, 0));
                 float4 c01 = inputTexture.Load(int3(id.x, min(id.y + 1, height - 1), 0));
                 float4 c11 = inputTexture.Load(int3(min(id.x + 1, width - 1), min(id.y + 1, height - 1), 0));
                 
-                // 修正通道映射
                 float4 avg = (c00 + c10 + c01 + c11) * 0.25f * 255.0f;
-                float avgB = avg.b;  // 修正：B在b通道
-                float avgG = avg.g;  // G在g通道
-                float avgR = avg.r;  // 修正：R在r通道
+                float avgB = avg.b;
+                float avgG = avg.g;
+                float avgR = avg.r;
                 
-                // 使用CPU相同的公式
                 uint u = (uint)((-38 * avgR - 74 * avgG + 112 * avgB) / 256 + 128);
                 uint v = (uint)((112 * avgR - 94 * avgG - 18 * avgB) / 256 + 128);
                 u = clamp(u, 0u, 255u);
@@ -339,7 +438,6 @@ bool ScreenCapture::initializeGPUConverter() {
                 
                 uint uvIndex = (id.y / 2) * (width / 2) + (id.x / 2);
                 
-                // U数据
                 uint uPos = ySize + uvIndex;
                 uint uArrayIndex = uPos / 4;
                 uint uByteOffset = uPos % 4;
@@ -348,7 +446,6 @@ bool ScreenCapture::initializeGPUConverter() {
                 InterlockedAnd(outputBuffer[uArrayIndex], ~(0xFF << uShift));
                 InterlockedOr(outputBuffer[uArrayIndex], u << uShift);
                 
-                // V数据
                 uint vPos = ySize + uvSize + uvIndex;
                 uint vArrayIndex = vPos / 4;
                 uint vByteOffset = vPos % 4;
@@ -360,7 +457,6 @@ bool ScreenCapture::initializeGPUConverter() {
         }
     )";
 
-    // 编译Compute Shader
     Microsoft::WRL::ComPtr<ID3DBlob> shaderBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
 
@@ -390,9 +486,8 @@ bool ScreenCapture::initializeGPUConverter() {
         return false;
     }
 
-    // 创建输出缓冲区（使用StructuredBuffer）
     const UINT yuvBufferSize = config.width * config.height * 3 / 2;
-    const UINT bufferSizeInUints = (yuvBufferSize + 3) / 4;  // 向上取整到4字节边界
+    const UINT bufferSizeInUints = (yuvBufferSize + 3) / 4;
 
     D3D11_BUFFER_DESC bufferDesc = {};
     bufferDesc.ByteWidth = bufferSizeInUints * sizeof(UINT);
@@ -401,7 +496,6 @@ bool ScreenCapture::initializeGPUConverter() {
     bufferDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
     bufferDesc.StructureByteStride = sizeof(UINT);
 
-    // 初始化为0
     std::vector<UINT> initialData(bufferSizeInUints, 0);
     D3D11_SUBRESOURCE_DATA initData = {};
     initData.pSysMem = initialData.data();
@@ -412,7 +506,6 @@ bool ScreenCapture::initializeGPUConverter() {
         return false;
     }
 
-    // 创建UAV
     D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
     uavDesc.Format = DXGI_FORMAT_UNKNOWN;
     uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
@@ -425,7 +518,6 @@ bool ScreenCapture::initializeGPUConverter() {
         return false;
     }
 
-    // 创建staging buffer用于读回CPU
     bufferDesc.Usage = D3D11_USAGE_STAGING;
     bufferDesc.BindFlags = 0;
     bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -441,13 +533,557 @@ bool ScreenCapture::initializeGPUConverter() {
     return true;
 }
 
-// 修正 convertBGRAToYUV420_GPU 函数
+bool ScreenCapture::startCapture() {
+    if (capturing.load()) {
+        Logger::getInstance()->warning("Capture already started");
+        return true;
+    }
+
+    capturing = true;
+    encoderRunning = true;
+
+    encoderContext.restart();
+
+    encoderThread = std::thread([this]() {
+        Logger::getInstance()->info("Encoder thread started - will run io_context");
+
+        try {
+            boost::asio::co_spawn(encoderContext, [this]() -> boost::asio::awaitable<void> {
+                Logger::getInstance()->info("=== ENCODER COROUTINE STARTED AND RUNNING ===");
+
+                while (encoderRunning.load()) {
+                    try {
+                        auto [ec] = co_await encoderChannel.async_receive(
+                            boost::asio::as_tuple(boost::asio::use_awaitable));
+
+                        if (ec) {
+                            if (ec == boost::asio::error::operation_aborted) {
+                                Logger::getInstance()->info("Encoder channel closed, stopping");
+                                break;
+                            }
+                        }
+
+                        // 处理零拷贝帧
+                        if (config.enableZeroCopy) {
+                            FrameReadyInfo info;
+                            while (frameReadyQueue.try_dequeue(info)) {
+                                if (gpuEncoderCallback && info.sharedHandle) {
+                                    // 通知GPU编码器
+                                    gpuEncoderCallback(sharedTexture.Get());
+                                }
+                            }
+                        }
+
+                        // 处理传统帧
+                        std::shared_ptr<CapturedFrame> frame;
+                        int processedCount = 0;
+                        int maxBatch = 5;
+
+                        while (frameQueue.try_dequeue(frame) && processedCount < maxBatch) {
+                            encodeFrame(frame);
+                            returnFrameToPool(frame);
+                            processedCount++;
+                        }
+
+                    }
+                    catch (const std::exception& e) {
+                        Logger::getInstance()->error("Error in encoder coroutine: " + std::string(e.what()));
+                    }
+                }
+
+                co_return;
+                }, boost::asio::detached);
+
+            Logger::getInstance()->info("Starting io_context.run() - this blocks until stopped");
+            size_t handlers = encoderContext.run();
+            Logger::getInstance()->info("io_context.run() returned after processing " +
+                std::to_string(handlers) + " handlers");
+        }
+        catch (const std::exception& e) {
+            Logger::getInstance()->error("Fatal error in encoder thread: " + std::string(e.what()));
+        }
+
+        Logger::getInstance()->info("Encoder thread ending");
+        });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    captureThread = std::thread([this]() {
+        Logger::getInstance()->info("Capture thread starting");
+        captureThreadFunc();
+        Logger::getInstance()->info("Capture thread ending");
+        });
+
+    Logger::getInstance()->info("Capture started successfully - both threads running");
+    return true;
+}
+
+void ScreenCapture::captureThreadFunc() {
+    Logger::getInstance()->info("Capture thread started with optimizations");
+
+    // 设置线程优先级
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
+    // 绑定到高性能核心
+    SetThreadAffinityMask(GetCurrentThread(), 0x0F);
+
+    auto lastFrameTime = std::chrono::high_resolution_clock::now();
+    const auto targetFrameTime = std::chrono::microseconds(1000000 / config.fps);
+
+    while (capturing.load()) {
+        auto frameStart = std::chrono::high_resolution_clock::now();
+
+        bool success;
+        if (config.enableZeroCopy) {
+            success = captureFrameZeroCopy();
+        }
+        else {
+            success = captureFrame();
+        }
+
+        if (!success) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+
+        auto frameEnd = std::chrono::high_resolution_clock::now();
+        auto frameDuration = frameEnd - frameStart;
+
+        if (frameDuration < targetFrameTime) {
+            auto sleepTime = targetFrameTime - frameDuration;
+            if (sleepTime > std::chrono::microseconds(1000)) {
+                std::this_thread::sleep_for(sleepTime - std::chrono::microseconds(500));
+            }
+
+            while (std::chrono::high_resolution_clock::now() - frameStart < targetFrameTime) {
+                _mm_pause();
+            }
+        }
+
+        lastFrameTime = frameEnd;
+    }
+}
+
+bool ScreenCapture::captureFrameZeroCopy() {
+    if (!dxgiDuplication) return false;
+
+    HRESULT hr;
+    Microsoft::WRL::ComPtr<IDXGIResource> desktopResource;
+    DXGI_OUTDUPL_FRAME_INFO frameInfo;
+
+    if (hasAcquiredFrame) {
+        dxgiDuplication->ReleaseFrame();
+        hasAcquiredFrame = false;
+    }
+
+    hr = dxgiDuplication->AcquireNextFrame(0, &frameInfo, &desktopResource);
+
+    if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+        return true;
+    }
+
+    if (FAILED(hr)) {
+        handleCaptureError(hr);
+        return false;
+    }
+
+    hasAcquiredFrame = true;
+
+    if (frameInfo.LastPresentTime.QuadPart == 0 && frameInfo.AccumulatedFrames == 0) {
+        return true;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> desktopTexture;
+    hr = desktopResource.As(&desktopTexture);
+    if (FAILED(hr)) return false;
+
+    // 处理脏矩形
+    bool needsFullFrame = dirtyTracker->fullFrameRequired;
+    if (config.enableDirtyRects && frameInfo.TotalMetadataBufferSize > 0) {
+        ProcessDirtyRects(&frameInfo, desktopTexture.Get());
+        needsFullFrame = false;
+    }
+
+    if (needsFullFrame) {
+        d3dContext->CopyResource(sharedTexture.Get(), desktopTexture.Get());
+        dirtyTracker->fullFrameRequired = false;
+    }
+
+    // GPU处理或通知
+    if (yuvComputeShader && config.enableGPUEncoding) {
+        ProcessOnGPU(sharedTexture.Get());
+    }
+    else {
+        NotifyFrameReady();
+    }
+
+    return true;
+}
+
+bool ScreenCapture::captureFrame() {
+    if (!dxgiDuplication) {
+        this->releaseResourceDXGI();
+        this->initializeDXGI();
+        this->initializeGPUConverter();
+        return false;
+    }
+
+    HRESULT hr;
+    Microsoft::WRL::ComPtr<IDXGIResource> desktopResource;
+    DXGI_OUTDUPL_FRAME_INFO frameInfo;
+
+    static bool hasFrame = false;
+    if (hasFrame) {
+        dxgiDuplication->ReleaseFrame();
+        hasFrame = false;
+    }
+
+    hr = dxgiDuplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
+
+    if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+        return true;
+    }
+
+    if (FAILED(hr)) {
+        handleCaptureError(hr);
+        hasFrame = false;
+        return false;
+    }
+
+    hasFrame = true;
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> acquiredTexture;
+    hr = desktopResource.As(&acquiredTexture);
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to get texture from desktop resource");
+        return false;
+    }
+
+    bool result = processFrame(acquiredTexture.Get());
+    if (!result) {
+        Logger::getInstance()->error("processFrame failed");
+    }
+
+    return result;
+}
+
+bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
+    if (!texture || !d3dContext || !stagingTextures[currentTexture]) {
+        Logger::getInstance()->error("Invalid texture or D3D context");
+        return false;
+    }
+
+    bool gpuSuccess = false;
+    if (yuvComputeShader) {
+        std::vector<uint8_t> tempYuvBuffer;
+        gpuSuccess = convertBGRAToYUV420_GPU(texture, tempYuvBuffer);
+
+        if (gpuSuccess) {
+            auto frame = getFrameFromPool();
+            if (!frame) {
+                return false;
+            }
+
+            frame->bgraData = std::move(tempYuvBuffer);
+            frame->width = config.width;
+            frame->height = config.height;
+            frame->stride = config.width;
+            frame->isYUV = true;
+            frame->timestamp = std::chrono::steady_clock::now();
+
+            frameQueue.enqueue(frame);
+
+            if (encoderChannel.is_open()) {
+                boost::system::error_code ec;
+                encoderChannel.try_send(ec);
+            }
+
+            return true;
+        }
+    }
+
+    d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
+
+    D3D11_MAPPED_SUBRESOURCE mapped;
+
+    HRESULT hr = d3dContext->Map(
+        stagingTextures[currentTexture].Get(),
+        0,
+        D3D11_MAP_READ,
+        0,
+        &mapped);
+
+    if (hr == DXGI_ERROR_WAS_STILL_DRAWING) {
+        Logger::getInstance()->info("Staging texture still in use by GPU, skipping frame");
+        currentTexture = (currentTexture + 1) % NUM_BUFFERS;
+        return false;
+    }
+
+    if (FAILED(hr)) {
+        Logger::getInstance()->error("Failed to map texture: 0x" +
+            std::to_string(static_cast<unsigned int>(hr)));
+        return false;
+    }
+
+    auto frame = getFrameFromPool();
+    if (!frame) {
+        d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
+        return false;
+    }
+
+    const uint8_t* srcData = static_cast<const uint8_t*>(mapped.pData);
+    const size_t bytesPerRow = config.width * 4;
+    uint8_t* dstData = frame->bgraData.data();
+
+    if (mapped.RowPitch == bytesPerRow) {
+        memcpy(dstData, srcData, bytesPerRow * config.height);
+    }
+    else {
+        for (int row = 0; row < config.height; ++row) {
+            memcpy(dstData + row * bytesPerRow,
+                srcData + row * mapped.RowPitch,
+                bytesPerRow);
+        }
+    }
+
+    d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
+
+    frame->width = config.width;
+    frame->height = config.height;
+    frame->stride = bytesPerRow;
+    frame->timestamp = std::chrono::steady_clock::now();
+
+    size_t queueSize = frameQueue.size_approx();
+    if (queueSize >= MAX_QUEUE_SIZE) {
+        std::shared_ptr<CapturedFrame> oldFrame;
+        if (frameQueue.try_dequeue(oldFrame)) {
+            returnFrameToPool(oldFrame);
+        }
+    }
+
+    frameQueue.enqueue(frame);
+
+    if (encoderChannel.is_open()) {
+        boost::system::error_code ec;
+        encoderChannel.try_send(ec);
+    }
+
+    currentTexture = (currentTexture + 1) % NUM_BUFFERS;
+
+    return true;
+}
+
+void ScreenCapture::ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture) {
+    dirtyTracker->Reset();
+
+    if (frameInfo->TotalMetadataBufferSize == 0) {
+        dirtyTracker->fullFrameRequired = true;
+        return;
+    }
+
+    if (dirtyTracker->metadataBuffer.size() < frameInfo->TotalMetadataBufferSize) {
+        dirtyTracker->metadataBuffer.resize(frameInfo->TotalMetadataBufferSize);
+    }
+
+    UINT bufSize = frameInfo->TotalMetadataBufferSize;
+
+    // 获取移动矩形
+    DXGI_OUTDUPL_MOVE_RECT* moveRects = reinterpret_cast<DXGI_OUTDUPL_MOVE_RECT*>(
+        dirtyTracker->metadataBuffer.data());
+    UINT moveRectSize = bufSize;
+
+    HRESULT hr = dxgiDuplication->GetFrameMoveRects(moveRectSize, moveRects, &moveRectSize);
+    if (SUCCEEDED(hr) && moveRectSize > 0) {
+        UINT moveCount = moveRectSize / sizeof(DXGI_OUTDUPL_MOVE_RECT);
+
+        for (UINT i = 0; i < moveCount; i++) {
+            ProcessMoveRect(sourceTexture, &moveRects[i]);
+        }
+    }
+
+    // 获取脏矩形
+    RECT* dirtyRects = reinterpret_cast<RECT*>(dirtyTracker->metadataBuffer.data());
+    UINT dirtyRectSize = bufSize;
+
+    hr = dxgiDuplication->GetFrameDirtyRects(dirtyRectSize, dirtyRects, &dirtyRectSize);
+    if (SUCCEEDED(hr) && dirtyRectSize > 0) {
+        UINT dirtyCount = dirtyRectSize / sizeof(RECT);
+
+        std::vector<RECT> mergedRects = MergeDirtyRects(dirtyRects, dirtyCount);
+
+        for (const auto& rect : mergedRects) {
+            ProcessDirtyRect(sourceTexture, &rect);
+        }
+
+        dirtyTracker->hasUpdates = true;
+    }
+}
+
+void ScreenCapture::ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect) {
+    D3D11_BOX srcBox;
+    srcBox.left = moveRect->SourcePoint.x;
+    srcBox.top = moveRect->SourcePoint.y;
+    srcBox.right = moveRect->SourcePoint.x + (moveRect->DestinationRect.right - moveRect->DestinationRect.left);
+    srcBox.bottom = moveRect->SourcePoint.y + (moveRect->DestinationRect.bottom - moveRect->DestinationRect.top);
+    srcBox.front = 0;
+    srcBox.back = 1;
+
+    d3dContext->CopySubresourceRegion(
+        sharedTexture.Get(), 0,
+        moveRect->DestinationRect.left,
+        moveRect->DestinationRect.top,
+        0,
+        sourceTexture, 0,
+        &srcBox
+    );
+}
+
+void ScreenCapture::ProcessDirtyRect(ID3D11Texture2D* sourceTexture, const RECT* dirtyRect) {
+    D3D11_BOX box;
+    box.left = dirtyRect->left;
+    box.top = dirtyRect->top;
+    box.right = dirtyRect->right;
+    box.bottom = dirtyRect->bottom;
+    box.front = 0;
+    box.back = 1;
+
+    d3dContext->CopySubresourceRegion(
+        sharedTexture.Get(), 0,
+        dirtyRect->left,
+        dirtyRect->top,
+        0,
+        sourceTexture, 0,
+        &box
+    );
+}
+
+std::vector<RECT> ScreenCapture::MergeDirtyRects(RECT* rects, UINT count) {
+    if (count <= 1) {
+        return std::vector<RECT>(rects, rects + count);
+    }
+
+    std::vector<RECT> merged;
+    merged.reserve(count);
+
+    std::vector<bool> processed(count, false);
+
+    for (UINT i = 0; i < count; i++) {
+        if (processed[i]) continue;
+
+        RECT current = rects[i];
+        processed[i] = true;
+
+        bool foundMerge;
+        do {
+            foundMerge = false;
+            for (UINT j = i + 1; j < count; j++) {
+                if (processed[j]) continue;
+
+                if (!(current.right < rects[j].left || rects[j].right < current.left ||
+                    current.bottom < rects[j].top || rects[j].bottom < current.top)) {
+                    current.left = std::min(current.left, rects[j].left);
+                    current.top = std::min(current.top, rects[j].top);
+                    current.right = std::max(current.right, rects[j].right);
+                    current.bottom = std::max(current.bottom, rects[j].bottom);
+                    processed[j] = true;
+                    foundMerge = true;
+                }
+            }
+        } while (foundMerge);
+
+        merged.push_back(current);
+    }
+
+    int totalArea = 0;
+    for (const auto& rect : merged) {
+        totalArea += (rect.right - rect.left) * (rect.bottom - rect.top);
+    }
+
+    if (totalArea > (config.width * config.height * 0.5)) {
+        dirtyTracker->fullFrameRequired = true;
+        return std::vector<RECT>();
+    }
+
+    return merged;
+}
+
+void ScreenCapture::ProcessOnGPU(ID3D11Texture2D* sourceTexture) {
+    if (!yuvComputeShader || !sourceTexture) return;
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srcSRV;
+    HRESULT hr = d3dDevice->CreateShaderResourceView(sourceTexture, &srvDesc, &srcSRV);
+    if (FAILED(hr)) return;
+
+    d3dContext->CSSetShader(yuvComputeShader.Get(), nullptr, 0);
+    d3dContext->CSSetShaderResources(0, 1, srcSRV.GetAddressOf());
+    d3dContext->CSSetUnorderedAccessViews(0, 1, yuvUAV.GetAddressOf(), nullptr);
+
+    UINT dispatchX = (config.width + 15) / 16;
+    UINT dispatchY = (config.height + 15) / 16;
+    d3dContext->Dispatch(dispatchX, dispatchY, 1);
+
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    ID3D11UnorderedAccessView* nullUAV = nullptr;
+    d3dContext->CSSetShaderResources(0, 1, &nullSRV);
+    d3dContext->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
+
+    if (gpuEncoderCallback) {
+        gpuEncoderCallback(sharedTexture.Get());
+    }
+}
+
+void ScreenCapture::NotifyFrameReady() {
+    FrameReadyInfo info;
+    info.sharedHandle = sharedHandle;
+    info.timestamp = std::chrono::steady_clock::now();
+    info.hasUpdates = dirtyTracker->hasUpdates;
+
+    if (dirtyTracker->hasUpdates) {
+        info.dirtyRects = dirtyTracker->dirtyRects;
+    }
+
+    if (encoderChannel.is_open()) {
+        frameReadyQueue.enqueue(info);
+        boost::system::error_code ec;
+        encoderChannel.try_send(ec);
+    }
+}
+
+void ScreenCapture::handleCaptureError(HRESULT hr) {
+    if (hr == DXGI_ERROR_ACCESS_LOST) {
+        Logger::getInstance()->warning("Access lost, reinitializing...");
+        this->releaseResourceDXGI();
+        this->initializeDXGI();
+        this->initializeGPUConverter();
+    }
+    else if (hr == DXGI_ERROR_INVALID_CALL) {
+        if (!desktopSwitchInProgress) {
+            this->releaseResourceDXGI();
+            winLogonSwitcher->SwitchToWinLogonDesktop();
+            this->initializeDXGI();
+            this->initializeGPUConverter();
+            desktopSwitchInProgress = true;
+        }
+        else {
+            this->releaseResourceDXGI();
+            winLogonSwitcher->SwitchToDefaultDesktop();
+            this->initializeDXGI();
+            this->initializeGPUConverter();
+            desktopSwitchInProgress = false;
+        }
+    }
+}
+
 bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std::vector<uint8_t>& yuvBuffer) {
     if (!yuvComputeShader || !sourceTexture) {
         return false;
     }
 
-    // 创建源纹理的SRV
     D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
@@ -460,7 +1096,6 @@ bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std:
         return false;
     }
 
-    // 设置常量缓冲区
     struct Constants {
         UINT width;
         UINT height;
@@ -488,23 +1123,19 @@ bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std:
         return false;
     }
 
-    // 清空输出缓冲区（重要！避免残留数据）
     const UINT bufferSizeInUints = (constants.ySize * 3 / 2 + 3) / 4;
     std::vector<UINT> clearData(bufferSizeInUints, 0);
     d3dContext->UpdateSubresource(yuvOutputBuffer.Get(), 0, nullptr, clearData.data(), 0, 0);
 
-    // 设置Compute Shader资源
     d3dContext->CSSetShader(yuvComputeShader.Get(), nullptr, 0);
     d3dContext->CSSetShaderResources(0, 1, srcSRV.GetAddressOf());
     d3dContext->CSSetUnorderedAccessViews(0, 1, yuvUAV.GetAddressOf(), nullptr);
     d3dContext->CSSetConstantBuffers(0, 1, constantBuffer.GetAddressOf());
 
-    // Dispatch
     UINT dispatchX = (config.width + 15) / 16;
     UINT dispatchY = (config.height + 15) / 16;
     d3dContext->Dispatch(dispatchX, dispatchY, 1);
 
-    // 清理绑定
     ID3D11ShaderResourceView* nullSRV = nullptr;
     ID3D11UnorderedAccessView* nullUAV = nullptr;
     ID3D11Buffer* nullCB = nullptr;
@@ -512,10 +1143,8 @@ bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std:
     d3dContext->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
     d3dContext->CSSetConstantBuffers(0, 1, &nullCB);
 
-    // 拷贝到staging buffer
     d3dContext->CopyResource(stagingBuffer.Get(), yuvOutputBuffer.Get());
 
-    // 读回CPU
     D3D11_MAPPED_SUBRESOURCE mapped;
     hr = d3dContext->Map(stagingBuffer.Get(), 0, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(hr)) {
@@ -528,305 +1157,8 @@ bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std:
         yuvBuffer.resize(yuvSize);
     }
 
-    // 只拷贝实际的YUV数据大小
     memcpy(yuvBuffer.data(), mapped.pData, yuvSize);
     d3dContext->Unmap(stagingBuffer.Get(), 0);
-
-    return true;
-}
-
-bool ScreenCapture::startCapture() {
-    if (capturing.load()) {
-        Logger::getInstance()->warning("Capture already started");
-        return true;
-    }
-
-    capturing = true;
-    encoderRunning = true;
-
-    // 重置 io_context（如果之前被停止过）
-    encoderContext.restart();
-
-    // 启动编码器线程 - 必须运行 io_context！
-    encoderThread = std::thread([this]() {
-        Logger::getInstance()->info("Encoder thread started - will run io_context");
-
-        try {
-            // 启动异步接收协程
-            boost::asio::co_spawn(encoderContext, [this]() -> boost::asio::awaitable<void> {
-                Logger::getInstance()->info("=== ENCODER COROUTINE STARTED AND RUNNING ===");
-
-                while (encoderRunning.load()) {
-                    try {
-                        // 等待通知或超时（100ms超时避免死锁）
-                        auto [ec] = co_await encoderChannel.async_receive(
-                            boost::asio::as_tuple(boost::asio::use_awaitable));
-
-                        if (ec) {
-                            if (ec == boost::asio::error::operation_aborted) {
-                                Logger::getInstance()->info("Encoder channel closed, stopping");
-                                break;
-                            }
-                            // 超时或其他错误，继续检查队列
-                            // 这很重要，因为可能有帧在队列中但没有通知
-                        }
-
-                        // 处理所有待编码帧
-                        std::shared_ptr<CapturedFrame> frame;
-                        int processedCount = 0;
-                        int maxBatch = 5; // 批量处理限制，避免延迟过高
-
-                        while (frameQueue.try_dequeue(frame) && processedCount < maxBatch) {
-                            encodeFrame(frame);
-                            returnFrameToPool(frame);
-                        }
-
-                    }
-                    catch (const std::exception& e) {
-                        Logger::getInstance()->error("Error in encoder coroutine: " + std::string(e.what()));
-
-                    }
-                }
-
-                co_return;
-                }, boost::asio::detached);
-
-            // 这是关键！必须运行 io_context，否则协程永远不会执行！
-            Logger::getInstance()->info("Starting io_context.run() - this blocks until stopped");
-            size_t handlers = encoderContext.run();
-            Logger::getInstance()->info("io_context.run() returned after processing " +
-                std::to_string(handlers) + " handlers");
-        }
-        catch (const std::exception& e) {
-            Logger::getInstance()->error("Fatal error in encoder thread: " + std::string(e.what()));
-        }
-
-        Logger::getInstance()->info("Encoder thread ending");
-        });
-
-    // 等待一下确保编码器线程启动
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    // 启动捕获线程
-    captureThread = std::thread([this]() {
-        Logger::getInstance()->info("Capture thread starting");
-        captureThreadFunc();
-        Logger::getInstance()->info("Capture thread ending");
-        });
-
-    Logger::getInstance()->info("Capture started successfully - both threads running");
-    return true;
-}
-
-void ScreenCapture::captureThreadFunc() {
-    Logger::getInstance()->info("Capture thread started");
-
-    while (capturing.load()) {
-
-        captureFrame();
-
-    }
-
-}
-
-
-bool ScreenCapture::captureFrame() {
-    // 检查是否需要重新初始化（桌面切换后）
-    if (!dxgiDuplication) {
-        this->releaseResourceDXGI();
-        this->initializeDXGI();
-        this->initializeGPUConverter();
-        return false;
-    }
-
-    HRESULT hr;
-    Microsoft::WRL::ComPtr<IDXGIResource> desktopResource;
-    DXGI_OUTDUPL_FRAME_INFO frameInfo;
-
-    // 关键优化：在获取新帧前立即释放旧帧
-    static bool hasFrame = false;
-    if (hasFrame) {
-        dxgiDuplication->ReleaseFrame();
-        hasFrame = false;
-    }
-
-    // 使用 16ms 超时（约60fps）
-    hr = dxgiDuplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
-
-    if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-        // 正常情况，没有新帧
-        return true;
-    }
-
-    if (FAILED(hr)) {
-        if (hr == DXGI_ERROR_ACCESS_LOST) {
-            this->releaseResourceDXGI();
-            this->initializeDXGI();
-            this->initializeGPUConverter();
-            hasFrame = false;
-            return false;
-        }
-
-        if (hr == DXGI_ERROR_INVALID_CALL) {
-            if (!desktopSwitchInProgress) {
-                this->releaseResourceDXGI();
-                winLogonSwitcher->SwitchToWinLogonDesktop();
-                this->initializeDXGI();
-                this->initializeGPUConverter();
-                desktopSwitchInProgress = true;
-            }
-            else {
-                this->releaseResourceDXGI();
-                winLogonSwitcher->SwitchToDefaultDesktop();
-                this->initializeDXGI();
-                this->initializeGPUConverter();
-                desktopSwitchInProgress = false;
-            }
-
-            Logger::getInstance()->info("desktopSwitchInProgress");
-            hasFrame = false;
-            return false;
-        }
-        Logger::getInstance()->error("AcquireNextFrame failed: 0x" +
-            std::to_string(static_cast<unsigned int>(hr)));
-        hasFrame = false;
-        return false;
-    }
-
-    hasFrame = true;
-
-    // 注释掉脏矩形处理
-    // if (frameInfo.TotalMetadataBufferSize > 0) {
-    //     processUpdateRegions(&frameInfo);
-    // }
-
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> acquiredTexture;
-    hr = desktopResource.As(&acquiredTexture);
-    if (FAILED(hr)) {
-        Logger::getInstance()->error("Failed to get texture from desktop resource");
-        return false;
-    }
-
-    bool result = processFrame(acquiredTexture.Get());
-    if (!result) {
-        Logger::getInstance()->error("processFrame failed");
-    }
-
-    return result;
-}
-
-// 2. processFrame() 函数 - 简化，去掉脏矩形逻辑
-bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
-    if (!texture || !d3dContext || !stagingTextures[currentTexture]) {
-        Logger::getInstance()->error("Invalid texture or D3D context");
-        return false;
-    }
-
-    bool gpuSuccess = false;
-    if (yuvComputeShader) {
-        // 直接使用源纹理进行GPU转换
-        std::vector<uint8_t> tempYuvBuffer;
-        gpuSuccess = convertBGRAToYUV420_GPU(texture, tempYuvBuffer);
-
-        if (gpuSuccess) {
-            // GPU转换成功，直接创建帧
-            auto frame = getFrameFromPool();
-            if (!frame) {
-                return false;
-            }
-
-            // 将YUV数据复制到frame（这里可以优化为直接使用YUV数据）
-            frame->bgraData = std::move(tempYuvBuffer);
-            frame->width = config.width;
-            frame->height = config.height;
-            frame->stride = config.width;  // YUV的stride不同
-            frame->timestamp = std::chrono::steady_clock::now();
-
-            frameQueue.enqueue(frame);
-
-            if (encoderChannel.is_open()) {
-                boost::system::error_code ec;
-                encoderChannel.try_send(ec);
-            }
-
-            return true;
-        }
-    }
-
-    d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
-
-    D3D11_MAPPED_SUBRESOURCE mapped;
-
-    // 尝试非阻塞映射
-    HRESULT hr = d3dContext->Map(
-        stagingTextures[currentTexture].Get(),
-        0,
-        D3D11_MAP_READ,
-        0,  // 非阻塞标志
-        &mapped);
-
-    if (hr == DXGI_ERROR_WAS_STILL_DRAWING) {
-        Logger::getInstance()->info("Staging texture still in use by GPU, skipping frame");
-        // GPU 还在使用这个缓冲区，切换到下一个
-        currentTexture = (currentTexture + 1) % 3;
-        return false;  // 跳过本帧
-    }
-
-    if (FAILED(hr)) {
-        Logger::getInstance()->error("Failed to map texture: 0x" +
-            std::to_string(static_cast<unsigned int>(hr)));
-        return false;
-    }
-
-    auto frame = getFrameFromPool();
-    if (!frame) {
-        d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
-        return false;
-    }
-
-    const uint8_t* srcData = static_cast<const uint8_t*>(mapped.pData);
-    const size_t bytesPerRow = config.width * 4;
-    uint8_t* dstData = frame->bgraData.data();
-
-    // 简化：总是全帧拷贝，去掉脏矩形优化
-    if (mapped.RowPitch == bytesPerRow) {
-        // pitch相同，可以一次性拷贝
-        memcpy(dstData, srcData, bytesPerRow * config.height);
-    }
-    else {
-        // pitch不同，按行拷贝
-        for (int row = 0; row < config.height; ++row) {
-            memcpy(dstData + row * bytesPerRow,
-                srcData + row * mapped.RowPitch,
-                bytesPerRow);
-        }
-    }
-
-    d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
-
-    frame->width = config.width;
-    frame->height = config.height;
-    frame->stride = bytesPerRow;
-    frame->timestamp = std::chrono::steady_clock::now();
-
-    // 队列管理
-    size_t queueSize = frameQueue.size_approx();
-    if (queueSize >= MAX_QUEUE_SIZE) {
-        std::shared_ptr<CapturedFrame> oldFrame;
-        if (frameQueue.try_dequeue(oldFrame)) {
-            returnFrameToPool(oldFrame);
-        }
-    }
-
-    frameQueue.enqueue(frame);
-
-    if (encoderChannel.is_open()) {
-        boost::system::error_code ec;
-        encoderChannel.try_send(ec);
-    }
-
-    // 切换到下一个缓冲区
-    currentTexture = (currentTexture + 1) % 3;
 
     return true;
 }
@@ -837,16 +1169,13 @@ void ScreenCapture::encodeFrame(std::shared_ptr<CapturedFrame> frame) {
         return;
     }
 
-    // 检查是否已经是YUV格式（GPU转换的结果）
-    if (frame->stride == config.width) {  // YUV格式的标志
-        // 直接使用，不需要转换
+    if (frame->isYUV || frame->stride == config.width) {
         if (frameCallback) {
             frameCallback(frame->bgraData.data(), frame->bgraData.size(),
                 frame->width, frame->height);
         }
     }
     else {
-        // BGRA格式，需要CPU转换
         if (!convertBGRAToYUV420(frame->bgraData.data(), frame->stride, yuvBuffer)) {
             Logger::getInstance()->error("Failed to convert BGRA to YUV420");
             return;
@@ -858,7 +1187,6 @@ void ScreenCapture::encodeFrame(std::shared_ptr<CapturedFrame> frame) {
         }
     }
 }
-
 
 bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
     std::vector<uint8_t>& yuvBuffer) {
@@ -960,7 +1288,6 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
     return true;
 }
 
-
 void ScreenCapture::stopCapture() {
     if (!capturing.load()) {
         Logger::getInstance()->info("Capture not running, nothing to stop");
@@ -969,32 +1296,27 @@ void ScreenCapture::stopCapture() {
 
     Logger::getInstance()->info("Stopping capture...");
 
-    // 设置停止标志
     capturing = false;
     encoderRunning = false;
 
-    // 关闭channel并停止context
     Logger::getInstance()->info("Closing encoder channel");
     encoderChannel.close();
 
     Logger::getInstance()->info("Stopping encoder context");
     encoderContext.stop();
 
-    // 等待捕获线程结束
     if (captureThread.joinable()) {
         Logger::getInstance()->info("Waiting for capture thread to finish");
         captureThread.join();
         Logger::getInstance()->info("Capture thread finished");
     }
 
-    // 等待编码器线程结束
     if (encoderThread.joinable()) {
         Logger::getInstance()->info("Waiting for encoder thread to finish");
         encoderThread.join();
         Logger::getInstance()->info("Encoder thread finished");
     }
 
-    // 清空队列
     std::shared_ptr<CapturedFrame> frame;
     int remainingFrames = 0;
     while (frameQueue.try_dequeue(frame)) {
@@ -1016,19 +1338,24 @@ void ScreenCapture::releaseResources() {
         dxgiDuplication.Reset();
     }
 
-    for (int i = 0; i < 3; i++) {
-
+    for (int i = 0; i < NUM_BUFFERS; i++) {
         stagingTextures[i].Reset();
-
     }
 
+    sharedTexture.Reset();
+    keyedMutex.Reset();
+    gpuEncoderTexture.Reset();
+    gpuEncoderUAV.Reset();
+
+    dxgiOutput5.Reset();
     dxgiOutput1.Reset();
     dxgiOutput.Reset();
     dxgiAdapter.Reset();
     dxgiDevice.Reset();
+    d3dContext1.Reset();
     d3dContext.Reset();
+    d3dDevice1.Reset();
     d3dDevice.Reset();
-
 
     yuvBuffer.clear();
     yuvBuffer.shrink_to_fit();
@@ -1054,24 +1381,26 @@ void ScreenCapture::releaseResources() {
     Logger::getInstance()->info("Resources released");
 }
 
-
-void ScreenCapture::releaseResourceDXGI()
-{
+void ScreenCapture::releaseResourceDXGI() {
     if (dxgiDuplication) {
         dxgiDuplication.Reset();
     }
 
-    for (int i = 0; i < 3; i++) {
-
+    for (int i = 0; i < NUM_BUFFERS; i++) {
         stagingTextures[i].Reset();
-
     }
 
+    sharedTexture.Reset();
+    keyedMutex.Reset();
+
+    dxgiOutput5.Reset();
     dxgiOutput1.Reset();
     dxgiOutput.Reset();
     dxgiAdapter.Reset();
     dxgiDevice.Reset();
+    d3dContext1.Reset();
     d3dContext.Reset();
+    d3dDevice1.Reset();
     d3dDevice.Reset();
 
     yuvBuffer.clear();
@@ -1089,5 +1418,4 @@ void ScreenCapture::releaseResourceDXGI()
     if (stagingBuffer) {
         stagingBuffer.Reset();
     }
-
 }
