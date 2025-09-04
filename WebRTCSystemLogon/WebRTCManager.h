@@ -83,6 +83,12 @@ enum class WebRTCRequestState {
     STOPREMOTE = 3
 };
 
+enum class WebRTCVideoCodec {
+    VP8,    // VP8 ±à½âÂëÆ÷
+    VP9,    // VP9 ±à½âÂëÆ÷
+    H264    // H.264 ±à½âÂëÆ÷
+};
+
 class WriterData {
 public:
     WriterData(char* data, size_t size) : size(size) {
@@ -249,7 +255,7 @@ private:
 class WebRTCManager {
     friend class DataChannelObserverImpl;
 public:
-    WebRTCManager(WebRTCRemoteState state);
+    WebRTCManager(WebRTCVideoCodec codec);
     ~WebRTCManager();
     void Cleanup();
 
@@ -285,6 +291,8 @@ private:
     std::string accountID;
 
     std::string targetID;
+
+    WebRTCVideoCodec codec;
 
     std::unique_ptr<webrtc::Thread> networkThread;
     std::unique_ptr<webrtc::Thread> workerThread;
