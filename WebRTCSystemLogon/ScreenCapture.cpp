@@ -204,6 +204,7 @@ bool ScreenCapture::initializeDXGI() {
 
     UINT createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     createFlags |= D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
+	createFlags |= D3D11_CREATE_DEVICE_SINGLETHREADED;
 
 #ifdef _DEBUG
     createFlags |= D3D11_CREATE_DEVICE_DEBUG;
