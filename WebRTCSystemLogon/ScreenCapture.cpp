@@ -5,10 +5,6 @@
 #include <dxgi1_5.h>
 #include "Logger.h"
 
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
-
 // ========== 脏矩形处理结构 ==========
 struct DirtyRegionTracker {
     std::vector<RECT> dirtyRects;
@@ -239,7 +235,7 @@ bool ScreenCapture::initializeDXGI() {
         hr = d3dContext.As(&d3dContext1);
         useAdvancedFeatures = SUCCEEDED(hr);
         if (useAdvancedFeatures) {
-            Logger::getInstance()->info("D3D11.1 features available");
+            Logger::getInstance()->debug("D3D11.1 features available");
         }
     }
 
@@ -270,7 +266,7 @@ bool ScreenCapture::initializeDXGI() {
     // 尝试获取DXGI 1.5
     hr = dxgiOutput.As(&dxgiOutput5);
     if (SUCCEEDED(hr)) {
-        Logger::getInstance()->info("DXGI 1.5 features available");
+        Logger::getInstance()->debug("DXGI 1.5 features available");
     }
 
     static bool init = false;
@@ -529,7 +525,6 @@ bool ScreenCapture::initializeGPUConverter() {
         return false;
     }
 
-    Logger::getInstance()->info("GPU YUV converter initialized successfully");
     return true;
 }
 
