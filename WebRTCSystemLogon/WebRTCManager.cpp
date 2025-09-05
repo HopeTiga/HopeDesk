@@ -925,24 +925,6 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
         }
         return;
 
-        try {
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo mouseInfo;
-            mouseInfo.MouseOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::Move |
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::Absolute);
-            mouseInfo.MouseData(0);
-            mouseInfo.DeltaX(normalizedX);
-            mouseInfo.DeltaY(normalizedY);
-            mouseInfo.TimeOffsetInMilliseconds(0);
-
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo> mouseInputs;
-            mouseInputs.push_back(mouseInfo);
-            inputInjector.InjectMouseInput(mouseInputs);
-        }
-        catch (...) {
-            if (!keyMouseSim->MouseMove(posX, posY, true)) {
-                Logger::getInstance()->error("Failed to move mouse");
-            }
-        }
         break;
     }
 
@@ -974,50 +956,6 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
 
         return;
 
-        try {
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo moveInfo;
-            moveInfo.MouseOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::Move |
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::Absolute);
-            moveInfo.MouseData(0);
-            moveInfo.DeltaX(normalizedX);
-            moveInfo.DeltaY(normalizedY);
-            moveInfo.TimeOffsetInMilliseconds(0);
-
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo> moveInputs;
-            moveInputs.push_back(moveInfo);
-            inputInjector.InjectMouseInput(moveInputs);
-
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo buttonInfo;
-            buttonInfo.MouseData(0);
-            buttonInfo.DeltaX(0);
-            buttonInfo.DeltaY(0);
-            buttonInfo.TimeOffsetInMilliseconds(0);
-
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions options;
-            switch (mouseType) {
-            case 0:
-                options = winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::LeftDown;
-                break;
-            case 1:
-                options = winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::RightDown;
-                break;
-            case 2:
-                options = winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::MiddleDown;
-                break;
-            default:
-                return;
-            }
-
-            buttonInfo.MouseOptions(options);
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo> buttonInputs;
-            buttonInputs.push_back(buttonInfo);
-            inputInjector.InjectMouseInput(buttonInputs);
-        }
-        catch (...) {
-            if (!keyMouseSim->MouseButtonDown(mouseType, posX, posY)) {
-                Logger::getInstance()->error("Failed to send mouse button down");
-            }
-        }
         break;
     }
 
@@ -1049,50 +987,7 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
 
         return;
 
-        try {
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo moveInfo;
-            moveInfo.MouseOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::Move |
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::Absolute);
-            moveInfo.MouseData(0);
-            moveInfo.DeltaX(normalizedX);
-            moveInfo.DeltaY(normalizedY);
-            moveInfo.TimeOffsetInMilliseconds(0);
-
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo> moveInputs;
-            moveInputs.push_back(moveInfo);
-            inputInjector.InjectMouseInput(moveInputs);
-
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo buttonInfo;
-            buttonInfo.MouseData(0);
-            buttonInfo.DeltaX(0);
-            buttonInfo.DeltaY(0);
-            buttonInfo.TimeOffsetInMilliseconds(0);
-
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions options;
-            switch (mouseType) {
-            case 0:
-                options = winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::LeftUp;
-                break;
-            case 1:
-                options = winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::RightUp;
-                break;
-            case 2:
-                options = winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::MiddleUp;
-                break;
-            default:
-                return;
-            }
-
-            buttonInfo.MouseOptions(options);
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo> buttonInputs;
-            buttonInputs.push_back(buttonInfo);
-            inputInjector.InjectMouseInput(buttonInputs);
-        }
-        catch (...) {
-            if (!keyMouseSim->MouseButtonUp(mouseType)) {
-                Logger::getInstance()->error("Failed to send mouse button up");
-            }
-        }
+       
         break;
     }
 
@@ -1107,55 +1002,19 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
         std::memcpy(&windowsKey, buffer + sizeof(short), sizeof(char));
         std::memcpy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
 
-        try {
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo> keyInputs;
+        bool needsShift = false;
+        unsigned char actualKey = windowsKey;
 
-            bool needsShift = false;
-            unsigned char actualKey = windowsKey;
-
-            if (needsShift) {
-                modifiers |= 0x01;
-            }
-
-            if (!keyMouseSim->KeyDown(windowsKey, modifiers)) {
-                Logger::getInstance()->error("Failed to send key down");
-            }
-
-            return;
-
-            if (modifiers & 0x02) { // Ctrl
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo ctrlKey;
-                ctrlKey.VirtualKey(static_cast<uint16_t>(winrt::Windows::System::VirtualKey::Control));
-                ctrlKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::None);
-                keyInputs.push_back(ctrlKey);
-            }
-            if (modifiers & 0x04) { // Alt
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo altKey;
-                altKey.VirtualKey(static_cast<uint16_t>(winrt::Windows::System::VirtualKey::Menu));
-                altKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::None);
-                keyInputs.push_back(altKey);
-            }
-            if (modifiers & 0x01) { // Shift
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo shiftKey;
-                shiftKey.VirtualKey(static_cast<uint16_t>(winrt::Windows::System::VirtualKey::Shift));
-                shiftKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::None);
-                keyInputs.push_back(shiftKey);
-            }
-
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo mainKey;
-            mainKey.VirtualKey(static_cast<uint16_t>(actualKey));
-            mainKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::None);
-            keyInputs.push_back(mainKey);
-
-            if (!keyInputs.empty()) {
-                inputInjector.InjectKeyboardInput(keyInputs);
-            }
+        if (needsShift) {
+            modifiers |= 0x01;
         }
-        catch (...) {
-            if (!keyMouseSim->KeyDown(windowsKey, modifiers)) {
-                Logger::getInstance()->error("Failed to send key down");
-            }
+
+        if (!keyMouseSim->KeyDown(windowsKey, modifiers)) {
+            Logger::getInstance()->error("Failed to send key down");
         }
+
+        return;
+
         break;
     }
 
@@ -1170,56 +1029,18 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
         std::memcpy(&windowsKey, buffer + sizeof(short), sizeof(char));
         std::memcpy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
 
-        try {
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo> keyInputs;
+        bool needsShift = false;
+        unsigned char actualKey = windowsKey;
 
-            bool needsShift = false;
-            unsigned char actualKey = windowsKey;
-
-            if (needsShift) {
-                modifiers |= 0x01;
-            }
-
-            if (!keyMouseSim->KeyUp(windowsKey, modifiers)) {
-                Logger::getInstance()->error("Failed to send key up");
-            }
-            return;
-
-
-
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo mainKey;
-            mainKey.VirtualKey(static_cast<uint16_t>(actualKey));
-            mainKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::KeyUp);
-            keyInputs.push_back(mainKey);
-
-            if (modifiers & 0x01) { // Shift
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo shiftKey;
-                shiftKey.VirtualKey(static_cast<uint16_t>(winrt::Windows::System::VirtualKey::Shift));
-                shiftKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::KeyUp);
-                keyInputs.push_back(shiftKey);
-            }
-            if (modifiers & 0x04) { // Alt
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo altKey;
-                altKey.VirtualKey(static_cast<uint16_t>(winrt::Windows::System::VirtualKey::Menu));
-                altKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::KeyUp);
-                keyInputs.push_back(altKey);
-            }
-            if (modifiers & 0x02) { // Ctrl
-                winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyboardInfo ctrlKey;
-                ctrlKey.VirtualKey(static_cast<uint16_t>(winrt::Windows::System::VirtualKey::Control));
-                ctrlKey.KeyOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputKeyOptions::KeyUp);
-                keyInputs.push_back(ctrlKey);
-            }
-
-            if (!keyInputs.empty()) {
-                inputInjector.InjectKeyboardInput(keyInputs);
-            }
+        if (needsShift) {
+            modifiers |= 0x01;
         }
-        catch (...) {
-            if (!keyMouseSim->KeyUp(windowsKey, modifiers)) {
-                Logger::getInstance()->error("Failed to send key up");
-            }
+
+        if (!keyMouseSim->KeyUp(windowsKey, modifiers)) {
+            Logger::getInstance()->error("Failed to send key up");
         }
+        return;
+
         break;
     }
 
@@ -1231,23 +1052,10 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
         int wheelValue = 0;
         std::memcpy(&wheelValue, buffer + sizeof(short), sizeof(int));
 
-        try {
-            winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo mouseInfo;
-            mouseInfo.MouseOptions(winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseOptions::Wheel);
-            mouseInfo.MouseData(wheelValue);
-            mouseInfo.DeltaX(0);
-            mouseInfo.DeltaY(0);
-            mouseInfo.TimeOffsetInMilliseconds(0);
+        if (!keyMouseSim->MouseWheel(wheelValue)) {
+            Logger::getInstance()->error("Failed to send mouse wheel");
+        }
 
-            std::vector<winrt::Windows::UI::Input::Preview::Injection::InjectedInputMouseInfo> mouseInputs;
-            mouseInputs.push_back(mouseInfo);
-            inputInjector.InjectMouseInput(mouseInputs);
-        }
-        catch (...) {
-            if (!keyMouseSim->MouseWheel(wheelValue)) {
-                Logger::getInstance()->error("Failed to send mouse wheel");
-            }
-        }
         break;
     }
 
