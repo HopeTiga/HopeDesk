@@ -1118,9 +1118,23 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
 void ScreenCapture::handleCaptureError(HRESULT hr) {
     if (hr == DXGI_ERROR_ACCESS_LOST) {
         Logger::getInstance()->warning("Access lost, reinitializing...");
-        this->releaseResourceDXGI();
-        this->initializeDXGI();
-        this->initializeGPUConverter();
+        invalidCallCount++;
+
+        if (!desktopSwitchInProgress && invalidCallCount == 2) {
+            this->releaseResourceDXGI();
+            winLogonSwitcher->SwitchToWinLogonDesktop();
+            this->initializeDXGI();
+            this->initializeGPUConverter();
+            desktopSwitchInProgress = true;
+        }
+        else {
+            this->releaseResourceDXGI();
+            winLogonSwitcher->SwitchToDefaultDesktop();
+            this->initializeDXGI();
+            this->initializeGPUConverter();
+            desktopSwitchInProgress = false;
+        }
+
     }
     else if (hr == DXGI_ERROR_INVALID_CALL) {
 
