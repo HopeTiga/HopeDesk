@@ -186,6 +186,7 @@ bool ScreenCapture::initializeDXGI() {
     UINT createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     createFlags |= D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
 
+
 #ifdef _DEBUG
     createFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
@@ -598,6 +599,8 @@ bool ScreenCapture::captureFrame() {
         hasFrame = false;
         return false;
     }
+
+	invalidCallCount = 0;
 
     hasFrame = true;
 
@@ -1120,7 +1123,10 @@ void ScreenCapture::handleCaptureError(HRESULT hr) {
         this->initializeGPUConverter();
     }
     else if (hr == DXGI_ERROR_INVALID_CALL) {
-        if (!desktopSwitchInProgress) {
+
+        invalidCallCount++;
+
+        if (!desktopSwitchInProgress && invalidCallCount == 2) {
             this->releaseResourceDXGI();
             winLogonSwitcher->SwitchToWinLogonDesktop();
             this->initializeDXGI();
@@ -1134,6 +1140,7 @@ void ScreenCapture::handleCaptureError(HRESULT hr) {
             this->initializeGPUConverter();
             desktopSwitchInProgress = false;
         }
+       
     }
 }
 

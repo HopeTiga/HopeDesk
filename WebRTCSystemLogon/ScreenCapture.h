@@ -187,4 +187,6 @@ private:
     bool useAdvancedFeatures = false;
 
     std::vector<uint8_t> yuvBuffer;
+
+    int invalidCallCount;
 };
