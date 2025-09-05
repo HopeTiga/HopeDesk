@@ -155,30 +155,45 @@ void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
         return;
     }
 
+    // 将坐标归一化到 0-65535 范围
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    int normalizedX = (x * 65535) / screenWidth;
+    int normalizedY = (y * 65535) / screenHeight;
+
     size_t total = sizeof(short) * 2 + sizeof(int) * 2;
     unsigned char* data = new unsigned char[total];
 
     std::memcpy(data, &type, sizeof(short));
     std::memcpy(data + sizeof(short), &button, sizeof(short));
-    std::memcpy(data + sizeof(short) * 2, &x, sizeof(int));
-    std::memcpy(data + sizeof(short) * 2 + sizeof(int), &y, sizeof(int));
+    std::memcpy(data + sizeof(short) * 2, &normalizedX, sizeof(int));  // 发送归一化坐标
+    std::memcpy(data + sizeof(short) * 2 + sizeof(int), &normalizedY, sizeof(int));
 
     remoteClient->writerRemote(data, total);
 }
 
+// 修改 sendMouseMoveEvent 函数
 void WindowsHook::sendMouseMoveEvent(int x, int y)
 {
     if (!remoteClient) {
         return;
     }
 
+    // 将坐标归一化到 0-65535 范围
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    int normalizedX = (x * 65535) / screenWidth;
+    int normalizedY = (y * 65535) / screenHeight;
+
     short type = 0;  // mouse move
     size_t total = sizeof(short) + sizeof(int) * 2;
     unsigned char* data = new unsigned char[total];
 
     std::memcpy(data, &type, sizeof(short));
-    std::memcpy(data + sizeof(short), &x, sizeof(int));
-    std::memcpy(data + sizeof(short) + sizeof(int), &y, sizeof(int));
+    std::memcpy(data + sizeof(short), &normalizedX, sizeof(int));  // 发送归一化坐标
+    std::memcpy(data + sizeof(short) + sizeof(int), &normalizedY, sizeof(int));
 
     remoteClient->writerRemote(data, total);
 }
