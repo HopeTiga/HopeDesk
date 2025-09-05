@@ -572,11 +572,26 @@ void ScreenCapture::captureThreadFunc() {
 
 bool ScreenCapture::captureFrame() {
     if (!dxgiDuplication) {
-        this->releaseResourceDXGI();
-        this->initializeDXGI();
-        this->initializeGPUConverter();
+        invalidCallDxgi++;
+
+        if (!desktopSwitchInProgress && invalidCallDxgi == 2) {
+            this->releaseResourceDXGI();
+            winLogonSwitcher->SwitchToWinLogonDesktop();
+            this->initializeDXGI();
+            this->initializeGPUConverter();
+            desktopSwitchInProgress = true;
+        }
+        else {
+            this->releaseResourceDXGI();
+            winLogonSwitcher->SwitchToDefaultDesktop();
+            this->initializeDXGI();
+            this->initializeGPUConverter();
+            desktopSwitchInProgress = false;
+        }
         return false;
     }
+
+    invalidCallDxgi = 0;
 
     HRESULT hr;
     Microsoft::WRL::ComPtr<IDXGIResource> desktopResource;
@@ -600,7 +615,7 @@ bool ScreenCapture::captureFrame() {
         return false;
     }
 
-	invalidCallCount = 0;
+    invalidCallCount = 0;
 
     hasFrame = true;
 
@@ -1154,7 +1169,7 @@ void ScreenCapture::handleCaptureError(HRESULT hr) {
             this->initializeGPUConverter();
             desktopSwitchInProgress = false;
         }
-       
+
     }
 }
 

@@ -899,32 +899,33 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
     short eventType = 0;
     std::memcpy(&eventType, buffer, sizeof(short));
 
+    // 获取当前屏幕分辨率
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
     switch (eventType) {
     case 0: { // Mouse move
         if (size < sizeof(short) + 2 * sizeof(int)) {
             return;
         }
 
-        int posX = 0;
-        int posY = 0;
+        int normalizedX = 0;
+        int normalizedY = 0;
 
-        std::memcpy(&posX, buffer + sizeof(short), sizeof(int));
-        std::memcpy(&posY, buffer + sizeof(short) + sizeof(int), sizeof(int));
+        std::memcpy(&normalizedX, buffer + sizeof(short), sizeof(int));
+        std::memcpy(&normalizedY, buffer + sizeof(short) + sizeof(int), sizeof(int));
 
-        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+        // 将归一化坐标转换为本地屏幕坐标
+        int posX = (normalizedX * screenWidth) / 65535;
+        int posY = (normalizedY * screenHeight) / 65535;
 
+        // 确保坐标在有效范围内
         posX = std::max(0, std::min(posX, screenWidth - 1));
         posY = std::max(0, std::min(posY, screenHeight - 1));
-
-        int normalizedX = (posX * 65535) / screenWidth;
-        int normalizedY = (posY * 65535) / screenHeight;
 
         if (!keyMouseSim->MouseMove(posX, posY, true)) {
             Logger::getInstance()->error("Failed to move mouse");
         }
-        return;
-
         break;
     }
 
@@ -934,28 +935,24 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
         }
 
         short mouseType = 0;
-        int posX = 0;
-        int posY = 0;
+        int normalizedX = 0;
+        int normalizedY = 0;
 
         std::memcpy(&mouseType, buffer + sizeof(short), sizeof(short));
-        std::memcpy(&posX, buffer + sizeof(short) * 2, sizeof(int));
-        std::memcpy(&posY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
+        std::memcpy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
+        std::memcpy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
 
-        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+        // 将归一化坐标转换为本地屏幕坐标
+        int posX = (normalizedX * screenWidth) / 65535;
+        int posY = (normalizedY * screenHeight) / 65535;
 
+        // 确保坐标在有效范围内
         posX = std::max(0, std::min(posX, screenWidth - 1));
         posY = std::max(0, std::min(posY, screenHeight - 1));
-
-        int normalizedX = (posX * 65535) / screenWidth;
-        int normalizedY = (posY * 65535) / screenHeight;
 
         if (!keyMouseSim->MouseButtonDown(mouseType, posX, posY)) {
             Logger::getInstance()->error("Failed to send mouse button down");
         }
-
-        return;
-
         break;
     }
 
@@ -965,29 +962,24 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
         }
 
         short mouseType = 0;
-        int posX = 0;
-        int posY = 0;
+        int normalizedX = 0;
+        int normalizedY = 0;
 
         std::memcpy(&mouseType, buffer + sizeof(short), sizeof(short));
-        std::memcpy(&posX, buffer + sizeof(short) * 2, sizeof(int));
-        std::memcpy(&posY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
+        std::memcpy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
+        std::memcpy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
 
-        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+        // 将归一化坐标转换为本地屏幕坐标
+        int posX = (normalizedX * screenWidth) / 65535;
+        int posY = (normalizedY * screenHeight) / 65535;
 
+        // 确保坐标在有效范围内
         posX = std::max(0, std::min(posX, screenWidth - 1));
         posY = std::max(0, std::min(posY, screenHeight - 1));
-
-        int normalizedX = (posX * 65535) / screenWidth;
-        int normalizedY = (posY * 65535) / screenHeight;
 
         if (!keyMouseSim->MouseButtonUp(mouseType)) {
             Logger::getInstance()->error("Failed to send mouse button up");
         }
-
-        return;
-
-       
         break;
     }
 
@@ -1062,6 +1054,7 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
     default:
         break;
     }
+
 }
 
 

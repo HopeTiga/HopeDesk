@@ -188,5 +188,7 @@ private:
 
     std::vector<uint8_t> yuvBuffer;
 
-    int invalidCallCount;
+    int invalidCallCount = 0;
+
+    int invalidCallDxgi = 0;
 };
