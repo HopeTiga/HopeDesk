@@ -1,130 +1,20 @@
 ﻿#include "videowidget.h"
 #include "webrtcremoteclient.h"
-#include <QMouseEvent>
-#include <QKeyEvent>
-#include <QDateTime>
-#include <QDebug>
-#include <QImage>
-#include <QApplication>
-#include <QScreen>
+#include "Logger.h"
 #include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QPropertyAnimation>
-#include <QGraphicsOpacityEffect>
-#include <QScreen>
-#include <cstring>
+#include <QFile>
+#include <QCursor>
+#include <QResizeEvent>
 #include <algorithm>
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-// 为非Windows平台定义VK_*常量
-#define VK_LEFT 0x25
-#define VK_UP 0x26
-#define VK_RIGHT 0x27
-#define VK_DOWN 0x28
-#define VK_BACK 0x08
-#define VK_TAB 0x09
-#define VK_RETURN 0x0D
-#define VK_SHIFT 0x10
-#define VK_CONTROL 0x11
-#define VK_MENU 0x12
-#define VK_ESCAPE 0x1B
-#define VK_SPACE 0x20
-#define VK_F1 0x70
-#define VK_OEM_1 0xBA
-#define VK_OEM_PLUS 0xBB
-#define VK_OEM_COMMA 0xBC
-#define VK_OEM_MINUS 0xBD
-#define VK_OEM_PERIOD 0xBE
-#define VK_OEM_2 0xBF
-#define VK_OEM_3 0xC0
-#define VK_OEM_4 0xDB
-#define VK_OEM_5 0xDC
-#define VK_OEM_6 0xDD
-#define VK_OEM_7 0xDE
-#endif
-
-// 顶点着色器 - 优化版本
-const char* VideoWidget::vertexShaderSource = R"(
-#version 450 core
-layout (location = 0) in vec2 aPos;
-layout (location = 1) in vec2 aTexCoord;
-
-out vec2 TexCoord;
-
-void main()
-{
-    gl_Position = vec4(aPos, 0.0, 1.0);
-    TexCoord = aTexCoord;
-}
-)";
-
-// 片段着色器 - 优化版本
-const char* VideoWidget::fragmentShaderSource = R"(
-#version 450 core
-in vec2 TexCoord;
-out vec4 FragColor;
-
-uniform sampler2D videoTexture;
-uniform bool hasVideo;
-uniform bool isYUV;
-
-const mat3 yuv2rgb = mat3(
-    1.164,  1.164, 1.164,
-    0.0,   -0.392, 2.017,
-    1.596, -0.813, 0.0
-);
-
-void main()
-{
-    if (!hasVideo) {
-        FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
-    }
-
-    if (isYUV) {
-        vec3 yuv = texture(videoTexture, TexCoord).rgb;
-        yuv.x = yuv.x - 0.0625;
-        yuv.yz = yuv.yz - 0.5;
-        vec3 rgb = yuv2rgb * yuv;
-        rgb = rgb * 1.1;
-        FragColor = vec4(clamp(rgb, 0.0, 1.0), 1.0);
-    } else {
-        vec4 color = texture(videoTexture, TexCoord);
-
-        // RGB也增强10%
-        color.rgb = color.rgb * 1.1;
-
-        FragColor = vec4(clamp(color.rgb, 0.0, 1.0), 1.0);
-    }
-}
-)";
-
 VideoWidget::VideoWidget(QWidget* parent)
-    : QOpenGLWidget(parent)
-    , shaderProgram(nullptr)
-    , textureId(0)
-    , videoWidth(0)
-    , videoHeight(0)
-    , frameCount(0)
-    , currentFPS(0.0)
-    , lastFPSUpdate(0)
-    , hasVideo(false)
-    , needsTextureUpdate(false)
-    , textureCreated(false)
-    , currentPboIndex(0)
-    , uploadPboIndex(0)
-    , currentFrameIndex(0)
-    , readyFrameIndex(-1)
-    , pboSize(0)
-    , gpuAccelerationEnabled(true)
-    , maxTextureSize(0)
-    , uniformHasVideo(-1)
-    , uniformVideoTexture(-1)
-    , uniformIsYUV(-1)
+    : QRhiWidget(parent)
+    , webRTCRemoteClient(nullptr)
+    , rhi(nullptr)
+    , videoWidth(640)
+    , videoHeight(480)
+    , resourcesInitialized(false)
     , fullScreenButton(nullptr)
-    , exitFullScreenButton(nullptr)
     , sidebar(nullptr)
     , sidebarExitButton(nullptr)
     , mouseCheckTimer(nullptr)
@@ -132,52 +22,21 @@ VideoWidget::VideoWidget(QWidget* parent)
     , sidebarAnimation(nullptr)
     , isFullScreenMode(false)
     , sidebarVisible(false)
-    ,windowsHook(nullptr)
 {
+    // 获取Logger实例
+    logger = Logger::getInstance();
+    logger->info("VideoWidget初始化开始");
+
     QIcon windowIcon(":/logo/res/Wilson_DST.png");
     if (!windowIcon.isNull()) {
         setWindowIcon(windowIcon);
-        qDebug() << "视频窗口图标设置成功";
-    } else {
-        qDebug() << "警告：无法加载视频窗口图标：:/logo/res/Wilson_DST.png";
     }
 
-    // 设置窗口属性 - 专注于OpenGL渲染
     setMinimumSize(320, 240);
     setFocusPolicy(Qt::StrongFocus);
     setFocus();
     setMouseTracking(true);
     setAttribute(Qt::WA_AcceptTouchEvents);
-
-    // 关闭Qt的自动填充和部分更新
-    setAutoFillBackground(false);
-    setUpdatesEnabled(true);
-
-    // 设置OpenGL格式 - 优化GPU使用
-    QSurfaceFormat format;
-    format.setVersion(4, 5);
-    format.setProfile(QSurfaceFormat::CoreProfile);
-    format.setSwapBehavior(QSurfaceFormat::TripleBuffer); // 三重缓冲
-    format.setSwapInterval(0); // 禁用VSync获得最高帧率，如需限制帧率可设为1
-    format.setDepthBufferSize(0); // 不需要深度缓冲
-    format.setStencilBufferSize(0); // 不需要模板缓冲
-    format.setSamples(0); // 不需要多重采样
-    format.setRedBufferSize(8);
-    format.setGreenBufferSize(8);
-    format.setBlueBufferSize(8);
-    format.setAlphaBufferSize(8);
-
-    setFormat(format);
-
-    // 初始化PBO ID
-    std::fill(std::begin(pboIds), std::end(pboIds), 0);
-
-    // 初始化帧缓冲
-    for (int i = 0; i < 3; ++i) {
-        frameBuffers[i].ready = false;
-        frameBuffers[i].width = 0;
-        frameBuffers[i].height = 0;
-    }
 
     // 初始化FPS计时器
     fpsTimer.start();
@@ -188,29 +47,555 @@ VideoWidget::VideoWidget(QWidget* parent)
     // 初始化控件
     initializeControls();
 
+    logger->info("VideoWidget初始化完成");
 }
 
 VideoWidget::~VideoWidget()
 {
-    makeCurrent();
+    logger->info("VideoWidget析构");
+}
 
-    // 清理OpenGL资源
-    if (textureId) {
-        glDeleteTextures(1, &textureId);
+void VideoWidget::initialize(QRhiCommandBuffer* cb)
+{
+    if (!QRhiWidget::rhi()) {
+        logger->error("RHI未初始化");
+        return;
     }
 
-    if (pboIds[0]) {
-        glDeleteBuffers(PBO_COUNT, pboIds);
+    // 保存RHI实例
+    if (rhi != QRhiWidget::rhi()) {
+        logger->info("RHI实例改变，重新创建资源");
+        releaseResources();
+        rhi = QRhiWidget::rhi();
+        resourcesInitialized = false;
     }
 
-    delete shaderProgram;
+    if (!resourcesInitialized) {
+        logger->info("开始初始化视频渲染资源");
 
-    doneCurrent();
+        if (!initializeResources(cb)) {
+            logger->error("初始化资源失败");
+            return;
+        }
+
+        resourcesInitialized = true;
+        logger->info("视频渲染资源初始化完成");
+    }
+}
+
+bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
+{
+    // 1. 创建顶点缓冲
+    createBuffers();
+
+    // 2. 创建纹理
+    createTextures();
+
+    // 3. 创建采样器
+    createSampler();
+
+    // 4. 创建着色器资源绑定
+    createShaderResourceBindings();
+
+    // 5. 创建管线
+    createPipeline();
+
+    // 6. 上传初始数据
+    if (cb && rhi) {
+        QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
+
+        // 上传顶点数据
+        static const float vertexData[] = {
+            // 位置         // 纹理坐标
+            -1.0f,  1.0f,  0.0f, 0.0f,  // 左上
+            -1.0f, -1.0f,  0.0f, 1.0f,  // 左下
+            1.0f, -1.0f,  1.0f, 1.0f,  // 右下
+            -1.0f,  1.0f,  0.0f, 0.0f,  // 左上
+            1.0f, -1.0f,  1.0f, 1.0f,  // 右下
+            1.0f,  1.0f,  1.0f, 0.0f   // 右上
+        };
+        batch->uploadStaticBuffer(vertexBuffer.get(), vertexData);
+
+        // 初始化uniform buffers
+        UniformData uniformData;
+        uniformData.mvp.setToIdentity();
+        uniformData.params = QVector4D(
+            hasVideo ? 1.0f : 0.0f,  // x: hasVideo
+            0.0f,                     // y: isYUV
+            1.0f,                     // z: brightness
+            0.0f                      // w: padding
+            );
+
+        for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
+            batch->updateDynamicBuffer(uniformBuffers[i].get(), 0, sizeof(UniformData), &uniformData);
+        }
+
+        cb->resourceUpdate(batch);
+    }
+
+    bool success = (pipeline != nullptr);
+    if (!success) {
+        logger->error("initializeResources失败");
+    }
+    return success;
+}
+
+void VideoWidget::createBuffers()
+{
+    if (!rhi) {
+        logger->error("createBuffers: RHI为空");
+        return;
+    }
+
+    // 创建顶点缓冲
+    vertexBuffer.reset(rhi->newBuffer(
+        QRhiBuffer::Immutable,
+        QRhiBuffer::VertexBuffer,
+        6 * 4 * sizeof(float)
+        ));
+
+    if (!vertexBuffer || !vertexBuffer->create()) {
+        logger->error("顶点缓冲创建失败");
+        return;
+    }
+
+    // 创建uniform缓冲
+    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
+        uniformBuffers[i].reset(rhi->newBuffer(
+            QRhiBuffer::Dynamic,
+            QRhiBuffer::UniformBuffer,
+            sizeof(UniformData)
+            ));
+
+        if (!uniformBuffers[i] || !uniformBuffers[i]->create()) {
+            logger->error(std::string("uniform缓冲") + std::to_string(i) + "创建失败");
+            return;
+        }
+    }
+}
+
+void VideoWidget::createTextures()
+{
+    if (!rhi) {
+        logger->error("createTextures: RHI为空");
+        return;
+    }
+
+    // 使用更大的初始尺寸，避免后续频繁重建纹理
+    QSize initialSize(std::max(videoWidth.load(), 1920), std::max(videoHeight.load(), 1080));
+
+    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
+        // 使用RGBA8格式
+        videoTextures[i].reset(rhi->newTexture(
+            QRhiTexture::RGBA8,
+            initialSize,
+            1,
+            QRhiTexture::Flag(0)
+            ));
+
+        if (!videoTextures[i]) {
+            logger->error(std::string("创建视频纹理对象") + std::to_string(i) + "失败");
+            return;
+        }
+
+        if (!videoTextures[i]->create()) {
+            logger->warning(std::string("创建视频纹理") + std::to_string(i) + "失败，尝试创建备用纹理");
+
+            // 创建备用的较小纹理
+            videoTextures[i].reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(640, 480)));
+            if (!videoTextures[i] || !videoTextures[i]->create()) {
+                logger->error(std::string("创建备用纹理") + std::to_string(i) + "也失败了");
+                return;
+            }
+        }
+    }
+}
+
+void VideoWidget::createSampler()
+{
+    if (!rhi) {
+        logger->error("createSampler: RHI为空");
+        return;
+    }
+
+    sampler.reset(rhi->newSampler(
+        QRhiSampler::Linear,
+        QRhiSampler::Linear,
+        QRhiSampler::None,
+        QRhiSampler::ClampToEdge,
+        QRhiSampler::ClampToEdge
+        ));
+
+    if (!sampler || !sampler->create()) {
+        logger->error("采样器创建失败");
+        return;
+    }
+}
+
+void VideoWidget::createShaderResourceBindings()
+{
+    if (!rhi) {
+        logger->error("createShaderResourceBindings: RHI为空");
+        return;
+    }
+
+    // 检查依赖资源
+    if (!uniformBuffers[0] || !videoTextures[0] || !sampler) {
+        logger->error("依赖资源未准备好");
+        return;
+    }
+
+    // 创建主SRB
+    srb.reset(rhi->newShaderResourceBindings());
+    if (!srb) {
+        logger->error("创建SRB对象失败");
+        return;
+    }
+
+    srb->setBindings({
+        QRhiShaderResourceBinding::uniformBuffer(
+            0,
+            QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+            uniformBuffers[0].get()
+            ),
+        QRhiShaderResourceBinding::sampledTexture(
+            1,
+            QRhiShaderResourceBinding::FragmentStage,
+            videoTextures[0].get(),
+            sampler.get()
+            )
+    });
+
+    if (!srb->create()) {
+        logger->error("主着色器资源绑定create()失败");
+        srb.reset();
+        return;
+    }
+
+    // 为每个帧创建兼容的SRB
+    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
+        perFrameSrb[i].reset(rhi->newShaderResourceBindings());
+        if (!perFrameSrb[i]) {
+            logger->error(std::string("创建帧") + std::to_string(i) + "的SRB对象失败");
+            continue;
+        }
+
+        perFrameSrb[i]->setBindings({
+            QRhiShaderResourceBinding::uniformBuffer(
+                0,
+                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                uniformBuffers[i].get()
+                ),
+            QRhiShaderResourceBinding::sampledTexture(
+                1,
+                QRhiShaderResourceBinding::FragmentStage,
+                videoTextures[i].get(),
+                sampler.get()
+                )
+        });
+
+        if (!perFrameSrb[i]->create()) {
+            logger->error(std::string("帧") + std::to_string(i) + "的着色器资源绑定create()失败");
+            perFrameSrb[i].reset();
+        }
+    }
+}
+
+void VideoWidget::createPipeline()
+{
+    if (!rhi) {
+        logger->error("createPipeline: RHI为空");
+        return;
+    }
+
+    if (!srb) {
+        logger->error("无法创建管线：着色器资源绑定未准备好");
+        return;
+    }
+
+    pipeline.reset(rhi->newGraphicsPipeline());
+    if (!pipeline) {
+        logger->error("创建pipeline对象失败");
+        return;
+    }
+
+    // 加载着色器
+    QShader vertShader = getShader(":/shaders/res/video.vert.qsb");
+    QShader fragShader = getShader(":/shaders/res/video.frag.qsb");
+
+    if (!vertShader.isValid() || !fragShader.isValid()) {
+        logger->error(std::string("着色器无效 - vertex: ") +
+                      (vertShader.isValid() ? "有效" : "无效") +
+                      ", fragment: " +
+                      (fragShader.isValid() ? "有效" : "无效"));
+        pipeline.reset();
+        return;
+    }
+
+    pipeline->setShaderStages({
+        { QRhiShaderStage::Vertex, vertShader },
+        { QRhiShaderStage::Fragment, fragShader }
+    });
+
+    // 设置顶点输入布局
+    QRhiVertexInputLayout inputLayout;
+    inputLayout.setBindings({
+        { 4 * sizeof(float) }  // 每个顶点4个float
+    });
+    inputLayout.setAttributes({
+        { 0, 0, QRhiVertexInputAttribute::Float2, 0 },                  // 位置
+        { 0, 1, QRhiVertexInputAttribute::Float2, 2 * sizeof(float) }   // 纹理坐标
+    });
+
+    pipeline->setVertexInputLayout(inputLayout);
+    pipeline->setShaderResourceBindings(srb.get());
+    pipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    pipeline->setDepthTest(false);
+    pipeline->setDepthWrite(false);
+    pipeline->setCullMode(QRhiGraphicsPipeline::None);
+
+    if (!pipeline->create()) {
+        logger->error("渲染管线create()失败");
+        pipeline.reset();
+        return;
+    }
+}
+
+void VideoWidget::render(QRhiCommandBuffer* cb)
+{
+    if (!rhi || !resourcesInitialized || !pipeline) {
+        const QColor clearColor(32, 32, 32);
+        cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
+        cb->endPass();
+        return;
+    }
+
+    // 准备资源更新
+    QRhiResourceUpdateBatch* batch = nullptr;
+
+    int frameToRender = -1;
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+        for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
+            int slotIndex = (currentFrameSlot - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
+            if (frameBuffers[slotIndex].ready && frameBuffers[slotIndex].data) {
+                frameToRender = slotIndex;
+                break;
+            }
+        }
+    }
+
+    if (frameToRender >= 0) {
+        batch = rhi->nextResourceUpdateBatch();
+
+        std::lock_guard<std::mutex> lock(frameMutex);
+        FrameBuffer& frame = frameBuffers[frameToRender];
+
+        if (frame.needsUpdate && frame.ready && frame.data) {
+            // 检查是否需要重建纹理
+            QSize currentTextureSize = videoTextures[frameToRender]->pixelSize();
+            QSize frameSize(frame.width, frame.height);
+
+            if (currentTextureSize != frameSize) {
+                // 只在尺寸变化时记录日志
+                logger->info(std::string("视频尺寸变化: ") +
+                             std::to_string(currentTextureSize.width()) + "x" + std::to_string(currentTextureSize.height()) +
+                             " -> " + std::to_string(frameSize.width()) + "x" + std::to_string(frameSize.height()));
+
+                // 重建纹理
+                videoTextures[frameToRender].reset(rhi->newTexture(
+                    QRhiTexture::RGBA8,
+                    frameSize,
+                    1,
+                    QRhiTexture::Flag(0)
+                    ));
+
+                if (videoTextures[frameToRender] && videoTextures[frameToRender]->create()) {
+                    // 更新SRB绑定
+                    perFrameSrb[frameToRender].reset(rhi->newShaderResourceBindings());
+                    perFrameSrb[frameToRender]->setBindings({
+                        QRhiShaderResourceBinding::uniformBuffer(
+                            0,
+                            QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                            uniformBuffers[frameToRender].get()
+                            ),
+                        QRhiShaderResourceBinding::sampledTexture(
+                            1,
+                            QRhiShaderResourceBinding::FragmentStage,
+                            videoTextures[frameToRender].get(),
+                            sampler.get()
+                            )
+                    });
+                    perFrameSrb[frameToRender]->create();
+                } else {
+                    logger->error("重建纹理失败");
+                    frameToRender = -1;
+                }
+            }
+
+            if (frameToRender >= 0) {
+                // 转换并上传纹理
+                QImage rgbImage(frame.data.get(), frame.width, frame.height,
+                                frame.width * 3, QImage::Format_RGB888);
+                QImage rgbaImage = rgbImage.convertToFormat(QImage::Format_RGBA8888);
+
+                if (!rgbaImage.isNull()) {
+                    batch->uploadTexture(videoTextures[frameToRender].get(), rgbaImage);
+                    frame.needsUpdate = false;
+                    hasVideo = true;
+
+                    // 更新视频尺寸信息
+                    videoWidth = frame.width;
+                    videoHeight = frame.height;
+                }
+            }
+        }
+
+        if (frameToRender >= 0) {
+            // 更新uniform数据
+            UniformData uniformData;
+            uniformData.mvp.setToIdentity();
+            uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
+            batch->updateDynamicBuffer(uniformBuffers[frameToRender].get(),
+                                       0, sizeof(UniformData), &uniformData);
+        }
+    }
+
+    // 开始渲染通道
+    const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
+    cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, batch);
+
+    if (frameToRender >= 0 && perFrameSrb[frameToRender]) {
+        const QSize outputSize = renderTarget()->pixelSize();
+        cb->setGraphicsPipeline(pipeline.get());
+
+        // 设置视口为整个输出区域
+        cb->setViewport({ 0, 0, float(outputSize.width()), float(outputSize.height()) });
+
+        cb->setShaderResources(perFrameSrb[frameToRender].get());
+
+        const QRhiCommandBuffer::VertexInput vbufBinding(vertexBuffer.get(), 0);
+        cb->setVertexInput(0, 1, &vbufBinding);
+        cb->draw(6);
+
+        // 更新帧计数
+        frameCount++;
+    }
+
+    cb->endPass();
+}
+
+void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
+{
+    if (!frame || !frame->data) {
+        return;
+    }
+
+    // 使用轮转策略
+    int nextSlot = (currentFrameSlot + 1) % FRAME_BUFFER_COUNT;
+
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+
+        // 设置新数据
+        FrameBuffer& buffer = frameBuffers[nextSlot];
+        buffer.data = frame->data;
+        buffer.width = frame->width;
+        buffer.height = frame->height;
+        buffer.ready = true;
+        buffer.needsUpdate = true;
+
+        // 更新当前槽位
+        currentFrameSlot = nextSlot;
+    }
+
+    update();
+}
+
+void VideoWidget::clearDisplay()
+{
+    logger->info("清除显示");
+    hasVideo = false;
+
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+        for (auto& buffer : frameBuffers) {
+            buffer.ready = false;
+            buffer.needsUpdate = false;
+            buffer.data.reset();
+        }
+    }
+
+    update();
+}
+
+void VideoWidget::releaseResources()
+{
+    logger->info("释放渲染资源");
+
+    pipeline.reset();
+    srb.reset();
+
+    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
+        perFrameSrb[i].reset();
+        uniformBuffers[i].reset();
+        videoTextures[i].reset();
+    }
+
+    sampler.reset();
+    vertexBuffer.reset();
+
+    resourcesInitialized = false;
+}
+
+QShader VideoWidget::getShader(const QString& name)
+{
+    QFile f(name);
+    if (f.open(QIODevice::ReadOnly)) {
+        QShader shader = QShader::fromSerialized(f.readAll());
+        if (shader.isValid()) {
+            return shader;
+        } else {
+            logger->error(std::string("着色器无效：") + name.toStdString());
+        }
+    } else {
+        logger->error(std::string("无法打开着色器文件：") + name.toStdString());
+    }
+
+    return QShader();
+}
+
+void VideoWidget::updateFPS()
+{
+    qint64 elapsed = fpsTimer.elapsed();
+    if (elapsed > 0) {
+        double fps = (frameCount * 1000.0) / elapsed;
+        currentFPS = fps;
+        frameCount = 0;
+        fpsTimer.restart();
+
+        // 只在有视频时每10秒输出一次FPS
+        static int fpsCounter = 0;
+        if (hasVideo && (++fpsCounter % 10 == 0)) {
+            logger->info(std::string("FPS: ") + std::to_string(fps));
+        }
+    }
+}
+
+void VideoWidget::setWebRTCRemoteClient(WebRTCRemoteClient* client)
+{
+    logger->info("设置WebRTC远程客户端");
+    webRTCRemoteClient = client;
+
+    windowsHook = std::make_unique<WindowsHook>();
+    windowsHook->setTargetWidget(this);
+    windowsHook->setRemoteClient(webRTCRemoteClient);
+    windowsHook->setVideoSize(width(), height());
+    windowsHook->startHook();
 }
 
 void VideoWidget::initializeControls()
 {
-
     sidebar = new QWidget(this);
     sidebar->setFixedWidth(SIDEBAR_WIDTH);
     sidebar->setStyleSheet(R"(
@@ -225,14 +610,12 @@ void VideoWidget::initializeControls()
     )");
     sidebar->setVisible(false);
 
-    // 创建侧边栏布局
     QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
-    sidebarLayout->setContentsMargins(5, 10, 5, 10);  // 减小边距
-    sidebarLayout->setSpacing(5);  // 减小间距
+    sidebarLayout->setContentsMargins(5, 10, 5, 10);
+    sidebarLayout->setSpacing(5);
 
-    // 全屏按钮（普通模式下在侧边栏中）
-    fullScreenButton = new QPushButton("全\n屏", sidebar);  // 改为两行文字以适应较窄的宽度
-    fullScreenButton->setFixedSize(20, 20);  // 减小按钮尺寸
+    fullScreenButton = new QPushButton("全\n屏", sidebar);
+    fullScreenButton->setFixedSize(20, 20);
     fullScreenButton->setStyleSheet(R"(
         QPushButton {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #667EEA, stop:1 #764BA2);
@@ -244,18 +627,13 @@ void VideoWidget::initializeControls()
         }
         QPushButton:hover {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #5A67D8, stop:1 #6B46C1);
-            transform: scale(1.05);
-        }
-        QPushButton:pressed {
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #553C9A, stop:1 #5B21B6);
         }
     )");
     connect(fullScreenButton, &QPushButton::clicked, this, &VideoWidget::onFullScreenClicked);
-    fullScreenButton->setVisible(true);  // 初始时可见
+    fullScreenButton->setVisible(true);
 
-    // 退出全屏按钮（全屏模式下在侧边栏中）
     sidebarExitButton = new QPushButton("退出\n全屏", sidebar);
-    sidebarExitButton->setFixedSize(20, 20);  // 减小按钮尺寸
+    sidebarExitButton->setFixedSize(20, 20);
     sidebarExitButton->setStyleSheet(R"(
         QPushButton {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #F56565, stop:1 #E53E3E);
@@ -267,28 +645,21 @@ void VideoWidget::initializeControls()
         }
         QPushButton:hover {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #E53E3E, stop:1 #C53030);
-            transform: scale(1.05);
-        }
-        QPushButton:pressed {
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #C53030, stop:1 #9C1C1C);
         }
     )");
-    sidebarExitButton->setVisible(false);  // 初始时隐藏
+    sidebarExitButton->setVisible(false);
     connect(sidebarExitButton, &QPushButton::clicked, this, &VideoWidget::onExitFullScreenClicked);
 
-    // 将按钮添加到布局
     sidebarLayout->addWidget(fullScreenButton);
     sidebarLayout->addWidget(sidebarExitButton);
     sidebarLayout->addStretch();
 
-    // 创建侧边栏动画
     sidebarAnimation = new QPropertyAnimation(sidebar, "pos", this);
-    sidebarAnimation->setDuration(250);  // 稍微加快动画速度
+    sidebarAnimation->setDuration(250);
     sidebarAnimation->setEasingCurve(QEasingCurve::OutCubic);
 
-    // 创建定时器
     mouseCheckTimer = new QTimer(this);
-    mouseCheckTimer->setInterval(50); // 每50ms检查一次鼠标位置
+    mouseCheckTimer->setInterval(50);
     connect(mouseCheckTimer, &QTimer::timeout, this, &VideoWidget::checkMousePosition);
 
     hideTimer = new QTimer(this);
@@ -296,10 +667,8 @@ void VideoWidget::initializeControls()
     hideTimer->setInterval(HIDE_DELAY);
     connect(hideTimer, &QTimer::timeout, this, &VideoWidget::hideSidebar);
 
-    // 始终启动鼠标检查（用于显示侧边栏）
     mouseCheckTimer->start();
 
-    // 初始显示侧边栏（普通模式）
     sidebar->setVisible(true);
     sidebarVisible = true;
     updateControlsPosition();
@@ -309,7 +678,7 @@ void VideoWidget::updateControlsPosition()
 {
     if (!sidebar) return;
 
-    int sidebarHeight = height() * 0.4; // 减小高度到40%
+    int sidebarHeight = height() * 0.4;
     int sidebarY = (height() - sidebarHeight) / 2;
 
     sidebar->setFixedHeight(sidebarHeight);
@@ -317,10 +686,9 @@ void VideoWidget::updateControlsPosition()
     if (sidebarVisible) {
         sidebar->move(0, sidebarY);
     } else {
-        sidebar->move(-SIDEBAR_WIDTH + 3, sidebarY); // 隐藏时只露出3px边缘
+        sidebar->move(-SIDEBAR_WIDTH + 3, sidebarY);
     }
 
-    // 根据模式显示/隐藏按钮
     if (isFullScreenMode) {
         fullScreenButton->setVisible(false);
         sidebarExitButton->setVisible(true);
@@ -332,8 +700,10 @@ void VideoWidget::updateControlsPosition()
 
 void VideoWidget::resizeEvent(QResizeEvent* event)
 {
-    windowsHook->setVideoSize(event->size().width(),event->size().height());
-    QOpenGLWidget::resizeEvent(event);
+    QRhiWidget::resizeEvent(event);
+    if (windowsHook) {
+        windowsHook->setVideoSize(event->size().width(), event->size().height());
+    }
     updateControlsPosition();
 }
 
@@ -341,56 +711,32 @@ void VideoWidget::enterFullScreen()
 {
     if (isFullScreenMode) return;
 
-    // 保存当前窗口状态
     normalGeometry = geometry();
     normalWindowState = windowState();
 
-    // 设置全屏
     isFullScreenMode = true;
     setWindowState(Qt::WindowFullScreen);
 
-    // 更新控件
     updateControlsPosition();
-
-    qDebug() << "进入全屏模式";
+    logger->info("进入全屏模式");
 }
 
 void VideoWidget::exitFullScreen()
 {
     if (!isFullScreenMode) return;
 
-    // 隐藏侧边栏
     sidebar->setVisible(false);
     sidebarVisible = false;
 
-    // 恢复窗口状态
     isFullScreenMode = false;
     setWindowState(normalWindowState);
     setGeometry(normalGeometry);
 
-    // 重新显示侧边栏（普通模式下）
     sidebar->setVisible(true);
     sidebarVisible = true;
 
-    // 更新控件
     updateControlsPosition();
-
-    qDebug() << "退出全屏模式";
-}
-
-void VideoWidget::setWebRTCRemoteClient(WebRTCRemoteClient *webRTCRemoteClient)
-{
-    this->webRTCRemoteClient = webRTCRemoteClient;
-
-    windowsHook = std::make_unique<WindowsHook>();
-
-    windowsHook->setTargetWidget(this);
-
-    windowsHook->setRemoteClient(this->webRTCRemoteClient);
-
-    windowsHook->setVideoSize(this->width(),this->height());
-
-    windowsHook->startHook();
+    logger->info("退出全屏模式");
 }
 
 void VideoWidget::onFullScreenClicked()
@@ -408,34 +754,26 @@ void VideoWidget::checkMousePosition()
     QPoint globalMousePos = QCursor::pos();
     QPoint localMousePos = mapFromGlobal(globalMousePos);
 
-    // 检查鼠标是否在窗口内
     bool mouseInWindow = (localMousePos.x() >= 0 && localMousePos.x() <= width() &&
                           localMousePos.y() >= 0 && localMousePos.y() <= height());
 
     if (mouseInWindow) {
-        // 检查鼠标是否在左边缘触发区域
         bool shouldShowSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_TRIGGER_ZONE);
-
-        // 检查鼠标是否在侧边栏内
         bool mouseInSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_WIDTH &&
                                localMousePos.y() >= sidebar->y() &&
                                localMousePos.y() <= sidebar->y() + sidebar->height());
 
         if (shouldShowSidebar || mouseInSidebar) {
-            // 显示侧边栏
             if (!sidebarVisible) {
                 showSidebar();
             }
-            // 如果鼠标在侧边栏内，停止隐藏定时器
             hideTimer->stop();
         } else if (sidebarVisible) {
-            // 如果鼠标不在侧边栏区域，启动隐藏定时器
             if (!hideTimer->isActive()) {
                 hideTimer->start();
             }
         }
     } else if (sidebarVisible) {
-        // 如果鼠标移出窗口，启动隐藏定时器
         if (!hideTimer->isActive()) {
             hideTimer->start();
         }
@@ -449,16 +787,13 @@ void VideoWidget::showSidebar()
     sidebarVisible = true;
     sidebar->setVisible(true);
 
-    // 动画显示侧边栏
     int sidebarHeight = height() * 0.4;
     int sidebarY = (height() - sidebarHeight) / 2;
 
-    sidebarAnimation->stop();  // 停止之前的动画
+    sidebarAnimation->stop();
     sidebarAnimation->setStartValue(QPoint(-SIDEBAR_WIDTH + 3, sidebarY));
     sidebarAnimation->setEndValue(QPoint(0, sidebarY));
     sidebarAnimation->start();
-
-    qDebug() << "显示侧边栏";
 }
 
 void VideoWidget::hideSidebar()
@@ -467,353 +802,33 @@ void VideoWidget::hideSidebar()
 
     sidebarVisible = false;
 
-    // 动画隐藏侧边栏
     int sidebarHeight = height() * 0.4;
     int sidebarY = (height() - sidebarHeight) / 2;
 
-    sidebarAnimation->stop();  // 停止之前的动画
+    sidebarAnimation->stop();
     sidebarAnimation->setStartValue(QPoint(0, sidebarY));
     sidebarAnimation->setEndValue(QPoint(-SIDEBAR_WIDTH + 3, sidebarY));
 
-    // 断开之前的连接，避免重复连接
     disconnect(sidebarAnimation, &QPropertyAnimation::finished, nullptr, nullptr);
-
-    connect(sidebarAnimation, &QPropertyAnimation::finished, [this]() {
-        if (!sidebarVisible) {  // 确保状态正确
+    connect(sidebarAnimation, &QPropertyAnimation::finished, this, [this]() {
+        if (!sidebarVisible) {
             sidebar->setVisible(false);
         }
     });
     sidebarAnimation->start();
-
-    qDebug() << "隐藏侧边栏";
 }
 
-// 添加鼠标进入和离开事件处理
 void VideoWidget::enterEvent(QEnterEvent* event)
 {
-    QOpenGLWidget::enterEvent(event);
-    // 鼠标进入窗口时不做特殊处理，由checkMousePosition处理
+    QRhiWidget::enterEvent(event);
 }
 
 void VideoWidget::leaveEvent(QEvent* event)
 {
-    QOpenGLWidget::leaveEvent(event);
-    // 鼠标离开窗口时，启动隐藏定时器
+    QRhiWidget::leaveEvent(event);
     if (sidebarVisible && isFullScreenMode) {
         if (!hideTimer->isActive()) {
             hideTimer->start();
         }
     }
 }
-
-// 以下是原有的OpenGL和事件处理代码，保持不变...
-
-void VideoWidget::checkGLError(const char* operation)
-{
-#ifdef DEBUG
-    GLenum error = glGetError();
-    if (error != GL_NO_ERROR) {
-        qDebug() << "OpenGL Error in" << operation << ":" << error;
-    }
-#endif
-}
-
-void VideoWidget::initializeGL()
-{
-    // 初始化OpenGL函数
-    if (!initializeOpenGLFunctions()) {
-        qDebug() << "Failed to initialize OpenGL functions";
-        return;
-    }
-
-    // 打印GPU信息
-    qDebug() << "OpenGL Version:" << (char*)glGetString(GL_VERSION);
-    qDebug() << "GLSL Version:" << (char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
-    qDebug() << "GPU Vendor:" << (char*)glGetString(GL_VENDOR);
-    qDebug() << "GPU Renderer:" << (char*)glGetString(GL_RENDERER);
-
-    // 获取GPU能力
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-    qDebug() << "Max Texture Size:" << maxTextureSize;
-
-    // 设置OpenGL状态 - 优化GPU渲染
-    glDisable(GL_DEPTH_TEST);  // 不需要深度测试
-    glDisable(GL_BLEND);       // 不需要混合
-    glDisable(GL_SCISSOR_TEST);
-    glDisable(GL_STENCIL_TEST);
-    glDisable(GL_CULL_FACE);
-
-    // 设置清除颜色
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-
-    // 设置像素解包参数
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);  // 字节对齐
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
-    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
-
-    // 初始化着色器
-    initializeShaders();
-
-    // 初始化顶点数据
-    initializeVertexData();
-
-    // 创建纹理
-    glGenTextures(1, &textureId);
-    glBindTexture(GL_TEXTURE_2D, textureId);
-
-    // 设置纹理参数 - 优化GPU性能
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    // 预分配纹理存储（如果支持）
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    // 初始化PBO
-    initializePBOs();
-
-    checkGLError("initializeGL");
-}
-
-void VideoWidget::initializePBOs()
-{
-    // 生成PBO
-    glGenBuffers(PBO_COUNT, pboIds);
-
-    // 不预分配，等待第一帧时再分配
-    checkGLError("initializePBOs");
-}
-
-void VideoWidget::initializeShaders()
-{
-    shaderProgram = new QOpenGLShaderProgram(this);
-
-    // 添加顶点着色器
-    if (!shaderProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, vertexShaderSource)) {
-        qDebug() << "Failed to compile vertex shader:" << shaderProgram->log();
-    }
-
-    // 添加片段着色器
-    if (!shaderProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, fragmentShaderSource)) {
-        qDebug() << "Failed to compile fragment shader:" << shaderProgram->log();
-    }
-
-    // 链接着色器程序
-    if (!shaderProgram->link()) {
-        qDebug() << "Failed to link shader program:" << shaderProgram->log();
-    }
-
-    // 缓存uniform位置
-    shaderProgram->bind();
-    uniformHasVideo = shaderProgram->uniformLocation("hasVideo");
-    uniformVideoTexture = shaderProgram->uniformLocation("videoTexture");
-    uniformIsYUV = shaderProgram->uniformLocation("isYUV");
-    shaderProgram->release();
-}
-
-void VideoWidget::initializeVertexData()
-{
-    // 使用标准化设备坐标，优化GPU顶点处理
-    float vertices[] = {
-        // 位置        纹理坐标
-        -1.0f,  1.0f,  0.0f, 0.0f,  // 左上
-        -1.0f, -1.0f,  0.0f, 1.0f,  // 左下
-        1.0f, -1.0f,  1.0f, 1.0f,  // 右下
-
-        -1.0f,  1.0f,  0.0f, 0.0f,  // 左上
-        1.0f, -1.0f,  1.0f, 1.0f,  // 右下
-        1.0f,  1.0f,  1.0f, 0.0f   // 右上
-    };
-
-    // 创建VAO
-    vao.create();
-    vao.bind();
-
-    // 创建并绑定顶点缓冲
-    vertexBuffer.create();
-    vertexBuffer.bind();
-    vertexBuffer.setUsagePattern(QOpenGLBuffer::StaticDraw);
-    vertexBuffer.allocate(vertices, sizeof(vertices));
-
-    // 设置顶点属性
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), nullptr);
-    glEnableVertexAttribArray(0);
-
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                          reinterpret_cast<void*>(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    vao.release();
-    vertexBuffer.release();
-
-    checkGLError("initializeVertexData");
-}
-
-void VideoWidget::resizeGL(int w, int h)
-{
-    // 直接设置视口，不做额外的Qt操作
-    glViewport(0, 0, w, h);
-}
-
-void VideoWidget::paintGL()
-{
-    // 清除颜色缓冲
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    // 检查是否有准备好的帧
-    int frameToRender = readyFrameIndex.load();
-    if (frameToRender >= 0) {
-        std::lock_guard<std::mutex> lock(frameMutex);
-        FrameBuffer& frame = frameBuffers[frameToRender];
-
-        if (frame.ready && frame.data && frame.width > 0 && frame.height > 0) {
-            glBindTexture(GL_TEXTURE_2D, textureId);
-
-            // 计算数据大小
-            size_t dataSize = frame.width * frame.height * 3;
-
-            // 检查是否需要重新分配纹理和PBO
-            if (!textureCreated || videoWidth != frame.width || videoHeight != frame.height) {
-                videoWidth = frame.width;
-                videoHeight = frame.height;
-
-                // 使用不可变纹理存储（如果支持）
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8,
-                             videoWidth, videoHeight, 0,
-                             GL_RGB, GL_UNSIGNED_BYTE, nullptr);
-
-                // 重新分配所有PBO
-                for (int i = 0; i < PBO_COUNT; i++) {
-                    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds[i]);
-                    glBufferData(GL_PIXEL_UNPACK_BUFFER, dataSize, nullptr, GL_STREAM_DRAW);
-                }
-
-                pboSize = dataSize;
-                textureCreated = true;
-
-                checkGLError("Texture/PBO allocation");
-            }
-
-            // 使用当前PBO上传纹理
-            int currentPbo = currentPboIndex.load();
-            int nextPbo = (currentPbo + 1) % PBO_COUNT;
-
-            // 绑定当前PBO并从中更新纹理
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds[currentPbo]);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-                            videoWidth, videoHeight,
-                            GL_RGB, GL_UNSIGNED_BYTE, nullptr);
-
-            // 绑定下一个PBO并写入新数据
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds[nextPbo]);
-
-            // 使用持久映射如果可用，否则使用标准映射
-            void* pboMemory = glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, dataSize,
-                                               GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-            if (pboMemory) {
-                memcpy(pboMemory, frame.data.get(), dataSize);
-                glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
-            }
-
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-            glBindTexture(GL_TEXTURE_2D, 0);
-
-            // 更新PBO索引
-            currentPboIndex.store(nextPbo);
-
-            hasVideo = true;
-            frameCount++;
-
-            // 标记帧已处理
-            frame.ready = false;
-            readyFrameIndex.store(-1);
-
-            checkGLError("Texture upload");
-        }
-    }
-
-    // 渲染
-    if (hasVideo && textureCreated) {
-        shaderProgram->bind();
-
-        // 使用缓存的uniform位置
-        glUniform1i(uniformHasVideo, 1);
-        glUniform1i(uniformIsYUV, 0);
-
-        // 激活纹理单元0并绑定纹理
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, textureId);
-        glUniform1i(uniformVideoTexture, 0);
-
-        // 绘制
-        vao.bind();
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        vao.release();
-
-        glBindTexture(GL_TEXTURE_2D, 0);
-        shaderProgram->release();
-
-        checkGLError("Rendering");
-    }
-}
-
-void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
-{
-    if (!frame || !frame->data) {
-        return;
-    }
-
-    // 使用三重缓冲
-    int nextFrameIndex = (currentFrameIndex.load() + 1) % 3;
-
-    {
-        std::lock_guard<std::mutex> lock(frameMutex);
-        FrameBuffer& buffer = frameBuffers[nextFrameIndex];
-
-        buffer.data = frame->data;
-        buffer.width = frame->width;
-        buffer.height = frame->height;
-        buffer.ready = true;
-    }
-
-    currentFrameIndex.store(nextFrameIndex);
-    readyFrameIndex.store(nextFrameIndex);
-
-    // 请求重绘 - 这会触发paintGL
-    update();
-}
-
-void VideoWidget::clearDisplay()
-{
-    hasVideo = false;
-    readyFrameIndex.store(-1);
-
-    {
-        std::lock_guard<std::mutex> lock(frameMutex);
-        for (auto& buffer : frameBuffers) {
-            buffer.ready = false;
-            buffer.data.reset();
-        }
-    }
-
-    update();
-}
-
-void VideoWidget::updateFPS()
-{
-    qint64 elapsed = fpsTimer.elapsed();
-    if (elapsed > 0) {
-        double fps = (frameCount.load() * 1000.0) / elapsed;
-        currentFPS.store(fps);
-        frameCount.store(0);
-        fpsTimer.restart();
-    }
-}
-
-
-

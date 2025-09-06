@@ -1,27 +1,24 @@
 ﻿#pragma once
-#include <QOpenGLWidget>
-#include <QOpenGLFunctions_4_5_Core>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLBuffer>
-#include <QOpenGLVertexArrayObject>
+#include <QRhiWidget>
 #include <QTimer>
 #include <QPushButton>
 #include <QWidget>
 #include <QPropertyAnimation>
-#include <QGraphicsOpacityEffect>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
 #include <memory>
 #include <atomic>
-#include <QMap>
+#include <mutex>
 #include <QElapsedTimer>
+#include <rhi/qrhi.h>
+#include <rhi/qshader.h>
+#include <array>
 
 #include "windowshook.h"
+#include "Logger.h"
 
 class WebRTCRemoteClient;
 struct VideoFrame;
 
-class VideoWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_5_Core
+class VideoWidget : public QRhiWidget
 {
     Q_OBJECT
 
@@ -29,28 +26,24 @@ public:
     explicit VideoWidget(QWidget* parent = nullptr);
     ~VideoWidget();
 
-    // 显示视频帧
     void displayFrame(std::shared_ptr<VideoFrame> frame);
-
-    // 清空显示
     void clearDisplay();
-
-    // 获取当前帧率
     double getFrameRate() const { return currentFPS; }
 
-    // 全屏控制
     void enterFullScreen();
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
 
-    void setWebRTCRemoteClient(WebRTCRemoteClient *webRTCRemoteClient);
+    void setWebRTCRemoteClient(WebRTCRemoteClient* webRTCRemoteClient);
 
 protected:
-    // OpenGL函数
-    void initializeGL() override;
-    void resizeGL(int w, int h) override;
-    void paintGL() override;
+    void initialize(QRhiCommandBuffer* cb) override;
+    void render(QRhiCommandBuffer* cb) override;
+    void releaseResources() override;
 
+    void resizeEvent(QResizeEvent* event) override;
+    void enterEvent(QEnterEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private Q_SLOTS:
     void updateFPS();
@@ -60,119 +53,84 @@ private Q_SLOTS:
     void hideSidebar();
 
 private:
-    // 初始化着色器
-    void initializeShaders();
-
-    // 初始化顶点数据
-    void initializeVertexData();
-
-    // 初始化UI控件
     void initializeControls();
-
-    // 更新控件位置
     void updateControlsPosition();
-
-    // 更新侧边栏位置
-    void updateSidebarPosition();
-
-    // 显示/隐藏侧边栏
     void showSidebar();
-
-    // 检查OpenGL错误
-    void checkGLError(const char* operation);
-
-    // 初始化PBO
-    void initializePBOs();
+    bool initializeResources(QRhiCommandBuffer* cb);
+    void createBuffers();
+    void createTextures();
+    void createSampler();
+    void createShaderResourceBindings();
+    void createPipeline();
+    QShader getShader(const QString& name);
 
 private:
     WebRTCRemoteClient* webRTCRemoteClient;
-    // OpenGL资源
-    QOpenGLShaderProgram* shaderProgram;
-    GLuint textureId;
-    QOpenGLBuffer vertexBuffer;
-    QOpenGLVertexArrayObject vao;
+    QRhi* rhi = nullptr;
+    Logger* logger;
 
-    // PBO相关 - 三重缓冲
-    static constexpr int PBO_COUNT = 3;
-    GLuint pboIds[PBO_COUNT];
-    std::atomic<int> currentPboIndex;
-    std::atomic<int> uploadPboIndex;
-    size_t pboSize;
+    // 共享资源（所有帧共用）
+    std::unique_ptr<QRhiGraphicsPipeline> pipeline;
+    std::unique_ptr<QRhiBuffer> vertexBuffer;
+    std::unique_ptr<QRhiSampler> sampler;
+    std::unique_ptr<QRhiShaderResourceBindings> srb;
 
-    // 视频数据缓冲
+    // Triple buffering资源（每帧独立）
+    static constexpr int FRAME_BUFFER_COUNT = 3;
+    std::array<std::unique_ptr<QRhiBuffer>, FRAME_BUFFER_COUNT> uniformBuffers;
+    std::array<std::unique_ptr<QRhiTexture>, FRAME_BUFFER_COUNT> videoTextures;
+    std::array<std::unique_ptr<QRhiShaderResourceBindings>, FRAME_BUFFER_COUNT> perFrameSrb;
+
+    // 帧数据缓冲
     struct FrameBuffer {
         std::shared_ptr<uint8_t[]> data;
-        int width;
-        int height;
-        bool ready;
+        int width = 0;
+        int height = 0;
+        bool ready = false;
+        bool needsUpdate = false;
     };
 
-    FrameBuffer frameBuffers[3];
-    std::atomic<int> currentFrameIndex;
-    std::atomic<int> readyFrameIndex;
+    std::array<FrameBuffer, FRAME_BUFFER_COUNT> frameBuffers;
+    std::atomic<int> currentFrameSlot{0};
+    std::atomic<int> renderFrameIndex{0};
     std::mutex frameMutex;
 
     // 视频信息
-    int videoWidth;
-    int videoHeight;
-    bool textureCreated;
+    std::atomic<int> videoWidth{640};
+    std::atomic<int> videoHeight{480};
+    bool resourcesInitialized = false;
 
     // 帧率统计
     QElapsedTimer fpsTimer;
-    std::atomic<int> frameCount;
-    std::atomic<double> currentFPS;
-    qint64 lastFPSUpdate;
+    std::atomic<int> frameCount{0};
+    std::atomic<double> currentFPS{0.0};
 
     // 状态信息
-    std::atomic<bool> hasVideo;
-    std::atomic<bool> needsTextureUpdate;
+    std::atomic<bool> hasVideo{false};
 
-    // 着色器源码
-    static const char* vertexShaderSource;
-    static const char* fragmentShaderSource;
+    // UI控件
+    QPushButton* fullScreenButton;
+    QWidget* sidebar;
+    QPushButton* sidebarExitButton;
+    QTimer* mouseCheckTimer;
+    QTimer* hideTimer;
+    QPropertyAnimation* sidebarAnimation;
 
-    // 鼠标移动优化
-    QPoint lastSentMousePos{-1, -1};
-    static constexpr int MOUSE_MOVE_THRESHOLD = 3;
+    bool isFullScreenMode;
+    QRect normalGeometry;
+    Qt::WindowStates normalWindowState;
+    bool sidebarVisible;
 
-    // GPU相关设置
-    bool gpuAccelerationEnabled;
-    int maxTextureSize;
-
-    // Uniform位置缓存
-    GLint uniformHasVideo;
-    GLint uniformVideoTexture;
-    GLint uniformIsYUV;
-
-    // 全屏功能相关
-    QPushButton* fullScreenButton;        // 进入全屏按钮
-    QPushButton* exitFullScreenButton;    // 退出全屏按钮
-
-    // 侧边栏相关
-    QWidget* sidebar;                     // 侧边栏（普通模式和全屏模式共用）
-    QPushButton* sidebarExitButton;       // 兼容性指针，指向exitFullScreenButton
-    QTimer* mouseCheckTimer;              // 检查鼠标位置的定时器
-    QTimer* hideTimer;                    // 自动隐藏侧边栏的定时器
-    QPropertyAnimation* sidebarAnimation; // 侧边栏动画
-
-    bool isFullScreenMode;                // 是否处于全屏模式
-    QRect normalGeometry;                 // 保存普通窗口的几何信息
-    Qt::WindowStates normalWindowState;   // 保存普通窗口状态
-    bool sidebarVisible;                  // 侧边栏是否可见
-
-    // 侧边栏常量
     static constexpr int SIDEBAR_WIDTH = 30;
-    static constexpr int SIDEBAR_TRIGGER_ZONE = 1;  // 触发区域宽度
-    static constexpr int HIDE_DELAY = 1500;          // 自动隐藏延迟（毫秒）
+    static constexpr int SIDEBAR_TRIGGER_ZONE = 1;
+    static constexpr int HIDE_DELAY = 1500;
 
     std::unique_ptr<WindowsHook> windowsHook;
 
-    // QWidget interface
-protected:
-    void enterEvent(QEnterEvent *event);
-    void leaveEvent(QEvent *event);
-
-    // QWidget interface
-protected:
-    void resizeEvent(QResizeEvent *event);
+    // Uniform数据结构
+    struct UniformData {
+        QMatrix4x4 mvp;     // 64字节
+        QVector4D params;   // 16字节 (x=hasVideo, y=isYUV, z=brightness, w=padding)
+        // 总共80字节，正好符合std140布局要求
+    };
 };
