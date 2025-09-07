@@ -1,4 +1,3 @@
-// ========== ScreenCapture.h ==========
 #pragma once
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -51,26 +50,6 @@ struct CapturedFrame {
     }
 };
 
-struct CaptureMetrics {
-    double captureTimeMs = 0;
-    double processTimeMs = 0;
-    double encodeTimeMs = 0;
-    int droppedFrames = 0;
-    int dirtyPixelCount = 0;
-    int totalPixelCount = 0;
-    double gpuUtilization = 0;
-
-    void Reset() {
-        captureTimeMs = 0;
-        processTimeMs = 0;
-        encodeTimeMs = 0;
-        droppedFrames = 0;
-        dirtyPixelCount = 0;
-        totalPixelCount = 0;
-        gpuUtilization = 0;
-    }
-};
-
 class ScreenCapture {
 public:
     using FrameCallback = std::function<void(const uint8_t* data, size_t size, int width, int height)>;
@@ -97,8 +76,6 @@ public:
 
     void setConfig(const CaptureConfig& cfg) { config = cfg; }
     const CaptureConfig& getConfig() const { return config; }
-
-    CaptureMetrics getMetrics() const { return metrics; }
 
 private:
     bool initializeDXGI();
@@ -177,12 +154,14 @@ private:
     std::atomic<bool> desktopSwitchInProgress{ false };
 
     CaptureConfig config;
+
     FrameCallback frameCallback;
+
     GPUEncoderCallback gpuEncoderCallback;
 
     std::chrono::milliseconds frameInterval;
+
     std::chrono::steady_clock::time_point lastFrameTime;
-    CaptureMetrics metrics;
 
     bool useAdvancedFeatures = false;
 

@@ -1,12 +1,10 @@
-﻿// ========== ScreenCapture.cpp ==========
-#include "ScreenCapture.h"
+﻿#include "ScreenCapture.h"
 #include <algorithm>
 #include <thread>
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
 #include "Logger.h"
 
-// ========== 脏矩形处理结构 ==========
 struct DirtyRegionTracker {
     std::vector<RECT> dirtyRects;
     std::vector<DXGI_OUTDUPL_MOVE_RECT> moveRects;
@@ -27,7 +25,7 @@ struct DirtyRegionTracker {
     }
 };
 
-// ========== GPU纹理环形缓冲 ==========
+
 struct GPUTextureRing {
     static constexpr int RING_SIZE = 6;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> textures[RING_SIZE];
