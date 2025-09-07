@@ -68,6 +68,9 @@ private Q_SLOTS:
     // 被远程端断开连接的处理
     void onRemoteDisconnectedByPeer();
 
+    // 远程连接超时处理
+    void onRemoteConnectionTimeout();
+
 private:
     // UI初始化
     void setupUI();
@@ -81,6 +84,8 @@ private:
     void saveSettings();
     void loadAccounts();
     void saveAccounts();
+
+    void createVideoWidget();
 
     QString createStatusLabelStyle(const QString& type);
 
@@ -146,6 +151,10 @@ private:
     QLabel* statusLabel;
     QLabel* fpsLabel;
     QTimer* statusTimer;
+
+    // 远程连接超时定时器
+    QTimer* remoteConnectionTimer;
+    static const int REMOTE_CONNECTION_TIMEOUT = 30000; // 15秒超时
 
     // 设置
     QSettings* settings;

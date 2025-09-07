@@ -43,6 +43,7 @@ MainWindow::MainWindow(QWidget* parent)
     , statusLabel(nullptr)
     , fpsLabel(nullptr)
     , statusTimer(nullptr)
+    , remoteConnectionTimer(nullptr)
     , settings(nullptr)
     , isConnected(false)
     , isFullScreen(false)
@@ -64,6 +65,11 @@ MainWindow::MainWindow(QWidget* parent)
 
     // 初始化设置
     settings = new QSettings("WebRTCClient", "Settings", this);
+
+    // 初始化远程连接超时定时器
+    remoteConnectionTimer = new QTimer(this);
+    remoteConnectionTimer->setSingleShot(true); // 单次触发
+    connect(remoteConnectionTimer, &QTimer::timeout, this, &MainWindow::onRemoteConnectionTimeout);
 
     // 初始化账号列表
     loadAccounts();
@@ -87,12 +93,83 @@ MainWindow::MainWindow(QWidget* parent)
                                   Qt::QueuedConnection);
     });
 
+    webRTCRemoteClient->remoteSuccessFulHandle = [this]() {
+        QMetaObject::invokeMethod(this, [this]() {
+            // 停止超时定时器
+            if (remoteConnectionTimer->isActive()) {
+                remoteConnectionTimer->stop();
+            }
+
+            // 远程连接成功建立，现在显示视频窗口
+            if (!videoWidget) {
+                createVideoWidget();
+            }
+
+            videoWidget->showMaximized();
+            videoWidget->raise();
+            videoWidget->activateWindow();
+
+            // 启用视频控制按钮
+            showVideoButton->setEnabled(true);
+            hideVideoButton->setEnabled(true);
+            isRemoteConnected = true;
+            disconnectRemoteButton->setEnabled(true);
+
+            // 更新状态
+            QString targetId = targetListWidget->currentItem() ?
+                                   targetListWidget->currentItem()->text() : "未知";
+            targetStatusLabel->setText(QString("已成功连接到 %1").arg(targetId));
+            targetStatusLabel->setStyleSheet(createStatusLabelStyle("success"));
+
+            statusLabel->setText("远程连接已建立");
+        }, Qt::QueuedConnection);
+    };
+
+    webRTCRemoteClient->remoteFailedHandle = [this]() {
+        QMetaObject::invokeMethod(this, [this]() {
+            // 停止超时定时器
+            if (remoteConnectionTimer->isActive()) {
+                remoteConnectionTimer->stop();
+            }
+
+            // 恢复发送请求按钮
+            sendRequestButton->setEnabled(targetListWidget->currentItem() != nullptr);
+
+            // 更新状态标签
+            QString targetId = targetListWidget->currentItem() ?
+                                   targetListWidget->currentItem()->text() : "未知";
+            targetStatusLabel->setText(QString("无法连接到 %1：对方可能不在线或拒绝了连接").arg(targetId));
+            targetStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+
+            // 更新状态栏
+            statusLabel->setText("远程连接失败");
+
+            // 显示错误消息
+            showErrorMessage("连接失败", QString("无法连接到 %1\n对方可能不在线或拒绝了连接请求").arg(targetId));
+        }, Qt::QueuedConnection);
+    };
+
     // 注册被远程端断开连接的回调
     webRTCRemoteClient->disConnectRemoteHandle = ([this]() {
         // 使用Qt的事件系统确保在主线程中执行UI更新
         QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer",
                                   Qt::QueuedConnection);
     });
+
+    webRTCRemoteClient->webSocketConnectedCallback = [this](bool success) {
+        // 使用Qt的事件系统确保在主线程中执行UI更新
+        QMetaObject::invokeMethod(this, [this, success]() {
+            if (success) {
+                this->onConnectionStateChanged(true);
+            } else {
+                this->connectButton->setEnabled(true);
+                this->connectButton->setText("连接");
+                this->connectionStatusLabel->setText("连接失败");
+                this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+                showErrorMessage("连接错误", "无法连接到服务器");
+            }
+        }, Qt::QueuedConnection);
+    };
 
     // 初始化状态
     updateConnectionState(false);
@@ -116,6 +193,79 @@ MainWindow::~MainWindow()
         delete webRTCRemoteClient;
         webRTCRemoteClient = nullptr;
     }
+}
+
+void MainWindow::onRemoteConnectionTimeout()
+{
+    qDebug() << "Remote connection timeout";
+
+    // 恢复发送请求按钮
+    sendRequestButton->setEnabled(targetListWidget->currentItem() != nullptr);
+
+    // 更新状态标签
+    QString targetId = targetListWidget->currentItem() ?
+                           targetListWidget->currentItem()->text() : "未知";
+    targetStatusLabel->setText(QString("连接到 %1 超时：请求超时或对方未响应").arg(targetId));
+    targetStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+
+    // 更新状态栏
+    statusLabel->setText("远程连接超时");
+
+    // 显示错误消息
+    showErrorMessage("连接超时", QString("连接到 %1 超时\n请求超时或对方未响应").arg(targetId));
+}
+
+void MainWindow::createVideoWidget()
+{
+    if (videoWidget) {
+        return; // 已经创建了
+    }
+
+    videoWidget = new VideoWidget();
+    videoWidget->setWindowTitle("WebRTC远程桌面");
+
+    // 明确设置窗口标志，强制普通窗口模式
+    videoWidget->setWindowFlags(Qt::Window |
+                                Qt::WindowTitleHint |
+                                Qt::WindowSystemMenuHint |
+                                Qt::WindowMinMaxButtonsHint |
+                                Qt::WindowCloseButtonHint);
+
+    // 确保不是全屏状态
+    videoWidget->setWindowState(Qt::WindowNoState);
+    videoWidget->setMinimumSize(640, 480);
+
+    // 设置窗口位置（居中显示）
+    QScreen* screen = QApplication::primaryScreen();
+    if (screen) {
+        QRect screenGeometry = screen->geometry();
+        int x = (screenGeometry.width() - 1280) / 2;
+        int y = (screenGeometry.height() - 720) / 2;
+        videoWidget->move(x, y);
+    }
+
+    // 设置WebRTC客户端
+    videoWidget->setWebRTCRemoteClient(webRTCRemoteClient);
+
+    // 设置回调
+    webRTCRemoteClient->setVideoFrameCallback([this](std::shared_ptr<VideoFrame> frame) {
+        if (videoWidget) {
+            videoWidget->displayFrame(frame);
+        }
+    });
+
+    // 恢复视频窗口设置
+    if (settings->contains("videoWindowGeometry")) {
+        videoWidget->restoreGeometry(settings->value("videoWindowGeometry").toByteArray());
+    }
+
+    // 连接VideoWidget的关闭信号
+    connect(videoWidget, &QWidget::destroyed, this, [this]() {
+        videoWidget = nullptr;
+        showVideoButton->setEnabled(false);
+        hideVideoButton->setEnabled(false);
+        disconnectRemoteButton->setEnabled(false);
+    });
 }
 
 QString MainWindow::createButtonStyle(const QString& bgColor, const QString& hoverColor, const QString& textColor)
@@ -673,65 +823,6 @@ void MainWindow::loadSettings()
     }
 }
 
-void MainWindow::saveSettings()
-{
-    // 保存窗口几何
-    settings->setValue("geometry", saveGeometry());
-    settings->setValue("windowState", saveState());
-
-    // 保存连接设置
-    settings->setValue("serverAddress", serverAddressEdit->text());
-    settings->setValue("port", portSpinBox->value());
-
-    // 保存当前账号
-    if (accountComboBox->currentIndex() >= 0 && !accountList.isEmpty()) {
-        settings->setValue("lastAccount", accountComboBox->currentText());
-    }
-
-    // 保存视频窗口设置
-    if (videoWidget) {
-        settings->setValue("videoWindowGeometry", videoWidget->saveGeometry());
-    }
-}
-
-void MainWindow::loadAccounts()
-{
-    int size = settings->beginReadArray("accounts");
-    for (int i = 0; i < size; ++i) {
-        settings->setArrayIndex(i);
-        accountList << settings->value("email").toString();
-    }
-    settings->endArray();
-
-    // 如果没有账号，添加一个默认的
-    if (accountList.isEmpty()) {
-        accountList << "913140924@qq.com";
-        accountList << "2044580040@qq.com";
-    }
-}
-
-void MainWindow::saveAccounts()
-{
-    settings->beginWriteArray("accounts");
-    for (int i = 0; i < accountList.size(); ++i) {
-        settings->setArrayIndex(i);
-        settings->setValue("email", accountList.at(i));
-    }
-    settings->endArray();
-}
-
-void MainWindow::closeEvent(QCloseEvent* event)
-{
-    saveSettings();
-
-    // 关闭视频窗口
-    if (videoWidget) {
-        videoWidget->close();
-    }
-
-    event->accept();
-}
-
 void MainWindow::onConnectClicked()
 {
     if (isConnected || accountList.isEmpty()) {
@@ -760,14 +851,12 @@ void MainWindow::onConnectClicked()
     connectionStatusLabel->setText("正在连接...");
     connectionStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
 
-    // 异步连接
-    QTimer::singleShot(100, [this, serverAddress, port]() {
-        QString url = QString("%1:%2").arg(serverAddress).arg(port);
+    // 直接连接，不使用假的定时器
+    QString url = QString("%1:%2").arg(serverAddress).arg(port);
+
+    // 在后台线程执行连接
+    QTimer::singleShot(0, [this, url]() {
         this->webRTCRemoteClient->connect(url.toStdString());
-        // 模拟连接成功
-        QTimer::singleShot(1000, [this]() {
-            this->onConnectionStateChanged(true);
-        });
     });
 }
 
@@ -775,6 +864,11 @@ void MainWindow::onDisconnectClicked()
 {
     if (!isConnected) {
         return;
+    }
+
+    // 停止远程连接超时定时器
+    if (remoteConnectionTimer->isActive()) {
+        remoteConnectionTimer->stop();
     }
 
     webRTCRemoteClient->disConnect();
@@ -797,6 +891,11 @@ void MainWindow::onDisconnectClicked()
 void MainWindow::onRemoteControlStarted()
 {
     qDebug() << "Remote control started - someone is controlling this machine";
+
+    // 停止超时定时器（如果正在运行）
+    if (remoteConnectionTimer->isActive()) {
+        remoteConnectionTimer->stop();
+    }
 
     // 更新远程连接状态
     isRemoteConnected = true;
@@ -825,6 +924,11 @@ void MainWindow::onRemoteDisconnectedByPeer()
 {
     qDebug() << "Remote connection closed by peer";
 
+    // 停止超时定时器（如果正在运行）
+    if (remoteConnectionTimer->isActive()) {
+        remoteConnectionTimer->stop();
+    }
+
     // 更新远程连接状态
     isRemoteConnected = false;
 
@@ -852,6 +956,11 @@ void MainWindow::onRemoteDisconnectedByPeer()
 
 void MainWindow::onDisconnectRemoteControl()
 {
+    // 停止超时定时器（如果正在运行）
+    if (remoteConnectionTimer->isActive()) {
+        remoteConnectionTimer->stop();
+    }
+
     // 根据按钮文本判断当前是控制方还是被控制方
     bool isBeingControlled = (disconnectRemoteButton->text() == "断开被控制");
 
@@ -943,6 +1052,66 @@ void MainWindow::onAddAccountClicked()
     }
 }
 
+
+void MainWindow::loadAccounts()
+{
+    int size = settings->beginReadArray("accounts");
+    for (int i = 0; i < size; ++i) {
+        settings->setArrayIndex(i);
+        accountList << settings->value("email").toString();
+    }
+    settings->endArray();
+
+    // 如果没有账号，添加一个默认的
+    if (accountList.isEmpty()) {
+        accountList << "913140924@qq.com";
+        accountList << "2044580040@qq.com";
+    }
+}
+
+void MainWindow::saveAccounts()
+{
+    settings->beginWriteArray("accounts");
+    for (int i = 0; i < accountList.size(); ++i) {
+        settings->setArrayIndex(i);
+        settings->setValue("email", accountList.at(i));
+    }
+    settings->endArray();
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    saveSettings();
+
+    // 关闭视频窗口
+    if (videoWidget) {
+        videoWidget->close();
+    }
+
+    event->accept();
+}
+
+void MainWindow::saveSettings()
+{
+    // 保存窗口几何
+    settings->setValue("geometry", saveGeometry());
+    settings->setValue("windowState", saveState());
+
+    // 保存连接设置
+    settings->setValue("serverAddress", serverAddressEdit->text());
+    settings->setValue("port", portSpinBox->value());
+
+    // 保存当前账号
+    if (accountComboBox->currentIndex() >= 0 && !accountList.isEmpty()) {
+        settings->setValue("lastAccount", accountComboBox->currentText());
+    }
+
+    // 保存视频窗口设置
+    if (videoWidget) {
+        settings->setValue("videoWindowGeometry", videoWidget->saveGeometry());
+    }
+}
+
 void MainWindow::onRemoveAccountClicked()
 {
     if (accountList.isEmpty()) {
@@ -996,78 +1165,22 @@ void MainWindow::onSendRequestClicked()
     }
 
     QString targetId = targetListWidget->currentItem()->text();
-    targetStatusLabel->setText(QString("正在向 %1 发送请求...").arg(targetId));
+
+    // 更新状态为正在连接
+    targetStatusLabel->setText(QString("正在向 %1 发送连接请求...").arg(targetId));
     targetStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
+
+    // 禁用发送请求按钮，避免重复点击
+    sendRequestButton->setEnabled(false);
+
+    // 启动超时定时器
+    remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
 
     // 调用WebRTC客户端发送请求
     webRTCRemoteClient->sendRequestToTarget();
 
-    // 创建VideoWidget（如果还没有创建）
-    if (!videoWidget) {
-        videoWidget = new VideoWidget();
-        videoWidget->setWindowTitle("WebRTC远程桌面");
-
-        // ===== 明确设置窗口标志，强制普通窗口模式 =====
-        videoWidget->setWindowFlags(Qt::Window |
-                                    Qt::WindowTitleHint |
-                                    Qt::WindowSystemMenuHint |
-                                    Qt::WindowMinMaxButtonsHint |
-                                    Qt::WindowCloseButtonHint);
-
-        // 确保不是全屏状态
-        videoWidget->setWindowState(Qt::WindowNoState);
-
-        videoWidget->setMinimumSize(640, 480);
-
-        // 设置窗口位置（居中显示）
-        QScreen* screen = QApplication::primaryScreen();
-        if (screen) {
-            QRect screenGeometry = screen->geometry();
-            int x = (screenGeometry.width() - 1280) / 2;
-            int y = (screenGeometry.height() - 720) / 2;
-            videoWidget->move(x, y);
-        }
-
-        // 设置WebRTC客户端
-        videoWidget->setWebRTCRemoteClient(webRTCRemoteClient);
-
-        // 设置回调
-        webRTCRemoteClient->setVideoFrameCallback([this](std::shared_ptr<VideoFrame> frame) {
-            if (videoWidget) {
-                videoWidget->displayFrame(frame);
-            }
-        });
-
-        // 恢复视频窗口设置
-        if (settings->contains("videoWindowGeometry")) {
-            videoWidget->restoreGeometry(settings->value("videoWindowGeometry").toByteArray());
-        }
-
-        // 连接VideoWidget的关闭信号
-        connect(videoWidget, &QWidget::destroyed, this, [this]() {
-            videoWidget = nullptr;
-            showVideoButton->setEnabled(false);
-            hideVideoButton->setEnabled(false);
-            disconnectRemoteButton->setEnabled(false);
-        });
-    }
-
-    // ===== 显示为普通窗口，绝对不全屏 =====
-    videoWidget->showMaximized();  // 明确使用 showNormal() 而不是 show()
-    videoWidget->raise();
-    videoWidget->activateWindow();
-
-    // 启用视频控制按钮
-    showVideoButton->setEnabled(true);
-    hideVideoButton->setEnabled(true);
-    isRemoteConnected = true;
-    disconnectRemoteButton->setEnabled(true);
-
-    // 模拟请求发送完成
-    QTimer::singleShot(1000, [this, targetId]() {
-        targetStatusLabel->setText(QString("已连接到 %1").arg(targetId));
-        targetStatusLabel->setStyleSheet(createStatusLabelStyle("success"));
-    });
+    // 更新状态栏
+    statusLabel->setText("正在建立远程连接...");
 }
 
 void MainWindow::onConnectionStateChanged(bool connected)
@@ -1085,6 +1198,11 @@ void MainWindow::onConnectionStateChanged(bool connected)
         // 断开连接时清理视频窗口
         if (videoWidget) {
             videoWidget->clearDisplay();
+        }
+
+        // 停止远程连接超时定时器
+        if (remoteConnectionTimer->isActive()) {
+            remoteConnectionTimer->stop();
         }
     }
 }

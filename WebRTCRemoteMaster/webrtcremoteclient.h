@@ -56,43 +56,28 @@ typedef LONG NTSTATUS;
 #endif
 
 enum class WebRTCRemoteState{
-
     nullRemote = 0,
-
     masterRemote = 1,  // 接收端：接收并显示视频流
-
     followerRemote = 2, // 发送端：捕获屏幕并发送视频流
-
 };
 
 enum class WebRTCConnetState{
-
     none,
-
     connect,
-
 };
 
 enum class WebRTCRequestState {
-
     REGISTER = 0,
-
     REQUEST = 1,
-
     RESTART = 2,
-
-    STOPREMOTE = 3
-
+    STOPREMOTE = 3,
+    CLOSE = 4,
 };
 
 struct VideoFrame {
-
     std::shared_ptr<uint8_t[]> data;
-
     int width;
-
     int height;
-
     int64_t timestamp;
 
     VideoFrame(int w, int h) : width(w), height(h), timestamp(0) {
@@ -100,11 +85,8 @@ struct VideoFrame {
     }
 
     VideoFrame(const VideoFrame&) = delete;
-
     VideoFrame& operator=(const VideoFrame&) = delete;
-
     VideoFrame(VideoFrame&&) = default;
-
     VideoFrame& operator=(VideoFrame&&) = default;
 };
 
@@ -138,7 +120,7 @@ class WebRTCRemoteClient;
 
 class PeerConnectionObserverImpl : public webrtc::PeerConnectionObserver {
 public:
-    explicit PeerConnectionObserverImpl(WebRTCRemoteClient* client) : client_(client) {}
+    explicit PeerConnectionObserverImpl(WebRTCRemoteClient* client) : client(client) {}
 
     void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) override;
     void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) override;
@@ -164,28 +146,28 @@ public:
     void OnInterestingUsage(int usagePattern) override {}
 
 private:
-    WebRTCRemoteClient* client_;
+    WebRTCRemoteClient* client;
 };
 
 class DataChannelObserverImpl : public webrtc::DataChannelObserver {
 public:
-    DataChannelObserverImpl(WebRTCRemoteClient* client) : client_(client) {}
+    DataChannelObserverImpl(WebRTCRemoteClient* client) : client(client) {}
     void OnStateChange() override;
     void OnMessage(const webrtc::DataBuffer& buffer) override;
 private:
-    WebRTCRemoteClient* client_;
+    WebRTCRemoteClient* client;
 };
 
 // 在 webrtcremoteclient.h 中添加
 class VideoTrackSink : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
-    explicit VideoTrackSink(WebRTCRemoteClient* client) : client_(client) {}
+    explicit VideoTrackSink(WebRTCRemoteClient* client) : client(client) {}
 
     // 接收视频帧的回调
     void OnFrame(const webrtc::VideoFrame& frame) override ;
 
 private:
-    WebRTCRemoteClient* client_;
+    WebRTCRemoteClient* client;
 };
 
 class SetLocalDescriptionObserver : public webrtc::SetSessionDescriptionObserver {
@@ -229,7 +211,7 @@ public:
 
     CreateOfferObserverImpl(WebRTCRemoteClient* client,
                             webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc)
-        : client_(client), peerConnection(pc) {}
+        : client(client), peerConnection(pc) {}
 
     void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
     void OnFailure(webrtc::RTCError error) override;
@@ -238,7 +220,7 @@ protected:
     ~CreateOfferObserverImpl() override = default;
 
 private:
-    WebRTCRemoteClient* client_;
+    WebRTCRemoteClient* client;
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection;
 };
 
@@ -253,7 +235,7 @@ public:
 
     CreateAnswerObserverImpl(WebRTCRemoteClient* client,
                              webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc)
-        : client_(client), peerConnection(pc) {}
+        : client(client), peerConnection(pc) {}
 
     void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
     void OnFailure(webrtc::RTCError error) override;
@@ -262,7 +244,7 @@ protected:
     ~CreateAnswerObserverImpl() override = default;
 
 private:
-    WebRTCRemoteClient* client_;
+    WebRTCRemoteClient* client;
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection;
 };
 
@@ -310,6 +292,14 @@ public:
     std::function<void(void)> followRemoteHandle;
 
     std::function<void(void)> disConnectRemoteHandle;
+
+    std::function<void(void)> remoteSuccessFulHandle;
+
+    std::function<void(bool)> webSocketConnectedCallback;
+
+    std::function<void()> remoteFailedHandle;
+
+    void disConnectHandle();
 
 private:
     // 状态变量使用原子类型
@@ -359,7 +349,6 @@ private:
 
     // 发送端功能
     bool initializePeerConnection();
-
 
     void convertYUV420ToRGB24(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
                               int width, int height, int yStride, int uStride, int vStride,
