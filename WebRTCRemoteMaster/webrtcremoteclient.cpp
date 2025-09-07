@@ -686,19 +686,17 @@ void WebRTCRemoteClient::disConnectHandle()
 
     followRunning = false;
 
-     if(disConnectRemoteHandle){
+    if(disConnectRemoteHandle){
 
-         disConnectRemoteHandle();
+        disConnectRemoteHandle();
 
-     }
+    }
 
     releaseSource();
 
-    Logger::getInstance()->info("WebRTCRemoteClient::disConnectHandle() initializePeerConnection!");
+    WindowsServiceManager::stopService(systemService);
 
     initializePeerConnection();
-
-    Logger::getInstance()->info("WebRTCRemoteClient::disConnectHandle() finished!");
 
 }
 
