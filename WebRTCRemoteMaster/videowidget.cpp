@@ -573,12 +573,6 @@ void VideoWidget::updateFPS()
         currentFPS = fps;
         frameCount = 0;
         fpsTimer.restart();
-
-        // 只在有视频时每10秒输出一次FPS
-        static int fpsCounter = 0;
-        if (hasVideo && (++fpsCounter % 10 == 0)) {
-            logger->info(std::string("FPS: ") + std::to_string(fps));
-        }
     }
 }
 
