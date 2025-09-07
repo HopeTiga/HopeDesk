@@ -27,6 +27,7 @@ enum class WebRTCRequestState {
     REQUEST = 1,
 	RESTART = 2,
 	STOPREMOTE = 3,
+    CLOSE = 4,
 };
 
 struct WebRTCConnection {
