@@ -9,21 +9,22 @@
 #include <api/video/i420_buffer.h>
 
 // Observer实现
-void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) {
-    switch (new_state) {
-    case webrtc::PeerConnectionInterface::kClosed:
+void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
+    switch (newState) {
+    case webrtc::PeerConnectionInterface::kClosed: {
         Logger::getInstance()->info("Signaling state: kClosed");
         break;
+    }
     default:
         break;
     }
 }
 
-void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
+void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
 }
 
-void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState new_state) {
-    if (new_state == webrtc::PeerConnectionInterface::kIceGatheringComplete) {
+void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState newState) {
+    if (newState == webrtc::PeerConnectionInterface::kIceGatheringComplete) {
         Logger::getInstance()->info("ICE gathering complete");
     }
 }
@@ -46,11 +47,11 @@ void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterf
     msg["mid"] = candidate->sdp_mid();
     msg["mlineIndex"] = candidate->sdp_mline_index();
 
-    manager_->sendSignalingMessage(msg);
+    manager->sendSignalingMessage(msg);
 }
 
-void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) {
-    switch (new_state) {
+void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
+    switch (newState) {
     case webrtc::PeerConnectionInterface::kIceConnectionConnected:
         Logger::getInstance()->info("ICE connection established");
         break;
@@ -62,14 +63,26 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
     }
 }
 
-void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState new_state) {
-    switch (new_state) {
+void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
+    switch (newState) {
     case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
         Logger::getInstance()->info("Peer connection established");
         break;
-    case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
         Logger::getInstance()->error("Peer connection failed");
+        boost::json::object json;
+
+        json["requestType"] = static_cast<int64_t>(WebRTCRequestState::CLOSE);
+
+        std::string jsonStr = boost::json::serialize(json);
+
+        std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
+
+        manager->writerAsync(data);
+
         break;
+    }
+
     default:
         break;
     }
@@ -112,7 +125,7 @@ void SetRemoteDescriptionObserver::OnFailure(webrtc::RTCError error) {
 void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
     if (!desc) {
         Logger::getInstance()->error("CreateOffer success callback received null description");
-        manager_->isProcessingOffer = false;
+        manager->isProcessingOffer = false;
         return;
     }
 
@@ -121,7 +134,7 @@ void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* des
     std::string sdp;
     if (!desc->ToString(&sdp)) {
         Logger::getInstance()->error("Failed to convert offer to string");
-        manager_->isProcessingOffer = false;
+        manager->isProcessingOffer = false;
         return;
     }
 
@@ -129,12 +142,12 @@ void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* des
     msg["type"] = "offer";
     msg["sdp"] = sdp;
 
-    manager_->sendSignalingMessage(msg);
+    manager->sendSignalingMessage(msg);
 }
 
 void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
     Logger::getInstance()->error("CreateOffer failed: " + std::string(error.message()));
-    manager_->isProcessingOffer = false;
+    manager->isProcessingOffer = false;
 }
 
 // CreateAnswerObserverImpl实现
@@ -156,7 +169,7 @@ void CreateAnswerObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* de
     msg["type"] = "answer";
     msg["sdp"] = sdp;
 
-    manager_->sendSignalingMessage(msg);
+    manager->sendSignalingMessage(msg);
 }
 
 void CreateAnswerObserverImpl::OnFailure(webrtc::RTCError error) {
@@ -348,11 +361,11 @@ void WebRTCManager::processIceCandidate(const std::string& candidate,
     }
 
     webrtc::SdpParseError error;
-    std::unique_ptr<webrtc::IceCandidateInterface> ice_candidate(
+    std::unique_ptr<webrtc::IceCandidateInterface> iceCandidate(
         webrtc::CreateIceCandidate(mid, lineIndex, candidate, &error));
 
-    if (ice_candidate) {
-        peerConnection->AddIceCandidate(ice_candidate.release());
+    if (iceCandidate) {
+        peerConnection->AddIceCandidate(iceCandidate.release());
     }
     else {
         Logger::getInstance()->error("Failed to parse ICE candidate: " + error.description);
@@ -444,20 +457,7 @@ void WebRTCManager::socketEventLoop() {
 
                         int64_t responseState = json["state"].as_int64();
 
-                        if (WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER) {
-                            if (responseState == 200) {
-                                Logger::getInstance()->info("Registration successful");
-                                connetState = WebRTCConnetState::connect;
-
-                                if (!initializePeerConnection()) {
-                                    Logger::getInstance()->error("Failed to initialize peer connection");
-                                }
-                            }
-                            else {
-                                Logger::getInstance()->error("Registration failed");
-                            }
-                        }
-                        else if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
+                        if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
                             if (responseState == 200) {
                                 if (json.contains("webRTCRemoteState")) {
                                     WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
@@ -517,26 +517,6 @@ void WebRTCManager::socketEventLoop() {
                                             processIceCandidate(candidateStr, mid, lineIndex);
                                         }
                                     }
-                                }
-                            }
-                        }
-                        else if (WebRTCRequestState(requestType) == WebRTCRequestState::RESTART) {
-                            if (responseState == 200) {
-                                releaseSource();
-                                state = WebRTCRemoteState::nullRemote;
-
-                                if (!initializePeerConnection()) {
-                                    Logger::getInstance()->error("Failed to reinitialize after restart");
-                                }
-                            }
-                        }
-                        else if (WebRTCRequestState(requestType) == WebRTCRequestState::STOPREMOTE) {
-                            if (responseState == 200) {
-                                releaseSource();
-                                state = WebRTCRemoteState::nullRemote;
-
-                                if (!initializePeerConnection()) {
-                                    Logger::getInstance()->error("Failed to reinitialize after stop");
                                 }
                             }
                         }
@@ -641,57 +621,59 @@ bool WebRTCManager::initializePeerConnection() {
 
     webrtc::InitializeSSL();
 
-    networkThread = webrtc::Thread::CreateWithSocketServer();
-    if (!networkThread) {
-        Logger::getInstance()->error("Failed to create network thread");
-        return false;
-    }
-    networkThread->SetName("network_thread", nullptr);
-    if (!networkThread->Start()) {
-        Logger::getInstance()->error("Failed to start network thread");
-        return false;
-    }
-
-    workerThread = webrtc::Thread::Create();
-    if (!workerThread) {
-        Logger::getInstance()->error("Failed to create worker thread");
-        return false;
-    }
-    workerThread->SetName("worker_thread", nullptr);
-    if (!workerThread->Start()) {
-        Logger::getInstance()->error("Failed to start worker thread");
-        return false;
-    }
-
-    signalingThread = webrtc::Thread::Create();
-    if (!signalingThread) {
-        Logger::getInstance()->error("Failed to create signaling thread");
-        return false;
-    }
-    signalingThread->SetName("signaling_thread", nullptr);
-    if (!signalingThread->Start()) {
-        Logger::getInstance()->error("Failed to start signaling thread");
-        return false;
-    }
-
-    peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
-        networkThread.get(),
-        workerThread.get(),
-        signalingThread.get(),
-        nullptr,
-        webrtc::CreateBuiltinAudioEncoderFactory(),
-        webrtc::CreateBuiltinAudioDecoderFactory(),
-        webrtc::CreateBuiltinVideoEncoderFactory(),
-        webrtc::CreateBuiltinVideoDecoderFactory(),
-        nullptr,
-        nullptr,
-        nullptr,
-        nullptr
-    );
-
     if (!peerConnectionFactory) {
-        Logger::getInstance()->error("Failed to create PeerConnectionFactory");
-        return false;
+        networkThread = webrtc::Thread::CreateWithSocketServer();
+        if (!networkThread) {
+            Logger::getInstance()->error("Failed to create network thread");
+            return false;
+        }
+        networkThread->SetName("network_thread", nullptr);
+        if (!networkThread->Start()) {
+            Logger::getInstance()->error("Failed to start network thread");
+            return false;
+        }
+
+        workerThread = webrtc::Thread::Create();
+        if (!workerThread) {
+            Logger::getInstance()->error("Failed to create worker thread");
+            return false;
+        }
+        workerThread->SetName("worker_thread", nullptr);
+        if (!workerThread->Start()) {
+            Logger::getInstance()->error("Failed to start worker thread");
+            return false;
+        }
+
+        signalingThread = webrtc::Thread::Create();
+        if (!signalingThread) {
+            Logger::getInstance()->error("Failed to create signaling thread");
+            return false;
+        }
+        signalingThread->SetName("signaling_thread", nullptr);
+        if (!signalingThread->Start()) {
+            Logger::getInstance()->error("Failed to start signaling thread");
+            return false;
+        }
+
+        peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
+            networkThread.get(),
+            workerThread.get(),
+            signalingThread.get(),
+            nullptr,
+            webrtc::CreateBuiltinAudioEncoderFactory(),
+            webrtc::CreateBuiltinAudioDecoderFactory(),
+            webrtc::CreateBuiltinVideoEncoderFactory(),
+            webrtc::CreateBuiltinVideoDecoderFactory(),
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr
+        );
+
+        if (!peerConnectionFactory) {
+            Logger::getInstance()->error("Failed to create PeerConnectionFactory");
+            return false;
+        }
     }
 
     webrtc::PeerConnectionInterface::RTCConfiguration config;
@@ -699,21 +681,21 @@ bool WebRTCManager::initializePeerConnection() {
     config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
-    webrtc::PeerConnectionInterface::IceServer stun_server;
-    stun_server.uri = "stun:14.103.170.36:3478";
-    config.servers.push_back(stun_server);
+    webrtc::PeerConnectionInterface::IceServer stunServer;
+    stunServer.uri = "stun:14.103.170.36:3478";
+    config.servers.push_back(stunServer);
 
-    webrtc::PeerConnectionInterface::IceServer turn_server;
-    turn_server.uri = "turn:14.103.170.36:3478";
-    turn_server.username = "HopeTiga";
-    turn_server.password = "dy913140924";
-    config.servers.emplace_back(turn_server);
+    webrtc::PeerConnectionInterface::IceServer turnServer;
+    turnServer.uri = "turn:14.103.170.36:3478";
+    turnServer.username = "HopeTiga";
+    turnServer.password = "dy913140924";
+    config.servers.emplace_back(turnServer);
 
     peerConnectionObserver = std::make_unique<PeerConnectionObserverImpl>(this);
 
-    webrtc::PeerConnectionDependencies pc_dependencies(peerConnectionObserver.get());
+    webrtc::PeerConnectionDependencies pcDependencies(peerConnectionObserver.get());
 
-    auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pc_dependencies));
+    auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
     if (!pcResult.ok()) {
         Logger::getInstance()->error("Failed to create PeerConnection: " + std::string(pcResult.error().message()));
         return false;
@@ -744,8 +726,8 @@ bool WebRTCManager::initializePeerConnection() {
 
         encodings.push_back(encoding);
 
-        std::vector<std::string> stream_ids = { "mediaStream" };
-        auto addTrackResult = peerConnection->AddTrack(videoTrack, stream_ids, encodings);
+        std::vector<std::string> streamIds = { "mediaStream" };
+        auto addTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
 
         if (!addTrackResult.ok()) {
             Logger::getInstance()->error("Failed to add video track: " + std::string(addTrackResult.error().message()));
@@ -759,20 +741,21 @@ bool WebRTCManager::initializePeerConnection() {
         for (auto& transceiver : transceivers) {
             if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
                 auto codecs = transceiver->codec_preferences();
-                std::vector<webrtc::RtpCodecCapability> preferred_codecs;
+                std::vector<webrtc::RtpCodecCapability> preferredCodecs;
 
                 // 根据枚举选择优先编解码器
-                std::string priority_codec;
+                std::string priorityCodec;
                 switch (this->codec) {
-                case WebRTCVideoCodec::VP9: priority_codec = "VP9"; break;
-                case WebRTCVideoCodec::H264: priority_codec = "H264"; break;
-                case WebRTCVideoCodec::VP8: priority_codec = "VP8"; break;
+                case WebRTCVideoCodec::VP9: priorityCodec = "VP9"; break;
+                case WebRTCVideoCodec::H264: priorityCodec = "H264"; break;
+                case WebRTCVideoCodec::VP8: priorityCodec = "VP8"; break;
+                case WebRTCVideoCodec::H265: priorityCodec = "H265"; break;
                 }
 
                 // 找到优先编解码器并移到最前
                 for (auto it = codecs.begin(); it != codecs.end(); ++it) {
-                    if (it->name == priority_codec) {
-                        preferred_codecs.push_back(*it);
+                    if (it->name == priorityCodec) {
+                        preferredCodecs.push_back(*it);
                         codecs.erase(it);
                         break;
                     }
@@ -781,12 +764,12 @@ bool WebRTCManager::initializePeerConnection() {
                 // 添加剩余编解码器
                 for (const auto& codec : codecs) {
                     if (codec.name != "red" && codec.name != "ulpfec") {
-                        preferred_codecs.push_back(codec);
+                        preferredCodecs.push_back(codec);
                     }
                 }
 
                 // 设置新偏好
-                transceiver->SetCodecPreferences(preferred_codecs);
+                transceiver->SetCodecPreferences(preferredCodecs);
             }
         }
 
@@ -820,7 +803,6 @@ bool WebRTCManager::initializePeerConnection() {
     dataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
     dataChannel->RegisterObserver(dataChannelObserver.get());
 
-    Logger::getInstance()->info("PeerConnection initialized");
     return true;
 }
 
@@ -858,12 +840,12 @@ bool WebRTCManager::initializeScreenCapture() {
         memcpy(i420Buffer->MutableDataU(), data + ySize, uvSize);
         memcpy(i420Buffer->MutableDataV(), data + ySize + uvSize, uvSize);
 
-        int64_t timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        int64_t timestampUs = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
 
         webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
             .set_video_frame_buffer(i420Buffer)
-            .set_timestamp_us(timestamp_us)
+            .set_timestamp_us(timestampUs)
             .build();
 
         videoTrackSourceImpl->PushFrame(frame);
@@ -879,7 +861,6 @@ bool WebRTCManager::initializeScreenCapture() {
         return false;
     }
 
-    Logger::getInstance()->info("Screen capture started");
     return true;
 }
 

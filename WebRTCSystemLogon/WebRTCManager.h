@@ -1,4 +1,4 @@
-#pragma once
+Ôªø#pragma once
 #define WEBRTC_WIN 1
 #define WEBRTC_ARCH_LITTLE_ENDIAN 1
 #define NOMINMAX 1
@@ -80,13 +80,15 @@ enum class WebRTCRequestState {
     REGISTER = 0,
     REQUEST = 1,
     RESTART = 2,
-    STOPREMOTE = 3
+    STOPREMOTE = 3,
+    CLOSE = 4,
 };
 
 enum class WebRTCVideoCodec {
-    VP8,    // VP8 ±‡Ω‚¬Î∆˜
-    VP9,    // VP9 ±‡Ω‚¬Î∆˜
-    H264    // H.264 ±‡Ω‚¬Î∆˜
+    VP8,    // VP8 ¬±√†¬Ω√¢√Ç√´√Ü√∑
+    VP9,    // VP9 ¬±√†¬Ω√¢√Ç√´√Ü√∑
+    H264,    // H.264 ¬±√†¬Ω√¢√Ç√´√Ü√∑
+    H265,    // H.265 ¬±√†¬Ω√¢√Ç√´√Ü√∑
 };
 
 class WriterData {
@@ -116,21 +118,21 @@ class WebRTCManager;
 
 class PeerConnectionObserverImpl : public webrtc::PeerConnectionObserver {
 public:
-    explicit PeerConnectionObserverImpl(WebRTCManager* manager) : manager_(manager) {}
+    explicit PeerConnectionObserverImpl(WebRTCManager* manager) : manager(manager) {}
 
-    void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override;
-    void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) override;
-    void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState new_state) override;
+    void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) override;
+    void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) override;
+    void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState newState) override;
     void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override;
     void OnAddStream(webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override {}
     void OnRemoveStream(webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override {}
     void OnRenegotiationNeeded() override {}
-    void OnNegotiationNeededEvent(uint32_t event_id) override {}
-    void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) override;
-    void OnStandardizedIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) override {}
-    void OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState new_state) override;
+    void OnNegotiationNeededEvent(uint32_t eventId) override {}
+    void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) override;
+    void OnStandardizedIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) override {}
+    void OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) override;
     void OnIceCandidateError(const std::string& address, int port, const std::string& url,
-        int error_code, const std::string& error_text) override {
+        int errorCode, const std::string& errorText) override {
     }
     void OnIceCandidateRemoved(const webrtc::IceCandidate* candidate) override {}
     void OnIceCandidatesRemoved(const std::vector<webrtc::Candidate>& candidates) override {}
@@ -141,10 +143,10 @@ public:
     }
     void OnTrack(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override {}
     void OnRemoveTrack(webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override {}
-    void OnInterestingUsage(int usage_pattern) override {}
+    void OnInterestingUsage(int usagePattern) override {}
 
 private:
-    WebRTCManager* manager_;
+    WebRTCManager* manager;
 };
 
 class DataChannelObserverImpl : public webrtc::DataChannelObserver {
@@ -213,7 +215,7 @@ public:
 
     CreateOfferObserverImpl(WebRTCManager* manager,
         webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc)
-        : manager_(manager), peerConnection(pc) {
+        : manager(manager), peerConnection(pc) {
     }
 
     void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
@@ -223,7 +225,7 @@ protected:
     ~CreateOfferObserverImpl() override = default;
 
 private:
-    WebRTCManager* manager_;
+    WebRTCManager* manager;
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection;
 };
 
@@ -238,7 +240,7 @@ public:
 
     CreateAnswerObserverImpl(WebRTCManager* manager,
         webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc)
-        : manager_(manager), peerConnection(pc) {
+        : manager(manager), peerConnection(pc) {
     }
 
     void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
@@ -248,7 +250,7 @@ protected:
     ~CreateAnswerObserverImpl() override = default;
 
 private:
-    WebRTCManager* manager_;
+    WebRTCManager* manager;
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection;
 };
 
@@ -259,7 +261,7 @@ public:
     ~WebRTCManager();
     void Cleanup();
 
-    // ∑¢ÀÕ–≈¡Óœ˚œ¢
+    // ¬∑¬¢√ã√ç√ê√Ö√Å√Æ√è√ª√è¬¢
     void sendSignalingMessage(const boost::json::object& message);
     void processOffer(const std::string& sdp);
     void processAnswer(const std::string& sdp);
