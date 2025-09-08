@@ -719,8 +719,8 @@ bool WebRTCManager::initializePeerConnection() {
 
         encoding.active = true;
         encoding.max_bitrate_bps = 4000000;  // 4 Mbps
-        encoding.min_bitrate_bps = 750000;   // 500 kbps
-        encoding.max_framerate = 75;
+        encoding.min_bitrate_bps = 1000000;   // 500 kbps
+        encoding.max_framerate = 120;
         encoding.scale_resolution_down_by = 1.0;
         encoding.scalability_mode = "L1T1";
 
