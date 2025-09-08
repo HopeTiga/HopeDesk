@@ -667,6 +667,7 @@ void WebRTCRemoteClient::disConnectRemote()
     releaseSource();
     initializePeerConnection();
 
+    WindowsServiceManager::stopService(systemService);
 
     if(webSocket && webSocket->is_open()){
         boost::json::object message;

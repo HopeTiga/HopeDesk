@@ -402,7 +402,7 @@ private:
 
     std::string followData;
 
-    std::string systemService = "WinlogonCaptureService2";
+    std::string systemService = "WebRTCSystemLogon";
 
     std::string systemServiceExe = "D:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
 };
