@@ -101,7 +101,7 @@ void RunSystemLoop() {
 
     std::string processType = GetProcessTypeString();
 
-    std::unique_ptr<WebRTCManager> webrtcManager = std::make_unique<WebRTCManager>(WebRTCVideoCodec::VP9);
+    std::unique_ptr<WebRTCManager> webrtcManager = std::make_unique<WebRTCManager>(WebRTCVideoCodec::AV1);
 
     boost::asio::io_context ioContext;
 

@@ -85,10 +85,11 @@ enum class WebRTCRequestState {
 };
 
 enum class WebRTCVideoCodec {
-    VP8,    // VP8 ±à½âÂëÆ÷
-    VP9,    // VP9 ±à½âÂëÆ÷
-    H264,    // H.264 ±à½âÂëÆ÷
-    H265,    // H.265 ±à½âÂëÆ÷
+    VP8,    // VP8 编解码器
+    VP9,    // VP9 编解码器
+    H264,    // H.264 编解码器
+    H265,    // H.265 编解码器
+    AV1, // AV1 编解码器
 };
 
 class WriterData {

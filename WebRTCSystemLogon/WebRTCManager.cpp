@@ -750,6 +750,7 @@ bool WebRTCManager::initializePeerConnection() {
                 case WebRTCVideoCodec::H264: priorityCodec = "H264"; break;
                 case WebRTCVideoCodec::VP8: priorityCodec = "VP8"; break;
                 case WebRTCVideoCodec::H265: priorityCodec = "H265"; break;
+				case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
                 }
 
                 // 找到优先编解码器并移到最前
