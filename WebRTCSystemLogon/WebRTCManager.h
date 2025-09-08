@@ -85,11 +85,11 @@ enum class WebRTCRequestState {
 };
 
 enum class WebRTCVideoCodec {
-    VP8,    // VP8 编解码器
-    VP9,    // VP9 编解码器
-    H264,    // H.264 编解码器
-    H265,    // H.265 编解码器
-    AV1, // AV1 编解码器
+    VP8,    // VP8 ±à½âÂëÆ÷
+    VP9,    // VP9 ±à½âÂëÆ÷
+    H264,    // H.264 ±à½âÂëÆ÷
+    H265,    // H.265 ±à½âÂëÆ÷
+    AV1, // AV1 ±à½âÂëÆ÷    
 };
 
 class WriterData {
@@ -258,7 +258,7 @@ private:
 class WebRTCManager {
     friend class DataChannelObserverImpl;
 public:
-    WebRTCManager(WebRTCVideoCodec codec);
+    WebRTCManager(WebRTCVideoCodec codec = WebRTCVideoCodec::AV1, webrtc::Priority priority = webrtc::Priority::kHigh);
     ~WebRTCManager();
     void Cleanup();
 
@@ -296,6 +296,8 @@ private:
     std::string targetID;
 
     WebRTCVideoCodec codec;
+
+    webrtc::Priority priority;
 
     std::unique_ptr<webrtc::Thread> networkThread;
     std::unique_ptr<webrtc::Thread> workerThread;

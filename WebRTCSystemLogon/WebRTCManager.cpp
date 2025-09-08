@@ -233,7 +233,7 @@ void WebRTCManager::releaseSource() {
     isProcessingOffer = false;
 }
 
-WebRTCManager::WebRTCManager(WebRTCVideoCodec codec)
+WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::Priority priority)
     : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
     accept(socketIoContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), 19998)),
     state(WebRTCRemoteState::nullRemote),
@@ -243,6 +243,7 @@ WebRTCManager::WebRTCManager(WebRTCVideoCodec codec)
     winLogon(nullptr),
     keyMouseSim(nullptr),
     codec(codec),
+    priority(priority),
     inputInjector(nullptr) {
 
     Logger::getInstance()->info("WebRTCManager starting on port 19998");
@@ -681,6 +682,7 @@ bool WebRTCManager::initializePeerConnection() {
     config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
+
     webrtc::PeerConnectionInterface::IceServer stunServer;
     stunServer.uri = "stun:14.103.170.36:3478";
     config.servers.push_back(stunServer);
@@ -724,6 +726,8 @@ bool WebRTCManager::initializePeerConnection() {
         encoding.scale_resolution_down_by = 1.0;
         encoding.scalability_mode = "L1T1";
 
+        encoding.network_priority = priority;
+
         encodings.push_back(encoding);
 
         std::vector<std::string> streamIds = { "mediaStream" };
@@ -750,7 +754,7 @@ bool WebRTCManager::initializePeerConnection() {
                 case WebRTCVideoCodec::H264: priorityCodec = "H264"; break;
                 case WebRTCVideoCodec::VP8: priorityCodec = "VP8"; break;
                 case WebRTCVideoCodec::H265: priorityCodec = "H265"; break;
-				case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
+                case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
                 }
 
                 // 找到优先编解码器并移到最前
