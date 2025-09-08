@@ -126,7 +126,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Texture2D> gpuEncoderTexture;
     Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> gpuEncoderUAV;
 
-    static constexpr int NUM_BUFFERS = 3;
+    static constexpr int NUM_BUFFERS = 5;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[NUM_BUFFERS];
     int currentTexture = 0;
 

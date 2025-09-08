@@ -514,7 +514,7 @@ bool ScreenCapture::startCapture() {
 
                         std::shared_ptr<CapturedFrame> frame;
                         int processedCount = 0;
-                        int maxBatch = 5;
+                        int maxBatch = 10;
 
                         while (frameQueue.try_dequeue(frame) && processedCount < maxBatch) {
                             encodeFrame(frame);
@@ -595,27 +595,30 @@ bool ScreenCapture::captureFrame() {
     Microsoft::WRL::ComPtr<IDXGIResource> desktopResource;
     DXGI_OUTDUPL_FRAME_INFO frameInfo;
 
-    static bool hasFrame = false;
-    if (hasFrame) {
-        dxgiDuplication->ReleaseFrame();
-        hasFrame = false;
-    }
-
-    hr = dxgiDuplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
+    // 使用较短的超时时间 - 对于60fps，使用16ms
+    hr = dxgiDuplication->AcquireNextFrame(16, &frameInfo, &desktopResource);
 
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-        return true;
+        return false;  // 没有新帧，正常返回
     }
 
     if (FAILED(hr)) {
         handleCaptureError(hr);
-        hasFrame = false;
         return false;
     }
 
-    invalidCallCount = 0;
+    // RAII包装器，确保帧总是被释放
+    struct FrameReleaser {
+        IDXGIOutputDuplication* duplication;
+        bool shouldRelease;
+        ~FrameReleaser() {
+            if (shouldRelease && duplication) {
+                duplication->ReleaseFrame();
+            }
+        }
+    } frameReleaser{ dxgiDuplication.Get(), true };
 
-    hasFrame = true;
+    invalidCallCount = 0;
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> acquiredTexture;
     hr = desktopResource.As(&acquiredTexture);
@@ -624,46 +627,69 @@ bool ScreenCapture::captureFrame() {
         return false;
     }
 
-    // 处理脏矩形
-    bool needsFullFrame = dirtyTracker->fullFrameRequired;
-    if (config.enableDirtyRects && frameInfo.TotalMetadataBufferSize > 0) {
-        ProcessDirtyRects(&frameInfo, acquiredTexture.Get(), workingTexture.Get());
+    // 修复：处理脏矩形逻辑
+    bool needsFullFrame = false;
+
+    if (config.enableDirtyRects) {
+        // 启用脏矩形时的处理逻辑
         needsFullFrame = dirtyTracker->fullFrameRequired;
-    }
+        if (frameInfo.TotalMetadataBufferSize > 0) {
+            ProcessDirtyRects(&frameInfo, acquiredTexture.Get(), workingTexture.Get());
+            needsFullFrame = dirtyTracker->fullFrameRequired;
+        }
 
-    if (needsFullFrame) {
+        if (needsFullFrame) {
+            d3dContext->CopyResource(workingTexture.Get(), acquiredTexture.Get());
+            dirtyTracker->fullFrameRequired = false;
+        }
+    }
+    else {
+        // 禁用脏矩形时，始终复制完整帧
         d3dContext->CopyResource(workingTexture.Get(), acquiredTexture.Get());
-        dirtyTracker->fullFrameRequired = false;
+        needsFullFrame = true;  // 标记已处理完整帧
     }
 
-    // 处理帧
+    // 立即处理帧内容 - 在释放前完成所有必要的复制
     bool result = processFrame(workingTexture.Get());
-    if (!result) {
-        Logger::getInstance()->error("processFrame failed");
-    }
 
+    // frameReleaser析构时会自动释放帧
     return result;
 }
 
+// 优化的processFrame函数，使用异步复制
 bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     if (!texture || !d3dContext || !stagingTextures[currentTexture]) {
         Logger::getInstance()->error("Invalid texture or D3D context");
         return false;
     }
 
-    // 如果启用了GPU处理且有回调
+    // GPU编码路径
     if (config.enableGPUEncoding && gpuEncoderCallback) {
+        // 使用GPU ring buffer
+        if (gpuRing) {
+            ID3D11Texture2D* ringTexture = gpuRing->GetWriteTexture();
+            if (ringTexture) {
+                d3dContext->CopyResource(ringTexture, texture);
+                gpuRing->MarkWriteComplete();
+
+                // 异步检查是否有完成的纹理
+                ID3D11Texture2D* readyTexture = gpuRing->TryGetReadTexture();
+                if (readyTexture) {
+                    gpuEncoderCallback(readyTexture);
+                }
+                return true;
+            }
+        }
+
+        // 回退到直接调用
         ProcessOnGPU(texture);
         return true;
     }
 
-    // 尝试GPU转换YUV
-    bool gpuSuccess = false;
+    // GPU YUV转换路径
     if (yuvComputeShader) {
         std::vector<uint8_t> tempYuvBuffer;
-        gpuSuccess = convertBGRAToYUV420_GPU(texture, tempYuvBuffer);
-
-        if (gpuSuccess) {
+        if (convertBGRAToYUV420_GPU(texture, tempYuvBuffer)) {
             auto frame = getFrameFromPool();
             if (!frame) {
                 return false;
@@ -687,7 +713,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         }
     }
 
-    // 回退到CPU处理
+    // CPU路径 - 使用异步Map
     d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
 
     D3D11_MAPPED_SUBRESOURCE mapped;
@@ -695,13 +721,8 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         stagingTextures[currentTexture].Get(),
         0,
         D3D11_MAP_READ,
-        0,
+        0,  // 非阻塞
         &mapped);
-
-    if (hr == DXGI_ERROR_WAS_STILL_DRAWING) {
-        currentTexture = (currentTexture + 1) % NUM_BUFFERS;
-        return false;
-    }
 
     if (FAILED(hr)) {
         Logger::getInstance()->error("Failed to map texture: 0x" +
@@ -756,6 +777,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
 
     return true;
 }
+
 
 void ScreenCapture::ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture) {
     dirtyTracker->Reset();
