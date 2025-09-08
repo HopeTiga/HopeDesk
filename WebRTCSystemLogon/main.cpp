@@ -190,13 +190,13 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
         DWORD exitCode;
         if (GetExitCodeProcess(process, &exitCode)) {
             if (exitCode == STILL_ACTIVE) {
-                Logger::getInstance()->info("ProcessManager: 子进程仍在运行，强制终止");
+                Logger::getInstance()->info("ProcessManager: Child process still running, forcing termination");
 
                 if (!TerminateProcess(process, 1)) {
-                    Logger::getInstance()->error("ProcessManager: 强制终止失败");
+                    Logger::getInstance()->error("ProcessManager: Force termination failed");
                 }
                 else {
-                    Logger::getInstance()->info("ProcessManager: 子进程已强制终止");
+                    Logger::getInstance()->info("ProcessManager: Child process has been force terminated");
                 }
             }
         }

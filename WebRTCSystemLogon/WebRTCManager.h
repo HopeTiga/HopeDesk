@@ -256,6 +256,7 @@ private:
 };
 
 class WebRTCManager {
+    friend class PeerConnectionObserverImpl;
     friend class DataChannelObserverImpl;
 public:
     WebRTCManager(WebRTCVideoCodec codec = WebRTCVideoCodec::AV1, webrtc::Priority priority = webrtc::Priority::kHigh);

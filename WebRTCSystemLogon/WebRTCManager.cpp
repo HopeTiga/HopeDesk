@@ -65,9 +65,35 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
 
 void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
     switch (newState) {
-    case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected: {
         Logger::getInstance()->info("Peer connection established");
+        auto localDesc = manager->peerConnection->local_description();
+        if (localDesc) {
+            std::string sdp;
+            localDesc->ToString(&sdp);
+
+            // 简单解析SDP找到第一个video编解码器
+            std::istringstream stream(sdp);
+            std::string line;
+            while (std::getline(stream, line)) {
+                if (line.find("a=rtpmap:") == 0 && line.find("/90000") != std::string::npos) {
+                    // 找到视频编解码器行，提取编解码器名称
+                    size_t spacePos = line.find(' ');
+                    if (spacePos != std::string::npos) {
+                        std::string codecInfo = line.substr(spacePos + 1);
+                        size_t slashPos = codecInfo.find('/');
+                        if (slashPos != std::string::npos) {
+                            std::string codecName = codecInfo.substr(0, slashPos);
+                            Logger::getInstance()->info("=== Video codec actually being used: " + codecName + " ===");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         break;
+    }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
         Logger::getInstance()->error("Peer connection failed");
         boost::json::object json;
@@ -744,7 +770,15 @@ bool WebRTCManager::initializePeerConnection() {
 
         for (auto& transceiver : transceivers) {
             if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
-                auto codecs = transceiver->codec_preferences();
+                // 从工厂获取发送器能力，而不是空的偏好设置
+                webrtc::RtpCapabilities senderCapabilities = peerConnectionFactory->GetRtpSenderCapabilities(
+                    webrtc::MediaType::MEDIA_TYPE_VIDEO);
+
+                if (senderCapabilities.codecs.empty()) {
+                    Logger::getInstance()->warning("No video codecs available from factory");
+                    continue;
+                }
+
                 std::vector<webrtc::RtpCodecCapability> preferredCodecs;
 
                 // 根据枚举选择优先编解码器
@@ -757,24 +791,50 @@ bool WebRTCManager::initializePeerConnection() {
                 case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
                 }
 
-                // 找到优先编解码器并移到最前
-                for (auto it = codecs.begin(); it != codecs.end(); ++it) {
-                    if (it->name == priorityCodec) {
-                        preferredCodecs.push_back(*it);
-                        codecs.erase(it);
+                Logger::getInstance()->info("Attempting to prioritize codec: " + priorityCodec);
+
+                // 首先添加优先编解码器
+                bool foundPriorityCodec = false;
+                for (const auto& codec : senderCapabilities.codecs) {
+                    if (codec.name == priorityCodec) {
+                        preferredCodecs.push_back(codec);
+                        foundPriorityCodec = true;
+                        Logger::getInstance()->info("Found and prioritized codec: " + codec.name);
                         break;
                     }
                 }
 
-                // 添加剩余编解码器
-                for (const auto& codec : codecs) {
-                    if (codec.name != "red" && codec.name != "ulpfec") {
+                if (!foundPriorityCodec) {
+                    Logger::getInstance()->warning("Priority codec " + priorityCodec + " not found in available codecs");
+                }
+
+                // 添加其他可用编解码器（排除重复项和辅助编解码器）
+                for (const auto& codec : senderCapabilities.codecs) {
+                    if (codec.name != priorityCodec &&
+                        codec.name != "red" &&
+                        codec.name != "ulpfec" &&
+                        codec.name != "rtx") {
                         preferredCodecs.push_back(codec);
+                        Logger::getInstance()->info("Added additional codec: " + codec.name);
                     }
                 }
 
-                // 设置新偏好
-                transceiver->SetCodecPreferences(preferredCodecs);
+                // 验证是否有编解码器可设置
+                if (preferredCodecs.empty()) {
+                    Logger::getInstance()->error("No valid codecs to set as preferences");
+                    continue;
+                }
+
+                // 设置编解码器偏好
+                auto result = transceiver->SetCodecPreferences(preferredCodecs);
+                if (result.ok()) {
+                    Logger::getInstance()->info("Successfully set codec preferences with " +
+                        std::to_string(preferredCodecs.size()) + " codecs");
+                }
+                else {
+                    Logger::getInstance()->error("Failed to set codec preferences: " +
+                        std::string(result.message()));
+                }
             }
         }
 
