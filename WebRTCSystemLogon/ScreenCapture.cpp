@@ -167,7 +167,7 @@ std::shared_ptr<CapturedFrame> ScreenCapture::getFrameFromPool() {
     return frame;
 }
 
-void ScreenCapture::returnFrameToPool(std::shared_ptr<CapturedFrame> frame) {
+inline void ScreenCapture::returnFrameToPool(std::shared_ptr<CapturedFrame> frame) {
     if (frame && framePool.size_approx() < 30) {
         framePool.enqueue(frame);
     }
@@ -723,7 +723,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         D3D11_MAP_READ,
         0,  // 非阻塞
         &mapped);
-
+      
     if (FAILED(hr)) {
         Logger::getInstance()->error("Failed to map texture: 0x" +
             std::to_string(static_cast<unsigned int>(hr)));

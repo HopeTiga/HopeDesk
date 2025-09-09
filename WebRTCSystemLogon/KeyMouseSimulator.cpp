@@ -6,11 +6,17 @@ KeyMouseSimulator::KeyMouseSimulator()
     interceptionKeyboard(0),
     interceptionMouse(0),
     isInitialized(false),
-    isDestroying(false) {
+    isDestroying(false),
+    cacheInitialized(false) {
 
     try {
         logger = Logger::getInstance();
         logger->info("KeyMouseSimulator constructor started");
+
+        // 初始化缓存数组
+        memset(scanCodeCache, 0, sizeof(scanCodeCache));
+        InitializeCache();
+
         logger->info("KeyMouseSimulator constructor completed");
     }
     catch (...) {
@@ -218,6 +224,23 @@ bool KeyMouseSimulator::IsNumLockOn() {
     return (GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
 }
 
+// 初始化扫描码缓存
+void KeyMouseSimulator::InitializeCache() {
+    if (cacheInitialized) return;
+
+    for (int vk = 0; vk < 256; ++vk) {
+        scanCodeCache[vk] = MapVirtualKey(vk, MAPVK_VK_TO_VSC);
+    }
+
+    cacheInitialized = true;
+}
+
+// 性能优化：直接数组索引获取扫描码，O(1)时间复杂度
+WORD KeyMouseSimulator::GetCachedScanCode(DWORD vkCode) {
+    if (vkCode >= 256) return 0;
+    return scanCodeCache[vkCode];
+}
+
 bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
     if (vkCode > 0xFE) {
         logger->error("无效的VK码: " + std::to_string(vkCode));
@@ -231,7 +254,7 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
 
         if (numLockOn) {
             // NumLock开启：发送数字，使用非扩展键
-            WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+            WORD scanCode = GetCachedScanCode(vkCode);
             if (scanCode == 0) {
                 logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
                 return false;
@@ -243,7 +266,7 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
         }
         else {
             // NumLock关闭：发送导航键，使用扩展键
-            WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+            WORD scanCode = GetCachedScanCode(vkCode);
             if (scanCode == 0) {
                 logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
                 return false;
@@ -258,7 +281,7 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
     // 处理其他特殊数字键盘按键
     if (vkCode == VK_DECIMAL || vkCode == VK_SUBTRACT || vkCode == VK_ADD ||
         vkCode == VK_MULTIPLY || vkCode == VK_DIVIDE) {
-        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        WORD scanCode = GetCachedScanCode(vkCode);
         if (scanCode == 0) {
             logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
             return false;
@@ -273,13 +296,13 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
     }
 
     if (vkCode == 0xBF) {  // 主键盘的 "/" 键
-        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        WORD scanCode = GetCachedScanCode(vkCode);
         // 强制不使用扩展键标志，因为主键盘的 "/" 不是扩展键
         return SendKey(scanCode, true, false);  // 注意这里是 false
     }
 
     // 处理普通按键
-    WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+    WORD scanCode = GetCachedScanCode(vkCode);
     if (scanCode == 0) {
         logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
         return false;
@@ -299,7 +322,7 @@ bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
     if (vkCode >= VK_NUMPAD0 && vkCode <= VK_NUMPAD9) {
         bool numLockOn = IsNumLockOn();
 
-        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        WORD scanCode = GetCachedScanCode(vkCode);
         if (scanCode == 0) {
             logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
             return false;
@@ -316,7 +339,7 @@ bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
     // 处理其他特殊数字键盘按键
     if (vkCode == VK_DECIMAL || vkCode == VK_SUBTRACT || vkCode == VK_ADD ||
         vkCode == VK_MULTIPLY || vkCode == VK_DIVIDE) {
-        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        WORD scanCode = GetCachedScanCode(vkCode);
         if (scanCode == 0) {
             logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
             return false;
@@ -327,13 +350,13 @@ bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
     }
 
     if (vkCode == 0xBF) {  // 主键盘的 "/" 键
-        WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+        WORD scanCode = GetCachedScanCode(vkCode);
         // 强制不使用扩展键标志，因为主键盘的 "/" 不是扩展键
         return SendKey(scanCode, false, false);  // 注意这里是 false
     }
 
     // 处理普通按键
-    WORD scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+    WORD scanCode = GetCachedScanCode(vkCode);
     if (scanCode == 0) {
         logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
         return false;

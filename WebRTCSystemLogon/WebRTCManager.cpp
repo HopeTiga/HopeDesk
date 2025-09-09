@@ -646,7 +646,7 @@ void WebRTCManager::socketEventLoop() {
                 });
 }
 
-void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
+inline void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
 
     if (!data) {
 
