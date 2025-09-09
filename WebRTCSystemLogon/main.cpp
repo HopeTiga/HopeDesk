@@ -29,7 +29,7 @@
 #include "Logger.h"
 #include "WebRTCManager.h"
 
-#define SERVICE_NAME "WinlogonCaptureService2"
+#define SERVICE_NAME "WebRTCSystemLogon"
 
 SERVICE_STATUS serviceStatus = { 0 };
 SERVICE_STATUS_HANDLE statusHandle = NULL;
