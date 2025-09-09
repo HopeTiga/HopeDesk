@@ -706,41 +706,9 @@ void WebRTCRemoteClient::wrtierCoroutineAsync()
     boost::asio::co_spawn(ioContext, [this]() -> boost::asio::awaitable<void> {
         try {
             for (;;) {
-                while (this->writerDataQueues.size_approx() == 0 && this->socketRuns.load()) {
-                    try {
-                        co_await this->writerChannel.async_receive(boost::asio::use_awaitable);
-                    } catch (const boost::system::system_error& e) {
-                        if (e.code() == boost::asio::error::operation_aborted) {
-                            co_return;
-                        }
-                    }
-                }
 
-                // 检查是否需要退出
-                if (!socketRuns) {
-                    // 处理剩余的队列数据
-                    while (this->writerDataQueues.size_approx() > 0) {
-                        std::shared_ptr<WriterData> nowNode = nullptr;
-                        if (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
-                            try {
-                                co_await boost::asio::async_write(*this->tcpSocket,
-                                                                  boost::asio::buffer(nowNode->data, nowNode->size),
-                                                                  boost::asio::use_awaitable);
-                            }
-                            catch (const boost::system::system_error& e) {
-                                break; // 发送失败，退出循环
-                            }
-                            catch (const std::exception& e) {
-                                break;
-                            }
-                        }
-                    }
-                    co_return; // 退出协程
-                }
-
-                // 正常处理队列中的数据
                 std::shared_ptr<WriterData> nowNode = nullptr;
-                if (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
+                while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
                     try {
                         // 检查socket状态
                         if (!tcpSocket || !tcpSocket->is_open()) {
@@ -764,6 +732,30 @@ void WebRTCRemoteClient::wrtierCoroutineAsync()
                         Logger::getInstance()->error("Unexpected error sending data: " + std::string(e.what()));
                     }
                 }
+
+                if (!socketRuns) {
+                    // 处理剩余的队列数据
+                    std::shared_ptr<WriterData> nowNode = nullptr;
+
+                    while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
+                        try {
+                            co_await boost::asio::async_write(*this->tcpSocket,
+                                                              boost::asio::buffer(nowNode->data, nowNode->size),
+                                                              boost::asio::use_awaitable);
+                        }
+                        catch (const boost::system::system_error& e) {
+                            break; // 发送失败，退出循环
+                        }
+                        catch (const std::exception& e) {
+                            break;
+                        }
+
+                    }
+                    co_return; // 退出协程
+                }else{
+                    co_await this->writerChannel.async_receive(boost::asio::use_awaitable);
+                }
+
             }
         } catch (const std::exception& e) {
             Logger::getInstance()->error("Writer coroutine unhandled exception: " + std::string(e.what()));
@@ -772,14 +764,14 @@ void WebRTCRemoteClient::wrtierCoroutineAsync()
         }
         co_return;
     }, [this](std::exception_ptr p) {
-                              try {
-                                  if (p) {
-                                      std::rethrow_exception(p);
-                                  }
-                              } catch (const std::exception& e) {
-                                  Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
-                              }
-                          });
+        try {
+            if (p) {
+                std::rethrow_exception(p);
+            }
+        } catch (const std::exception& e) {
+            Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
+        }
+    });
 }
 
 void WebRTCRemoteClient::receiveCoroutineAysnc()
