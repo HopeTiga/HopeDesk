@@ -373,6 +373,8 @@ private:
 
     std::atomic<int> videoHeight{1080};
 
+    std::atomic<bool> isRemote {false};
+
     // 服务状态
     std::atomic<bool> remoteServiceRunning{false};
 
@@ -402,11 +404,9 @@ private:
 
     std::string followData;
 
-    webrtc::PeerConnectionInterface::PeerConnectionState peerConnetionState{ webrtc::PeerConnectionInterface::PeerConnectionState::kNew };
-
     std::string systemService = "WebRTCSystemLogon";
 
-    std::string systemServiceExe = "D:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
+    std::string systemServiceExe = "E:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
 };
 
 #endif // WEBRTCREMOTECLIENT_H

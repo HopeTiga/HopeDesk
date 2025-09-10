@@ -93,7 +93,7 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
 
         Logger::getInstance()->info("Peer connection established");
 
-        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kConnected;
+        client->isRemote = true;
 
         client->state = WebRTCRemoteState::masterRemote;
 
@@ -109,22 +109,16 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
 
         Logger::getInstance()->warning("Peer connection disconnected");
 
-        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected;
-
-        client->disConnectHandle();
-
         break;
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
 
-        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kFailed;
-
         Logger::getInstance()->error("Peer connection failed");
+
+        client->disConnectHandle();
 
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
-
-        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kClosed;
 
         Logger::getInstance()->info("Peer connection closed");
         break;
@@ -390,6 +384,8 @@ void WebRTCRemoteClient::connect(std::string ip)
                                                     wrtierCoroutineAsync();
                                                     receiveCoroutineAysnc();
 
+                                                    this->isRemote = true;
+
                                                     // 发送初始数据
                                                     std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
                                                     writerAsync(writerData);
@@ -500,7 +496,7 @@ void WebRTCRemoteClient::connect(std::string ip)
 
                         if(responseState == 200){
 
-                            if(peerConnetionState!=webrtc::PeerConnectionInterface::PeerConnectionState::kConnected) continue;
+                            if(isRemote == false) continue;
 
                             releaseSource();
 
@@ -625,11 +621,11 @@ bool WebRTCRemoteClient::initializePeerConnection()
     config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
-    config.ice_connection_receiving_timeout = 5000;        // 5秒无数据包则认为断开
+    config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
 
-    config.ice_unwritable_timeout = 5000;                  // 3秒无响应则标记为不可写
+    config.ice_unwritable_timeout = 10000;                  // 3秒无响应则标记为不可写
 
-    config.ice_inactive_timeout = 5000;                    // 5秒后标记为非活跃
+    config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
     stunServer.uri = "stun:150.158.173.80:3478";
@@ -696,10 +692,12 @@ void WebRTCRemoteClient::disConnectRemote()
 
     this->state = WebRTCRemoteState::nullRemote;
 
-    if(followRunning==false) return;
+    if(isRemote == false) return;
 
-    followRunning = false;
+    isRemote = false;
+
     releaseSource();
+
     initializePeerConnection();
 
     WindowsServiceManager::stopService(systemService);
@@ -718,9 +716,9 @@ void WebRTCRemoteClient::disConnectHandle()
 {
     this->state = WebRTCRemoteState::nullRemote;
 
-    if(peerConnetionState == webrtc::PeerConnectionInterface::PeerConnectionState::kConnected) return;
+    if(isRemote == false) return;
 
-    peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kNew ;
+    isRemote = false;
 
     if(disConnectRemoteHandle){
 
@@ -834,9 +832,9 @@ void WebRTCRemoteClient::receiveCoroutineAysnc()
                         headerRead += n;
                     }
                     catch (const boost::system::system_error& e) {
-                        if(e.code().value() == 10054){
-                            handleAsioException();
-                        }
+
+                        handleAsioException();
+
                         co_return;
                     }
                 }
@@ -940,18 +938,26 @@ void WebRTCRemoteClient::sendSignalingMessage(boost::json::object& msg) {
 
 void WebRTCRemoteClient::handleAsioException()
 {
-    if(peerConnetionState!=webrtc::PeerConnectionInterface::PeerConnectionState::kConnected) return;
 
     this->state = WebRTCRemoteState::nullRemote;
 
-    if(webSocket){
+    if(webSocket && webSocket->is_open()){
+
         boost::json::object message;
+
         message["accountID"] = this->accountID;
+
         message["targetID"] = this->targetID;
+
         message["requestType"] = static_cast<int64_t>(WebRTCRequestState::RESTART);
+
         std::string messageStr = boost::json::serialize(message);
+
         webSocket->write(boost::asio::buffer(messageStr));
+
         WindowsServiceManager::stopService(systemService);
+
+
     }
 }
 
@@ -1133,6 +1139,8 @@ void WebRTCRemoteClient::disConnect()
     }
 
     this->state == WebRTCRemoteState::nullRemote;
+
+    isRemote = false;
 
     disConnectHandle();
 }
