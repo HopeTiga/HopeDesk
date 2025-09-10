@@ -462,6 +462,4 @@ private:
 
     std::unique_ptr<KeyMouseSimulator> keyMouseSim;
 
-    webrtc::PeerConnectionInterface::PeerConnectionState peerConnetionState{ webrtc::PeerConnectionInterface::PeerConnectionState::kNew };
-
 };

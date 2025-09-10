@@ -67,8 +67,6 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
     switch (newState) {
     case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected: {
 
-        manager->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kConnected;
-
         Logger::getInstance()->info("Peer connection established");
 
         auto localDesc = manager->peerConnection->local_description();
@@ -100,8 +98,6 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
 
-        manager->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kFailed;
-
         Logger::getInstance()->error("Peer connection failed");
 
         boost::json::object json;
@@ -117,8 +113,6 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
         break;
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed: {
-
-        manager->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kClosed;
 
         break;
     }
@@ -775,11 +769,11 @@ bool WebRTCManager::initializePeerConnection() {
 
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
-    config.ice_connection_receiving_timeout = 5000;        // 5秒无数据包则认为断开
+    config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
 
-    config.ice_unwritable_timeout = 5000;                  // 3秒无响应则标记为不可写
+    config.ice_unwritable_timeout = 10000;                  // 3秒无响应则标记为不可写
 
-    config.ice_inactive_timeout = 5000;                    // 5秒后标记为非活跃
+    config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
 
