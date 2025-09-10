@@ -603,7 +603,7 @@ void WebRTCManager::socketEventLoop() {
                     }
 
                     if (!socketRuns) {
-  
+
                         std::shared_ptr<WriterData> nowNode = nullptr;
 
                         while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
@@ -616,7 +616,7 @@ void WebRTCManager::socketEventLoop() {
                                 break;
                             }
                         }
-                        
+
                         co_return;
                     }
                     else {
@@ -768,6 +768,8 @@ bool WebRTCManager::initializePeerConnection() {
     config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
 
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
+
+	config.media_config.enable_dscp = true; //启用DSCP在支持的网络上优先传输媒体流
 
     config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
 
@@ -964,6 +966,8 @@ bool WebRTCManager::initializePeerConnection() {
     }
 
     std::unique_ptr<webrtc::DataChannelInit> dataChannelConfig = std::make_unique<webrtc::DataChannelInit>();
+
+	dataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
 
     dataChannel = peerConnection->CreateDataChannel("dataChannel", dataChannelConfig.get());
     if (!dataChannel) {
