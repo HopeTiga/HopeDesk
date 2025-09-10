@@ -625,12 +625,18 @@ bool WebRTCRemoteClient::initializePeerConnection()
     config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
+    config.ice_connection_receiving_timeout = 5000;        // 5秒无数据包则认为断开
+
+    config.ice_unwritable_timeout = 5000;                  // 3秒无响应则标记为不可写
+
+    config.ice_inactive_timeout = 5000;                    // 5秒后标记为非活跃
+
     webrtc::PeerConnectionInterface::IceServer stunServer;
-    stunServer.uri = "stun:14.103.170.36:3478";
+    stunServer.uri = "stun:150.158.173.80:3478";
     config.servers.push_back(stunServer);
 
     webrtc::PeerConnectionInterface::IceServer turnServer;
-    turnServer.uri = "turn:14.103.170.36:3478";
+    turnServer.uri = "turn:150.158.173.80:3478";
     turnServer.username = "HopeTiga";
     turnServer.password = "dy913140924";
     config.servers.emplace_back(turnServer);
