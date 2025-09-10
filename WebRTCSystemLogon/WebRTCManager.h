@@ -339,13 +339,13 @@ private:
 
 class WebRTCManager {
 
-	friend class PeerConnectionObserverImpl;
+    friend class PeerConnectionObserverImpl;
 
     friend class DataChannelObserverImpl;
 
 public:
-    WebRTCManager(WebRTCVideoCodec codec = WebRTCVideoCodec::AV1,webrtc::RtpEncodingParameters rtpEncodingParameters = getDefaultRtpEncodingParameters());
-  
+    WebRTCManager(WebRTCVideoCodec codec = WebRTCVideoCodec::AV1, webrtc::RtpEncodingParameters rtpEncodingParameters = getDefaultRtpEncodingParameters());
+
     ~WebRTCManager();
 
     void Cleanup();
@@ -461,5 +461,7 @@ private:
     winrt::Windows::UI::Input::Preview::Injection::InputInjector inputInjector;
 
     std::unique_ptr<KeyMouseSimulator> keyMouseSim;
+
+    webrtc::PeerConnectionInterface::PeerConnectionState peerConnetionState{ webrtc::PeerConnectionInterface::PeerConnectionState::kNew };
 
 };

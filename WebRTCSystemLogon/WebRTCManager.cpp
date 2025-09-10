@@ -66,7 +66,11 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
 void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
     switch (newState) {
     case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected: {
+
+        manager->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kConnected;
+
         Logger::getInstance()->info("Peer connection established");
+
         auto localDesc = manager->peerConnection->local_description();
         if (localDesc) {
             std::string sdp;
@@ -95,7 +99,11 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
         break;
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
+
+        manager->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kFailed;
+
         Logger::getInstance()->error("Peer connection failed");
+
         boost::json::object json;
 
         json["requestType"] = static_cast<int64_t>(WebRTCRequestState::CLOSE);
@@ -108,7 +116,12 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
 
         break;
     }
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed: {
 
+        manager->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kClosed;
+
+        break;
+    }
     default:
         break;
     }
@@ -596,7 +609,7 @@ void WebRTCManager::socketEventLoop() {
                     }
 
                     if (!socketRuns) {
-  
+
                         std::shared_ptr<WriterData> nowNode = nullptr;
 
                         while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
@@ -609,7 +622,7 @@ void WebRTCManager::socketEventLoop() {
                                 break;
                             }
                         }
-                        
+
                         co_return;
                     }
                     else {
@@ -1197,9 +1210,6 @@ void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& byte
 
 }
 
-
-
-// processDataChannelMessage中的case 3和case 4保持不变，但确保日志正确
 WebRTCManager::~WebRTCManager() {
     Cleanup();
 }
