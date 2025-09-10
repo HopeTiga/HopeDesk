@@ -402,6 +402,8 @@ private:
 
     std::string followData;
 
+    webrtc::PeerConnectionInterface::PeerConnectionState peerConnetionState{ webrtc::PeerConnectionInterface::PeerConnectionState::kNew };
+
     std::string systemService = "WebRTCSystemLogon";
 
     std::string systemServiceExe = "D:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";

@@ -72,16 +72,6 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
     case webrtc::PeerConnectionInterface::kIceConnectionConnected:
         Logger::getInstance()->info("WebRTC connection established");
 
-        client->followRunning  = true;
-
-        client->state = WebRTCRemoteState::masterRemote;
-
-        if(client->remoteSuccessFulHandle){
-
-            client->remoteSuccessFulHandle();
-
-        }
-
         break;
     case webrtc::PeerConnectionInterface::kIceConnectionFailed:
         Logger::getInstance()->error("ICE connection failed");
@@ -99,19 +89,43 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
 
 void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
     switch (newState) {
-    case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:{
+
         Logger::getInstance()->info("Peer connection established");
+
+        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kConnected;
+
+        client->state = WebRTCRemoteState::masterRemote;
+
+        if(client->remoteSuccessFulHandle){
+
+            client->remoteSuccessFulHandle();
+
+        }
+
         break;
+    }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected:{
+
         Logger::getInstance()->warning("Peer connection disconnected");
+
+        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected;
+
         client->disConnectHandle();
+
         break;
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
+
+        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kFailed;
+
         Logger::getInstance()->error("Peer connection failed");
 
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
+
+        client->peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kClosed;
+
         Logger::getInstance()->info("Peer connection closed");
         break;
     default:
@@ -473,22 +487,37 @@ void WebRTCRemoteClient::connect(std::string ip)
                             }
                         }
                         else if(responseState == 404){
+
                             if(remoteFailedHandle){
+
                                 remoteFailedHandle();
+
                             }
+
                         }
 
                     }else if(WebRTCRequestState(requestType) == WebRTCRequestState::RESTART){
+
                         if(responseState == 200){
+
+                            if(peerConnetionState!=webrtc::PeerConnectionInterface::PeerConnectionState::kConnected) continue;
+
                             releaseSource();
+
                             initializePeerConnection();
+
                             this->state = WebRTCRemoteState::nullRemote;
+
                             sendRequestToTarget();
                         }
                     }else if(WebRTCRequestState(requestType) == WebRTCRequestState::STOPREMOTE){
+
                         if(responseState == 200){
+
                             disConnectHandle();
+
                         }
+
                     }
                 }
             }
@@ -683,9 +712,9 @@ void WebRTCRemoteClient::disConnectHandle()
 {
     this->state = WebRTCRemoteState::nullRemote;
 
-    if(followRunning == false) return;
+    if(peerConnetionState == webrtc::PeerConnectionInterface::PeerConnectionState::kConnected) return;
 
-    followRunning = false;
+    peerConnetionState = webrtc::PeerConnectionInterface::PeerConnectionState::kNew ;
 
     if(disConnectRemoteHandle){
 
@@ -764,14 +793,14 @@ void WebRTCRemoteClient::wrtierCoroutineAsync()
         }
         co_return;
     }, [this](std::exception_ptr p) {
-        try {
-            if (p) {
-                std::rethrow_exception(p);
-            }
-        } catch (const std::exception& e) {
-            Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
-        }
-    });
+                              try {
+                                  if (p) {
+                                      std::rethrow_exception(p);
+                                  }
+                              } catch (const std::exception& e) {
+                                  Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
+                              }
+                          });
 }
 
 void WebRTCRemoteClient::receiveCoroutineAysnc()
@@ -905,7 +934,7 @@ void WebRTCRemoteClient::sendSignalingMessage(boost::json::object& msg) {
 
 void WebRTCRemoteClient::handleAsioException()
 {
-    if(!followRunning) return;
+    if(peerConnetionState!=webrtc::PeerConnectionInterface::PeerConnectionState::kConnected) return;
 
     this->state = WebRTCRemoteState::nullRemote;
 
@@ -1105,6 +1134,7 @@ void WebRTCRemoteClient::disConnect()
 void VideoTrackSink::OnFrame(const webrtc::VideoFrame &frame)
 {
     if (!client) return;
+
 
     // 获取帧数据
     int width = frame.width();
