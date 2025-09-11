@@ -299,6 +299,8 @@ public:
 
     std::function<void()> remoteFailedHandle;
 
+    std::function<void(std::exception)> webSocketDisConnect;
+
     void disConnectHandle();
 
 private:

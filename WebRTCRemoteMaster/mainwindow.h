@@ -154,7 +154,7 @@ private:
 
     // 远程连接超时定时器
     QTimer* remoteConnectionTimer;
-    static const int REMOTE_CONNECTION_TIMEOUT = 30000; // 15秒超时
+    static const int REMOTE_CONNECTION_TIMEOUT = 15000; // 15秒超时
 
     // 设置
     QSettings* settings;
@@ -168,4 +168,8 @@ private:
     // 账号列表
     QStringList accountList;
     QStringList targetList; // 模拟的目标账号列表
+
+    int reConnectNums = 0;
+
+    int reConnectTimes = 5000;
 };

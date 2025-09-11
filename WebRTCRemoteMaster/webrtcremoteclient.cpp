@@ -519,6 +519,15 @@ void WebRTCRemoteClient::connect(std::string ip)
             }
         }catch(const std::exception& e){
             Logger::getInstance()->error("webSocket Read coroutine Error: " + std::string(e.what()));
+
+            if(webSocketRuns){
+
+                if(webSocketDisConnect){
+                    webSocketDisConnect(e);
+                }
+
+            }
+
         }
     }, [this](std::exception_ptr p) {
                               try {

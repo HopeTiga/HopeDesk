@@ -149,18 +149,77 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    // 注册被远程端断开连接的回调
-    webRTCRemoteClient->disConnectRemoteHandle = ([this]() {
+    webRTCRemoteClient->webSocketDisConnect = [this](const std::exception& e) {
         // 使用Qt的事件系统确保在主线程中执行UI更新
-        QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer",
-                                  Qt::QueuedConnection);
-    });
+        QMetaObject::invokeMethod(this, [this, e]() {
 
+            // 如果已经达到最大重连次数，直接返回
+            if (this->reConnectNums >= 5) {
+                this->connectionStatusLabel->setText("连接断开，重连失败");
+                this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+                this->statusLabel->setText("连接已断开");
+                this->connectButton->setEnabled(true);
+                this->connectButton->setText("连接");
+                showErrorMessage("连接断开", QString("与服务器连接断开：%1\n已达到最大重连次数").arg(e.what()));
+                return;
+            }
+
+            // 更新连接状态
+            this->isConnected = false;
+            this->updateConnectionState(false);
+
+            // 重连次数+1
+            this->reConnectNums++;
+
+            qDebug() << QString("连接断开，开始第%1次重连...").arg(this->reConnectNums);
+
+            // 更新UI显示重连状态
+            this->connectionStatusLabel->setText(QString("连接断开，第%1次重连中...").arg(this->reConnectNums));
+            this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
+
+            // 计算重连延迟时间
+            int delayMs = this->reConnectNums * this->reConnectTimes;
+
+            // 如果reConnectNums为1（第一次重连），立即重连
+            if (this->reConnectNums == 1) {
+                // 立即重连
+                QString serverAddress = this->serverAddressEdit->text().trimmed();
+                int port = this->portSpinBox->value();
+                QString currentAccount = this->accountComboBox->currentText();
+
+                if (!serverAddress.isEmpty() && !currentAccount.isEmpty() && currentAccount != "请添加账号") {
+                    this->webRTCRemoteClient->setAccountID(currentAccount.toStdString());
+                    QString url = QString("%1:%2").arg(serverAddress).arg(port);
+                    this->statusLabel->setText("正在重连...");
+                    this->webRTCRemoteClient->connect(url.toStdString());
+                }
+            } else {
+                // 延迟重连
+                this->statusLabel->setText(QString("将在%1秒后进行第%2次重连").arg(delayMs/1000).arg(this->reConnectNums));
+
+                QTimer::singleShot(delayMs, [this]() {
+                    QString serverAddress = this->serverAddressEdit->text().trimmed();
+                    int port = this->portSpinBox->value();
+                    QString currentAccount = this->accountComboBox->currentText();
+
+                    if (!serverAddress.isEmpty() && !currentAccount.isEmpty() && currentAccount != "请添加账号") {
+                        this->webRTCRemoteClient->setAccountID(currentAccount.toStdString());
+                        QString url = QString("%1:%2").arg(serverAddress).arg(port);
+                        this->statusLabel->setText("正在重连...");
+                        this->webRTCRemoteClient->connect(url.toStdString());
+                    }
+                });
+            }
+
+        }, Qt::QueuedConnection);
+    };
+
+    // 同时需要修改webSocketConnectedCallback，在连接成功时重置重连计数：
     webRTCRemoteClient->webSocketConnectedCallback = [this](bool success) {
-        // 使用Qt的事件系统确保在主线程中执行UI更新
         QMetaObject::invokeMethod(this, [this, success]() {
             if (success) {
                 this->onConnectionStateChanged(true);
+                this->reConnectNums = 0; // 连接成功时重置重连计数
             } else {
                 this->connectButton->setEnabled(true);
                 this->connectButton->setText("连接");
@@ -168,6 +227,13 @@ MainWindow::MainWindow(QWidget* parent)
                 this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
                 showErrorMessage("连接错误", "无法连接到服务器");
             }
+        }, Qt::QueuedConnection);
+    };
+
+    webRTCRemoteClient->webSocketDisConnect = [this](std::exception e) {
+        // 使用Qt的事件系统确保在主线程中执行UI更新
+        QMetaObject::invokeMethod(this, [this, e]() {
+
         }, Qt::QueuedConnection);
     };
 
@@ -1248,7 +1314,7 @@ void MainWindow::updateTargetList()
     targetList.clear();
     targetList << "913140924@qq.com"
                << "2044580040@qq.com"
-               << "2512647272@qq.com";
+               << "147718387@qq.com";
 
     // 排除自己
     QString currentAccount = accountComboBox->currentText();
