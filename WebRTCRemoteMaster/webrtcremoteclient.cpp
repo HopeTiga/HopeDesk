@@ -604,6 +604,14 @@ bool WebRTCRemoteClient::initializePeerConnection()
             return false;
         }
 
+        networkThread->PostTask([this]() {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        });
+
+        workerThread->PostTask([this]() {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        });
+
         peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
             networkThread.get(),
             workerThread.get(),
@@ -1102,16 +1110,19 @@ void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)
         }
 
         try {
+
             webrtc::CopyOnWriteBuffer buffer(data, size);
+
             webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
 
             // 发送数据
-            bool success = dataChannel->Send(dataBuffer);
-            delete [] data;
+            dataChannel->SendAsync(dataBuffer,[=](webrtc::RTCError error) mutable{
 
-            if(!success) {
-                LOG_ERROR("Failed to send data");
-            }
+                delete [] data;
+
+            });
+
+
         } catch (const std::exception& e) {
             LOG_ERROR("Exception while sending data: %s", e.what());
         }

@@ -55,6 +55,9 @@ bool WindowsHook::startHook()
 
     // 在单独的线程中运行Hook消息循环
     hookThread = std::thread([this]() {
+
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
         // 安装键盘Hook
         keyboardHook = SetWindowsHookEx(
             WH_KEYBOARD_LL,
