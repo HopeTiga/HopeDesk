@@ -149,6 +149,12 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
+    webRTCRemoteClient->disConnectRemoteHandle = ([this]() {
+        // 使用Qt的事件系统确保在主线程中执行UI更新
+        QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer",
+                                  Qt::QueuedConnection);
+    });
+
     webRTCRemoteClient->webSocketDisConnect = [this](const std::exception& e) {
         // 使用Qt的事件系统确保在主线程中执行UI更新
         QMetaObject::invokeMethod(this, [this, e]() {
