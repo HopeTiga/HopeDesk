@@ -109,13 +109,13 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
 
         Logger::getInstance()->warning("Peer connection disconnected");
 
+        client->disConnectHandle();
+
         break;
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
 
         Logger::getInstance()->error("Peer connection failed");
-
-        client->disConnectHandle();
 
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
