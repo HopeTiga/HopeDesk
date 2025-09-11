@@ -960,8 +960,6 @@ bool WebRTCManager::initializePeerConnection() {
 
         parameters.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
 
-        parameters.rtcp.reduced_size = true;
-
         auto setParamsResult = videoSender->SetParameters(parameters);
 
         if (!setParamsResult.ok()) {
