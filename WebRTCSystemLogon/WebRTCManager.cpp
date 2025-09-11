@@ -132,10 +132,7 @@ void DataChannelObserverImpl::OnMessage(const webrtc::DataBuffer& buffer)
         return;
     }
 
-    const std::byte* data = reinterpret_cast<const std::byte*>(buffer.data.data());
-    size_t size = buffer.size();
-
-    manager->processDataChannelMessage(std::vector<std::byte>(data, data + size));
+    manager->processDataChannelMessage(std::move(reinterpret_cast<const unsigned char*>(buffer.data.data())), buffer.size());
 }
 
 // SetLocalDescriptionObserver实现
@@ -1045,18 +1042,10 @@ bool WebRTCManager::initializeScreenCapture() {
     return true;
 }
 
-void WebRTCManager::processDataChannelMessage(const std::vector<std::byte>& bytes)
+void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t size)
 {
-    if (bytes.empty()) {
-        return;
-    }
 
-    if (bytes.size() < sizeof(short)) {
-        return;
-    }
-
-    const unsigned char* buffer = reinterpret_cast<const unsigned char*>(bytes.data());
-    size_t size = bytes.size();
+    const unsigned char* buffer = data;
 
     short eventType = 0;
     std::memcpy(&eventType, buffer, sizeof(short));
@@ -1237,7 +1226,7 @@ void WebRTCManager::Cleanup() {
         boost::system::error_code ec;
         tcpSocket->close(ec);
     }
-    
+
     if (ioContextWorkPtr) {
         ioContextWorkPtr.reset();
     }

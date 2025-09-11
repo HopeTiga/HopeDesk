@@ -339,13 +339,13 @@ private:
 
 class WebRTCManager {
 
-	friend class PeerConnectionObserverImpl;
+    friend class PeerConnectionObserverImpl;
 
     friend class DataChannelObserverImpl;
 
 public:
-    WebRTCManager(WebRTCVideoCodec codec = WebRTCVideoCodec::AV1,webrtc::RtpEncodingParameters rtpEncodingParameters = getDefaultRtpEncodingParameters());
-  
+    WebRTCManager(WebRTCVideoCodec codec = WebRTCVideoCodec::AV1, webrtc::RtpEncodingParameters rtpEncodingParameters = getDefaultRtpEncodingParameters());
+
     ~WebRTCManager();
 
     void Cleanup();
@@ -376,7 +376,7 @@ private:
 
     bool initializeScreenCapture();
 
-    void processDataChannelMessage(const std::vector<std::byte>& bytes);
+    void processDataChannelMessage(const unsigned char * data ,size_t size);
 
     static webrtc::RtpEncodingParameters getDefaultRtpEncodingParameters() {
         webrtc::RtpEncodingParameters encoding;
