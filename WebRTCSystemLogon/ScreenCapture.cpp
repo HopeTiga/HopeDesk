@@ -4,7 +4,6 @@
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
 #include "Logger.h"
-#include "MouseCursor.h"
 
 struct DirtyRegionTracker {
     std::vector<RECT> dirtyRects;
