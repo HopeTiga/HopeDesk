@@ -33,6 +33,7 @@
 
 struct DirtyRegionTracker;
 struct GPUTextureRing;
+class MouseCursor;  // Forward declaration
 
 struct CapturedFrame {
     std::vector<uint8_t> bgraData;
@@ -115,7 +116,6 @@ private:
     Microsoft::WRL::ComPtr<IDXGIOutput5> dxgiOutput5;
     Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dxgiDuplication;
 
-    // 用于脏矩形处理的临时纹理
     Microsoft::WRL::ComPtr<ID3D11Texture2D> workingTexture;
 
     Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
@@ -140,17 +140,19 @@ private:
     std::atomic<bool> hasAcquiredFrame{ false };
 
     boost::asio::io_context encoderContext;
-    boost::asio::experimental::concurrent_channel<
-        void(boost::system::error_code)> encoderChannel;
+    boost::asio::experimental::concurrent_channel
+        <void(boost::system::error_code) > encoderChannel;
     std::unique_ptr<boost::asio::executor_work_guard<
-        boost::asio::io_context::executor_type>> encoderWorkGuard;
+        boost::asio::io_context::executor_type >> encoderWorkGuard;
 
     moodycamel::ConcurrentQueue<std::shared_ptr<CapturedFrame>> frameQueue;
     moodycamel::ConcurrentQueue<std::shared_ptr<CapturedFrame>> framePool;
     static constexpr size_t MAX_QUEUE_SIZE = 10;
 
     std::unique_ptr<WinLogon> winLogonSwitcher;
+
     std::atomic<bool> isOnWinLogonDesktop{ false };
+
     std::atomic<bool> desktopSwitchInProgress{ false };
 
     CaptureConfig config;

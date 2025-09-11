@@ -737,6 +737,14 @@ bool WebRTCManager::initializePeerConnection() {
 
         }
 
+        networkThread->PostTask([this]() {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+            });
+
+        workerThread->PostTask([this]() {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+            });
+
         peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
             networkThread.get(),
             workerThread.get(),
@@ -768,8 +776,6 @@ bool WebRTCManager::initializePeerConnection() {
     config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
 
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
-
-	config.media_config.enable_dscp = true; //启用DSCP在支持的网络上优先传输媒体流
 
     config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
 
@@ -967,7 +973,7 @@ bool WebRTCManager::initializePeerConnection() {
 
     std::unique_ptr<webrtc::DataChannelInit> dataChannelConfig = std::make_unique<webrtc::DataChannelInit>();
 
-	dataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
+    dataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
 
     dataChannel = peerConnection->CreateDataChannel("dataChannel", dataChannelConfig.get());
     if (!dataChannel) {
@@ -1231,7 +1237,7 @@ void WebRTCManager::Cleanup() {
         boost::system::error_code ec;
         tcpSocket->close(ec);
     }
-
+    
     if (ioContextWorkPtr) {
         ioContextWorkPtr.reset();
     }

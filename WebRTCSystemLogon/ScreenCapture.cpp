@@ -4,6 +4,7 @@
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
 #include "Logger.h"
+#include "MouseCursor.h"
 
 struct DirtyRegionTracker {
     std::vector<RECT> dirtyRects;
@@ -96,6 +97,7 @@ ScreenCapture::ScreenCapture()
 
     dirtyTracker = std::make_unique<DirtyRegionTracker>();
     gpuRing = std::make_unique<GPUTextureRing>();
+
 }
 
 ScreenCapture::~ScreenCapture() {
@@ -142,6 +144,7 @@ bool ScreenCapture::initialize() {
 
         Logger::getInstance()->info("Frame rate set to " + std::to_string(config.fps) + " fps");
         Logger::getInstance()->info("Dirty Rectangles: " + std::string(config.enableDirtyRects ? "Enabled" : "Disabled"));
+
         Logger::getInstance()->info("=== DXGI ScreenCapture initialization completed ===");
         return true;
     }
@@ -723,7 +726,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         D3D11_MAP_READ,
         0,  // 非阻塞
         &mapped);
-      
+
     if (FAILED(hr)) {
         Logger::getInstance()->error("Failed to map texture: 0x" +
             std::to_string(static_cast<unsigned int>(hr)));
@@ -1289,6 +1292,7 @@ void ScreenCapture::releaseResourceDXGI() {
 
     workingTexture.Reset();
 
+
     dxgiOutput5.Reset();
     dxgiOutput1.Reset();
     dxgiOutput.Reset();
@@ -1314,4 +1318,5 @@ void ScreenCapture::releaseResourceDXGI() {
     if (stagingBuffer) {
         stagingBuffer.Reset();
     }
+
 }
