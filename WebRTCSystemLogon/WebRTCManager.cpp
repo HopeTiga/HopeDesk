@@ -780,7 +780,7 @@ bool WebRTCManager::initializePeerConnection() {
 
     config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
-	config.set_dscp(true);                                   // 启用DSCP
+    config.set_dscp(true);
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
 
