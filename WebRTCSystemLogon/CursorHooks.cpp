@@ -290,18 +290,9 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
         bmi.bmiHeader.biCompression = BI_RGB;
 
         if (hasColor) {
-            // 彩色光标 - 直接获取
+            // 彩色光标 - 直接获取原始颜色
             if (GetDIBits(hdcMem, iconInfo.hbmColor, 0, height, data, &bmi, DIB_RGB_COLORS)) {
-                // 将颜色转换为纯白色，保持原有透明度
-                // 使用RGB格式！
-                for (int i = 0; i < width * height * 4; i += 4) {
-                    if (data[i + 3] > 0) { // 只处理不透明像素
-                        data[i] = 255;     // R (RGB格式)
-                        data[i + 1] = 255; // G
-                        data[i + 2] = 255; // B
-                    }
-                }
-                std::cout << "成功获取彩色光标数据并转换为纯白色(RGB)" << std::endl;
+                std::cout << "成功获取彩色光标数据(保持原始颜色)" << std::endl;
             }
             else {
                 std::cout << "GetDIBits失败，错误代码: " << GetLastError() << std::endl;
@@ -325,13 +316,13 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
             bmiMask.bmiHeader.biCompression = BI_RGB;
 
             if (GetDIBits(hdcMem, iconInfo.hbmMask, 0, bmMask.bmHeight, maskData, &bmiMask, DIB_RGB_COLORS)) {
-                // 处理单色光标 - 使用RGB格式
+                // 处理单色光标 - 保持原始黑白模式
                 for (int i = 0; i < width * height; i++) {
                     int idx = i * 4;
                     int xorIdx = (i + width * height) * 4; // XOR掩码在下半部分
 
                     if (maskData[xorIdx] > 0) {
-                        // XOR白色 -> 显示白色 (RGB格式)
+                        // XOR白色 -> 显示白色
                         data[idx] = 255;     // R
                         data[idx + 1] = 255; // G
                         data[idx + 2] = 255; // B
@@ -344,15 +335,61 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
                             data[idx + 3] = 0; // A
                         }
                         else {
-                            // AND黑色 -> 显示白色 (RGB格式)
-                            data[idx] = 255;     // R
-                            data[idx + 1] = 255; // G
-                            data[idx + 2] = 255; // B
+                            // AND黑色 -> 显示黑色（不是白色）
+                            data[idx] = 0;       // R
+                            data[idx + 1] = 0;   // G
+                            data[idx + 2] = 0;   // B
                             data[idx + 3] = 255; // A
                         }
                     }
                 }
-                std::cout << "成功获取单色光标数据并转换为纯白色(RGB)" << std::endl;
+                std::cout << "成功获取单色光标数据(保持原始黑白)" << std::endl;
+
+                // ====== 添加黑色边框 ======
+    // 创建临时缓冲区存储原始数据
+                unsigned char* tempData = new unsigned char[size];
+                memcpy(tempData, data, size);
+
+                for (int y = 0; y < height; y++) {
+                    for (int x = 0; x < width; x++) {
+                        int idx = (y * width + x) * 4;
+
+                        // 只处理透明像素
+                        if (tempData[idx + 3] == 0) {
+                            bool hasOpaqueNeighbor = false;
+
+                            // 检查8个方向的邻居
+                            for (int dy = -1; dy <= 1; dy++) {
+                                for (int dx = -1; dx <= 1; dx++) {
+                                    if (dx == 0 && dy == 0) continue;
+
+                                    int nx = x + dx;
+                                    int ny = y + dy;
+
+                                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                                        int nidx = (ny * width + nx) * 4;
+                                        if (tempData[nidx + 3] > 0) {
+                                            hasOpaqueNeighbor = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (hasOpaqueNeighbor) break;
+                            }
+
+                            // 如果有不透明邻居，添加纯黑色边框
+                            if (hasOpaqueNeighbor) {
+                                // 使用RGB格式设置纯黑色
+                                data[idx] = 0;       // R
+                                data[idx + 1] = 0;   // G
+                                data[idx + 2] = 0;   // B
+                                data[idx + 3] = 255; // A
+                            }
+                        }
+                    }
+                }
+                delete[] tempData;
+                std::cout << "已添加黑色边框(RGB)" << std::endl;
             }
             else {
                 delete[] data;
@@ -364,51 +401,7 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
             delete[] maskData;
         }
 
-        // ====== 添加黑色边框 ======
-        // 创建临时缓冲区存储原始数据
-        unsigned char* tempData = new unsigned char[size];
-        memcpy(tempData, data, size);
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int idx = (y * width + x) * 4;
-
-                // 只处理透明像素
-                if (tempData[idx + 3] == 0) {
-                    bool hasOpaqueNeighbor = false;
-
-                    // 检查8个方向的邻居
-                    for (int dy = -1; dy <= 1; dy++) {
-                        for (int dx = -1; dx <= 1; dx++) {
-                            if (dx == 0 && dy == 0) continue;
-
-                            int nx = x + dx;
-                            int ny = y + dy;
-
-                            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                                int nidx = (ny * width + nx) * 4;
-                                if (tempData[nidx + 3] > 0) {
-                                    hasOpaqueNeighbor = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (hasOpaqueNeighbor) break;
-                    }
-
-                    // 如果有不透明邻居，添加纯黑色边框
-                    if (hasOpaqueNeighbor) {
-                        // 使用RGB格式设置纯黑色
-                        data[idx] = 0;       // R
-                        data[idx + 1] = 0;   // G
-                        data[idx + 2] = 0;   // B
-                        data[idx + 3] = 255; // A
-                    }
-                }
-            }
-        }
-        delete[] tempData;
-        std::cout << "已添加黑色边框(RGB)" << std::endl;
+        // 移除了人工添加黑色边框的代码 - 保持原始光标外观
     }
 
 cleanup:
