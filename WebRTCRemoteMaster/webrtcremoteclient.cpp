@@ -41,9 +41,9 @@ HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int
         BYTE a = rgbaData[idx + 3]; // A
 
         // 转换为BGR格式写入DIB
-        ((BYTE*)pBits)[idx] = b;     // B
+        ((BYTE*)pBits)[idx] = r;     // B
         ((BYTE*)pBits)[idx + 1] = g; // G
-        ((BYTE*)pBits)[idx + 2] = r; // R
+        ((BYTE*)pBits)[idx + 2] = b; // R
         ((BYTE*)pBits)[idx + 3] = a; // A
     }
 
