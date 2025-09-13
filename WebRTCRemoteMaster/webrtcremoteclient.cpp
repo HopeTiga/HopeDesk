@@ -1104,16 +1104,18 @@ void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)
         }
 
         try {
+
             webrtc::CopyOnWriteBuffer buffer(data, size);
+
             webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
 
             // 发送数据
-            bool success = dataChannel->Send(dataBuffer);
-            delete [] data;
+            dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
 
-            if(!success) {
-                LOG_ERROR("Failed to send data");
-            }
+                 delete [] data;
+
+            });
+
         } catch (const std::exception& e) {
             LOG_ERROR("Exception while sending data: %s", e.what());
         }
