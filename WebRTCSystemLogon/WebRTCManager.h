@@ -63,6 +63,7 @@
 #include "ScreenCapture.h"
 #include "WinLogon.h"
 #include "KeyMouseSimulator.h"
+#include "CursorHooks.h"
 #include "Utils.h"
 
 enum class WebRTCRemoteState {
@@ -376,7 +377,7 @@ private:
 
     bool initializeScreenCapture();
 
-    void processDataChannelMessage(const unsigned char * data ,size_t size);
+    void processDataChannelMessage(const unsigned char* data, size_t size);
 
     static webrtc::RtpEncodingParameters getDefaultRtpEncodingParameters() {
         webrtc::RtpEncodingParameters encoding;
@@ -461,5 +462,7 @@ private:
     winrt::Windows::UI::Input::Preview::Injection::InputInjector inputInjector;
 
     std::unique_ptr<KeyMouseSimulator> keyMouseSim;
+
+    std::unique_ptr<CursorHooks> cursorHooks;
 
 };

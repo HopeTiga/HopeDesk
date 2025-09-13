@@ -274,7 +274,8 @@ WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParamete
     keyMouseSim(nullptr),
     codec(codec),
     rtpEncodingParameters(rtpEncodingParameters),
-    inputInjector(nullptr) {
+    inputInjector(nullptr),
+    cursorHooks(nullptr) {
 
     Logger::getInstance()->info("WebRTCManager starting on port 19998");
 
@@ -1041,6 +1042,32 @@ bool WebRTCManager::initializeScreenCapture() {
         return false;
     }
 
+    cursorHooks = std::make_unique<CursorHooks>();
+
+    cursorHooks->setCursorHandler([this](unsigned char* data, size_t size) {
+
+        if (!dataChannel) {
+
+            delete[] data;
+
+            return;
+
+        }
+
+        webrtc::CopyOnWriteBuffer buffer(data, size);
+
+        webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+
+        dataChannel->SendAsync(dataBuffer, [this, data](webrtc::RTCError) {
+
+            delete[] data;
+
+            });
+
+        });
+
+    cursorHooks->startHooks();
+
     return true;
 }
 
@@ -1255,6 +1282,11 @@ void WebRTCManager::Cleanup() {
 
     if (signalingThread) {
         signalingThread->Stop();
+    }
+
+    if (cursorHooks) {
+        cursorHooks->stopHooks();
+        cursorHooks.reset();
     }
 
     webrtc::CleanupSSL();
