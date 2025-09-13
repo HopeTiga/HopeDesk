@@ -40,8 +40,6 @@ private:
     static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
 
-    // Windows键码转Qt键码
-    static int VKToQtKey(DWORD vkCode);
 
     // 获取当前修饰键状态
     static char getCurrentModifiers();

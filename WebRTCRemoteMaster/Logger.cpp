@@ -7,7 +7,7 @@ std::mutex Logger::mutex;
 
 Logger::Logger() : minLevel(LogLevels::INFO) {
     // 默认日志路径
-    logFilePath = "E:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\system2.log";
+    logFilePath = "D:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\system2.log";
     logFile.open(logFilePath, std::ios::out | std::ios::app);
     if (!logFile.is_open()) {
         std::cerr << "Failed to open log file: " << logFilePath << std::endl;

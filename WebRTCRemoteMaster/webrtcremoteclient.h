@@ -408,7 +408,9 @@ private:
 
     std::string systemService = "WebRTCSystemLogon";
 
-    std::string systemServiceExe = "E:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
+    std::string systemServiceExe = "D:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
+
+    std::vector<std::vector<unsigned char>> cursorArray ;
 };
 
 #endif // WEBRTCREMOTECLIENT_H
