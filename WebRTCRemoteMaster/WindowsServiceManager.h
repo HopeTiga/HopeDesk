@@ -82,6 +82,33 @@ public:
         return isSuccess;
     }
 
+    // 查询服务是否存在
+    static bool serviceExists(const std::string& serviceName) {
+        SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_CONNECT);
+        if (!serviceControlManager) {
+            Logger::getInstance()->error("Failed to open service control manager: " + std::to_string(GetLastError()));
+            return false;
+        }
+
+        SC_HANDLE serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_QUERY_STATUS);
+        bool exists = (serviceHandle != nullptr);
+
+        if (exists) {
+            Logger::getInstance()->info("Service exists: " + serviceName);
+            CloseServiceHandle(serviceHandle);
+        } else {
+            DWORD errorCode = GetLastError();
+            if (errorCode == ERROR_SERVICE_DOES_NOT_EXIST) {
+                Logger::getInstance()->info("Service does not exist: " + serviceName);
+            } else {
+                Logger::getInstance()->error("Failed to query service: " + serviceName + ", Error: " + std::to_string(errorCode));
+            }
+        }
+
+        CloseServiceHandle(serviceControlManager);
+        return exists;
+    }
+
     // 启动服务
     static bool startService(const std::string& serviceName) {
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);

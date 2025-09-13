@@ -349,14 +349,21 @@ void WebRTCRemoteClient::connect(std::string ip)
                                 if(state.load() == WebRTCRemoteState::nullRemote){
                                     // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
                                     if(remoteState == WebRTCRemoteState::masterRemote){
+
                                         state = WebRTCRemoteState::followerRemote;
+
                                         targetID = std::string(json["accountID"].as_string().c_str());
+
                                         this->followData = dataStr;
 
-                                        WindowsServiceManager::deleteService(systemService);
-                                        WindowsServiceManager::registerService(systemService, systemServiceExe);
+                                        if(!WindowsServiceManager::serviceExists(systemService)){
+
+                                            WindowsServiceManager::registerService(systemService, systemServiceExe);
+
+                                        }
 
                                         if (WindowsServiceManager::startService(systemService)) {
+
                                             boost::asio::co_spawn(ioContext,[this,dataStr]()mutable->boost::asio::awaitable<void>{
                                                 try {
                                                     tcpSocket = std::make_unique<boost::asio::ip::tcp::socket>(ioContext);
@@ -395,7 +402,9 @@ void WebRTCRemoteClient::connect(std::string ip)
                                                     if (e.code() == boost::asio::error::connection_reset ||
                                                         e.code() == boost::asio::error::connection_aborted ||
                                                         e.code() == boost::asio::error::broken_pipe) {
+                                                        handleAsioException();
                                                         Logger::getInstance()->warning("Connection lost in write: " + e.code().message());
+
                                                     } else {
                                                         // 其他boost错误都当标准异常处理
                                                         Logger::getInstance()->error("Boost system error in write: " + std::string(e.what()));
@@ -1104,18 +1113,13 @@ void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)
         }
 
         try {
-
             webrtc::CopyOnWriteBuffer buffer(data, size);
-
             webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
 
-            // 发送数据
             dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
-
-                 delete [] data;
-
+                delete [] data;
             });
-
+            // 发送数据
         } catch (const std::exception& e) {
             LOG_ERROR("Exception while sending data: %s", e.what());
         }
