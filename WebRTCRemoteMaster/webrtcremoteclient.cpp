@@ -1106,23 +1106,25 @@ void WebRTCRemoteClient::setTargetID(const std::string &newTargetID)
 void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)
 {
     if(state.load() == WebRTCRemoteState::masterRemote){
+
         if(!dataChannel) {
+
             LOG_ERROR("DataChannel is null");
+
             delete[] data;
+
             return;
         }
 
-        try {
-            webrtc::CopyOnWriteBuffer buffer(data, size);
-            webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+        webrtc::CopyOnWriteBuffer buffer(data, size);
 
-            dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
-                delete [] data;
-            });
-            // 发送数据
-        } catch (const std::exception& e) {
-            LOG_ERROR("Exception while sending data: %s", e.what());
-        }
+        webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+
+        dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
+
+            delete [] data;
+
+        });
     }
 }
 
