@@ -411,7 +411,7 @@ void WebRTCRemoteClient::connect(std::string ip)
                                 WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
                                 // 只在状态未设置时进行角色分配，避免重复处理
-                                if(state.load() == WebRTCRemoteState::nullRemote){
+                                if(!isRemote){
                                     // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
                                     if(remoteState == WebRTCRemoteState::masterRemote){
 
