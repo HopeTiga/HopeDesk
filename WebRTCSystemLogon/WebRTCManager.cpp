@@ -94,6 +94,16 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
             }
         }
 
+        boost::json::object json;
+
+        json["requestType"] = static_cast<int64_t>(WebRTCRequestState::START);
+
+        std::string jsonStr = boost::json::serialize(json);
+
+        std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
+
+        manager->writerAsync(data);
+
         break;
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
