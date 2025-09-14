@@ -71,7 +71,8 @@ enum class WebRTCRequestState {
     REQUEST = 1,
     RESTART = 2,
     STOPREMOTE = 3,
-    CLOSE = 4,
+    START = 4,
+    CLOSE = 5,
 };
 
 struct VideoFrame {

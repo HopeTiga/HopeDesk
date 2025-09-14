@@ -7,97 +7,6 @@
 #include <boost/random/uniform_int_distribution.hpp>
 #include "Logger.h"
 
-
-HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX = 0, int hotY = 0)
-{
-    HDC hdc = GetDC(NULL);
-    HDC hdcMem = CreateCompatibleDC(hdc);
-    ReleaseDC(NULL, hdc);
-    if (!hdcMem) return NULL;
-
-    // 1. 准备32位颜色位图
-    BITMAPINFO bmi = {};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = width;
-    bmi.bmiHeader.biHeight = -height;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-
-    void* pBits = nullptr;
-    HBITMAP hBitmap = CreateDIBSection(hdcMem, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
-    if (!hBitmap) {
-        DeleteDC(hdcMem);
-        return NULL;
-    }
-
-    // 需要将RGB转换为BGR，因为Windows DIB期望BGR格式
-    // 但是如果getCursorBitmapData输出的是RGB，我们需要转换
-    for (int i = 0; i < width * height; i++) {
-        int idx = i * 4;
-        BYTE r = rgbaData[idx];     // R
-        BYTE g = rgbaData[idx + 1]; // G
-        BYTE b = rgbaData[idx + 2]; // B
-        BYTE a = rgbaData[idx + 3]; // A
-
-        // 转换为BGR格式写入DIB
-        ((BYTE*)pBits)[idx] = r;     // B
-        ((BYTE*)pBits)[idx + 1] = g; // G
-        ((BYTE*)pBits)[idx + 2] = b; // R
-        ((BYTE*)pBits)[idx + 3] = a; // A
-    }
-
-    // 2. 创建单色掩码位图（1位）
-    HBITMAP hMask = CreateBitmap(width, height, 1, 1, NULL);
-    if (!hMask) {
-        DeleteObject(hBitmap);
-        DeleteDC(hdcMem);
-        return NULL;
-    }
-
-    // 3. 根据Alpha通道生成掩码
-    // 掩码规则：0（黑色）= 不透明，1（白色）= 透明
-    int maskRowBytes = ((width + 15) / 16) * 2;
-    BYTE* maskBits = new BYTE[maskRowBytes * height];
-    memset(maskBits, 0xFF, maskRowBytes * height); // 初始化为全白（全透明）
-
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int idx = (y * width + x) * 4;
-            BYTE alpha = rgbaData[idx + 3];
-
-            // Alpha > 128 的像素设为黑色（不透明）
-            if (alpha > 128) {
-                int byteIdx = y * maskRowBytes + (x / 8);
-                int bitPos = 7 - (x % 8);
-                maskBits[byteIdx] &= ~(1 << bitPos); // 清除位（设为0/黑色）
-            }
-        }
-    }
-
-    SetBitmapBits(hMask, maskRowBytes * height, maskBits);
-    delete[] maskBits;
-
-    // 4. 创建光标
-    ICONINFO iconInfo = {};
-    iconInfo.fIcon = FALSE; // 创建光标
-    iconInfo.xHotspot = hotX;
-    iconInfo.yHotspot = hotY;
-    iconInfo.hbmMask = hMask;    // 单色掩码
-    iconInfo.hbmColor = hBitmap; // 颜色位图
-
-    HCURSOR cursor = CreateIconIndirect(&iconInfo);
-
-    // 5. 清理资源
-    DeleteObject(hBitmap);
-    DeleteObject(hMask);
-    DeleteDC(hdcMem);
-
-    return cursor;
-}
-
-
-
 void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
     switch (newState) {
     case webrtc::PeerConnectionInterface::kStable:
@@ -477,7 +386,7 @@ void WebRTCRemoteClient::connect(std::string ip)
                 buffer.consume(buffer.size());
                 boost::json::object json = boost::json::parse(dataStr).as_object();
 
-                if(this->state == WebRTCRemoteState::followerRemote && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
+                if(this->tcpSocket&& this->state == WebRTCRemoteState::followerRemote && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
                     std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(),dataStr.size());
                     writerAsync(writerData);
                     continue;
@@ -543,16 +452,17 @@ void WebRTCRemoteClient::connect(std::string ip)
                                                         boost::asio::use_awaitable
                                                         );
 
-                                                    this->followRemoteHandle();
                                                     socketRuns = true;
-                                                    followRunning = true;
-                                                    wrtierCoroutineAsync();
-                                                    receiveCoroutineAysnc();
 
-                                                    this->isRemote = true;
+                                                    followRunning = true;
+
+                                                    wrtierCoroutineAsync();
+
+                                                    receiveCoroutineAysnc();
 
                                                     // 发送初始数据
                                                     std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
+
                                                     writerAsync(writerData);
 
                                                 } catch (const boost::system::system_error& e) {
@@ -1059,7 +969,15 @@ void WebRTCRemoteClient::receiveCoroutineAysnc()
 
                 boost::json::object json = boost::json::parse(bodyStr).as_object();
 
-                if(WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::CLOSE){
+                if(WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::START){
+
+                    this->followRemoteHandle();
+
+                    this->isRemote = true;
+
+                    continue;
+
+                }else if(WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::CLOSE){
 
                     disConnectHandle();
 

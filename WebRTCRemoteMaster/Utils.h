@@ -1,7 +1,7 @@
 #pragma once
 #ifndef UTILS_H
 #define UTILS_H
-
+#include <windows.h>
 #include <stdio.h>
 #include <time.h>
 #include <stdarg.h>
@@ -39,5 +39,7 @@ void get_timestamp(char* buffer, size_t size);
 void get_level_info(LogLevel level, const char** level_str, const char** color);
 void log_message(LogLevel level, const char* format, ...);
 void log_message_plain(LogLevel level, const char* format, ...);
+
+HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX = 0, int hotY = 0);
 
 #endif // UTILS_H
