@@ -510,6 +510,8 @@
     let frameCount = 0;
     let lastFpsTime = performance.now();
 
+    const scale = 4;
+
     // 元素
     const mainContainer = document.getElementById('main-container');
     const cinemaMode = document.getElementById('cinema-mode');
@@ -661,6 +663,18 @@
             return null;
         }
 
+        if (canvas.id === 'cinema-webgl-canvas') {
+            // 影院模式canvas使用全屏尺寸
+            canvas.width = window.innerWidth * scale;
+            canvas.height = window.innerHeight * scale;
+        } else {
+            // 普通canvas使用客户端尺寸
+            canvas.width = canvas.clientWidth * scale;
+            canvas.height = canvas.clientHeight * scale;
+        }
+
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
         const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
         const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
 
@@ -709,7 +723,8 @@
             texCoordBuffer,
             texture,
             positionLocation,
-            texCoordLocation
+            texCoordLocation,
+            canvas  // 添加canvas引用
         };
     }
 
@@ -718,15 +733,17 @@
 
         const { gl, program, positionBuffer, texCoordBuffer, texture, positionLocation, texCoordLocation } = context;
 
-        // 更新画布尺寸
+        // 更新画布尺寸 - 修复：统一使用devicePixelRatio或固定倍数
         const displayWidth = canvas.clientWidth;
         const displayHeight = canvas.clientHeight;
 
-        if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
-            canvas.width = displayWidth * 4;
-            canvas.height = displayHeight * 4;
-            gl.viewport(0, 0, displayWidth * 4, displayHeight * 4);
+        if (canvas.width !== displayWidth * scale || canvas.height !== displayHeight * scale) {
+            canvas.width = displayWidth * scale;
+            canvas.height = displayHeight * scale;
         }
+
+        // 重要：viewport必须匹配canvas的实际尺寸
+        gl.viewport(0, 0, canvas.width, canvas.height);
 
         // 清除画布
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -1095,12 +1112,41 @@
     }
 
     // ========== 影院模式 ==========
-
     function enterCinemaMode() {
+        // 首先检查视频是否已经准备好
+        if (!videoElement || videoElement.readyState < 2) {
+            log('视频还未准备好，无法进入影院模式');
+            return;
+        }
+
         isCinemaMode = true;
         document.body.classList.add('cinema-active');
         mainContainer.classList.add('hidden');
         cinemaMode.classList.add('active');
+
+        // 延迟初始化影院WebGL上下文
+        if (!cinemaWebglContext) {
+            log('初始化影院模式WebGL上下文...');
+            cinemaWebglContext = initWebGL(cinemaWebglCanvas);
+            if (!cinemaWebglContext) {
+                log('影院模式WebGL初始化失败');
+                exitCinemaMode();
+                return;
+            }
+            log('影院模式WebGL初始化成功');
+        } else {
+            // 如果已经初始化，更新尺寸
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            cinemaWebglCanvas.width = width * scale;
+            cinemaWebglCanvas.height = height * scale;
+            cinemaWebglContext.gl.viewport(0, 0, cinemaWebglCanvas.width, cinemaWebglCanvas.height);
+        }
+
+        // 立即触发一次渲染以确保画面显示
+        if (videoElement && videoElement.readyState >= 2) {
+            renderWebGL(cinemaWebglContext, videoElement, cinemaWebglCanvas);
+        }
 
         if (isiOS()) {
             hideIOSAddressBar();
@@ -1118,17 +1164,10 @@
         }
 
         bindTouchEvents(cinemaWebglCanvas);
-
-        if (cinemaWebglContext) {
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            cinemaWebglCanvas.width = width;
-            cinemaWebglCanvas.height = height;
-            cinemaWebglContext.gl.viewport(0, 0, width, height);
-        }
-
         log('已进入影院模式');
+        log(`当前视频分辨率: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
     }
+
 
     function exitCinemaMode() {
         isCinemaMode = false;
@@ -1152,9 +1191,10 @@
     // ========== WebRTC 初始化 ==========
 
     async function initWebRTC() {
+
         webglContext = initWebGL(webglCanvas);
         if (webglContext) {
-            log('WebGL初始化成功');
+            log('主WebGL初始化成功');
         }
 
         cinemaWebglContext = initWebGL(cinemaWebglCanvas);
@@ -1419,15 +1459,20 @@
     });
 
     window.addEventListener('resize', () => {
-        if (webglContext) {
-            webglContext.gl.viewport(0, 0, webglCanvas.clientWidth, webglCanvas.clientHeight);
+        if (webglContext && webglContext.gl) {
+
+            webglCanvas.width = webglCanvas.clientWidth * scale;
+            webglCanvas.height = webglCanvas.clientHeight * scale;
+            webglContext.gl.viewport(0, 0, webglCanvas.width, webglCanvas.height);
         }
-        if (cinemaWebglContext && isCinemaMode) {
+
+        if (cinemaWebglContext && cinemaWebglContext.gl && isCinemaMode) {
+
             const width = window.innerWidth;
             const height = window.innerHeight;
-            cinemaWebglCanvas.width = width;
-            cinemaWebglCanvas.height = height;
-            cinemaWebglContext.gl.viewport(0, 0, width, height);
+            cinemaWebglCanvas.width = width * scale;
+            cinemaWebglCanvas.height = height * scale;
+            cinemaWebglContext.gl.viewport(0, 0, cinemaWebglCanvas.width, cinemaWebglCanvas.height);
         }
     });
 
@@ -1435,12 +1480,13 @@
         if (isCinemaMode && isiOS()) {
             setTimeout(() => {
                 hideIOSAddressBar();
+
                 const width = window.innerWidth;
                 const height = window.innerHeight;
-                cinemaWebglCanvas.width = width;
-                cinemaWebglCanvas.height = height;
-                if (cinemaWebglContext) {
-                    cinemaWebglContext.gl.viewport(0, 0, width, height);
+                cinemaWebglCanvas.width = width * scale;
+                cinemaWebglCanvas.height = height * scale;
+                if (cinemaWebglContext && cinemaWebglContext.gl) {
+                    cinemaWebglContext.gl.viewport(0, 0, cinemaWebglCanvas.width, cinemaWebglCanvas.height);
                 }
             }, 100);
         }
