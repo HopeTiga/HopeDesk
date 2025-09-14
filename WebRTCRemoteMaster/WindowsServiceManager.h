@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <tlhelp32.h>  // 添加进程枚举所需头文件
 #include <string>
 #include <iostream>
 #include "Logger.h"  // 添加Logger头文件
@@ -144,40 +145,71 @@ public:
         return isSuccess;
     }
 
-    // 停止服务
+    // 停止服务 - 强制杀死所有同名进程
     static bool stopService(const std::string& serviceName) {
-        SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-        if (!serviceControlManager) {
-            Logger::getInstance()->error("Failed to open service control manager: " + std::to_string(GetLastError()));
+        Logger::getInstance()->info("Force killing all processes with name: " + serviceName);
+
+        // 获取进程快照
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE) {
+            Logger::getInstance()->error("Failed to create process snapshot: " + std::to_string(GetLastError()));
             return false;
         }
 
-        SC_HANDLE serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_ALL_ACCESS);
-        if (!serviceHandle) {
-            Logger::getInstance()->error("Failed to open service: " + serviceName + ", Error: " + std::to_string(GetLastError()));
-            CloseServiceHandle(serviceControlManager);
-            return false;
+        PROCESSENTRY32W processEntry;  // 使用宽字符版本
+        processEntry.dwSize = sizeof(PROCESSENTRY32W);
+
+        int killedCount = 0;
+
+        // 遍历所有进程
+        if (Process32FirstW(snapshot, &processEntry)) {  // 使用宽字符版本
+            do {
+                // 将宽字符转换为窄字符
+                char processNameBuffer[MAX_PATH];
+                WideCharToMultiByte(CP_ACP, 0, processEntry.szExeFile, -1,
+                                    processNameBuffer, MAX_PATH, NULL, NULL);
+                std::string processName = processNameBuffer;
+
+                // 移除.exe扩展名进行比较
+                size_t pos = processName.find(".exe");
+                if (pos != std::string::npos) {
+                    processName = processName.substr(0, pos);
+                }
+
+                // 比较进程名（不区分大小写）
+                if (_stricmp(processName.c_str(), serviceName.c_str()) == 0) {
+                    // 打开进程句柄
+                    HANDLE processHandle = OpenProcess(PROCESS_TERMINATE, FALSE, processEntry.th32ProcessID);
+                    if (processHandle) {
+                        // 强制终止进程
+                        if (TerminateProcess(processHandle, 0)) {
+                            Logger::getInstance()->info("Successfully killed process: " + std::string(processNameBuffer) +
+                                                        " (PID: " + std::to_string(processEntry.th32ProcessID) + ")");
+                            killedCount++;
+                        } else {
+                            Logger::getInstance()->error("Failed to terminate process PID " +
+                                                         std::to_string(processEntry.th32ProcessID) +
+                                                         ": " + std::to_string(GetLastError()));
+                        }
+                        CloseHandle(processHandle);
+                    } else {
+                        Logger::getInstance()->error("Failed to open process PID " +
+                                                     std::to_string(processEntry.th32ProcessID) +
+                                                     ": " + std::to_string(GetLastError()));
+                    }
+                }
+            } while (Process32NextW(snapshot, &processEntry));  // 使用宽字符版本
         }
 
-        SERVICE_STATUS serviceStatus;
-        bool isSuccess = ControlService(serviceHandle, SERVICE_CONTROL_STOP, &serviceStatus);
-        if (isSuccess) {
-            Logger::getInstance()->info("Service stopped successfully: " + serviceName);
-        }
-        else {
-            DWORD errorCode = GetLastError();
-            if (errorCode == ERROR_SERVICE_NOT_ACTIVE) {
-                Logger::getInstance()->info("Service is not running: " + serviceName);
-                isSuccess = true;
-            }
-            else {
-                Logger::getInstance()->error("Failed to stop service: " + serviceName + ", Error: " + std::to_string(errorCode));
-            }
-        }
+        CloseHandle(snapshot);
 
-        CloseServiceHandle(serviceHandle);
-        CloseServiceHandle(serviceControlManager);
-        return isSuccess;
+        if (killedCount > 0) {
+            Logger::getInstance()->info("Total processes killed: " + std::to_string(killedCount));
+            return true;
+        } else {
+            Logger::getInstance()->info("No processes found with name: " + serviceName);
+            return true; // 没有找到进程也算成功
+        }
     }
 
     // 删除服务
