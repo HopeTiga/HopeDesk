@@ -5,13 +5,11 @@
 ## 核心架构
 
 ### 1. 信令服务器
-- **技术栈**: Boost 协程 + TCP/WebSocket
-- **功能**:
-  - 基于协程的异步 TCP/WebSocket 监听
+- **技术栈**: LibDataChannel的WebSocketServer
+- **功能**: 信令数据交换，客户端注册和设备发现
+  - 异步 TCP/WebSocket 监听
   - 客户端注册与设备发现
   - SDP 和 ICE 候选信息交换
-  - 房间管理和连接状态维护
-  - 生产者-消费者模式的消息处理
 
 ### 2. 被控端 (视频源)
 - **技术栈**: Qt + LibWebRTC + DXGI + Interception + Windows API
