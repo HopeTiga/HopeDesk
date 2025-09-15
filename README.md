@@ -24,7 +24,7 @@
 ### 3. 操控端 (控制客户端)
 - **技术栈**: Qt + LibWebRTC + Windows Hooks
 - **功能**:
-  - **视频渲染**: LibWebRTC 视频解码 + Qt Widget 显示
+  - **视频渲染**: LibWebRTC 视频解码 + QRHI 显示
   - **输入采集**: Windows Hooks 捕获键鼠事件
   - **指令传输**: DataChannel 异步发送控制指令 (sendAsync)
   - **状态同步**: 接收并应用远程鼠标状态变化
