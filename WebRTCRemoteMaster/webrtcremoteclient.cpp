@@ -109,13 +109,13 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
 
         Logger::getInstance()->warning("Peer connection disconnected");
 
-        client->disConnectHandle();
-
         break;
     }
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
 
         Logger::getInstance()->error("Peer connection failed");
+
+        client->disConnectHandle();
 
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
@@ -627,6 +627,8 @@ WebRTCRemoteClient::~WebRTCRemoteClient()
 {
     WindowsServiceManager::stopService(systemService);
 
+    SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
+
     releaseSource();
 
     peerConnectionFactory.release();
@@ -802,6 +804,8 @@ void WebRTCRemoteClient::disConnectRemote()
 
 void WebRTCRemoteClient::disConnectHandle()
 {
+    SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
+
     this->state = WebRTCRemoteState::nullRemote;
 
     if(isRemote == false) return;

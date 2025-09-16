@@ -825,4 +825,5 @@ void VideoWidget::leaveEvent(QEvent* event)
             hideTimer->start();
         }
     }
+    SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
 }
