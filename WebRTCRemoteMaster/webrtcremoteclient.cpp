@@ -779,6 +779,7 @@ void WebRTCRemoteClient::writerAsync(std::shared_ptr<WriterData> writerData){
 
 void WebRTCRemoteClient::disConnectRemote()
 {
+    SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
 
     this->state = WebRTCRemoteState::nullRemote;
 
