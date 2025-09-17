@@ -59,9 +59,9 @@ public:
     struct CaptureConfig {
         int width = 0;
         int height = 0;
-        int fps = 60;
+        int fps = 120;
         UINT outputNum = 0;
-        bool enableGPUEncoding = false;
+        bool enableGPUEncoding = true;
         bool enableDirtyRects = true;
     };
 
