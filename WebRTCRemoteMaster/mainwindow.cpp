@@ -224,13 +224,6 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    webRTCRemoteClient->webSocketDisConnect = [this](std::exception e) {
-        // 使用Qt的事件系统确保在主线程中执行UI更新
-        QMetaObject::invokeMethod(this, [this, e]() {
-
-        }, Qt::QueuedConnection);
-    };
-
     // 初始化状态
     updateConnectionState(false);
 
