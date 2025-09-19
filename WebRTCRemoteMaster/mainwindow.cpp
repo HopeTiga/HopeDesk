@@ -158,18 +158,6 @@ MainWindow::MainWindow(QWidget* parent)
     webRTCRemoteClient->webSocketDisConnect = [this](const std::exception& e) {
         // 使用Qt的事件系统确保在主线程中执行UI更新
         QMetaObject::invokeMethod(this, [this, e]() {
-
-            // 如果已经达到最大重连次数，直接返回
-            if (this->reConnectNums >= 5) {
-                this->connectionStatusLabel->setText("连接断开，重连失败");
-                this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
-                this->statusLabel->setText("连接已断开");
-                this->connectButton->setEnabled(true);
-                this->connectButton->setText("连接");
-                showErrorMessage("连接断开", QString("与服务器连接断开：%1\n已达到最大重连次数").arg(e.what()));
-                return;
-            }
-
             // 更新连接状态
             this->isConnected = false;
             this->updateConnectionState(false);
@@ -177,45 +165,45 @@ MainWindow::MainWindow(QWidget* parent)
             // 重连次数+1
             this->reConnectNums++;
 
-            qDebug() << QString("连接断开，开始第%1次重连...").arg(this->reConnectNums);
+            qDebug() << QString("连接断开，将进行第%1次重连...").arg(this->reConnectNums);
+            Logger::getInstance()->info("webSocketDisConnect: " + std::to_string(this->reConnectNums));
 
             // 更新UI显示重连状态
-            this->connectionStatusLabel->setText(QString("连接断开，第%1次重连中...").arg(this->reConnectNums));
+            this->connectionStatusLabel->setText(QString("连接断开，将在30秒后进行第%1次重连...").arg(this->reConnectNums));
             this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
 
-            // 计算重连延迟时间
-            int delayMs = this->reConnectNums * this->reConnectTimes;
+            // 固定30秒延迟重连
+            const int reconnectDelayMs = 30000; // 30秒
 
-            // 如果reConnectNums为1（第一次重连），立即重连
-            if (this->reConnectNums == 1) {
-                // 立即重连
-                QString serverAddress = this->serverAddressEdit->text().trimmed();
-                int port = this->portSpinBox->value();
-                QString currentAccount = this->accountComboBox->currentText();
+            this->statusLabel->setText(QString("将在30秒后进行第%1次重连").arg(this->reConnectNums));
 
-                if (!serverAddress.isEmpty() && !currentAccount.isEmpty() && currentAccount != "请添加账号") {
-                    this->webRTCRemoteClient->setAccountID(currentAccount.toStdString());
-                    QString url = QString("%1:%2").arg(serverAddress).arg(port);
-                    this->statusLabel->setText("正在重连...");
-                    this->webRTCRemoteClient->connect(url.toStdString());
-                }
-            } else {
-                // 延迟重连
-                this->statusLabel->setText(QString("将在%1秒后进行第%2次重连").arg(delayMs/1000).arg(this->reConnectNums));
-
-                QTimer::singleShot(delayMs, [this]() {
+            // 创建一个单次定时器进行重连
+            QTimer::singleShot(reconnectDelayMs, [this]() {
+                // 再次检查是否需要重连（防止用户在等待期间手动断开）
+                if (!this->isConnected) {
                     QString serverAddress = this->serverAddressEdit->text().trimmed();
                     int port = this->portSpinBox->value();
                     QString currentAccount = this->accountComboBox->currentText();
 
                     if (!serverAddress.isEmpty() && !currentAccount.isEmpty() && currentAccount != "请添加账号") {
+                        this->connectionStatusLabel->setText(QString("正在进行第%1次重连...").arg(this->reConnectNums));
+                        this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
+                        this->statusLabel->setText("正在重连...");
+
                         this->webRTCRemoteClient->setAccountID(currentAccount.toStdString());
                         QString url = QString("%1:%2").arg(serverAddress).arg(port);
-                        this->statusLabel->setText("正在重连...");
                         this->webRTCRemoteClient->connect(url.toStdString());
+                    } else {
+                        // 如果配置不完整，停止重连
+                        this->connectionStatusLabel->setText("连接断开（配置不完整）");
+                        this->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+                        this->statusLabel->setText("连接已断开");
+                        this->connectButton->setEnabled(true);
+                        this->connectButton->setText("连接");
+                        this->reConnectNums = 0;
                     }
-                });
-            }
+                }
+            });
 
         }, Qt::QueuedConnection);
     };
