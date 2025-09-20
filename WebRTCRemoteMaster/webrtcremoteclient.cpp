@@ -604,6 +604,7 @@ void WebRTCRemoteClient::connect(std::string ip)
             if(webSocketRuns){
 
                 if(webSocketDisConnect){
+
                     webSocketDisConnect(e);
                 }
 
@@ -620,6 +621,7 @@ void WebRTCRemoteClient::connect(std::string ip)
                                   if(webSocketRuns){
 
                                       if(webSocketDisConnect){
+
                                           webSocketDisConnect(e);
                                       }
 
@@ -809,6 +811,8 @@ void WebRTCRemoteClient::disConnectRemote()
         std::string messageStr = boost::json::serialize(message);
         webSocket->write(boost::asio::buffer(messageStr));
     }
+
+    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
 }
 
 void WebRTCRemoteClient::disConnectHandle()
@@ -830,6 +834,8 @@ void WebRTCRemoteClient::disConnectHandle()
     WindowsServiceManager::stopService(systemService);
 
     initializePeerConnection();
+
+    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
 
 }
 
