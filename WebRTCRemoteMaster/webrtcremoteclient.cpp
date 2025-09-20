@@ -382,12 +382,19 @@ void WebRTCRemoteClient::connect(std::string ip)
     }
 
     boost::asio::co_spawn(ioContext, [this]() -> boost::asio::awaitable<void> {
-        boost::beast::flat_buffer buffer;
+
         try{
+
             while (webSocketRuns) {
+
+                boost::beast::flat_buffer buffer;
+
                 co_await webSocket->async_read(buffer,boost::asio::use_awaitable);
+
                 std::string dataStr = boost::beast::buffers_to_string(buffer.data());
+
                 buffer.consume(buffer.size());
+
                 boost::json::object json = boost::json::parse(dataStr).as_object();
 
                 if(this->tcpSocket&& this->state == WebRTCRemoteState::followerRemote && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
