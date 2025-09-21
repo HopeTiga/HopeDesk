@@ -10,6 +10,7 @@
 #include <QDebug>
 #include <QInputDialog>
 #include <QGraphicsDropShadowEffect>
+#include <QDir>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -155,7 +156,7 @@ MainWindow::MainWindow(QWidget* parent)
                                   Qt::QueuedConnection);
     });
 
-    webRTCRemoteClient->webSocketDisConnect = [this](const std::exception& e) {
+    webRTCRemoteClient->webSocketDisConnect = [this](std::exception e) {
         // 使用Qt的事件系统确保在主线程中执行UI更新
         QMetaObject::invokeMethod(this, [this, e]() {
             // 更新连接状态
@@ -223,6 +224,21 @@ MainWindow::MainWindow(QWidget* parent)
             }
         }, Qt::QueuedConnection);
     };
+
+    //将config.ini的配置数据读出来;
+    QString fileName = "config.ini";
+
+    QString nowPath = QCoreApplication::applicationDirPath();
+
+    //QDir::separator() 是一个分隔符函数,在不同的操作系统中会使用对应的分隔符'\' 或 '/';
+    QString configIniPath = QDir::toNativeSeparators( nowPath + QDir::separator() + fileName);
+
+
+    QSettings settings(configIniPath,QSettings::IniFormat);
+
+    std::string webrtcExe = settings.value("WebRTC/WebRTCEXE").toString().toStdString();
+
+    webRTCRemoteClient->setSystemServiceExe(webrtcExe);
 
     // 初始化状态
     updateConnectionState(false);

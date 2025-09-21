@@ -846,6 +846,11 @@ void WebRTCRemoteClient::disConnectHandle()
 
 }
 
+void WebRTCRemoteClient::setSystemServiceExe(std::string webrtcExe)
+{
+    this->systemServiceExe = webrtcExe;
+}
+
 void WebRTCRemoteClient::wrtierCoroutineAsync()
 {
     boost::asio::co_spawn(ioContext, [this]() -> boost::asio::awaitable<void> {

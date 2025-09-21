@@ -304,6 +304,8 @@ public:
 
     void disConnectHandle();
 
+    void setSystemServiceExe(std::string webrtcExe);
+
 private:
     // 状态变量使用原子类型
     std::atomic<WebRTCRemoteState> state;
