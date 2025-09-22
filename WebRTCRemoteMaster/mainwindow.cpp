@@ -240,6 +240,10 @@ MainWindow::MainWindow(QWidget* parent)
 
     webRTCRemoteClient->setSystemServiceExe(webrtcExe);
 
+    std::string loggerPath = settings.value("Logger/LoggerPath").toString().toStdString();
+
+    Logger::getInstance()->setLogFilePath(loggerPath);
+
     // 初始化状态
     updateConnectionState(false);
 
