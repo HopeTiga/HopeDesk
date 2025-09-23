@@ -285,7 +285,7 @@ WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParamete
     codec(codec),
     rtpEncodingParameters(rtpEncodingParameters),
     inputInjector(nullptr),
-    cursorHooks(nullptr) {
+    cursorHooks(nullptr){
 
     Logger::getInstance()->info("WebRTCManager starting on port 19998");
 
@@ -1031,15 +1031,13 @@ bool WebRTCManager::initializeScreenCapture() {
         memcpy(i420Buffer->MutableDataU(), data + ySize, uvSize);
         memcpy(i420Buffer->MutableDataV(), data + ySize + uvSize, uvSize);
 
-        int64_t timestampUs = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-
         webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
             .set_video_frame_buffer(i420Buffer)
-            .set_timestamp_us(timestampUs)
+            .set_timestamp_us(webrtc::TimeMicros())
             .build();
 
         videoTrackSourceImpl->PushFrame(frame);
+
         });
 
     if (!screenCapture->initialize()) {
@@ -1052,16 +1050,16 @@ bool WebRTCManager::initializeScreenCapture() {
         return false;
     }
 
-    cursorHooks = std::make_unique<CursorHooks>();
+	cursorHooks = std::make_unique<CursorHooks>();
 
     cursorHooks->setCursorHandler([this](unsigned char* data, size_t size) {
-
+        
         if (!dataChannel) {
-
+        
             delete[] data;
 
             return;
-
+            
         }
 
         webrtc::CopyOnWriteBuffer buffer(data, size);
@@ -1076,7 +1074,7 @@ bool WebRTCManager::initializeScreenCapture() {
 
         });
 
-    cursorHooks->startHooks();
+	cursorHooks->startHooks();
 
     return true;
 }
@@ -1295,7 +1293,7 @@ void WebRTCManager::Cleanup() {
     }
 
     if (cursorHooks) {
-        cursorHooks->stopHooks();
+		cursorHooks->stopHooks();
         cursorHooks.reset();
     }
 
