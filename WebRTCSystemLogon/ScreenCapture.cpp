@@ -4,6 +4,7 @@
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
 #include "Logger.h"
+#include "Utils.h"
 
 struct DirtyRegionTracker {
     std::vector<RECT> dirtyRects;
@@ -743,11 +744,11 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     uint8_t* dstData = frame->bgraData.data();
 
     if (mapped.RowPitch == bytesPerRow) {
-        memcpy(dstData, srcData, bytesPerRow * config.height);
+        fastCopy(dstData, srcData, bytesPerRow * config.height);
     }
     else {
         for (int row = 0; row < config.height; ++row) {
-            memcpy(dstData + row * bytesPerRow,
+            fastCopy(dstData + row * bytesPerRow,
                 srcData + row * mapped.RowPitch,
                 bytesPerRow);
         }
@@ -1021,7 +1022,7 @@ bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std:
         yuvBuffer.resize(yuvSize);
     }
 
-    memcpy(yuvBuffer.data(), mapped.pData, yuvSize);
+    fastCopy(yuvBuffer.data(), mapped.pData, yuvSize);
     d3dContext->Unmap(stagingBuffer.Get(), 0);
 
     return true;

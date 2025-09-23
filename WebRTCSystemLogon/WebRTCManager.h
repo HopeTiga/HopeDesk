@@ -105,9 +105,9 @@ public:
         uint64_t size64t = boost::asio::detail::socket_ops::host_to_network_long(
             static_cast<uint64_t>(size));
 
-        std::memcpy(this->data, &size64t, sizeof(uint64_t));
+        fastCopy(this->data, &size64t, sizeof(uint64_t));
 
-        std::memcpy(this->data + sizeof(uint64_t), data, size);
+        fastCopy(this->data + sizeof(uint64_t), data, size);
 
         this->size = size + sizeof(int64_t);
 
