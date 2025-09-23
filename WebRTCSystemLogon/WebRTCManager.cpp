@@ -1086,7 +1086,7 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
     const unsigned char* buffer = data;
 
     short eventType = 0;
-    fastCopy(&eventType, buffer, sizeof(short));
+    std::memcpy(&eventType, buffer, sizeof(short));
 
     // 获取当前屏幕分辨率
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -1101,8 +1101,8 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
         int normalizedX = 0;
         int normalizedY = 0;
 
-        fastCopy(&normalizedX, buffer + sizeof(short), sizeof(int));
-        fastCopy(&normalizedY, buffer + sizeof(short) + sizeof(int), sizeof(int));
+        std::memcpy(&normalizedX, buffer + sizeof(short), sizeof(int));
+        std::memcpy(&normalizedY, buffer + sizeof(short) + sizeof(int), sizeof(int));
 
         // 将归一化坐标转换为本地屏幕坐标
         int posX = (normalizedX * screenWidth) / 65535;
@@ -1127,9 +1127,9 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
         int normalizedX = 0;
         int normalizedY = 0;
 
-        fastCopy(&mouseType, buffer + sizeof(short), sizeof(short));
-        fastCopy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
-        fastCopy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
+        std::memcpy(&mouseType, buffer + sizeof(short), sizeof(short));
+        std::memcpy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
+        std::memcpy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
 
         // 将归一化坐标转换为本地屏幕坐标
         int posX = (normalizedX * screenWidth) / 65535;
@@ -1154,9 +1154,9 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
         int normalizedX = 0;
         int normalizedY = 0;
 
-        fastCopy(&mouseType, buffer + sizeof(short), sizeof(short));
-        fastCopy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
-        fastCopy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
+        std::memcpy(&mouseType, buffer + sizeof(short), sizeof(short));
+        std::memcpy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
+        std::memcpy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
 
         // 将归一化坐标转换为本地屏幕坐标
         int posX = (normalizedX * screenWidth) / 65535;
@@ -1180,8 +1180,8 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
         unsigned char windowsKey = 0;
         char modifiers = 0;
 
-        fastCopy(&windowsKey, buffer + sizeof(short), sizeof(char));
-        fastCopy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
+        std::memcpy(&windowsKey, buffer + sizeof(short), sizeof(char));
+        std::memcpy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
 
         bool needsShift = false;
         unsigned char actualKey = windowsKey;
@@ -1207,8 +1207,8 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
         unsigned char windowsKey = 0;
         char modifiers = 0;
 
-        fastCopy(&windowsKey, buffer + sizeof(short), sizeof(char));
-        fastCopy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
+        std::memcpy(&windowsKey, buffer + sizeof(short), sizeof(char));
+        std::memcpy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
 
         bool needsShift = false;
         unsigned char actualKey = windowsKey;
@@ -1231,7 +1231,7 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
         }
 
         int wheelValue = 0;
-        fastCopy(&wheelValue, buffer + sizeof(short), sizeof(int));
+        std::memcpy(&wheelValue, buffer + sizeof(short), sizeof(int));
 
         if (!keyMouseSim->MouseWheel(wheelValue)) {
             Logger::getInstance()->error("Failed to send mouse wheel");
