@@ -9,12 +9,13 @@
 #include <immintrin.h>
 #include <cstring>
 #include <cstdint>
+
 #ifdef _MSC_VER
 #include <intrin.h>  // MSVC 需要这个
+#pragma intrinsic(_mm256_fmadd_ps)
 #else
 #include <cpuid.h>   // GCC/Clang 需要这个
 #endif
-#pragma target("avx2")
 
 // 日志级别枚举
 typedef enum {
@@ -52,6 +53,7 @@ void log_message_plain(LogLevel level, const char* format, ...);
 inline bool hasAVX2() {
     static bool checked = false;
     static bool supported = false;
+
     if (!checked) {
 #ifdef _MSC_VER
         int cpuinfo[4];
@@ -106,4 +108,5 @@ inline void fastCopy(void* dst, const void* src, size_t size) {
         memcpy(d, s, remaining);
     }
 }
+
 #endif // UTILS_H
