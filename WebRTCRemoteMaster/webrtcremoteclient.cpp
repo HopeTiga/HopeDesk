@@ -5,6 +5,7 @@
 #include <boost/random/random_device.hpp>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
+#include <immintrin.h>
 #include "Logger.h"
 
 void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
@@ -761,8 +762,71 @@ bool WebRTCRemoteClient::initializePeerConnection()
 void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
                                               int width, int height, int yStride, int uStride, int vStride,
                                               uint8_t* rgbData) {
+    // AVX2 constants
+    const __m256 v_to_r = _mm256_set1_ps(1.402f);
+    const __m256 u_to_g = _mm256_set1_ps(0.344f);
+    const __m256 v_to_g = _mm256_set1_ps(0.714f);
+    const __m256 u_to_b = _mm256_set1_ps(1.772f);
+    const __m256 offset = _mm256_set1_ps(128.0f);
+    const __m256 zero = _mm256_setzero_ps();
+    const __m256 max_val = _mm256_set1_ps(255.0f);
+
     for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+        int x = 0;
+
+        // Process 8 pixels at a time with AVX2
+        for (; x <= width - 8; x += 8) {
+            // Load Y values
+            __m128i y8 = _mm_loadl_epi64((__m128i*)(yData + y * yStride + x));
+            __m256i y32 = _mm256_cvtepu8_epi32(y8);
+            __m256 yf = _mm256_cvtepi32_ps(y32);
+
+            // Load and expand U, V values (4 values -> 8 values for YUV420)
+            alignas(32) float u_expanded[8], v_expanded[8];
+            for (int i = 0; i < 8; i++) {
+                u_expanded[i] = uData[(y/2) * uStride + (x+i)/2];
+                v_expanded[i] = vData[(y/2) * vStride + (x+i)/2];
+            }
+
+            __m256 uf = _mm256_load_ps(u_expanded);
+            __m256 vf = _mm256_load_ps(v_expanded);
+
+            // Adjust U and V
+            uf = _mm256_sub_ps(uf, offset);
+            vf = _mm256_sub_ps(vf, offset);
+
+            // Calculate RGB
+            __m256 rf = _mm256_fmadd_ps(vf, v_to_r, yf);
+            __m256 gf = _mm256_fnmadd_ps(uf, u_to_g, yf);
+            gf = _mm256_fnmadd_ps(vf, v_to_g, gf);
+            __m256 bf = _mm256_fmadd_ps(uf, u_to_b, yf);
+
+            // Clamp to 0-255
+            rf = _mm256_max_ps(zero, _mm256_min_ps(max_val, rf));
+            gf = _mm256_max_ps(zero, _mm256_min_ps(max_val, gf));
+            bf = _mm256_max_ps(zero, _mm256_min_ps(max_val, bf));
+
+            // Convert to int and store
+            __m256i ri = _mm256_cvtps_epi32(rf);
+            __m256i gi = _mm256_cvtps_epi32(gf);
+            __m256i bi = _mm256_cvtps_epi32(bf);
+
+            // Pack and interleave RGB
+            alignas(32) int32_t r[8], g[8], b[8];
+            _mm256_store_si256((__m256i*)r, ri);
+            _mm256_store_si256((__m256i*)g, gi);
+            _mm256_store_si256((__m256i*)b, bi);
+
+            uint8_t* dst = rgbData + (y * width + x) * 3;
+            for (int i = 0; i < 8; i++) {
+                dst[i*3 + 0] = r[i];
+                dst[i*3 + 1] = g[i];
+                dst[i*3 + 2] = b[i];
+            }
+        }
+
+        // Handle remaining pixels
+        for (; x < width; x++) {
             int yIndex = y * yStride + x;
             int uvIndex = (y / 2) * uStride + (x / 2);
 
@@ -779,11 +843,9 @@ void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const uint8_
             B = std::max(0, std::min(255, B));
 
             int rgbIndex = (y * width + x) * 3;
-            if (rgbIndex + 2 < width * height * 3) {
-                rgbData[rgbIndex] = static_cast<uint8_t>(R);
-                rgbData[rgbIndex + 1] = static_cast<uint8_t>(G);
-                rgbData[rgbIndex + 2] = static_cast<uint8_t>(B);
-            }
+            rgbData[rgbIndex] = R;
+            rgbData[rgbIndex + 1] = G;
+            rgbData[rgbIndex + 2] = B;
         }
     }
 }
@@ -797,6 +859,8 @@ void WebRTCRemoteClient::writerAsync(std::shared_ptr<WriterData> writerData){
 
 void WebRTCRemoteClient::disConnectRemote()
 {
+
+    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
 
     this->state = WebRTCRemoteState::nullRemote;
 
@@ -819,11 +883,12 @@ void WebRTCRemoteClient::disConnectRemote()
         webSocket->write(boost::asio::buffer(messageStr));
     }
 
-    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
 }
 
 void WebRTCRemoteClient::disConnectHandle()
 {
+    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
+
     this->state = WebRTCRemoteState::nullRemote;
 
     if(isRemote == false) return;
@@ -841,8 +906,6 @@ void WebRTCRemoteClient::disConnectHandle()
     WindowsServiceManager::stopService(systemService);
 
     initializePeerConnection();
-
-    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
 
 }
 
