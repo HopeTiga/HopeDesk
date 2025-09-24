@@ -759,7 +759,7 @@ bool WebRTCRemoteClient::initializePeerConnection()
     return true;
 }
 
-void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
+inline void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
                                               int width, int height, int yStride, int uStride, int vStride,
                                               uint8_t* rgbData) {
     // AVX2 constants
