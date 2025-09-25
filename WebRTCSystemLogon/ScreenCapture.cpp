@@ -1067,91 +1067,102 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
     uint8_t* u = y + ySize;
     uint8_t* v = u + uvSize;
 
-    static bool tablesReady = false;
-    static int yTable_r[256], yTable_g[256], yTable_b[256];
-    static int uTable_r[256], uTable_g[256], uTable_b[256];
-    static int vTable_r[256], vTable_g[256], vTable_b[256];
-
-    if (!tablesReady) {
-        for (int i = 0; i < 256; i++) {
-            yTable_r[i] = (66 * i) >> 8;
-            yTable_g[i] = (129 * i) >> 8;
-            yTable_b[i] = (25 * i) >> 8;
-
-            uTable_r[i] = (-38 * i) >> 8;
-            uTable_g[i] = (-74 * i) >> 8;
-            uTable_b[i] = (112 * i) >> 8;
-
-            vTable_r[i] = (112 * i) >> 8;
-            vTable_g[i] = (-94 * i) >> 8;
-            vTable_b[i] = (-18 * i) >> 8;
-        }
-        tablesReady = true;
-    }
-
+    // Process Y plane with AVX2
     for (int row = 0; row < config.height; row++) {
         const uint8_t* bgraRow = bgraData + row * stride;
         uint8_t* yRow = y + row * config.width;
 
-        for (int col = 0; col < config.width; col++) {
+        int col = 0;
+
+        // Process 16 pixels at a time with AVX2
+        for (; col <= config.width - 16; col += 16) {
+            // Load 16 BGRA pixels (64 bytes)
+            __m256i pixels_0_7 = _mm256_loadu_si256((__m256i*)(bgraRow + col * 4));
+            __m256i pixels_8_15 = _mm256_loadu_si256((__m256i*)(bgraRow + col * 4 + 32));
+
+            // Process first 8 pixels
+            alignas(32) uint8_t temp[16];
+            for (int i = 0; i < 8; i++) {
+                const uint8_t* pixel = bgraRow + (col + i) * 4;
+                int y_val = ((66 * pixel[2] + 129 * pixel[1] + 25 * pixel[0]) >> 8) + 16;
+                temp[i] = std::min(255, std::max(0, y_val));
+            }
+
+            // Process second 8 pixels
+            for (int i = 0; i < 8; i++) {
+                const uint8_t* pixel = bgraRow + (col + 8 + i) * 4;
+                int y_val = ((66 * pixel[2] + 129 * pixel[1] + 25 * pixel[0]) >> 8) + 16;
+                temp[8 + i] = std::min(255, std::max(0, y_val));
+            }
+
+            // Store 16 Y values
+            _mm_storeu_si128((__m128i*)(yRow + col), _mm_load_si128((__m128i*)temp));
+        }
+
+        // Process remaining pixels
+        for (; col < config.width; col++) {
             const uint8_t* pixel = bgraRow + col * 4;
-            yRow[col] = std::min(255, std::max(0,
-                yTable_r[pixel[2]] + yTable_g[pixel[1]] + yTable_b[pixel[0]] + 16));
+            int y_val = ((66 * pixel[2] + 129 * pixel[1] + 25 * pixel[0]) >> 8) + 16;
+            yRow[col] = std::min(255, std::max(0, y_val));
         }
     }
 
-    for (int row = 0; row < config.height; row += 2) {
-        const uint8_t* bgraRow = bgraData + row * stride;
-        const int uvRow = row >> 1;
+    // Process UV planes (2x2 downsampling)
+    for (int yPos = 0; yPos < config.height; yPos += 2) {
+        const uint8_t* bgraRow0 = bgraData + yPos * stride;
+        const uint8_t* bgraRow1 = bgraData + std::min(yPos + 1, config.height - 1) * stride;
+        const int uvRow = yPos >> 1;
         const int halfWidth = config.width >> 1;
 
-        for (int col = 0; col < config.width; col += 2) {
-            const uint8_t* pixel = bgraRow + col * 4;
+        int col = 0;
+
+        // Process 8 UV samples at a time (16 source pixels)
+        for (; col <= config.width - 16; col += 16) {
+            // Process 8 2x2 blocks
+            for (int i = 0; i < 8; i++) {
+                int idx = col + i * 2;
+                const uint8_t* p00 = bgraRow0 + idx * 4;
+                const uint8_t* p10 = (idx + 1 < config.width) ? bgraRow0 + (idx + 1) * 4 : p00;
+                const uint8_t* p01 = (yPos + 1 < config.height) ? bgraRow1 + idx * 4 : p00;
+                const uint8_t* p11 = (yPos + 1 < config.height && idx + 1 < config.width) ?
+                    bgraRow1 + (idx + 1) * 4 : p01;
+
+                int avg_b = (p00[0] + p10[0] + p01[0] + p11[0]) >> 2;
+                int avg_g = (p00[1] + p10[1] + p01[1] + p11[1]) >> 2;
+                int avg_r = (p00[2] + p10[2] + p01[2] + p11[2]) >> 2;
+
+                int u_val = ((-38 * avg_r - 74 * avg_g + 112 * avg_b) >> 8) + 128;
+                int v_val = ((112 * avg_r - 94 * avg_g - 18 * avg_b) >> 8) + 128;
+
+                u[uvRow * halfWidth + (col >> 1) + i] = std::min(255, std::max(0, u_val));
+                v[uvRow * halfWidth + (col >> 1) + i] = std::min(255, std::max(0, v_val));
+            }
+        }
+
+        // Process remaining pixels
+        for (; col < config.width; col += 2) {
+            const uint8_t* p00 = bgraRow0 + col * 4;
+            const uint8_t* p10 = (col + 1 < config.width) ? bgraRow0 + (col + 1) * 4 : p00;
+            const uint8_t* p01 = (yPos + 1 < config.height) ? bgraRow1 + col * 4 : p00;
+            const uint8_t* p11 = (yPos + 1 < config.height && col + 1 < config.width) ?
+                bgraRow1 + (col + 1) * 4 : p01;
+
+            int avg_b = (p00[0] + p10[0] + p01[0] + p11[0]) >> 2;
+            int avg_g = (p00[1] + p10[1] + p01[1] + p11[1]) >> 2;
+            int avg_r = (p00[2] + p10[2] + p01[2] + p11[2]) >> 2;
+
+            int u_val = ((-38 * avg_r - 74 * avg_g + 112 * avg_b) >> 8) + 128;
+            int v_val = ((112 * avg_r - 94 * avg_g - 18 * avg_b) >> 8) + 128;
+
             const int uvIndex = uvRow * halfWidth + (col >> 1);
-
-            int sumB = pixel[0];
-            int sumG = pixel[1];
-            int sumR = pixel[2];
-            int count = 1;
-
-            if (col + 1 < config.width) {
-                const uint8_t* pixel2 = bgraRow + (col + 1) * 4;
-                sumB += pixel2[0];
-                sumG += pixel2[1];
-                sumR += pixel2[2];
-                count++;
-            }
-
-            if (row + 1 < config.height) {
-                const uint8_t* bgraRow2 = bgraData + (row + 1) * stride;
-                const uint8_t* pixel3 = bgraRow2 + col * 4;
-                sumB += pixel3[0];
-                sumG += pixel3[1];
-                sumR += pixel3[2];
-                count++;
-
-                if (col + 1 < config.width) {
-                    const uint8_t* pixel4 = bgraRow2 + (col + 1) * 4;
-                    sumB += pixel4[0];
-                    sumG += pixel4[1];
-                    sumR += pixel4[2];
-                    count++;
-                }
-            }
-
-            sumB /= count;
-            sumG /= count;
-            sumR /= count;
-
-            u[uvIndex] = std::min(255, std::max(0,
-                uTable_r[sumR] + uTable_g[sumG] + uTable_b[sumB] + 128));
-            v[uvIndex] = std::min(255, std::max(0,
-                vTable_r[sumR] + vTable_g[sumG] + vTable_b[sumB] + 128));
+            u[uvIndex] = std::min(255, std::max(0, u_val));
+            v[uvIndex] = std::min(255, std::max(0, v_val));
         }
     }
 
     return true;
 }
+
 
 void ScreenCapture::handleCaptureError(HRESULT hr) {
     if (hr == DXGI_ERROR_ACCESS_LOST) {
