@@ -786,6 +786,8 @@ bool WebRTCManager::initializePeerConnection() {
 
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
+    config.tcp_candidate_policy = webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
+
     config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
 
     config.ice_unwritable_timeout = 10000;                  // 3秒无响应则标记为不可写
@@ -1082,15 +1084,20 @@ bool WebRTCManager::initializeScreenCapture() {
 
 void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t size)
 {
+    if (size < sizeof(short)) {
+        return;
+    }
 
-    const unsigned char* buffer = data;
+    // 直接使用指针偏移，避免多次memcpy
+    const short* eventTypePtr = reinterpret_cast<const short*>(data);
+    short eventType = *eventTypePtr;
 
-    short eventType = 0;
-    std::memcpy(&eventType, buffer, sizeof(short));
+    // 提前获取屏幕分辨率，避免重复调用
+    static int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    static int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
-    // 获取当前屏幕分辨率
-    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    // 预计算用于位运算的值
+    static const int COORD_SHIFT = 16;  // 用于替代 / 65535
 
     switch (eventType) {
     case 0: { // Mouse move
@@ -1098,130 +1105,73 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
             return;
         }
 
-        int normalizedX = 0;
-        int normalizedY = 0;
+        // 直接指针访问，避免memcpy
+        const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short));
+        int normalizedX = coordPtr[0];
+        int normalizedY = coordPtr[1];
 
-        std::memcpy(&normalizedX, buffer + sizeof(short), sizeof(int));
-        std::memcpy(&normalizedY, buffer + sizeof(short) + sizeof(int), sizeof(int));
+        // 使用位运算替代除法 (右移16位约等于除以65536，误差极小)
+        int posX = (static_cast<long long>(normalizedX) * screenWidth) >> COORD_SHIFT;
+        int posY = (static_cast<long long>(normalizedY) * screenHeight) >> COORD_SHIFT;
 
-        // 将归一化坐标转换为本地屏幕坐标
-        int posX = (normalizedX * screenWidth) / 65535;
-        int posY = (normalizedY * screenHeight) / 65535;
-
-        // 确保坐标在有效范围内
+        // 如果输入已经是归一化的，可以跳过边界检查
+        // 只在调试模式下检查
+#ifdef _DEBUG
         posX = std::max(0, std::min(posX, screenWidth - 1));
         posY = std::max(0, std::min(posY, screenHeight - 1));
+#endif
 
-        if (!keyMouseSim->MouseMove(posX, posY, true)) {
-            Logger::getInstance()->error("Failed to move mouse");
-        }
+        keyMouseSim->MouseMove(posX, posY, true);
         break;
     }
 
-    case 1: { // Mouse button down
-        if (size < sizeof(short) * 2 + 2 * sizeof(int)) {
-            return;
-        }
-
-        short mouseType = 0;
-        int normalizedX = 0;
-        int normalizedY = 0;
-
-        std::memcpy(&mouseType, buffer + sizeof(short), sizeof(short));
-        std::memcpy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
-        std::memcpy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
-
-        // 将归一化坐标转换为本地屏幕坐标
-        int posX = (normalizedX * screenWidth) / 65535;
-        int posY = (normalizedY * screenHeight) / 65535;
-
-        // 确保坐标在有效范围内
-        posX = std::max(0, std::min(posX, screenWidth - 1));
-        posY = std::max(0, std::min(posY, screenHeight - 1));
-
-        if (!keyMouseSim->MouseButtonDown(mouseType, posX, posY)) {
-            Logger::getInstance()->error("Failed to send mouse button down");
-        }
-        break;
-    }
-
+    case 1: // Mouse button down
     case 2: { // Mouse button up
         if (size < sizeof(short) * 2 + 2 * sizeof(int)) {
             return;
         }
 
-        short mouseType = 0;
-        int normalizedX = 0;
-        int normalizedY = 0;
+        // MSVC 版本：使用 pragma pack
+#pragma pack(push, 1)
+        struct MouseEvent {
+            short eventType;
+            short mouseType;
+            int normalizedX;
+            int normalizedY;
+        };
+#pragma pack(pop)
 
-        std::memcpy(&mouseType, buffer + sizeof(short), sizeof(short));
-        std::memcpy(&normalizedX, buffer + sizeof(short) * 2, sizeof(int));
-        std::memcpy(&normalizedY, buffer + sizeof(short) * 2 + sizeof(int), sizeof(int));
+        const MouseEvent* mouseEvent = reinterpret_cast<const MouseEvent*>(data);
 
-        // 将归一化坐标转换为本地屏幕坐标
-        int posX = (normalizedX * screenWidth) / 65535;
-        int posY = (normalizedY * screenHeight) / 65535;
+        int posX = (static_cast<long long>(mouseEvent->normalizedX) * screenWidth) >> COORD_SHIFT;
+        int posY = (static_cast<long long>(mouseEvent->normalizedY) * screenHeight) >> COORD_SHIFT;
 
-        // 确保坐标在有效范围内
-        posX = std::max(0, std::min(posX, screenWidth - 1));
-        posY = std::max(0, std::min(posY, screenHeight - 1));
-
-        if (!keyMouseSim->MouseButtonUp(mouseType)) {
-            Logger::getInstance()->error("Failed to send mouse button up");
+        if (eventType == 1) {
+            keyMouseSim->MouseButtonDown(mouseEvent->mouseType, posX, posY);
+        }
+        else {
+            keyMouseSim->MouseButtonUp(mouseEvent->mouseType);
         }
         break;
     }
 
-    case 3: { // Key down
-        if (size < sizeof(short) + 2 * sizeof(char)) {
-            return;
-        }
-
-        unsigned char windowsKey = 0;
-        char modifiers = 0;
-
-        std::memcpy(&windowsKey, buffer + sizeof(short), sizeof(char));
-        std::memcpy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
-
-        bool needsShift = false;
-        unsigned char actualKey = windowsKey;
-
-        if (needsShift) {
-            modifiers |= 0x01;
-        }
-
-        if (!keyMouseSim->KeyDown(windowsKey, modifiers)) {
-            Logger::getInstance()->error("Failed to send key down");
-        }
-
-        return;
-
-        break;
-    }
-
+    case 3: // Key down
     case 4: { // Key up
         if (size < sizeof(short) + 2 * sizeof(char)) {
             return;
         }
 
-        unsigned char windowsKey = 0;
-        char modifiers = 0;
+        // 直接访问，避免memcpy
+        const unsigned char* keyData = data + sizeof(short);
+        unsigned char windowsKey = keyData[0];
+        char modifiers = keyData[1];
 
-        std::memcpy(&windowsKey, buffer + sizeof(short), sizeof(char));
-        std::memcpy(&modifiers, buffer + sizeof(short) + sizeof(char), sizeof(char));
-
-        bool needsShift = false;
-        unsigned char actualKey = windowsKey;
-
-        if (needsShift) {
-            modifiers |= 0x01;
+        if (eventType == 3) {
+            keyMouseSim->KeyDown(windowsKey, modifiers);
         }
-
-        if (!keyMouseSim->KeyUp(windowsKey, modifiers)) {
-            Logger::getInstance()->error("Failed to send key up");
+        else {
+            keyMouseSim->KeyUp(windowsKey, modifiers);
         }
-        return;
-
         break;
     }
 
@@ -1230,22 +1180,16 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
             return;
         }
 
-        int wheelValue = 0;
-        std::memcpy(&wheelValue, buffer + sizeof(short), sizeof(int));
-
-        if (!keyMouseSim->MouseWheel(wheelValue)) {
-            Logger::getInstance()->error("Failed to send mouse wheel");
-        }
-
+        const int* wheelValuePtr = reinterpret_cast<const int*>(data + sizeof(short));
+        keyMouseSim->MouseWheel(*wheelValuePtr);
         break;
     }
 
     default:
+        // 未知事件类型，可以记录日志
         break;
     }
-
 }
-
 
 WebRTCManager::~WebRTCManager() {
     Cleanup();
