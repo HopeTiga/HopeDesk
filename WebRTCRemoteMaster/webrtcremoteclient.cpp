@@ -352,6 +352,11 @@ void WebRTCRemoteClient::connect(std::string ip)
         return;
     }
 
+    boost::beast::websocket::stream_base::timeout opt;
+    opt.handshake_timeout = std::chrono::seconds(30);
+    opt.idle_timeout = std::chrono::seconds(60);  // 60秒无活动则发送ping
+    opt.keep_alive_pings = true;  // 启用自动ping
+    webSocket->set_option(opt);
 
     // 连接到服务器
     boost::system::error_code ec;
