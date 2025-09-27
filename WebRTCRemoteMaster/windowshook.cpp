@@ -142,14 +142,19 @@ void WindowsHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)
 
     short type = isPress ? 3 : 4;  // 3=key down, 4=key up
 
-    size_t total = sizeof(short) + sizeof(DWORD) + sizeof(char);
-    unsigned char* data = new unsigned char[total];
+#pragma pack(push,1)
 
-    std::memcpy(data, &type, sizeof(short));
-    std::memcpy(data + sizeof(short), &windowsVK, sizeof(DWORD));
-    std::memcpy(data + sizeof(short) + sizeof(DWORD), &modifiers, sizeof(char));
+    struct KeyButton {
+        short type;
+        DWORD buttonId;
+        char modifiers;
+    };
 
-    remoteClient->writerRemote(data, total);
+#pragma (pop)
+
+    KeyButton * keyButton = new KeyButton{type,windowsVK,modifiers};
+
+    remoteClient->writerRemote(reinterpret_cast<unsigned char *>(keyButton), sizeof(KeyButton));
 }
 
 void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
@@ -162,18 +167,23 @@ void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
-    int normalizedX = (x * 65535) / screenWidth;
-    int normalizedY = (y * 65535) / screenHeight;
+    int normalizedX = (x << 16) / screenWidth;
+    int normalizedY = (y << 16) / screenHeight;
 
-    size_t total = sizeof(short) * 2 + sizeof(int) * 2;
-    unsigned char* data = new unsigned char[total];
+#pragma pack(push,1)
 
-    std::memcpy(data, &type, sizeof(short));
-    std::memcpy(data + sizeof(short), &button, sizeof(short));
-    std::memcpy(data + sizeof(short) * 2, &normalizedX, sizeof(int));  // 发送归一化坐标
-    std::memcpy(data + sizeof(short) * 2 + sizeof(int), &normalizedY, sizeof(int));
+    struct MouseButton {
+        short type;
+        short buttonId;
+        int x;
+        int y;
+    };
 
-    remoteClient->writerRemote(data, total);
+#pragma (pop)
+
+    MouseButton * mouseBtn = new MouseButton{type,button,normalizedX,normalizedY};
+
+    remoteClient->writerRemote(reinterpret_cast<unsigned char * >(mouseBtn), sizeof(MouseButton));
 }
 
 // 修改 sendMouseMoveEvent 函数
@@ -187,18 +197,22 @@ void WindowsHook::sendMouseMoveEvent(int x, int y)
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
-    int normalizedX = (x * 65535) / screenWidth;
-    int normalizedY = (y * 65535) / screenHeight;
+    int normalizedX = (x << 16) / screenWidth;
+    int normalizedY = (y << 16) / screenHeight;
 
-    short type = 0;  // mouse move
-    size_t total = sizeof(short) + sizeof(int) * 2;
-    unsigned char* data = new unsigned char[total];
+#pragma pack(push,1)
 
-    std::memcpy(data, &type, sizeof(short));
-    std::memcpy(data + sizeof(short), &normalizedX, sizeof(int));  // 发送归一化坐标
-    std::memcpy(data + sizeof(short) + sizeof(int), &normalizedY, sizeof(int));
+    struct MouseMove {
+        short type;
+        int x;
+        int y;
+    };
 
-    remoteClient->writerRemote(data, total);
+#pragma (pop)
+
+    MouseMove * mouseMove = new MouseMove{0,normalizedX,normalizedY};
+
+    remoteClient->writerRemote(reinterpret_cast<unsigned char *>(mouseMove), sizeof(MouseMove));
 }
 
 void WindowsHook::sendWheelEvent(int delta)
@@ -207,14 +221,19 @@ void WindowsHook::sendWheelEvent(int delta)
         return;
     }
 
-    short type = 5;  // wheel
-    size_t total = sizeof(short) + sizeof(int);
-    unsigned char* data = new unsigned char[total];
+#pragma pack(push,1)
 
-    std::memcpy(data, &type, sizeof(short));
-    std::memcpy(data + sizeof(short), &delta, sizeof(int));
+    struct MouseWheel {
+        short type;
+        int x;
+        int y;
+    };
 
-    remoteClient->writerRemote(data, total);
+#pragma (pop)
+
+    MouseWheel * mouseWheel = new MouseWheel{5,delta};
+
+    remoteClient->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
 }
 
 char WindowsHook::getCurrentModifiers()
