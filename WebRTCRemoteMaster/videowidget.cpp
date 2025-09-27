@@ -375,7 +375,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
 
     int frameToRender = -1;
     {
-        std::lock_guard<std::mutex> lock(frameMutex);
         for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
             int slotIndex = (currentFrameSlot - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
             if (frameBuffers[slotIndex].ready && frameBuffers[slotIndex].data) {
@@ -388,7 +387,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
     if (frameToRender >= 0) {
         batch = rhi->nextResourceUpdateBatch();
 
-        std::lock_guard<std::mutex> lock(frameMutex);
         FrameBuffer& frame = frameBuffers[frameToRender];
 
         if (frame.needsUpdate && frame.ready && frame.data) {
@@ -434,20 +432,48 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
             }
 
             if (frameToRender >= 0) {
-                // 转换并上传纹理
-                QImage rgbImage(frame.data.get(), frame.width, frame.height,
-                                frame.width * 3, QImage::Format_RGB888);
-                QImage rgbaImage = rgbImage.convertToFormat(QImage::Format_RGBA8888);
+                // 优化：手动转换RGB到RGBA，避免QImage转换
+                size_t pixelCount = frame.width * frame.height;
+                size_t rgbaSize = pixelCount * 4;
+                std::unique_ptr<uint8_t[]> rgbaData(new uint8_t[rgbaSize]);
 
-                if (!rgbaImage.isNull()) {
-                    batch->uploadTexture(videoTextures[frameToRender].get(), rgbaImage);
-                    frame.needsUpdate = false;
-                    hasVideo = true;
+                const uint8_t* src = frame.data.get();
+                uint8_t* dst = rgbaData.get();
 
-                    // 更新视频尺寸信息
-                    videoWidth = frame.width;
-                    videoHeight = frame.height;
+                // 简单循环展开优化
+                size_t i = 0;
+                for (; i + 4 <= pixelCount; i += 4) {
+                    // 处理4个像素
+                    dst[0] = src[0];  dst[1] = src[1];  dst[2] = src[2];  dst[3] = 255;
+                    dst[4] = src[3];  dst[5] = src[4];  dst[6] = src[5];  dst[7] = 255;
+                    dst[8] = src[6];  dst[9] = src[7];  dst[10] = src[8]; dst[11] = 255;
+                    dst[12] = src[9]; dst[13] = src[10]; dst[14] = src[11]; dst[15] = 255;
+                    src += 12;
+                    dst += 16;
                 }
+
+                // 处理剩余像素
+                for (; i < pixelCount; i++) {
+                    dst[0] = src[0];
+                    dst[1] = src[1];
+                    dst[2] = src[2];
+                    dst[3] = 255;
+                    src += 3;
+                    dst += 4;
+                }
+
+                // 直接上传RGBA数据
+                QRhiTextureSubresourceUploadDescription subresDesc(
+                    rgbaData.get(),
+                    rgbaSize
+                    );
+                QRhiTextureUploadDescription desc({ 0, 0, subresDesc });
+                batch->uploadTexture(videoTextures[frameToRender].get(), desc);
+
+                frame.needsUpdate = false;
+                hasVideo = true;
+                videoWidth = frame.width;
+                videoHeight = frame.height;
             }
         }
 
@@ -825,5 +851,6 @@ void VideoWidget::leaveEvent(QEvent* event)
             hideTimer->start();
         }
     }
-    SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
+
+    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
 }
