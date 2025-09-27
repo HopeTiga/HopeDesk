@@ -758,10 +758,12 @@ bool WebRTCRemoteClient::initializePeerConnection()
     return true;
 }
 
-inline void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
-                                              int width, int height, int yStride, int uStride, int vStride,
-                                              uint8_t* rgbData) {
-    // AVX2 constants
+inline void WebRTCRemoteClient::convertYUV420ToRGBA32(
+    const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
+    int width, int height, int yStride, int uStride, int vStride,
+    uint8_t* rgbaData)
+{
+    // AVX2 constants for YUV to RGB conversion
     const __m256 v_to_r = _mm256_set1_ps(1.402f);
     const __m256 u_to_g = _mm256_set1_ps(0.344f);
     const __m256 v_to_g = _mm256_set1_ps(0.714f);
@@ -769,26 +771,33 @@ inline void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const
     const __m256 offset = _mm256_set1_ps(128.0f);
     const __m256 zero = _mm256_setzero_ps();
     const __m256 max_val = _mm256_set1_ps(255.0f);
+    const __m256i alpha_255 = _mm256_set1_epi32(0xFF000000);  // Alpha channel = 255
 
     for (int y = 0; y < height; y++) {
         int x = 0;
 
         // Process 8 pixels at a time with AVX2
         for (; x <= width - 8; x += 8) {
-            // Load Y values
+            // Load Y values (8 bytes)
             __m128i y8 = _mm_loadl_epi64((__m128i*)(yData + y * yStride + x));
             __m256i y32 = _mm256_cvtepu8_epi32(y8);
             __m256 yf = _mm256_cvtepi32_ps(y32);
 
-            // Load and expand U, V values (4 values -> 8 values for YUV420)
-            alignas(32) float u_expanded[8], v_expanded[8];
+            // Load U and V values (4 values each for YUV420, expanded to 8)
+            alignas(32) uint8_t u_vals[8], v_vals[8];
+            int uvRow = y / 2;
             for (int i = 0; i < 8; i++) {
-                u_expanded[i] = uData[(y/2) * uStride + (x+i)/2];
-                v_expanded[i] = vData[(y/2) * vStride + (x+i)/2];
+                int uvCol = (x + i) / 2;
+                u_vals[i] = uData[uvRow * uStride + uvCol];
+                v_vals[i] = vData[uvRow * vStride + uvCol];
             }
 
-            __m256 uf = _mm256_load_ps(u_expanded);
-            __m256 vf = _mm256_load_ps(v_expanded);
+            __m128i u8 = _mm_loadl_epi64((__m128i*)u_vals);
+            __m128i v8 = _mm_loadl_epi64((__m128i*)v_vals);
+            __m256i u32 = _mm256_cvtepu8_epi32(u8);
+            __m256i v32 = _mm256_cvtepu8_epi32(v8);
+            __m256 uf = _mm256_cvtepi32_ps(u32);
+            __m256 vf = _mm256_cvtepi32_ps(v32);
 
             // Adjust U and V
             uf = _mm256_sub_ps(uf, offset);
@@ -805,26 +814,28 @@ inline void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const
             gf = _mm256_max_ps(zero, _mm256_min_ps(max_val, gf));
             bf = _mm256_max_ps(zero, _mm256_min_ps(max_val, bf));
 
-            // Convert to int and store
+            // Convert to int32
             __m256i ri = _mm256_cvtps_epi32(rf);
             __m256i gi = _mm256_cvtps_epi32(gf);
             __m256i bi = _mm256_cvtps_epi32(bf);
 
-            // Pack and interleave RGB
+            // 直接提取并存储，避免复杂的打包操作
             alignas(32) int32_t r[8], g[8], b[8];
             _mm256_store_si256((__m256i*)r, ri);
             _mm256_store_si256((__m256i*)g, gi);
             _mm256_store_si256((__m256i*)b, bi);
 
-            uint8_t* dst = rgbData + (y * width + x) * 3;
+            // 直接写入RGBA数据
+            uint8_t* dst = rgbaData + (y * width + x) * 4;
             for (int i = 0; i < 8; i++) {
-                dst[i*3 + 0] = r[i];
-                dst[i*3 + 1] = g[i];
-                dst[i*3 + 2] = b[i];
+                dst[i*4 + 0] = (uint8_t)r[i];  // R
+                dst[i*4 + 1] = (uint8_t)g[i];  // G
+                dst[i*4 + 2] = (uint8_t)b[i];  // B
+                dst[i*4 + 3] = 255;             // A
             }
         }
 
-        // Handle remaining pixels
+        // Handle remaining pixels with scalar code
         for (; x < width; x++) {
             int yIndex = y * yStride + x;
             int uvIndex = (y / 2) * uStride + (x / 2);
@@ -841,10 +852,11 @@ inline void WebRTCRemoteClient::convertYUV420ToRGB24(const uint8_t* yData, const
             G = std::max(0, std::min(255, G));
             B = std::max(0, std::min(255, B));
 
-            int rgbIndex = (y * width + x) * 3;
-            rgbData[rgbIndex] = R;
-            rgbData[rgbIndex + 1] = G;
-            rgbData[rgbIndex + 2] = B;
+            int rgbaIndex = (y * width + x) * 4;
+            rgbaData[rgbaIndex] = R;
+            rgbaData[rgbaIndex + 1] = G;
+            rgbaData[rgbaIndex + 2] = B;
+            rgbaData[rgbaIndex + 3] = 255;
         }
     }
 }
@@ -1348,7 +1360,7 @@ void VideoTrackSink::OnFrame(const webrtc::VideoFrame &frame)
     auto rgbFrame = std::make_shared<VideoFrame>(width, height);
 
     // YUV转RGB
-    client->convertYUV420ToRGB24(
+    client->convertYUV420ToRGBA32(
         i420Buffer->DataY(),
         i420Buffer->DataU(),
         i420Buffer->DataV(),

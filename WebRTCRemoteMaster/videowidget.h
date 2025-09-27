@@ -12,6 +12,8 @@
 #include <rhi/qshader.h>
 #include <array>
 
+#include "windows.h"
+
 #include "windowshook.h"
 #include "Logger.h"
 

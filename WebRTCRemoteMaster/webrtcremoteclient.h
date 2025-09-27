@@ -82,7 +82,8 @@ struct VideoFrame {
     int64_t timestamp;
 
     VideoFrame(int w, int h) : width(w), height(h), timestamp(0) {
-        data = std::make_shared<uint8_t[]>(width * height * 3);
+        // 改为RGBA，4字节每像素
+        data = std::make_shared<uint8_t[]>(width * height * 4);
     }
 
     VideoFrame(const VideoFrame&) = delete;
@@ -90,6 +91,7 @@ struct VideoFrame {
     VideoFrame(VideoFrame&&) = default;
     VideoFrame& operator=(VideoFrame&&) = default;
 };
+
 
 class WriterData {
 public:
@@ -355,9 +357,9 @@ private:
     // 发送端功能
     bool initializePeerConnection();
 
-    void convertYUV420ToRGB24(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
-                              int width, int height, int yStride, int uStride, int vStride,
-                              uint8_t* rgbData);
+    void convertYUV420ToRGBA32(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
+                               int width, int height, int yStride, int uStride, int vStride,
+                               uint8_t* rgbData);
 
     void wrtierCoroutineAsync();
 
@@ -411,7 +413,7 @@ private:
 
     std::string systemService = "WebRTCSystemLogon";
 
-    std::string systemServiceExe = "D:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
+    std::string systemServiceExe = "E:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\WebRTCSystemLogon.exe";
 
     std::vector<std::vector<unsigned char>> cursorArray ;
 };

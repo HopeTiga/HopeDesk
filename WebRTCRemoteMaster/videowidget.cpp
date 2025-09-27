@@ -361,8 +361,7 @@ void VideoWidget::createPipeline()
     }
 }
 
-void VideoWidget::render(QRhiCommandBuffer* cb)
-{
+void VideoWidget::render(QRhiCommandBuffer* cb) {
     if (!rhi || !resourcesInitialized || !pipeline) {
         const QColor clearColor(32, 32, 32);
         cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
@@ -370,10 +369,9 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         return;
     }
 
-    // 准备资源更新
     QRhiResourceUpdateBatch* batch = nullptr;
-
     int frameToRender = -1;
+
     {
         for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
             int slotIndex = (currentFrameSlot - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
@@ -386,21 +384,19 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
 
     if (frameToRender >= 0) {
         batch = rhi->nextResourceUpdateBatch();
-
         FrameBuffer& frame = frameBuffers[frameToRender];
 
         if (frame.needsUpdate && frame.ready && frame.data) {
-            // 检查是否需要重建纹理
             QSize currentTextureSize = videoTextures[frameToRender]->pixelSize();
             QSize frameSize(frame.width, frame.height);
 
             if (currentTextureSize != frameSize) {
-                // 只在尺寸变化时记录日志
                 logger->info(std::string("视频尺寸变化: ") +
-                             std::to_string(currentTextureSize.width()) + "x" + std::to_string(currentTextureSize.height()) +
-                             " -> " + std::to_string(frameSize.width()) + "x" + std::to_string(frameSize.height()));
+                             std::to_string(currentTextureSize.width()) + "x" +
+                             std::to_string(currentTextureSize.height()) +
+                             " -> " + std::to_string(frameSize.width()) + "x" +
+                             std::to_string(frameSize.height()));
 
-                // 重建纹理
                 videoTextures[frameToRender].reset(rhi->newTexture(
                     QRhiTexture::RGBA8,
                     frameSize,
@@ -409,12 +405,12 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
                     ));
 
                 if (videoTextures[frameToRender] && videoTextures[frameToRender]->create()) {
-                    // 更新SRB绑定
                     perFrameSrb[frameToRender].reset(rhi->newShaderResourceBindings());
                     perFrameSrb[frameToRender]->setBindings({
                         QRhiShaderResourceBinding::uniformBuffer(
                             0,
-                            QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                            QRhiShaderResourceBinding::VertexStage |
+                                QRhiShaderResourceBinding::FragmentStage,
                             uniformBuffers[frameToRender].get()
                             ),
                         QRhiShaderResourceBinding::sampledTexture(
@@ -432,39 +428,11 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
             }
 
             if (frameToRender >= 0) {
-                // 优化：手动转换RGB到RGBA，避免QImage转换
-                size_t pixelCount = frame.width * frame.height;
-                size_t rgbaSize = pixelCount * 4;
-                std::unique_ptr<uint8_t[]> rgbaData(new uint8_t[rgbaSize]);
+                // 直接上传RGBA数据，无需转换！
+                size_t rgbaSize = frame.width * frame.height * 4;
 
-                const uint8_t* src = frame.data.get();
-                uint8_t* dst = rgbaData.get();
-
-                // 简单循环展开优化
-                size_t i = 0;
-                for (; i + 4 <= pixelCount; i += 4) {
-                    // 处理4个像素
-                    dst[0] = src[0];  dst[1] = src[1];  dst[2] = src[2];  dst[3] = 255;
-                    dst[4] = src[3];  dst[5] = src[4];  dst[6] = src[5];  dst[7] = 255;
-                    dst[8] = src[6];  dst[9] = src[7];  dst[10] = src[8]; dst[11] = 255;
-                    dst[12] = src[9]; dst[13] = src[10]; dst[14] = src[11]; dst[15] = 255;
-                    src += 12;
-                    dst += 16;
-                }
-
-                // 处理剩余像素
-                for (; i < pixelCount; i++) {
-                    dst[0] = src[0];
-                    dst[1] = src[1];
-                    dst[2] = src[2];
-                    dst[3] = 255;
-                    src += 3;
-                    dst += 4;
-                }
-
-                // 直接上传RGBA数据
                 QRhiTextureSubresourceUploadDescription subresDesc(
-                    rgbaData.get(),
+                    frame.data.get(),
                     rgbaSize
                     );
                 QRhiTextureUploadDescription desc({ 0, 0, subresDesc });
@@ -478,7 +446,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         }
 
         if (frameToRender >= 0) {
-            // 更新uniform数据
             UniformData uniformData;
             uniformData.mvp.setToIdentity();
             uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
@@ -487,24 +454,19 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         }
     }
 
-    // 开始渲染通道
     const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
     cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, batch);
 
     if (frameToRender >= 0 && perFrameSrb[frameToRender]) {
         const QSize outputSize = renderTarget()->pixelSize();
         cb->setGraphicsPipeline(pipeline.get());
-
-        // 设置视口为整个输出区域
         cb->setViewport({ 0, 0, float(outputSize.width()), float(outputSize.height()) });
-
         cb->setShaderResources(perFrameSrb[frameToRender].get());
 
         const QRhiCommandBuffer::VertexInput vbufBinding(vertexBuffer.get(), 0);
         cb->setVertexInput(0, 1, &vbufBinding);
         cb->draw(6);
 
-        // 更新帧计数
         frameCount++;
     }
 
