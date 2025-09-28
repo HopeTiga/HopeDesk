@@ -139,9 +139,6 @@ bool ScreenCapture::initialize() {
 
         initializeFramePool(20);
 
-        frameInterval = std::chrono::milliseconds(1000 / config.fps);
-        lastFrameTime = std::chrono::steady_clock::now();
-
         Logger::getInstance()->info("Frame rate set to " + std::to_string(config.fps) + " fps");
         Logger::getInstance()->info("Dirty Rectangles: " + std::string(config.enableDirtyRects ? "Enabled" : "Disabled"));
 
@@ -599,7 +596,7 @@ bool ScreenCapture::captureFrame() {
     DXGI_OUTDUPL_FRAME_INFO frameInfo;
 
     // 使用较短的超时时间 - 对于60fps，使用16ms
-    hr = dxgiDuplication->AcquireNextFrame(16, &frameInfo, &desktopResource);
+    hr = dxgiDuplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
 
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
         return false;  // 没有新帧，正常返回

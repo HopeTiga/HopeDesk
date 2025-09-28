@@ -161,10 +161,6 @@ private:
 
     GPUEncoderCallback gpuEncoderCallback;
 
-    std::chrono::milliseconds frameInterval;
-
-    std::chrono::steady_clock::time_point lastFrameTime;
-
     bool useAdvancedFeatures = false;
 
     std::vector<uint8_t> yuvBuffer;
