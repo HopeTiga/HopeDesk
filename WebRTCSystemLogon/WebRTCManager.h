@@ -385,7 +385,7 @@ private:
         encoding.active = true;
         encoding.max_bitrate_bps = 2000000;  // 4 Mbps
         encoding.min_bitrate_bps = 2000000;  // 1 Mbps
-        encoding.bitrate_priority = 1.0;
+		encoding.bitrate_priority = 4.0;
         encoding.max_framerate = 120;
         encoding.scale_resolution_down_by = 1.0;
         encoding.scalability_mode = "L1T1";
