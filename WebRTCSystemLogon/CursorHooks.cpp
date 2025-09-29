@@ -1,5 +1,6 @@
 #include "CursorHooks.h"
 #include <iostream>
+#include "Utils.h"
 
 // 静态成员定义
 CursorHooks* CursorHooks::instance = nullptr;
@@ -179,7 +180,7 @@ void CursorHooks::checkCursorChange()
                 cursors->hotY = hotY;
 
                 // 复制位图数据到结构体后面
-                std::memcpy(finalData + sizeof(Cursors), bitmapData, bitmapSize);
+                fastCopy(finalData + sizeof(Cursors), bitmapData, bitmapSize);
 
                 if (cursorHandler) {
                     cursorHandler(finalData, totalSize);
@@ -344,7 +345,7 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
                 // ====== 添加黑色边框 ======
     // 创建临时缓冲区存储原始数据
                 unsigned char* tempData = new unsigned char[size];
-                memcpy(tempData, data, size);
+                fastCopy(tempData, data, size);
 
                 for (int y = 0; y < height; y++) {
                     for (int x = 0; x < width; x++) {
