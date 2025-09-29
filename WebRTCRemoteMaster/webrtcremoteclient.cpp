@@ -160,74 +160,159 @@ void DataChannelObserverImpl::OnMessage(const webrtc::DataBuffer& buffer) {
         return;
     }
 
-    const unsigned char * data = reinterpret_cast<const unsigned char*>(buffer.data.data());
+    // Use thread-local storage to avoid thread safety issues
+    static thread_local HCURSOR lastCursor = nullptr;
+
+    const unsigned char* data = reinterpret_cast<const unsigned char*>(buffer.data.data());
     size_t size = buffer.size();
+
+    // Minimum size check
+    if (size < sizeof(short)) {
+        Logger::getInstance()->error("Message too small to contain type");
+        return;
+    }
 
     short type = -1;
     memcpy(&type, data, sizeof(short));
 
+    // Define the same structure as sender to ensure proper alignment
+#pragma pack(push,1)
+    struct CursorMessage {
+        short type;
+        int index;
+        int width;
+        int height;
+        int hotX;
+        int hotY;
+    };
+#pragma pack(pop)
+
     switch(type) {
-    case 0: { // 光标索引消息
-
-        int index, width, height, hotX, hotY;
-        memcpy(&index, data + sizeof(short), sizeof(int));
-        memcpy(&width, data + sizeof(short) + sizeof(int), sizeof(int));
-        memcpy(&height, data + sizeof(short) + 2 * sizeof(int), sizeof(int));
-        memcpy(&hotX, data + sizeof(short) + 3 * sizeof(int), sizeof(int));
-        memcpy(&hotY, data + sizeof(short) + 4 * sizeof(int), sizeof(int));
-
-        // 获取光标数据
-        std::vector<unsigned char>& cursorData = client->cursorArray[index];
-        // 创建光标
-        HCURSOR cursor = CreateCursorFromRGBA(cursorData.data(), width, height, hotX, hotY);
-        if (cursor) {
-            SetSystemCursor(CopyCursor(cursor), 32512);
-        }
-        break;
-    }
-    case 1: { // 新光标数据
-
-        int index, width, height, hotX, hotY;
-        memcpy(&index, data + sizeof(short), sizeof(int));
-        memcpy(&width, data + sizeof(short) + sizeof(int), sizeof(int));
-        memcpy(&height, data + sizeof(short) + 2 * sizeof(int), sizeof(int));
-        memcpy(&hotX, data + sizeof(short) + 3 * sizeof(int), sizeof(int));
-        memcpy(&hotY, data + sizeof(short) + 4 * sizeof(int), sizeof(int));
-
-        // 计算图像数据部分的大小
-        size_t headerSize = sizeof(short) + 5 * sizeof(int);
-        size_t imageSize = size - headerSize;
-
-        // 将图像数据部分存储到cursorArray中
-        std::vector<unsigned char> cursorData(imageSize);
-        memcpy(cursorData.data(), data + headerSize, imageSize);
-
-        // 如果索引等于当前cursorArray的大小，则添加新元素
-        if (index == client->cursorArray.size()) {
-            client->cursorArray.push_back(cursorData);
-        } else if (index < client->cursorArray.size()) {
-            client->cursorArray[index] = cursorData;
-        } else {
-            // 索引无效
-            Logger::getInstance()->error("Received invalid index for type 1 message: " + std::to_string(index));
+    case 0: { // Cursor index message
+        if (size < sizeof(CursorMessage)) {
+            Logger::getInstance()->error("Invalid cursor index message size");
             break;
         }
 
-        // 创建光标
-        HCURSOR cursor = CreateCursorFromRGBA(cursorData.data(), width, height, hotX, hotY);
+        const CursorMessage* msg = reinterpret_cast<const CursorMessage*>(data);
+
+        // CRITICAL: Validate index bounds
+        if (msg->index < 0 || msg->index >= client->cursorArray.size()) {
+            Logger::getInstance()->error("Invalid cursor index: " + std::to_string(msg->index) +
+                                         " (array size: " + std::to_string(client->cursorArray.size()) + ")");
+            break;
+        }
+
+        // Validate dimensions
+        if (msg->width <= 0 || msg->width > 256 ||
+            msg->height <= 0 || msg->height > 256) {
+            Logger::getInstance()->error("Invalid cursor dimensions: " +
+                                         std::to_string(msg->width) + "x" + std::to_string(msg->height));
+            break;
+        }
+
+        // Get cursor data
+        std::vector<unsigned char>& cursorData = client->cursorArray[msg->index];
+
+        // Verify stored data size matches expected size
+        size_t expectedSize = msg->width * msg->height * 4; // RGBA
+        if (cursorData.size() != expectedSize) {
+            Logger::getInstance()->error("Stored cursor data size mismatch. Expected: " +
+                                         std::to_string(expectedSize) + ", Got: " +
+                                         std::to_string(cursorData.size()));
+            break;
+        }
+
+        // Create cursor
+        HCURSOR cursor = CreateCursorFromRGBA(cursorData.data(), msg->width,
+                                              msg->height, msg->hotX, msg->hotY);
         if (cursor) {
-            SetSystemCursor(CopyCursor(cursor), 32512);
+            // Clean up previous cursor
+            if (lastCursor) {
+                DestroyCursor(lastCursor);
+            }
+            lastCursor = CopyCursor(cursor);
+            SetSystemCursor(lastCursor, 32512);
+            DestroyCursor(cursor); // Clean up the temporary cursor
         }
         break;
     }
-    default: {
-        Logger::getInstance()->warning("Received unknown data channel message type: " + std::to_string(type));
+
+    case 1: { // New cursor data
+        if (size < sizeof(CursorMessage)) {
+            Logger::getInstance()->error("Invalid new cursor message size");
+            break;
+        }
+
+        const CursorMessage* msg = reinterpret_cast<const CursorMessage*>(data);
+
+        // Validate dimensions
+        if (msg->width <= 0 || msg->width > 256 ||
+            msg->height <= 0 || msg->height > 256) {
+            Logger::getInstance()->error("Invalid cursor dimensions: " +
+                                         std::to_string(msg->width) + "x" + std::to_string(msg->height));
+            break;
+        }
+
+        // Validate index
+        if (msg->index < 0 || msg->index > client->cursorArray.size()) {
+            Logger::getInstance()->error("Invalid cursor index for storage: " +
+                                         std::to_string(msg->index));
+            break;
+        }
+
+        // Calculate image data size
+        size_t headerSize = sizeof(CursorMessage);
+
+        // Prevent integer underflow
+        if (size <= headerSize) {
+            Logger::getInstance()->error("No cursor image data");
+            break;
+        }
+
+        size_t imageSize = size - headerSize;
+
+        // Verify image data size
+        size_t expectedSize = msg->width * msg->height * 4; // RGBA
+        if (imageSize != expectedSize) {
+            Logger::getInstance()->error("Image data size mismatch. Expected: " +
+                                         std::to_string(expectedSize) + ", Got: " +
+                                         std::to_string(imageSize));
+            break;
+        }
+
+        // Store cursor data
+        std::vector<unsigned char> cursorData(imageSize);
+        memcpy(cursorData.data(), data + headerSize, imageSize);
+
+        // Add or update cursor in array
+        if (msg->index == client->cursorArray.size()) {
+            client->cursorArray.push_back(std::move(cursorData));
+        } else {
+            client->cursorArray[msg->index] = std::move(cursorData);
+        }
+
+        // Create cursor
+        HCURSOR cursor = CreateCursorFromRGBA(client->cursorArray[msg->index].data(),
+                                              msg->width, msg->height,
+                                              msg->hotX, msg->hotY);
+        if (cursor) {
+            // Clean up previous cursor
+            if (lastCursor) {
+                DestroyCursor(lastCursor);
+            }
+            lastCursor = CopyCursor(cursor);
+            SetSystemCursor(lastCursor, 32512);
+            DestroyCursor(cursor); // Clean up the temporary cursor
+        }
         break;
     }
+
+    default:
+        Logger::getInstance()->warning("Unknown message type: " + std::to_string(type));
+        break;
     }
 }
-
-
 
 void DataChannelObserverImpl::OnStateChange() {
     if (!client->dataChannel) {
@@ -649,13 +734,13 @@ WebRTCRemoteClient::~WebRTCRemoteClient()
 
     releaseSource();
 
-    peerConnectionFactory.release();
-
     networkThread.reset();
 
     workerThread.reset();
 
     signalingThread.reset();
+
+    peerConnectionFactory.release();
 }
 
 bool WebRTCRemoteClient::initializePeerConnection()
@@ -1290,7 +1375,7 @@ void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)
 
             LOG_ERROR("DataChannel is null");
 
-            delete[] data;
+            delete reinterpret_cast<void*>(data);
 
             return;
         }
@@ -1301,7 +1386,7 @@ void WebRTCRemoteClient::writerRemote(unsigned char *data, size_t size)
 
         dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
 
-            delete [] data;
+            delete reinterpret_cast<void*>(data);
 
         });
     }
