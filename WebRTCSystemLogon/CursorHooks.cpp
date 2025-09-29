@@ -107,24 +107,31 @@ void CursorHooks::checkCursorChange()
 
     std::cout << "检测到新光标: " << currentCursor << std::endl;
 
-    if (cursorCaches.find(currentCursor) == cursorCaches.end()) {
+#pragma pack(push,1)
+    struct Cursors {
+        short type;
+        int index;
+        int width;
+        int height;
+        int hotX;
+        int hotY;
+    };
+#pragma pack(pop)
 
+    if (cursorCaches.find(currentCursor) == cursorCaches.end()) {
         cursorCaches[currentCursor] = cursorCaches.size();
 
         // 如果有处理器，获取光标数据并调用
         if (cursorHandler && currentCursor) {
-            unsigned char* data = nullptr;
-            size_t size = 0;
+            unsigned char* bitmapData = nullptr;
+            size_t bitmapSize = 0;
 
-            getCursorBitmapData(currentCursor, data, size);
+            getCursorBitmapData(currentCursor, bitmapData, bitmapSize);
 
-            if (data && size > 0) {
-
-                short type = 1; // 新光标数据
-
+            if (bitmapData && bitmapSize > 0) {
                 int index = cursorCaches[currentCursor];
 
-                // 获取热点信息
+                // 获取光标信息
                 ICONINFO iconInfo = { 0 };
                 int hotX = 0, hotY = 0;
                 int width = 0, height = 0;
@@ -135,18 +142,16 @@ void CursorHooks::checkCursorChange()
 
                     // 获取宽度和高度
                     if (iconInfo.hbmColor) {
-                        // 彩色光标
                         BITMAP bm = { 0 };
                         GetObject(iconInfo.hbmColor, sizeof(BITMAP), &bm);
                         width = bm.bmWidth;
                         height = bm.bmHeight;
                     }
                     else if (iconInfo.hbmMask) {
-                        // 单色光标
                         BITMAP bm = { 0 };
                         GetObject(iconInfo.hbmMask, sizeof(BITMAP), &bm);
                         width = bm.bmWidth;
-                        height = bm.bmHeight / 2;  // 单色光标掩码高度是实际高度的两倍
+                        height = bm.bmHeight / 2;
                     }
 
                     std::cout << "光标热点: (" << hotX << ", " << hotY << ")" << std::endl;
@@ -157,69 +162,60 @@ void CursorHooks::checkCursorChange()
                     if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
                 }
 
-                cursorHotPos.emplace_back(std::pair<int, int>(hotX, hotY));
+                cursorHotPos.emplace_back(hotX, hotY);
+                cursorSizes.emplace_back(width, height);
 
-                cursorSizes.emplace_back(std::pair<int, int>(width, height));
-
-                // 增加两个int的大小用于存储热点
-                size_t totalSize = sizeof(short) + sizeof(int) * 5 + size;
-
+                // 分配内存：结构体 + 位图数据
+                size_t totalSize = sizeof(Cursors) + bitmapSize;
                 unsigned char* finalData = new unsigned char[totalSize];
 
-                std::memcpy(finalData, &type, sizeof(short));
+                // 直接将结构体写入缓冲区
+                Cursors* cursors = reinterpret_cast<Cursors*>(finalData);
+                cursors->type = 1;  // 新光标数据
+                cursors->index = index;
+                cursors->width = width;
+                cursors->height = height;
+                cursors->hotX = hotX;
+                cursors->hotY = hotY;
 
-                std::memcpy(finalData + sizeof(short), &index, sizeof(int));
-
-                std::memcpy(finalData + sizeof(short) + sizeof(int), &width, sizeof(int));
-
-                std::memcpy(finalData + sizeof(short) + sizeof(int) + sizeof(int), &height, sizeof(int));
-
-                // 添加热点X坐标
-                std::memcpy(finalData + sizeof(short) + sizeof(int) * 3, &hotX, sizeof(int));
-
-                // 添加热点Y坐标  
-                std::memcpy(finalData + sizeof(short) + sizeof(int) * 4, &hotY, sizeof(int));
-
-                // 添加光标数据
-                std::memcpy(finalData + sizeof(short) + sizeof(int) * 5, data, size);
+                // 复制位图数据到结构体后面
+                std::memcpy(finalData + sizeof(Cursors), bitmapData, bitmapSize);
 
                 if (cursorHandler) {
                     cursorHandler(finalData, totalSize);
                 }
-                delete[] data;
+
+                delete[] bitmapData;
             }
         }
     }
     else {
-
+        // 已缓存的光标，只发送索引
         int index = cursorCaches[currentCursor];
 
-        std::pair<int, int> cursorPos = cursorHotPos[index];
+        // 边界检查
+        if (index >= cursorHotPos.size() || index >= cursorSizes.size()) {
+            std::cerr << "Invalid cursor cache index: " << index << std::endl;
+            return;
+        }
 
+        std::pair<int, int> cursorPos = cursorHotPos[index];
         std::pair<int, int> cursorSize = cursorSizes[index];
 
-        short type = 0;
+        // 只需要分配结构体大小
+        unsigned char* data = new unsigned char[sizeof(Cursors)];
 
-        size_t size = sizeof(short) + sizeof(int) * 5;
-
-        unsigned char* data = new unsigned char[size];
-
-        std::memcpy(data, &type, sizeof(short));
-
-        std::memcpy(data + sizeof(short), &index, sizeof(int));
-
-        std::memcpy(data + sizeof(short) + sizeof(int), &cursorSize.first, sizeof(int));
-
-        std::memcpy(data + sizeof(short) + sizeof(int) + sizeof(int), &cursorSize.second, sizeof(int));
-
-        // 添加热点X坐标
-        std::memcpy(data + sizeof(short) + sizeof(int) * 3, &cursorPos.first, sizeof(int));
-
-        // 添加热点Y坐标  
-        std::memcpy(data + sizeof(short) + sizeof(int) * 4, &cursorPos.second, sizeof(int));
+        // 直接使用结构体指针操作
+        Cursors* cursors = reinterpret_cast<Cursors*>(data);
+        cursors->type = 0;  // 光标索引消息
+        cursors->index = index;
+        cursors->width = cursorSize.first;
+        cursors->height = cursorSize.second;
+        cursors->hotX = cursorPos.first;
+        cursors->hotY = cursorPos.second;
 
         if (cursorHandler) {
-            cursorHandler(data, size);
+            cursorHandler(data, sizeof(Cursors));
         }
     }
 }
