@@ -656,7 +656,6 @@ bool ScreenCapture::captureFrame() {
     return result;
 }
 
-// 优化的processFrame函数，使用异步复制
 bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     if (!texture || !d3dContext || !stagingTextures[currentTexture]) {
         Logger::getInstance()->error("Invalid texture or D3D context");
@@ -713,7 +712,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         }
     }
 
-    // CPU路径 - 使用异步Map
+    // CPU路径 - 优化的内存复制
     d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
 
     D3D11_MAPPED_SUBRESOURCE mapped;
@@ -721,7 +720,7 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
         stagingTextures[currentTexture].Get(),
         0,
         D3D11_MAP_READ,
-        0,  // 非阻塞
+        0,
         &mapped);
 
     if (FAILED(hr)) {
@@ -741,13 +740,73 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     uint8_t* dstData = frame->bgraData.data();
 
     if (mapped.RowPitch == bytesPerRow) {
-        fastCopy(dstData, srcData, bytesPerRow * config.height);
+        // 连续内存 - 使用AVX2优化复制
+        size_t totalBytes = bytesPerRow * config.height;
+        size_t offset = 0;
+
+        // Process 256 bytes (one cache line * 4) at a time
+        for (; offset + 256 <= totalBytes; offset += 256) {
+            __m256i data0 = _mm256_loadu_si256((__m256i*)(srcData + offset));
+            __m256i data1 = _mm256_loadu_si256((__m256i*)(srcData + offset + 32));
+            __m256i data2 = _mm256_loadu_si256((__m256i*)(srcData + offset + 64));
+            __m256i data3 = _mm256_loadu_si256((__m256i*)(srcData + offset + 96));
+            __m256i data4 = _mm256_loadu_si256((__m256i*)(srcData + offset + 128));
+            __m256i data5 = _mm256_loadu_si256((__m256i*)(srcData + offset + 160));
+            __m256i data6 = _mm256_loadu_si256((__m256i*)(srcData + offset + 192));
+            __m256i data7 = _mm256_loadu_si256((__m256i*)(srcData + offset + 224));
+
+            _mm256_storeu_si256((__m256i*)(dstData + offset), data0);
+            _mm256_storeu_si256((__m256i*)(dstData + offset + 32), data1);
+            _mm256_storeu_si256((__m256i*)(dstData + offset + 64), data2);
+            _mm256_storeu_si256((__m256i*)(dstData + offset + 96), data3);
+            _mm256_storeu_si256((__m256i*)(dstData + offset + 128), data4);
+            _mm256_storeu_si256((__m256i*)(dstData + offset + 160), data5);
+            _mm256_storeu_si256((__m256i*)(dstData + offset + 192), data6);
+            _mm256_storeu_si256((__m256i*)(dstData + offset + 224), data7);
+        }
+
+        // Process remaining 32-byte chunks
+        for (; offset + 32 <= totalBytes; offset += 32) {
+            __m256i data = _mm256_loadu_si256((__m256i*)(srcData + offset));
+            _mm256_storeu_si256((__m256i*)(dstData + offset), data);
+        }
+
+        // Copy remaining bytes
+        if (offset < totalBytes) {
+            memcpy(dstData + offset, srcData + offset, totalBytes - offset);
+        }
     }
     else {
+        // 非连续内存 - 逐行AVX2复制
         for (int row = 0; row < config.height; ++row) {
-            fastCopy(dstData + row * bytesPerRow,
-                srcData + row * mapped.RowPitch,
-                bytesPerRow);
+            const uint8_t* srcRow = srcData + row * mapped.RowPitch;
+            uint8_t* dstRow = dstData + row * bytesPerRow;
+
+            size_t offset = 0;
+
+            // Process 128 bytes at a time
+            for (; offset + 128 <= bytesPerRow; offset += 128) {
+                __m256i data0 = _mm256_loadu_si256((__m256i*)(srcRow + offset));
+                __m256i data1 = _mm256_loadu_si256((__m256i*)(srcRow + offset + 32));
+                __m256i data2 = _mm256_loadu_si256((__m256i*)(srcRow + offset + 64));
+                __m256i data3 = _mm256_loadu_si256((__m256i*)(srcRow + offset + 96));
+
+                _mm256_storeu_si256((__m256i*)(dstRow + offset), data0);
+                _mm256_storeu_si256((__m256i*)(dstRow + offset + 32), data1);
+                _mm256_storeu_si256((__m256i*)(dstRow + offset + 64), data2);
+                _mm256_storeu_si256((__m256i*)(dstRow + offset + 96), data3);
+            }
+
+            // Process remaining 32-byte chunks
+            for (; offset + 32 <= bytesPerRow; offset += 32) {
+                __m256i data = _mm256_loadu_si256((__m256i*)(srcRow + offset));
+                _mm256_storeu_si256((__m256i*)(dstRow + offset), data);
+            }
+
+            // Copy remaining bytes
+            if (offset < bytesPerRow) {
+                memcpy(dstRow + offset, srcRow + offset, bytesPerRow - offset);
+            }
         }
     }
 
@@ -778,6 +837,31 @@ bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
     return true;
 }
 
+void ScreenCapture::ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture) {
+    // WebRTC优化：跳过未移动的moveRect
+    if (moveRect->SourcePoint.x == moveRect->DestinationRect.left &&
+        moveRect->SourcePoint.y == moveRect->DestinationRect.top) {
+        // 这是一个unmoved move_rect，跳过处理
+        return;
+    }
+
+    D3D11_BOX srcBox;
+    srcBox.left = moveRect->SourcePoint.x;
+    srcBox.top = moveRect->SourcePoint.y;
+    srcBox.right = moveRect->SourcePoint.x + (moveRect->DestinationRect.right - moveRect->DestinationRect.left);
+    srcBox.bottom = moveRect->SourcePoint.y + (moveRect->DestinationRect.bottom - moveRect->DestinationRect.top);
+    srcBox.front = 0;
+    srcBox.back = 1;
+
+    d3dContext->CopySubresourceRegion(
+        destTexture, 0,
+        moveRect->DestinationRect.left,
+        moveRect->DestinationRect.top,
+        0,
+        sourceTexture, 0,
+        &srcBox
+    );
+}
 
 void ScreenCapture::ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture) {
     dirtyTracker->Reset();
@@ -791,30 +875,32 @@ void ScreenCapture::ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11
         dirtyTracker->metadataBuffer.resize(frameInfo->TotalMetadataBufferSize);
     }
 
-    UINT bufSize = frameInfo->TotalMetadataBufferSize;
-
-    // 获取移动矩形
+    // 分两次调用分别获取move rects和dirty rects
+    UINT moveRectSize = 0;
     DXGI_OUTDUPL_MOVE_RECT* moveRects = reinterpret_cast<DXGI_OUTDUPL_MOVE_RECT*>(
         dirtyTracker->metadataBuffer.data());
-    UINT moveRectSize = bufSize;
 
-    HRESULT hr = dxgiDuplication->GetFrameMoveRects(moveRectSize, moveRects, &moveRectSize);
+    HRESULT hr = dxgiDuplication->GetFrameMoveRects(
+        static_cast<UINT>(dirtyTracker->metadataBuffer.size()),
+        moveRects,
+        &moveRectSize);
+
     if (SUCCEEDED(hr) && moveRectSize > 0) {
         UINT moveCount = moveRectSize / sizeof(DXGI_OUTDUPL_MOVE_RECT);
-
         for (UINT i = 0; i < moveCount; i++) {
             ProcessMoveRect(sourceTexture, &moveRects[i], destTexture);
         }
     }
 
-    // 获取脏矩形
-    RECT* dirtyRects = reinterpret_cast<RECT*>(dirtyTracker->metadataBuffer.data());
-    UINT dirtyRectSize = bufSize;
+    // 获取dirty rects - 使用剩余的buffer空间
+    UINT dirtyRectSize = 0;
+    RECT* dirtyRects = reinterpret_cast<RECT*>(dirtyTracker->metadataBuffer.data() + moveRectSize);
+    UINT remainingBufferSize = static_cast<UINT>(dirtyTracker->metadataBuffer.size()) - moveRectSize;
 
-    hr = dxgiDuplication->GetFrameDirtyRects(dirtyRectSize, dirtyRects, &dirtyRectSize);
+    hr = dxgiDuplication->GetFrameDirtyRects(remainingBufferSize, dirtyRects, &dirtyRectSize);
+
     if (SUCCEEDED(hr) && dirtyRectSize > 0) {
         UINT dirtyCount = dirtyRectSize / sizeof(RECT);
-
         std::vector<RECT> mergedRects = MergeDirtyRects(dirtyRects, dirtyCount);
 
         for (const auto& rect : mergedRects) {
@@ -835,25 +921,6 @@ void ScreenCapture::ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11
 
         dirtyTracker->hasUpdates = true;
     }
-}
-
-void ScreenCapture::ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture) {
-    D3D11_BOX srcBox;
-    srcBox.left = moveRect->SourcePoint.x;
-    srcBox.top = moveRect->SourcePoint.y;
-    srcBox.right = moveRect->SourcePoint.x + (moveRect->DestinationRect.right - moveRect->DestinationRect.left);
-    srcBox.bottom = moveRect->SourcePoint.y + (moveRect->DestinationRect.bottom - moveRect->DestinationRect.top);
-    srcBox.front = 0;
-    srcBox.back = 1;
-
-    d3dContext->CopySubresourceRegion(
-        destTexture, 0,
-        moveRect->DestinationRect.left,
-        moveRect->DestinationRect.top,
-        0,
-        sourceTexture, 0,
-        &srcBox
-    );
 }
 
 std::vector<RECT> ScreenCapture::MergeDirtyRects(RECT* rects, UINT count) {
@@ -1064,36 +1131,58 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
     uint8_t* u = y + ySize;
     uint8_t* v = u + uvSize;
 
-    // Process Y plane with AVX2
+    // AVX2 constants for Y conversion
+    const __m256i coeff_r_y = _mm256_set1_epi16(66);
+    const __m256i coeff_g_y = _mm256_set1_epi16(129);
+    const __m256i coeff_b_y = _mm256_set1_epi16(25);
+    const __m256i offset_y = _mm256_set1_epi16(16 << 8);
+    const __m256i mask_low = _mm256_set1_epi32(0x00FF00FF);
+
+    // Process Y plane with full AVX2
     for (int row = 0; row < config.height; row++) {
         const uint8_t* bgraRow = bgraData + row * stride;
         uint8_t* yRow = y + row * config.width;
 
         int col = 0;
 
-        // Process 16 pixels at a time with AVX2
+        // Process 16 pixels at once with AVX2
         for (; col <= config.width - 16; col += 16) {
             // Load 16 BGRA pixels (64 bytes)
-            __m256i pixels_0_7 = _mm256_loadu_si256((__m256i*)(bgraRow + col * 4));
-            __m256i pixels_8_15 = _mm256_loadu_si256((__m256i*)(bgraRow + col * 4 + 32));
+            __m256i bgra_lo = _mm256_loadu_si256((__m256i*)(bgraRow + col * 4));
+            __m256i bgra_hi = _mm256_loadu_si256((__m256i*)(bgraRow + col * 4 + 32));
 
-            // Process first 8 pixels
-            alignas(32) uint8_t temp[16];
-            for (int i = 0; i < 8; i++) {
-                const uint8_t* pixel = bgraRow + (col + i) * 4;
-                int y_val = ((66 * pixel[2] + 129 * pixel[1] + 25 * pixel[0]) >> 8) + 16;
-                temp[i] = std::min(255, std::max(0, y_val));
-            }
+            // Extract B, G, R channels (ignore A)
+            // Shuffle to get [B0 B1 B2 B3 B4 B5 B6 B7]
+            __m256i b_lo = _mm256_and_si256(bgra_lo, mask_low);
+            __m256i b_hi = _mm256_and_si256(bgra_hi, mask_low);
+            __m256i b = _mm256_packus_epi32(b_lo, b_hi);
+            b = _mm256_permute4x64_epi64(b, 0xD8);
 
-            // Process second 8 pixels
-            for (int i = 0; i < 8; i++) {
-                const uint8_t* pixel = bgraRow + (col + 8 + i) * 4;
-                int y_val = ((66 * pixel[2] + 129 * pixel[1] + 25 * pixel[0]) >> 8) + 16;
-                temp[8 + i] = std::min(255, std::max(0, y_val));
-            }
+            __m256i gr_lo = _mm256_srli_epi32(bgra_lo, 8);
+            __m256i gr_hi = _mm256_srli_epi32(bgra_hi, 8);
+            __m256i g_lo = _mm256_and_si256(gr_lo, mask_low);
+            __m256i g_hi = _mm256_and_si256(gr_hi, mask_low);
+            __m256i g = _mm256_packus_epi32(g_lo, g_hi);
+            g = _mm256_permute4x64_epi64(g, 0xD8);
 
-            // Store 16 Y values
-            _mm_storeu_si128((__m128i*)(yRow + col), _mm_load_si128((__m128i*)temp));
+            __m256i r_lo = _mm256_srli_epi32(bgra_lo, 16);
+            __m256i r_hi = _mm256_srli_epi32(bgra_hi, 16);
+            r_lo = _mm256_and_si256(r_lo, mask_low);
+            r_hi = _mm256_and_si256(r_hi, mask_low);
+            __m256i r = _mm256_packus_epi32(r_lo, r_hi);
+            r = _mm256_permute4x64_epi64(r, 0xD8);
+
+            // Calculate Y = (66*R + 129*G + 25*B) / 256 + 16
+            __m256i y_temp = _mm256_mullo_epi16(r, coeff_r_y);
+            y_temp = _mm256_add_epi16(y_temp, _mm256_mullo_epi16(g, coeff_g_y));
+            y_temp = _mm256_add_epi16(y_temp, _mm256_mullo_epi16(b, coeff_b_y));
+            y_temp = _mm256_srli_epi16(y_temp, 8);
+            y_temp = _mm256_add_epi16(y_temp, _mm256_set1_epi16(16));
+
+            // Pack to uint8 and store
+            __m256i y_result = _mm256_packus_epi16(y_temp, y_temp);
+            y_result = _mm256_permute4x64_epi64(y_result, 0xD8);
+            _mm_storeu_si128((__m128i*)(yRow + col), _mm256_castsi256_si128(y_result));
         }
 
         // Process remaining pixels
@@ -1104,7 +1193,16 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
         }
     }
 
-    // Process UV planes (2x2 downsampling)
+    // AVX2 constants for UV conversion
+    const __m256i coeff_r_u = _mm256_set1_epi16(-38);
+    const __m256i coeff_g_u = _mm256_set1_epi16(-74);
+    const __m256i coeff_b_u = _mm256_set1_epi16(112);
+    const __m256i coeff_r_v = _mm256_set1_epi16(112);
+    const __m256i coeff_g_v = _mm256_set1_epi16(-94);
+    const __m256i coeff_b_v = _mm256_set1_epi16(-18);
+    const __m256i offset_uv = _mm256_set1_epi16(128 << 8);
+
+    // Process UV planes with AVX2 (2x2 downsampling)
     for (int yPos = 0; yPos < config.height; yPos += 2) {
         const uint8_t* bgraRow0 = bgraData + yPos * stride;
         const uint8_t* bgraRow1 = bgraData + std::min(yPos + 1, config.height - 1) * stride;
@@ -1113,30 +1211,65 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
 
         int col = 0;
 
-        // Process 8 UV samples at a time (16 source pixels)
-        for (; col <= config.width - 16; col += 16) {
-            // Process 8 2x2 blocks
+        // Process 16 UV samples (32 source pixels) at once
+        for (; col <= config.width - 32; col += 32) {
+            // Load 4 2x2 blocks (16 BGRA pixels)
+            __m256i row0_0 = _mm256_loadu_si256((__m256i*)(bgraRow0 + col * 4));
+            __m256i row0_1 = _mm256_loadu_si256((__m256i*)(bgraRow0 + col * 4 + 32));
+            __m256i row1_0 = _mm256_loadu_si256((__m256i*)(bgraRow1 + col * 4));
+            __m256i row1_1 = _mm256_loadu_si256((__m256i*)(bgraRow1 + col * 4 + 32));
+
+            // Average 2x2 blocks
+            // Simple implementation: process in scalar for clarity, 
+            // full SIMD 2x2 averaging is complex
+            alignas(32) uint8_t temp_b[16], temp_g[16], temp_r[16];
+
             for (int i = 0; i < 8; i++) {
                 int idx = col + i * 2;
+                if (idx + 1 >= config.width) break;
+
                 const uint8_t* p00 = bgraRow0 + idx * 4;
-                const uint8_t* p10 = (idx + 1 < config.width) ? bgraRow0 + (idx + 1) * 4 : p00;
-                const uint8_t* p01 = (yPos + 1 < config.height) ? bgraRow1 + idx * 4 : p00;
-                const uint8_t* p11 = (yPos + 1 < config.height && idx + 1 < config.width) ?
-                    bgraRow1 + (idx + 1) * 4 : p01;
+                const uint8_t* p10 = bgraRow0 + (idx + 1) * 4;
+                const uint8_t* p01 = bgraRow1 + idx * 4;
+                const uint8_t* p11 = bgraRow1 + (idx + 1) * 4;
 
-                int avg_b = (p00[0] + p10[0] + p01[0] + p11[0]) >> 2;
-                int avg_g = (p00[1] + p10[1] + p01[1] + p11[1]) >> 2;
-                int avg_r = (p00[2] + p10[2] + p01[2] + p11[2]) >> 2;
-
-                int u_val = ((-38 * avg_r - 74 * avg_g + 112 * avg_b) >> 8) + 128;
-                int v_val = ((112 * avg_r - 94 * avg_g - 18 * avg_b) >> 8) + 128;
-
-                u[uvRow * halfWidth + (col >> 1) + i] = std::min(255, std::max(0, u_val));
-                v[uvRow * halfWidth + (col >> 1) + i] = std::min(255, std::max(0, v_val));
+                temp_b[i] = (p00[0] + p10[0] + p01[0] + p11[0]) >> 2;
+                temp_g[i] = (p00[1] + p10[1] + p01[1] + p11[1]) >> 2;
+                temp_r[i] = (p00[2] + p10[2] + p01[2] + p11[2]) >> 2;
             }
+
+            // Load averaged values into AVX2 registers
+            __m256i avg_b = _mm256_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)temp_b));
+            __m256i avg_g = _mm256_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)temp_g));
+            __m256i avg_r = _mm256_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)temp_r));
+
+            // Calculate U = (-38*R - 74*G + 112*B) / 256 + 128
+            __m256i u_temp = _mm256_mullo_epi16(avg_r, coeff_r_u);
+            u_temp = _mm256_add_epi16(u_temp, _mm256_mullo_epi16(avg_g, coeff_g_u));
+            u_temp = _mm256_add_epi16(u_temp, _mm256_mullo_epi16(avg_b, coeff_b_u));
+            u_temp = _mm256_srai_epi16(u_temp, 8);
+            u_temp = _mm256_add_epi16(u_temp, _mm256_set1_epi16(128));
+            u_temp = _mm256_max_epi16(u_temp, _mm256_setzero_si256());
+            u_temp = _mm256_min_epi16(u_temp, _mm256_set1_epi16(255));
+
+            // Calculate V = (112*R - 94*G - 18*B) / 256 + 128
+            __m256i v_temp = _mm256_mullo_epi16(avg_r, coeff_r_v);
+            v_temp = _mm256_add_epi16(v_temp, _mm256_mullo_epi16(avg_g, coeff_g_v));
+            v_temp = _mm256_add_epi16(v_temp, _mm256_mullo_epi16(avg_b, coeff_b_v));
+            v_temp = _mm256_srai_epi16(v_temp, 8);
+            v_temp = _mm256_add_epi16(v_temp, _mm256_set1_epi16(128));
+            v_temp = _mm256_max_epi16(v_temp, _mm256_setzero_si256());
+            v_temp = _mm256_min_epi16(v_temp, _mm256_set1_epi16(255));
+
+            // Pack and store
+            __m128i u_result = _mm_packus_epi16(_mm256_castsi256_si128(u_temp), _mm256_castsi256_si128(u_temp));
+            __m128i v_result = _mm_packus_epi16(_mm256_castsi256_si128(v_temp), _mm256_castsi256_si128(v_temp));
+
+            _mm_storel_epi64((__m128i*)(u + uvRow * halfWidth + (col >> 1)), u_result);
+            _mm_storel_epi64((__m128i*)(v + uvRow * halfWidth + (col >> 1)), v_result);
         }
 
-        // Process remaining pixels
+        // Process remaining pixels (scalar fallback)
         for (; col < config.width; col += 2) {
             const uint8_t* p00 = bgraRow0 + col * 4;
             const uint8_t* p10 = (col + 1 < config.width) ? bgraRow0 + (col + 1) * 4 : p00;
@@ -1159,7 +1292,6 @@ bool ScreenCapture::convertBGRAToYUV420(const uint8_t* bgraData, int stride,
 
     return true;
 }
-
 
 void ScreenCapture::handleCaptureError(HRESULT hr) {
     if (hr == DXGI_ERROR_ACCESS_LOST) {
