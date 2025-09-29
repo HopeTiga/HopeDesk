@@ -134,11 +134,12 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
 
 void PeerConnectionObserverImpl::OnTrack(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
     auto receiver = transceiver->receiver();
+
     auto track = receiver->track();
 
     if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
         Logger::getInstance()->info("Video track received");
-
+        receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.05));
         client->isReceive = true;
         client->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
             static_cast<webrtc::VideoTrackInterface*>(track.release())
