@@ -1088,16 +1088,11 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
         return;
     }
 
-    // 直接使用指针偏移，避免多次memcpy
-    const short* eventTypePtr = reinterpret_cast<const short*>(data);
-    short eventType = *eventTypePtr;
+    const short eventType = *reinterpret_cast<const short*>(data);
 
-    // 提前获取屏幕分辨率，避免重复调用
-    static int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    static int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-
-    // 预计算用于位运算的值
-    static const int COORD_SHIFT = 16;  // 用于替代 / 65535
+    // 缓存屏幕分辨率
+    thread_local static const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    thread_local static const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
     switch (eventType) {
     case 0: { // Mouse move
@@ -1105,21 +1100,12 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
             return;
         }
 
-        // 直接指针访问，避免memcpy
         const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short));
-        int normalizedX = coordPtr[0];
-        int normalizedY = coordPtr[1];
 
-        // 使用位运算替代除法 (右移16位约等于除以65536，误差极小)
-        int posX = (static_cast<long long>(normalizedX) * screenWidth) >> COORD_SHIFT;
-        int posY = (static_cast<long long>(normalizedY) * screenHeight) >> COORD_SHIFT;
-
-        // 如果输入已经是归一化的，可以跳过边界检查
-        // 只在调试模式下检查
-#ifdef _DEBUG
-        posX = std::max(0, std::min(posX, screenWidth - 1));
-        posY = std::max(0, std::min(posY, screenHeight - 1));
-#endif
+        // 使用位运算替代除法：归一化坐标 * 屏幕尺寸 >> 16
+        // 65535 ≈ 2^16，所以右移16位等价于除以65536（误差可忽略）
+        int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
+        int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
 
         keyMouseSim->MouseMove(posX, posY, true);
         break;
@@ -1131,46 +1117,35 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
             return;
         }
 
-        // MSVC 版本：使用 pragma pack
-#pragma pack(push, 1)
-        struct MouseEvent {
-            short eventType;
-            short mouseType;
-            int normalizedX;
-            int normalizedY;
-        };
-#pragma pack(pop)
+        const short mouseType = *reinterpret_cast<const short*>(data + sizeof(short));
+        const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short) * 2);
 
-        const MouseEvent* mouseEvent = reinterpret_cast<const MouseEvent*>(data);
-
-        int posX = (static_cast<long long>(mouseEvent->normalizedX) * screenWidth) >> COORD_SHIFT;
-        int posY = (static_cast<long long>(mouseEvent->normalizedY) * screenHeight) >> COORD_SHIFT;
+        // 同样使用位运算
+        int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
+        int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
 
         if (eventType == 1) {
-            keyMouseSim->MouseButtonDown(mouseEvent->mouseType, posX, posY);
+            keyMouseSim->MouseButtonDown(mouseType, posX, posY);
         }
         else {
-            keyMouseSim->MouseButtonUp(mouseEvent->mouseType);
+            keyMouseSim->MouseButtonUp(mouseType);
         }
         break;
     }
 
     case 3: // Key down
     case 4: { // Key up
-        if (size < sizeof(short) + 2 * sizeof(char)) {
+        if (size < sizeof(short) + 2) {
             return;
         }
 
-        // 直接访问，避免memcpy
         const unsigned char* keyData = data + sizeof(short);
-        unsigned char windowsKey = keyData[0];
-        char modifiers = keyData[1];
 
         if (eventType == 3) {
-            keyMouseSim->KeyDown(windowsKey, modifiers);
+            keyMouseSim->KeyDown(keyData[0], keyData[1]);
         }
         else {
-            keyMouseSim->KeyUp(windowsKey, modifiers);
+            keyMouseSim->KeyUp(keyData[0], keyData[1]);
         }
         break;
     }
@@ -1180,13 +1155,11 @@ void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t 
             return;
         }
 
-        const int* wheelValuePtr = reinterpret_cast<const int*>(data + sizeof(short));
-        keyMouseSim->MouseWheel(*wheelValuePtr);
+        keyMouseSim->MouseWheel(*reinterpret_cast<const int*>(data + sizeof(short)));
         break;
     }
 
     default:
-        // 未知事件类型，可以记录日志
         break;
     }
 }

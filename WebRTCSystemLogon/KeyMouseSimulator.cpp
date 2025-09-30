@@ -79,13 +79,7 @@ bool KeyMouseSimulator::SendKey(WORD scanCode, bool down, bool extended) {
     try {
         InterceptionKeyStroke keystroke = { 0 };
         keystroke.code = scanCode;
-
-        if (down) {
-            keystroke.state = INTERCEPTION_KEY_DOWN;
-        }
-        else {
-            keystroke.state = INTERCEPTION_KEY_UP;
-        }
+        keystroke.state = down ? INTERCEPTION_KEY_DOWN : INTERCEPTION_KEY_UP;
 
         if (extended) {
             keystroke.state |= INTERCEPTION_KEY_E0;
@@ -93,11 +87,10 @@ bool KeyMouseSimulator::SendKey(WORD scanCode, bool down, bool extended) {
 
         keystroke.information = 0;
 
-        InterceptionStroke stroke;
-        memset(&stroke, 0, sizeof(stroke));
-        memcpy(&stroke, &keystroke, sizeof(keystroke));
+        // 直接转换，不需要 memcpy
+        int result = interception_send(interceptionContext, interceptionKeyboard,
+            reinterpret_cast<InterceptionStroke*>(&keystroke), 1);
 
-        int result = interception_send(interceptionContext, interceptionKeyboard, &stroke, 1);
         if (result != 1) {
             logger->error("Failed to send keyboard event, return value: " + std::to_string(result));
             return false;
@@ -122,12 +115,15 @@ bool KeyMouseSimulator::MouseMove(int x, int y, bool absolute) {
 
     try {
         InterceptionMouseStroke mousestroke = { 0 };
-        mousestroke.state = 0;
 
         if (absolute) {
             mousestroke.flags = INTERCEPTION_MOUSE_MOVE_ABSOLUTE;
-            mousestroke.x = (x * 65535) / GetSystemMetrics(SM_CXSCREEN);
-            mousestroke.y = (y * 65535) / GetSystemMetrics(SM_CYSCREEN);
+            thread_local static const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+            thread_local static const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+            // 使用位运算：(x << 16) / screenWidth
+            mousestroke.x = (x << 16) / screenWidth;
+            mousestroke.y = (y << 16) / screenHeight;
         }
         else {
             mousestroke.flags = INTERCEPTION_MOUSE_MOVE_RELATIVE;
@@ -135,21 +131,19 @@ bool KeyMouseSimulator::MouseMove(int x, int y, bool absolute) {
             mousestroke.y = y;
         }
 
+        mousestroke.state = 0;
         mousestroke.rolling = 0;
         mousestroke.information = 0;
 
-        InterceptionStroke stroke;
-        memset(&stroke, 0, sizeof(stroke));
-        memcpy(&stroke, &mousestroke, sizeof(mousestroke));
+        // 直接转换，不需要 memcpy
+        int result = interception_send(interceptionContext, interceptionMouse,
+            reinterpret_cast<InterceptionStroke*>(&mousestroke), 1);
 
-        int result = interception_send(interceptionContext, interceptionMouse, &stroke, 1);
         if (result != 1) {
             logger->error("Failed to send mouse movement, return value: " + std::to_string(result));
             return false;
         }
 
-        logger->debug("Mouse moved - Original: (" + std::to_string(x) + ", " + std::to_string(y) +
-            "), Normalized: (" + std::to_string(mousestroke.x) + ", " + std::to_string(mousestroke.y) + ")");
         return true;
     }
     catch (...) {
@@ -176,11 +170,9 @@ bool KeyMouseSimulator::MouseButtonDown(int buttonType, int x, int y) {
     default: return false;
     }
 
-    InterceptionStroke stroke;
-    memset(&stroke, 0, sizeof(stroke));
-    memcpy(&stroke, &mousestroke, sizeof(mousestroke));
-
-    return interception_send(interceptionContext, interceptionMouse, &stroke, 1) == 1;
+    // 直接转换，不需要 memcpy
+    return interception_send(interceptionContext, interceptionMouse,
+        reinterpret_cast<InterceptionStroke*>(&mousestroke), 1) == 1;
 }
 
 bool KeyMouseSimulator::MouseButtonUp(int buttonType) {
@@ -197,11 +189,9 @@ bool KeyMouseSimulator::MouseButtonUp(int buttonType) {
     default: return false;
     }
 
-    InterceptionStroke stroke;
-    memset(&stroke, 0, sizeof(stroke));
-    memcpy(&stroke, &mousestroke, sizeof(mousestroke));
-
-    return interception_send(interceptionContext, interceptionMouse, &stroke, 1) == 1;
+    // 直接转换，不需要 memcpy
+    return interception_send(interceptionContext, interceptionMouse,
+        reinterpret_cast<InterceptionStroke*>(&mousestroke), 1) == 1;
 }
 
 bool KeyMouseSimulator::MouseWheel(int wheelDelta) {
@@ -211,13 +201,11 @@ bool KeyMouseSimulator::MouseWheel(int wheelDelta) {
 
     InterceptionMouseStroke mousestroke = { 0 };
     mousestroke.state = INTERCEPTION_MOUSE_WHEEL;
-    mousestroke.rolling = (short)(wheelDelta);
+    mousestroke.rolling = static_cast<short>(wheelDelta);
 
-    InterceptionStroke stroke;
-    memset(&stroke, 0, sizeof(stroke));
-    memcpy(&stroke, &mousestroke, sizeof(mousestroke));
-
-    return interception_send(interceptionContext, interceptionMouse, &stroke, 1) == 1;
+    // 直接转换，不需要 memcpy
+    return interception_send(interceptionContext, interceptionMouse,
+        reinterpret_cast<InterceptionStroke*>(&mousestroke), 1) == 1;
 }
 
 bool KeyMouseSimulator::IsNumLockOn() {
@@ -250,7 +238,6 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
     // 检查是否是数字键盘按键
     if (vkCode >= VK_NUMPAD0 && vkCode <= VK_NUMPAD9) {
         bool numLockOn = IsNumLockOn();
-        logger->debug("NumLock状态: " + std::string(numLockOn ? "开启" : "关闭"));
 
         if (numLockOn) {
             // NumLock开启：发送数字，使用非扩展键
@@ -260,8 +247,7 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
                 return false;
             }
 
-            logger->debug("发送数字键盘数字: " + std::to_string(vkCode - VK_NUMPAD0) +
-                ", 扫描码: " + std::to_string(scanCode) + ", 扩展键: false");
+
             return SendKey(scanCode, true, false);  // 强制非扩展键
         }
         else {
@@ -272,8 +258,6 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
                 return false;
             }
 
-            logger->debug("发送数字键盘导航键: VK" + std::to_string(vkCode) +
-                ", 扫描码: " + std::to_string(scanCode) + ", 扩展键: true");
             return SendKey(scanCode, true, true);   // 强制扩展键
         }
     }
@@ -289,9 +273,7 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
 
         // 这些键通常不受NumLock影响，根据实际需要调整
         bool isExtended = (vkCode == VK_DIVIDE) ? true : false;  // 除号是扩展键
-        logger->debug("发送数字键盘特殊键: VK" + std::to_string(vkCode) +
-            ", 扫描码: " + std::to_string(scanCode) +
-            ", 扩展键: " + (isExtended ? "true" : "false"));
+
         return SendKey(scanCode, true, isExtended);
     }
 
