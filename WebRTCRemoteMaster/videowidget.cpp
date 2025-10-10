@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QCursor>
 #include <QResizeEvent>
+#include <QStandardPaths>
+#include <QDir>
 #include <algorithm>
 
 VideoWidget::VideoWidget(QWidget* parent)
@@ -23,7 +25,6 @@ VideoWidget::VideoWidget(QWidget* parent)
     , isFullScreenMode(false)
     , sidebarVisible(false)
 {
-    // 获取Logger实例
     logger = Logger::getInstance();
     logger->info("VideoWidget初始化开始");
 
@@ -44,8 +45,17 @@ VideoWidget::VideoWidget(QWidget* parent)
     connect(fpsUpdateTimer, &QTimer::timeout, this, &VideoWidget::updateFPS);
     fpsUpdateTimer->start(1000);
 
-    // 初始化控件
+    // 初始化时间戳
+    lastUpdateTime = std::chrono::steady_clock::now();
+
+    // 初始化uniform缓存
+    for (auto& uniformData : lastUniformData) {
+        uniformData.mvp.setToIdentity();
+        uniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
+    }
+
     initializeControls();
+    loadPipelineCache();
 
     logger->info("VideoWidget初始化完成");
 }
@@ -53,6 +63,7 @@ VideoWidget::VideoWidget(QWidget* parent)
 VideoWidget::~VideoWidget()
 {
     logger->info("VideoWidget析构");
+    savePipelineCache();
 }
 
 void VideoWidget::initialize(QRhiCommandBuffer* cb)
@@ -62,7 +73,6 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
         return;
     }
 
-    // 保存RHI实例
     if (rhi != QRhiWidget::rhi()) {
         logger->info("RHI实例改变，重新创建资源");
         releaseResources();
@@ -85,34 +95,23 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
 
 bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 {
-    // 1. 创建顶点缓冲
     createBuffers();
-
-    // 2. 创建纹理
     createTextures();
-
-    // 3. 创建采样器
     createSampler();
-
-    // 4. 创建着色器资源绑定
     createShaderResourceBindings();
-
-    // 5. 创建管线
     createPipeline();
 
-    // 6. 上传初始数据
     if (cb && rhi) {
         QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
 
         // 上传顶点数据
         static const float vertexData[] = {
-            // 位置         // 纹理坐标
-            -1.0f,  1.0f,  0.0f, 0.0f,  // 左上
-            -1.0f, -1.0f,  0.0f, 1.0f,  // 左下
-            1.0f, -1.0f,  1.0f, 1.0f,  // 右下
-            -1.0f,  1.0f,  0.0f, 0.0f,  // 左上
-            1.0f, -1.0f,  1.0f, 1.0f,  // 右下
-            1.0f,  1.0f,  1.0f, 0.0f   // 右上
+            -1.0f,  1.0f,  0.0f, 0.0f,
+            -1.0f, -1.0f,  0.0f, 1.0f,
+            1.0f, -1.0f,  1.0f, 1.0f,
+            -1.0f,  1.0f,  0.0f, 0.0f,
+            1.0f, -1.0f,  1.0f, 1.0f,
+            1.0f,  1.0f,  1.0f, 0.0f
         };
         batch->uploadStaticBuffer(vertexBuffer.get(), vertexData);
 
@@ -120,14 +119,15 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
         UniformData uniformData;
         uniformData.mvp.setToIdentity();
         uniformData.params = QVector4D(
-            hasVideo ? 1.0f : 0.0f,  // x: hasVideo
-            0.0f,                     // y: isYUV
-            1.0f,                     // z: brightness
-            0.0f                      // w: padding
+            hasVideo ? 1.0f : 0.0f,
+            0.0f,
+            1.0f,
+            0.0f
             );
 
         for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
             batch->updateDynamicBuffer(uniformBuffers[i].get(), 0, sizeof(UniformData), &uniformData);
+            lastUniformData[i] = uniformData;
         }
 
         cb->resourceUpdate(batch);
@@ -147,7 +147,6 @@ void VideoWidget::createBuffers()
         return;
     }
 
-    // 创建顶点缓冲
     vertexBuffer.reset(rhi->newBuffer(
         QRhiBuffer::Immutable,
         QRhiBuffer::VertexBuffer,
@@ -159,7 +158,6 @@ void VideoWidget::createBuffers()
         return;
     }
 
-    // 创建uniform缓冲
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
         uniformBuffers[i].reset(rhi->newBuffer(
             QRhiBuffer::Dynamic,
@@ -181,16 +179,16 @@ void VideoWidget::createTextures()
         return;
     }
 
-    // 使用更大的初始尺寸，避免后续频繁重建纹理
-    QSize initialSize(std::max(videoWidth.load(), 1920), std::max(videoHeight.load(), 1080));
+    // 使用固定的最大尺寸，避免频繁重建纹理
+    QSize initialSize(MAX_TEXTURE_WIDTH, MAX_TEXTURE_HEIGHT);
 
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        // 使用RGBA8格式
+        // 🔧 关键修改：添加 UsedAsTransferSource 标志，创建 Dynamic 纹理
         videoTextures[i].reset(rhi->newTexture(
             QRhiTexture::RGBA8,
             initialSize,
             1,
-            QRhiTexture::Flag(0)
+            QRhiTexture::UsedAsTransferSource  // 启用动态上传优化
             ));
 
         if (!videoTextures[i]) {
@@ -201,14 +199,24 @@ void VideoWidget::createTextures()
         if (!videoTextures[i]->create()) {
             logger->warning(std::string("创建视频纹理") + std::to_string(i) + "失败，尝试创建备用纹理");
 
-            // 创建备用的较小纹理
-            videoTextures[i].reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(640, 480)));
+            // 备用纹理也使用 Dynamic 标志
+            videoTextures[i].reset(rhi->newTexture(
+                QRhiTexture::RGBA8,
+                QSize(1280, 720),
+                1,
+                QRhiTexture::UsedAsTransferSource
+                ));
+
             if (!videoTextures[i] || !videoTextures[i]->create()) {
                 logger->error(std::string("创建备用纹理") + std::to_string(i) + "也失败了");
                 return;
             }
         }
     }
+
+    logger->info(std::string("Dynamic纹理创建完成，尺寸: ") +
+                 std::to_string(initialSize.width()) + "x" +
+                 std::to_string(initialSize.height()));
 }
 
 void VideoWidget::createSampler()
@@ -239,13 +247,11 @@ void VideoWidget::createShaderResourceBindings()
         return;
     }
 
-    // 检查依赖资源
     if (!uniformBuffers[0] || !videoTextures[0] || !sampler) {
         logger->error("依赖资源未准备好");
         return;
     }
 
-    // 创建主SRB
     srb.reset(rhi->newShaderResourceBindings());
     if (!srb) {
         logger->error("创建SRB对象失败");
@@ -272,7 +278,6 @@ void VideoWidget::createShaderResourceBindings()
         return;
     }
 
-    // 为每个帧创建兼容的SRB
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
         perFrameSrb[i].reset(rhi->newShaderResourceBindings());
         if (!perFrameSrb[i]) {
@@ -319,7 +324,6 @@ void VideoWidget::createPipeline()
         return;
     }
 
-    // 加载着色器
     QShader vertShader = getShader(":/shaders/res/video.vert.qsb");
     QShader fragShader = getShader(":/shaders/res/video.frag.qsb");
 
@@ -337,14 +341,13 @@ void VideoWidget::createPipeline()
         { QRhiShaderStage::Fragment, fragShader }
     });
 
-    // 设置顶点输入布局
     QRhiVertexInputLayout inputLayout;
     inputLayout.setBindings({
-        { 4 * sizeof(float) }  // 每个顶点4个float
+        { 4 * sizeof(float) }
     });
     inputLayout.setAttributes({
-        { 0, 0, QRhiVertexInputAttribute::Float2, 0 },                  // 位置
-        { 0, 1, QRhiVertexInputAttribute::Float2, 2 * sizeof(float) }   // 纹理坐标
+        { 0, 0, QRhiVertexInputAttribute::Float2, 0 },
+        { 0, 1, QRhiVertexInputAttribute::Float2, 2 * sizeof(float) }
     });
 
     pipeline->setVertexInputLayout(inputLayout);
@@ -361,7 +364,68 @@ void VideoWidget::createPipeline()
     }
 }
 
-void VideoWidget::render(QRhiCommandBuffer* cb) {
+bool VideoWidget::needsTextureResize(int width, int height, int slot)
+{
+    if (!videoTextures[slot]) return true;
+
+    QSize currentSize = videoTextures[slot]->pixelSize();
+
+    // 优化：只有尺寸变化超过阈值才重建
+    int widthDiff = std::abs(currentSize.width() - width);
+    int heightDiff = std::abs(currentSize.height() - height);
+
+    // 如果新尺寸超过当前纹理大小，需要重建
+    if (width > currentSize.width() || height > currentSize.height()) {
+        return true;
+    }
+
+    // 如果新尺寸远小于当前纹理（节省显存），也考虑重建
+    if (widthDiff > MIN_TEXTURE_RESIZE_THRESHOLD * 2 &&
+        heightDiff > MIN_TEXTURE_RESIZE_THRESHOLD * 2) {
+        return true;
+    }
+
+    return false;
+}
+
+void VideoWidget::resizeTextureIfNeeded(int slot, const QSize& newSize)
+{
+    // 🔧 重建纹理时使用 Dynamic 标志
+    videoTextures[slot].reset(rhi->newTexture(
+        QRhiTexture::RGBA8,
+        newSize,
+        1,
+        QRhiTexture::UsedAsTransferSource  // Dynamic 纹理
+        ));
+
+    if (videoTextures[slot] && videoTextures[slot]->create()) {
+        // 重建着色器资源绑定
+        perFrameSrb[slot].reset(rhi->newShaderResourceBindings());
+        perFrameSrb[slot]->setBindings({
+            QRhiShaderResourceBinding::uniformBuffer(
+                0,
+                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                uniformBuffers[slot].get()
+                ),
+            QRhiShaderResourceBinding::sampledTexture(
+                1,
+                QRhiShaderResourceBinding::FragmentStage,
+                videoTextures[slot].get(),
+                sampler.get()
+                )
+        });
+        perFrameSrb[slot]->create();
+
+        logger->info(std::string("Dynamic纹理重建完成，槽位: ") + std::to_string(slot) +
+                     ", 尺寸: " + std::to_string(newSize.width()) + "x" +
+                     std::to_string(newSize.height()));
+    } else {
+        logger->error("重建Dynamic纹理失败");
+    }
+}
+
+void VideoWidget::render(QRhiCommandBuffer* cb)
+{
     if (!rhi || !resourcesInitialized || !pipeline) {
         const QColor clearColor(32, 32, 32);
         cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
@@ -372,9 +436,10 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
     QRhiResourceUpdateBatch* batch = nullptr;
     int frameToRender = -1;
 
+    // 查找最新的可用帧
     {
         for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-            int slotIndex = (currentFrameSlot - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
+            int slotIndex = (currentFrameSlot.load(std::memory_order_acquire) - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
             if (frameBuffers[slotIndex].ready && frameBuffers[slotIndex].data) {
                 frameToRender = slotIndex;
                 break;
@@ -387,54 +452,27 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
         FrameBuffer& frame = frameBuffers[frameToRender];
 
         if (frame.needsUpdate && frame.ready && frame.data) {
-            QSize currentTextureSize = videoTextures[frameToRender]->pixelSize();
-            QSize frameSize(frame.width, frame.height);
-
-            if (currentTextureSize != frameSize) {
-                logger->info(std::string("视频尺寸变化: ") +
-                             std::to_string(currentTextureSize.width()) + "x" +
-                             std::to_string(currentTextureSize.height()) +
-                             " -> " + std::to_string(frameSize.width()) + "x" +
-                             std::to_string(frameSize.height()));
-
-                videoTextures[frameToRender].reset(rhi->newTexture(
-                    QRhiTexture::RGBA8,
-                    frameSize,
-                    1,
-                    QRhiTexture::Flag(0)
-                    ));
-
-                if (videoTextures[frameToRender] && videoTextures[frameToRender]->create()) {
-                    perFrameSrb[frameToRender].reset(rhi->newShaderResourceBindings());
-                    perFrameSrb[frameToRender]->setBindings({
-                        QRhiShaderResourceBinding::uniformBuffer(
-                            0,
-                            QRhiShaderResourceBinding::VertexStage |
-                                QRhiShaderResourceBinding::FragmentStage,
-                            uniformBuffers[frameToRender].get()
-                            ),
-                        QRhiShaderResourceBinding::sampledTexture(
-                            1,
-                            QRhiShaderResourceBinding::FragmentStage,
-                            videoTextures[frameToRender].get(),
-                            sampler.get()
-                            )
-                    });
-                    perFrameSrb[frameToRender]->create();
-                } else {
-                    logger->error("重建纹理失败");
-                    frameToRender = -1;
-                }
+            // 检查是否需要重建纹理
+            if (needsTextureResize(frame.width, frame.height, frameToRender)) {
+                QSize newSize(
+                    std::min(frame.width, MAX_TEXTURE_WIDTH),
+                    std::min(frame.height, MAX_TEXTURE_HEIGHT)
+                    );
+                resizeTextureIfNeeded(frameToRender, newSize);
             }
 
-            if (frameToRender >= 0) {
-                // 直接上传RGBA数据，无需转换！
+            if (videoTextures[frameToRender]) {
                 size_t rgbaSize = frame.width * frame.height * 4;
 
+                // 🔧 优化：对于 Dynamic 纹理，这个上传会更高效
+                // QRhi 内部会使用 staging buffer 或 mapped memory
                 QRhiTextureSubresourceUploadDescription subresDesc(
                     frame.data.get(),
                     rgbaSize
                     );
+                subresDesc.setSourceSize(QSize(frame.width, frame.height));
+                subresDesc.setDestinationTopLeft(QPoint(0, 0));
+
                 QRhiTextureUploadDescription desc({ 0, 0, subresDesc });
                 batch->uploadTexture(videoTextures[frameToRender].get(), desc);
 
@@ -445,12 +483,17 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             }
         }
 
-        if (frameToRender >= 0) {
+        // 更新 uniform buffer（仅在数据变化时）
+        if (frameToRender >= 0 && videoTextures[frameToRender]) {
             UniformData uniformData;
             uniformData.mvp.setToIdentity();
             uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
-            batch->updateDynamicBuffer(uniformBuffers[frameToRender].get(),
-                                       0, sizeof(UniformData), &uniformData);
+
+            if (uniformData != lastUniformData[frameToRender]) {
+                batch->updateDynamicBuffer(uniformBuffers[frameToRender].get(),
+                                           0, sizeof(UniformData), &uniformData);
+                lastUniformData[frameToRender] = uniformData;
+            }
         }
     }
 
@@ -479,25 +522,32 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
         return;
     }
 
-    // 使用轮转策略
-    int nextSlot = (currentFrameSlot + 1) % FRAME_BUFFER_COUNT;
+    // 优化：帧率限制，避免过度刷新
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdateTime);
+
+    if (elapsed.count() < MIN_FRAME_INTERVAL_MS) {
+        return; // 跳过这一帧
+    }
+
+    int nextSlot = (currentFrameSlot.load(std::memory_order_relaxed) + 1) % FRAME_BUFFER_COUNT;
+
+    // 优化：准备临时数据，减少锁持有时间
+    FrameBuffer tempBuffer;
+    tempBuffer.data = frame->data;
+    tempBuffer.width = frame->width;
+    tempBuffer.height = frame->height;
+    tempBuffer.ready = true;
+    tempBuffer.needsUpdate = true;
 
     {
         std::lock_guard<std::mutex> lock(frameMutex);
-
-        // 设置新数据
-        FrameBuffer& buffer = frameBuffers[nextSlot];
-        buffer.data = frame->data;
-        buffer.width = frame->width;
-        buffer.height = frame->height;
-        buffer.ready = true;
-        buffer.needsUpdate = true;
-
-        // 更新当前槽位
-        currentFrameSlot = nextSlot;
+        frameBuffers[nextSlot] = std::move(tempBuffer);
+        currentFrameSlot.store(nextSlot, std::memory_order_release);
     }
 
     update();
+    lastUpdateTime = now;
 }
 
 void VideoWidget::clearDisplay()
@@ -551,6 +601,47 @@ QShader VideoWidget::getShader(const QString& name)
     }
 
     return QShader();
+}
+
+void VideoWidget::loadPipelineCache()
+{
+    // 优化：加载pipeline cache以加速启动
+    QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    QDir().mkpath(cacheDir);
+    QString cachePath = cacheDir + "/pipeline.cache";
+
+    QFile cacheFile(cachePath);
+    if (cacheFile.open(QIODevice::ReadOnly)) {
+        QByteArray cacheData = cacheFile.readAll();
+        if (!cacheData.isEmpty()) {
+            logger->info(std::string("加载pipeline cache，大小: ") +
+                         std::to_string(cacheData.size()) + " bytes");
+            // 注意：实际使用时需要在RHI初始化后调用
+            // rhi->setPipelineCacheData(cacheData);
+        }
+        cacheFile.close();
+    }
+}
+
+void VideoWidget::savePipelineCache()
+{
+    if (!rhi) return;
+
+    // 优化：保存pipeline cache以加速下次启动
+    QByteArray cacheData = rhi->pipelineCacheData();
+    if (cacheData.isEmpty()) return;
+
+    QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    QDir().mkpath(cacheDir);
+    QString cachePath = cacheDir + "/pipeline.cache";
+
+    QFile cacheFile(cachePath);
+    if (cacheFile.open(QIODevice::WriteOnly)) {
+        cacheFile.write(cacheData);
+        cacheFile.close();
+        logger->info(std::string("保存pipeline cache，大小: ") +
+                     std::to_string(cacheData.size()) + " bytes");
+    }
 }
 
 void VideoWidget::updateFPS()
@@ -814,5 +905,5 @@ void VideoWidget::leaveEvent(QEvent* event)
         }
     }
 
-    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
+    SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
 }

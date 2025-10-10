@@ -11,6 +11,7 @@
 #include <rhi/qrhi.h>
 #include <rhi/qshader.h>
 #include <array>
+#include <chrono>
 
 #include "windows.h"
 
@@ -65,6 +66,12 @@ private:
     void createShaderResourceBindings();
     void createPipeline();
     QShader getShader(const QString& name);
+
+    // 新增：性能优化相关
+    bool needsTextureResize(int width, int height, int slot);
+    void resizeTextureIfNeeded(int slot, const QSize& newSize);
+    void loadPipelineCache();
+    void savePipelineCache();
 
 private:
     WebRTCRemoteClient* webRTCRemoteClient;
@@ -133,6 +140,23 @@ private:
     struct UniformData {
         QMatrix4x4 mvp;     // 64字节
         QVector4D params;   // 16字节 (x=hasVideo, y=isYUV, z=brightness, w=padding)
-        // 总共80字节，正好符合std140布局要求
+
+        bool operator!=(const UniformData& other) const {
+            return mvp != other.mvp || params != other.params;
+        }
     };
+
+    // 优化：缓存上一次的uniform数据，避免不必要的更新
+    std::array<UniformData, FRAME_BUFFER_COUNT> lastUniformData;
+
+    // 优化：纹理尺寸配置
+    static constexpr int MAX_TEXTURE_WIDTH = 1920;
+    static constexpr int MAX_TEXTURE_HEIGHT = 1080;
+    static constexpr int MIN_TEXTURE_RESIZE_THRESHOLD = 64; // 尺寸变化超过此值才重建
+
+    // 优化：帧率限制
+    std::chrono::steady_clock::time_point lastUpdateTime;
+    static constexpr int MIN_FRAME_INTERVAL_MS = 8; // 最高60fps
+
+
 };
