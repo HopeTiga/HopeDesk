@@ -17,6 +17,7 @@
 
 #include "windowshook.h"
 #include "Logger.h"
+#include "interceptionhook.h"
 
 class WebRTCRemoteClient;
 struct VideoFrame;
@@ -135,6 +136,7 @@ private:
     static constexpr int HIDE_DELAY = 1500;
 
     std::unique_ptr<WindowsHook> windowsHook;
+    std::unique_ptr<InterceptionHook> interceptionHook;
 
     // Uniform数据结构
     struct UniformData {

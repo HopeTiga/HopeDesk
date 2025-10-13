@@ -24,6 +24,7 @@ VideoWidget::VideoWidget(QWidget* parent)
     , sidebarAnimation(nullptr)
     , isFullScreenMode(false)
     , sidebarVisible(false)
+    ,interceptionHook(nullptr)
 {
     logger = Logger::getInstance();
     logger->info("VideoWidget初始化开始");
@@ -660,11 +661,11 @@ void VideoWidget::setWebRTCRemoteClient(WebRTCRemoteClient* client)
     logger->info("设置WebRTC远程客户端");
     webRTCRemoteClient = client;
 
-    windowsHook = std::make_unique<WindowsHook>();
-    windowsHook->setTargetWidget(this);
-    windowsHook->setRemoteClient(webRTCRemoteClient);
-    windowsHook->setVideoSize(width(), height());
-    windowsHook->startHook();
+    interceptionHook = std::make_unique<InterceptionHook>();
+    interceptionHook->setTargetWidget(this);
+    interceptionHook->setRemoteClient(webRTCRemoteClient);
+    interceptionHook->setVideoSize(width(), height());
+    interceptionHook->startCapture();
 }
 
 void VideoWidget::initializeControls()
