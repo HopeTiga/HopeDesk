@@ -235,55 +235,13 @@ bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
         return false;
     }
 
-    // 检查是否是数字键盘按键
-    if (vkCode >= VK_NUMPAD0 && vkCode <= VK_NUMPAD9) {
-        bool numLockOn = IsNumLockOn();
-
-        if (numLockOn) {
-            // NumLock开启：发送数字，使用非扩展键
-            WORD scanCode = GetCachedScanCode(vkCode);
-            if (scanCode == 0) {
-                logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
-                return false;
-            }
-
-
-            return SendKey(scanCode, true, false);  // 强制非扩展键
-        }
-        else {
-            // NumLock关闭：发送导航键，使用扩展键
-            WORD scanCode = GetCachedScanCode(vkCode);
-            if (scanCode == 0) {
-                logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
-                return false;
-            }
-
-            return SendKey(scanCode, true, true);   // 强制扩展键
-        }
-    }
-
-    // 处理其他特殊数字键盘按键
-    if (vkCode == VK_DECIMAL || vkCode == VK_SUBTRACT || vkCode == VK_ADD ||
-        vkCode == VK_MULTIPLY || vkCode == VK_DIVIDE) {
+    // 处理主键盘的 "/" 键
+    if (vkCode == 0xBF) {
         WORD scanCode = GetCachedScanCode(vkCode);
-        if (scanCode == 0) {
-            logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
-            return false;
-        }
-
-        // 这些键通常不受NumLock影响，根据实际需要调整
-        bool isExtended = (vkCode == VK_DIVIDE) ? true : false;  // 除号是扩展键
-
-        return SendKey(scanCode, true, isExtended);
+        return SendKey(scanCode, true, false);
     }
 
-    if (vkCode == 0xBF) {  // 主键盘的 "/" 键
-        WORD scanCode = GetCachedScanCode(vkCode);
-        // 强制不使用扩展键标志，因为主键盘的 "/" 不是扩展键
-        return SendKey(scanCode, true, false);  // 注意这里是 false
-    }
-
-    // 处理普通按键
+    // 统一处理所有按键
     WORD scanCode = GetCachedScanCode(vkCode);
     if (scanCode == 0) {
         logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
@@ -300,44 +258,13 @@ bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
         return false;
     }
 
-    // 检查是否是数字键盘按键
-    if (vkCode >= VK_NUMPAD0 && vkCode <= VK_NUMPAD9) {
-        bool numLockOn = IsNumLockOn();
-
+    // 处理主键盘的 "/" 键
+    if (vkCode == 0xBF) {
         WORD scanCode = GetCachedScanCode(vkCode);
-        if (scanCode == 0) {
-            logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
-            return false;
-        }
-
-        if (numLockOn) {
-            return SendKey(scanCode, false, false);  // 数字，非扩展键
-        }
-        else {
-            return SendKey(scanCode, false, true);   // 导航键，扩展键
-        }
+        return SendKey(scanCode, false, false);
     }
 
-    // 处理其他特殊数字键盘按键
-    if (vkCode == VK_DECIMAL || vkCode == VK_SUBTRACT || vkCode == VK_ADD ||
-        vkCode == VK_MULTIPLY || vkCode == VK_DIVIDE) {
-        WORD scanCode = GetCachedScanCode(vkCode);
-        if (scanCode == 0) {
-            logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
-            return false;
-        }
-
-        bool isExtended = (vkCode == VK_DIVIDE) ? true : false;
-        return SendKey(scanCode, false, isExtended);
-    }
-
-    if (vkCode == 0xBF) {  // 主键盘的 "/" 键
-        WORD scanCode = GetCachedScanCode(vkCode);
-        // 强制不使用扩展键标志，因为主键盘的 "/" 不是扩展键
-        return SendKey(scanCode, false, false);  // 注意这里是 false
-    }
-
-    // 处理普通按键
+    // 统一处理所有按键
     WORD scanCode = GetCachedScanCode(vkCode);
     if (scanCode == 0) {
         logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
@@ -347,6 +274,7 @@ bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
     bool isExtended = IsExtendedKey(scanCode);
     return SendKey(scanCode, false, isExtended);
 }
+
 
 WORD KeyMouseSimulator::VkToScanCode(DWORD vkCode) {
     // Try extended mapping first, then regular mapping
