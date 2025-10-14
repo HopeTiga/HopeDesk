@@ -180,66 +180,40 @@ void InterceptionHook::captureThreadFunc()
 void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 {
     bool isPress = !(keystroke.state & INTERCEPTION_KEY_UP);
+
+    if(keystroke.code==42) return;
+
+    // 使用系统 API 转换（大部分按键都能正确处理）
     DWORD vkCode = MapVirtualKey(keystroke.code, MAPVK_VSC_TO_VK_EX);
 
-    if (keystroke.state & INTERCEPTION_KEY_E0) {
-        switch (keystroke.code) {
-        case 0x1C: vkCode = VK_RETURN; break;
-        case 0x1D: vkCode = VK_RCONTROL; break;
-        case 0x35: vkCode = VK_DIVIDE; break;
-        case 0x38: vkCode = VK_RMENU; break;
-        case 0x47: vkCode = VK_HOME; break;
-        case 0x48: vkCode = VK_UP; break;
-        case 0x49: vkCode = VK_PRIOR; break;
-        case 0x4B: vkCode = VK_LEFT; break;
-        case 0x4D: vkCode = VK_RIGHT; break;
-        case 0x4F: vkCode = VK_END; break;
-        case 0x50: vkCode = VK_DOWN; break;
-        case 0x51: vkCode = VK_NEXT; break;
-        case 0x52: vkCode = VK_INSERT; break;
-        case 0x53: vkCode = VK_DELETE; break;
-        case 0x5B: vkCode = VK_LWIN; break;
-        case 0x5C: vkCode = VK_RWIN; break;
-        case 0x5D: vkCode = VK_APPS; break;
-        }
-    }
-    else {
-        if ((keystroke.code >= 0x47 && keystroke.code <= 0x53) || keystroke.code == 0x52) {
-            bool numLockOn = isNumLockOn();
 
-            if (numLockOn) {
-                // NumLock ON: 发送数字键盘VK码
-                switch (keystroke.code) {
-                case 0x52: vkCode = VK_NUMPAD0; break;
-                case 0x4F: vkCode = VK_NUMPAD1; break;
-                case 0x50: vkCode = VK_NUMPAD2; break;
-                case 0x51: vkCode = VK_NUMPAD3; break;
-                case 0x4B: vkCode = VK_NUMPAD4; break;
-                case 0x4C: vkCode = VK_NUMPAD5; break;
-                case 0x4D: vkCode = VK_NUMPAD6; break;
-                case 0x47: vkCode = VK_NUMPAD7; break;
-                case 0x48: vkCode = VK_NUMPAD8; break;
-                case 0x49: vkCode = VK_NUMPAD9; break;
-                case 0x53: vkCode = VK_DECIMAL; break;
-                }
-            } else {
-                // NumLock OFF: 发送主键盘数字键 0x30-0x39 ('0'-'9')
-                switch (keystroke.code) {
-                case 0x52: vkCode = 0x30; break;  // '0'
-                case 0x4F: vkCode = 0x31; break;  // '1'
-                case 0x50: vkCode = 0x32; break;  // '2'
-                case 0x51: vkCode = 0x33; break;  // '3'
-                case 0x4B: vkCode = 0x34; break;  // '4'
-                case 0x4C: vkCode = 0x35; break;  // '5'
-                case 0x4D: vkCode = 0x36; break;  // '6'
-                case 0x47: vkCode = 0x37; break;  // '7'
-                case 0x48: vkCode = 0x38; break;  // '8'
-                case 0x49: vkCode = 0x39; break;  // '9'
-                case 0x53: vkCode = VK_DECIMAL; break;
-                }
+    // 只处理特殊情况：小键盘区域需要根据 NumLock 状态区分
+    if (!(keystroke.state & INTERCEPTION_KEY_E0) &&
+        ((keystroke.code >= 0x47 && keystroke.code <= 0x53) || keystroke.code == 0x52)) {
+
+        bool numLockOn = isNumLockOn();
+
+        if (!numLockOn) {
+            // NumLock OFF: 发送主键盘数字字符
+            switch (keystroke.code) {
+            case 0x52: vkCode = 0x30; break;  // '0'
+            case 0x4F: vkCode = 0x31; break;  // '1'
+            case 0x50: vkCode = 0x32; break;  // '2'
+            case 0x51: vkCode = 0x33; break;  // '3'
+            case 0x4B: vkCode = 0x34; break;  // '4'
+            case 0x4C: vkCode = 0x35; break;  // '5'
+            case 0x4D: vkCode = 0x36; break;  // '6'
+            case 0x47: vkCode = 0x37; break;  // '7'
+            case 0x48: vkCode = 0x38; break;  // '8'
+            case 0x49: vkCode = 0x39; break;  // '9'
+            case 0x53: vkCode = VK_DECIMAL; break;
             }
         }
     }
+
+    if(keystroke.code == 75 && (keystroke.state==2 || keystroke.state==3)) vkCode = VK_LEFT;
+
+    if(keystroke.code == 77&& (keystroke.state==2 || keystroke.state==3)) vkCode = VK_RIGHT;
 
     char modifiers = getCurrentModifiers();
     sendKeyEvent(isPress, vkCode, modifiers);
