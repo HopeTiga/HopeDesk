@@ -181,7 +181,9 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 {
     bool isPress = !(keystroke.state & INTERCEPTION_KEY_UP);
 
-    if(keystroke.code==42) return;
+    logger->info("code:"+std::to_string(keystroke.code) +":" + std::to_string(keystroke.state));
+
+    if(keystroke.code==42 && (keystroke.state==2 || keystroke.state==3)) return;
 
     // 使用系统 API 转换（大部分按键都能正确处理）
     DWORD vkCode = MapVirtualKey(keystroke.code, MAPVK_VSC_TO_VK_EX);
@@ -213,7 +215,7 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 
     if(keystroke.code == 75 && (keystroke.state==2 || keystroke.state==3)) vkCode = VK_LEFT;
 
-    if(keystroke.code == 77&& (keystroke.state==2 || keystroke.state==3)) vkCode = VK_RIGHT;
+    if(keystroke.code == 77 && (keystroke.state==2 || keystroke.state==3)) vkCode = VK_RIGHT;
 
     char modifiers = getCurrentModifiers();
     sendKeyEvent(isPress, vkCode, modifiers);
