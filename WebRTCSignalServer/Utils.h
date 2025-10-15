@@ -6,6 +6,9 @@
 #include <time.h>
 #include <stdarg.h>
 #include <string.h>
+#include <chrono>
+
+constexpr std::chrono::seconds PING_INTERVAL = std::chrono::seconds(30);
 
 // 日志级别枚举
 typedef enum {

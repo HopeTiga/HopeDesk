@@ -22,6 +22,8 @@ WebRTCSignalServer::WebRTCSignalServer(boost::asio::io_context& ioContext, size_
 void WebRTCSignalServer::handleMessage(boost::json::object message, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket)
 {
 
+	LOG_DEBUG("收到消息: %s", boost::json::serialize(message).c_str());
+
     // 检查 requestType 字段是否存在
     if (!message.contains("requestType")) {
         // [可选] 发送错误响应给客户端

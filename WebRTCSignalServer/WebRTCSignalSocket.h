@@ -29,6 +29,8 @@ public:
 
 	boost::asio::awaitable<void> writerCoroutine();
 
+	boost::asio::awaitable<void> heartbeatCoroutine();
+
 	void writerAsync(std::string str);
 
 	void setAccountID(const std::string& accountID) { this->accountID = accountID; }
@@ -81,6 +83,8 @@ private:
 	boost::asio::steady_timer registrationTimer; // 计时器成员
 
 	std::atomic<bool> isRegistered{ false }; // 新增：注册状态标志
+
+	boost::asio::steady_timer pingTimer;
 
 private:
 
