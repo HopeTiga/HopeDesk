@@ -2,29 +2,21 @@
 #include <iostream>
 #include <string>
 #include "Utils.h"
-#include "rtc/configuration.hpp"
 
 int main() {
-
-    // 配置 WebSocket 服务器
-    rtc::WebSocketServerConfiguration config = {
-        .port = 8088,
-        .enableTls = false
-    };
 	
-	WebRTCSignalServer webrtcSignalServer(config);
+	boost::asio::io_context ioContext;
 
-    LOG_INFO("WebRTCSignalServer running on port 8088. Press 'q' to quit.");
+	size_t port = 8088;
 
-    // 主循环
-    std::string command;
-    while (true) {
-        std::cin >> command;
-        if (command == "q") {
-            break;
-        }
-    }
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
+	WebRTCSignalServer webrtcSignalServer(ioContext, port);
+
+    webrtcSignalServer.run();
+
+    ioContext.run();
+    
     return 0;
 
 }

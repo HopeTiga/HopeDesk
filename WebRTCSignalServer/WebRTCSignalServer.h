@@ -7,20 +7,12 @@
 #include <functional>
 #include <unordered_set>
 #include <atomic>
-#include "rtc/configuration.hpp"
-#include "rtc/WebSocketServer.hpp"
-#include "rtc/WebSocket.hpp"
-#include "rtc/PeerConnection.hpp"
-#include "rtc/description.hpp"
-#include "rtc/rtppacketizationconfig.hpp"
-#include "rtc/h264rtppacketizer.hpp"
-#include "rtc/RtcpSrReporter.hpp"
-#include "rtc/RtcpNackResponder.hpp"
-#include "Utils.h"
+#include <boost/json.hpp>
+#include <boost/asio.hpp>
+#include <boost/beast.hpp>
 
-#define RTC_ICE_CONFIGURATION_H
-#define RTC_ENABLE_WEBSOCKET
-#define RTC_FRAMEINFO_H
+#include "WebRTCSignalSocket.h"
+#include "Utils.h"
 
 enum class WebRTCRequestState {
     REGISTER = 0,
@@ -30,44 +22,52 @@ enum class WebRTCRequestState {
     CLOSE = 4,
 };
 
-struct WebRTCConnection {
-
-    std::string connectionID;
-
-    std::string accountID;
-
-    size_t hashIndex;
-
-    std::shared_ptr<rtc::WebSocket> webSocket;
-
-};
 
 class WebRTCSignalServer {
 public:
-    WebRTCSignalServer(rtc::WebSocketServerConfiguration config, size_t hashValue = 1024);
+    WebRTCSignalServer(boost::asio::io_context & ioContext, size_t port = 8088, size_t hashValue = 1024);
 
     ~WebRTCSignalServer();  // 🔧 新增析构函数声明
-
 
     // 禁止拷贝和赋值
     WebRTCSignalServer(const WebRTCSignalServer&) = delete;
 
     WebRTCSignalServer& operator=(const WebRTCSignalServer&) = delete;
 
+	void handleMessage(boost::json::object message,std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket);
+
+	void run();
+
+    void stop();
+
     // 新增：优雅关闭方法
     void shutdown();
 
 
 private:
-    void removeConnection(std::shared_ptr<WebRTCConnection> connection);
+
+    void removeConnection(const std::string& userId);
 
     void clearAllConnections();
 
+    size_t getBucketIndex(const std::string& userId);
+
+    // 辅助函数：注册连接 (假设连接 ID 由客户端在 "register" 消息中提供)
+    void registerConnection(const std::string& userId, std::shared_ptr<WebRTCSignalSocket> socket);
+
 private:
-    std::shared_ptr<rtc::WebSocketServer> webSocketServer;
+
     size_t hashValue;
-    std::vector<std::unordered_map<std::string, std::shared_ptr<WebRTCConnection>>> webSocketPeerConnections;
+
+    std::vector<std::unordered_map<std::string, std::shared_ptr<WebRTCSignalSocket>>> webrtcSignalSocketBuckets;
+
     std::vector<std::mutex> webSocketHashMutexs;
 
     std::atomic<bool> isShuttingDown{ false };  // 🔧 新增：关闭标志
+
+	boost::asio::io_context& ioContext;
+
+	boost::asio::ip::tcp::acceptor acceptor;
+
+    size_t port;
 };

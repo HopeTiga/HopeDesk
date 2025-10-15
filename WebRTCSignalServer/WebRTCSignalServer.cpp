@@ -1,195 +1,177 @@
 ﻿#include "WebRTCSignalServer.h"
 #include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_generators.hpp> 
+#include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
-#include <boost/json.hpp>
-#include "rtc/rtc.h"
+#include <boost/asio/co_spawn.hpp>
+#include <iostream> 
 
-WebRTCSignalServer::WebRTCSignalServer(rtc::WebSocketServerConfiguration config, size_t hashValue)
-    : webSocketServer(std::make_shared<rtc::WebSocketServer>(config))
+#include "AsioProactors.h"
+
+
+WebRTCSignalServer::WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port , size_t hashValue)
+	: ioContext(ioContext)
+	, port(port)
     , hashValue(hashValue)
     , webSocketHashMutexs(hashValue)
-    , webSocketPeerConnections(hashValue)
+    , webrtcSignalSocketBuckets(hashValue)
+	, acceptor(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port))
 {
-    webSocketServer->onClient([this](std::shared_ptr<rtc::WebSocket> ws) {
-        // 检查是否正在关闭
-        if (isShuttingDown.load()) {
-            ws->close();
-            return;
+    
+}
+
+void WebRTCSignalServer::handleMessage(boost::json::object message, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket)
+{
+
+    // 检查 requestType 字段是否存在
+    if (!message.contains("requestType")) {
+        // [可选] 发送错误响应给客户端
+        LOG_WARNING("收到缺少 requestType 字段的无效消息.");
+        return;
+    }
+
+    // 安全地提取 requestType 并转换为枚举
+    int64_t requestTypeValue = message["requestType"].as_int64();
+    WebRTCRequestState requestType = WebRTCRequestState(requestTypeValue);
+
+    switch (requestType) {
+
+    case WebRTCRequestState::REGISTER: {
+        // --------------------------------------------------
+        // A. 注册逻辑
+        // --------------------------------------------------
+        if (!message.contains("accountID")) {
+            LOG_WARNING("REGISTER 消息缺少 accountID.");
+            break;
+        }
+        std::string accountID = message["accountID"].as_string().c_str();
+
+        // 1. 计算哈希，并存储到连接对象
+        size_t hashSize = std::hash<std::string>{}(accountID) % this->hashValue;
+        webrtcSignalSocket->setAccountID(accountID); // 假设 setAccountID 存在
+        webrtcSignalSocket->setHashIndex(hashSize);  // 假设 setHashIndex 存在
+        webrtcSignalSocket->setRegistered(true);
+        // 2. 注册到全局连接表 (使用哈希锁)
+        {
+            std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[hashSize]);
+   
+            webrtcSignalSocketBuckets[hashSize][accountID] = webrtcSignalSocket;
         }
 
-        boost::uuids::random_generator generator;
-        boost::uuids::uuid uuids = generator();
-        std::shared_ptr<WebRTCConnection> connection = std::make_shared<WebRTCConnection>();
-        connection->connectionID = boost::uuids::to_string(uuids);
-        connection->webSocket = ws;
+        // 3. 响应客户端 (使用同步 send - 考虑改为异步 writerAsync)
+        boost::json::object response;
+        response["requestType"] = static_cast<int64_t>(WebRTCRequestState::REGISTER);
+        response["state"] = 200;
+        response["message"] = "register successful";
 
-        LOG_DEBUG("新客户端连接: %s", connection->connectionID.c_str());
+        webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 使用 writerAsync 替代同步 send
 
-        ws->onMessage([this, conn = std::shared_ptr<WebRTCConnection>(connection)]
-        (rtc::variant<rtc::binary, std::string> data) mutable {
-                // 检查是否正在关闭
-                if (isShuttingDown.load()) {
-                    return;
-                }
+        LOG_INFO("用户注册成功: %s (哈希桶: %zu)", accountID.c_str(), hashSize);
+        break;
+    }
 
-                LOG_DEBUG("json:%s", std::get<std::string>(data).c_str());
+    case WebRTCRequestState::REQUEST:
+    case WebRTCRequestState::RESTART:
+    case WebRTCRequestState::STOPREMOTE: {
 
-                try {
+        if (!message.contains("accountID") || !message.contains("targetID")) {
+            LOG_WARNING("转发消息缺少 accountID 或 targetID.");
+            break;
+        }
 
-                    boost::json::object val = boost::json::parse(std::get<std::string>(data)).as_object();
+        std::string accountID = message["accountID"].as_string().c_str(); // 发送方 ID
+        std::string targetID = message["targetID"].as_string().c_str();   // 目标方 ID
 
-                    int64_t requestType = val["requestType"].as_int64();
+        size_t hashSize = std::hash<std::string>{}(targetID) % this->hashValue;
+        std::shared_ptr<WebRTCSignalSocket> targetSocket = nullptr;
 
-                    if (WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER) {
+        // 1. 查找目标连接 (使用哈希锁)
+        {
+            std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[hashSize]);
+            auto it = webrtcSignalSocketBuckets[hashSize].find(targetID);
+            if (it != webrtcSignalSocketBuckets[hashSize].end()) {
+                targetSocket = it->second;
+            }
+        }
 
-                        std::string accountID = val["accountID"].as_string().c_str();
+        // 2. 处理目标未找到 (404)
+        if (!targetSocket) {
+            boost::json::object response;
+            response["requestType"] = requestTypeValue;
+            response["state"] = 404;
+            response["message"] = "targetID is not register";
+            webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                        conn->accountID = accountID;
+            LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)",
+                targetID.c_str(), accountID.c_str(),
+                (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+            break;
+        }
 
-                        size_t hashSize = std::hash<std::string>{}(accountID) % this->hashValue;
+        // 3. 转发消息
+        boost::json::object forwardMessage = message; // 复制原始消息体
+        forwardMessage["state"] = 200;
+        forwardMessage["message"] = "WebRTCSignalServer forward";
+        targetSocket->writerAsync(boost::json::serialize(forwardMessage)); // 转发给目标方
 
-                        conn->hashIndex = hashSize;
+        LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)",
+            accountID.c_str(), targetID.c_str(),
+            (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+        break;
+    }
 
-                        {
-                            std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[hashSize]);
+    case WebRTCRequestState::CLOSE: {
+        std::string accountID = webrtcSignalSocket->getAccountID();
+        if (!accountID.empty()) {
+            this->removeConnection(accountID); // 假设 removeConnection 封装了哈希桶移除逻辑
+        }
+        webrtcSignalSocket->stop(); // 关闭 socket 实例
+        LOG_INFO("收到用户 %s 的 CLOSE 请求，连接已停止", accountID.c_str());
+        break;
+    }
 
-                            webSocketPeerConnections[hashSize][accountID] = conn;
-                        }
-
-                        boost::json::object response;
-
-                        response["requestType"] = static_cast<int64_t>(WebRTCRequestState::REGISTER);
-
-                        response["state"] = 200;
-
-                        response["message"] = "register successful";
-
-                        conn->webSocket->send(boost::json::serialize(response));
-
-                        LOG_INFO("用户注册成功: %s (哈希桶: %zu)", accountID.c_str(), hashSize);
-                    }
-                    else if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
-                        std::string accountID = val["accountID"].as_string().c_str();
-                        std::string targetID = val["targetID"].as_string().c_str();
-
-                        size_t hashSize = std::hash<std::string>{}(targetID) % this->hashValue;
-                        std::shared_ptr<WebRTCConnection> targetConnection = nullptr;
-
-                        {
-                            std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[hashSize]);
-                            auto it = webSocketPeerConnections[hashSize].find(targetID);
-                            if (it != webSocketPeerConnections[hashSize].end()) {
-                                targetConnection = it->second;
-                            }
-                        }
-
-                        if (!targetConnection) {
-                            boost::json::object response;
-                            response["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
-                            response["state"] = 404;
-                            response["message"] = "targetID is not register";
-                            conn->webSocket->send(boost::json::serialize(response));
-
-                            LOG_WARNING("目标用户未找到: %s (来自: %s)", targetID.c_str(), accountID.c_str());
-                            return;
-                        }
-
-                        // 添加发送方信息
-                        boost::json::object forwardMessage = val;
-                        forwardMessage["state"] = 200;
-                        forwardMessage["message"] = "WebRTCSignalServer forawrd";
-                        targetConnection->webSocket->send(boost::json::serialize(forwardMessage));
-
-                        LOG_INFO("消息转发成功: %s -> %s", accountID.c_str(), targetID.c_str());
-                    }
-                    else if (WebRTCRequestState(requestType) == WebRTCRequestState::RESTART) {
-                        std::string accountID = val["accountID"].as_string().c_str();
-                        std::string targetID = val["targetID"].as_string().c_str();
-
-                        size_t hashSize = std::hash<std::string>{}(targetID) % this->hashValue;
-                        std::shared_ptr<WebRTCConnection> targetConnection = nullptr;
-
-                        {
-                            std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[hashSize]);
-                            auto it = webSocketPeerConnections[hashSize].find(targetID);
-                            if (it != webSocketPeerConnections[hashSize].end()) {
-                                targetConnection = it->second;
-                            }
-                        }
-
-                        if (!targetConnection) {
-                            boost::json::object response;
-                            response["requestType"] = static_cast<int64_t>(WebRTCRequestState::RESTART);
-                            response["state"] = 404;
-                            response["message"] = "targetID is not register";
-                            conn->webSocket->send(boost::json::serialize(response));
-
-                            LOG_WARNING("目标用户未找到: %s (来自: %s)", targetID.c_str(), accountID.c_str());
-                            return;
-                        }
-
-                        // 添加发送方信息
-                        boost::json::object forwardMessage = val;
-                        forwardMessage["state"] = 200;
-                        forwardMessage["message"] = "WebRTCSignalServer forawrd";
-                        targetConnection->webSocket->send(boost::json::serialize(forwardMessage));
-
-                        LOG_INFO("消息转发成功: %s -> %s", accountID.c_str(), targetID.c_str());
-                    }
-                    else if (WebRTCRequestState(requestType) == WebRTCRequestState::STOPREMOTE) {
-                        std::string accountID = val["accountID"].as_string().c_str();
-                        std::string targetID = val["targetID"].as_string().c_str();
-
-                        size_t hashSize = std::hash<std::string>{}(targetID) % this->hashValue;
-                        std::shared_ptr<WebRTCConnection> targetConnection = nullptr;
-
-                        {
-                            std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[hashSize]);
-                            auto it = webSocketPeerConnections[hashSize].find(targetID);
-                            if (it != webSocketPeerConnections[hashSize].end()) {
-                                targetConnection = it->second;
-                            }
-                        }
-
-                        if (!targetConnection) {
-                            boost::json::object response;
-                            response["requestType"] = static_cast<int64_t>(WebRTCRequestState::STOPREMOTE);
-                            response["state"] = 404;
-                            response["message"] = "targetID is not register";
-                            conn->webSocket->send(boost::json::serialize(response));
-
-                            LOG_WARNING("目标用户未找到: %s (来自: %s)", targetID.c_str(), accountID.c_str());
-                            return;
-                        }
-
-                        // 添加发送方信息
-                        boost::json::object forwardMessage = val;
-                        forwardMessage["state"] = 200;
-                        forwardMessage["message"] = "WebRTCSignalServer forawrd";
-                        targetConnection->webSocket->send(boost::json::serialize(forwardMessage));
-
-                        LOG_INFO("消息转发成功: %s -> %s", accountID.c_str(), targetID.c_str());
-                    }
-                }
-                catch (const std::exception& e) {
-                    LOG_ERROR("消息处理错误: %s", e.what());
-                }
-            });
-
-        // 连接断开处理
-        ws->onClosed([this, conn = std::shared_ptr<WebRTCConnection>(connection)]() mutable {
-            LOG_INFO("客户端断开连接: %s", conn->accountID.empty() ? conn->connectionID.c_str() : conn->accountID.c_str());
-            removeConnection(conn);
-            });
-
-        ws->onError([this](const std::string& error) {
-            LOG_ERROR("WebSocket连接错误: %s", error.c_str());
-            });
-        });
-
-    LOG_INFO("WebRTC信令服务器启动成功 - 端口: %d, 哈希分片数: %zu", config.port, hashValue);
+    default: {
+        LOG_WARNING("收到未知的请求类型: %lld", requestTypeValue);
+        break;
+    }
+    }
 }
+
+void WebRTCSignalServer::run() {
+    // 启动服务器逻辑（监听端口，接受连接等）
+    LOG_INFO("WebRTC信令服务器正在运行，监听端口: %zu", port);
+    // 这里可以添加更多的启动逻辑
+    boost::asio::co_spawn(ioContext, [this]()->boost::asio::awaitable<void> {
+
+        while (!isShuttingDown.load()) {
+            try {
+
+                std::pair<int, boost::asio::io_context&> pair = AsioProactors::getInstance()->getIoComplatePorts();
+
+                std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<WebRTCSignalSocket>(pair.second);
+
+                co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
+
+                boost::asio::co_spawn(pair.second, [this, sharedWebrtcSignalSocket =  webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+
+                    co_await sharedWebrtcSignalSocket->handShake();
+
+                    sharedWebrtcSignalSocket->setOnMessageHandle(std::bind(&WebRTCSignalServer::handleMessage, this, std::placeholders::_1, std::placeholders::_2));
+
+                    sharedWebrtcSignalSocket->start();
+
+                    }, boost::asio::detached);
+
+            }
+            catch (const std::exception& e) {
+                if (!isShuttingDown.load()) {
+                    LOG_ERROR("接受连接时出错: %s", e.what());
+                }
+            }
+        }
+        }, [this](std::exception_ptr p) {});
+
+}
+
 
 WebRTCSignalServer::~WebRTCSignalServer() {
     LOG_INFO("WebRTC信令服务器开始关闭...");
@@ -205,16 +187,6 @@ void WebRTCSignalServer::shutdown() {
     // 清理所有连接
     clearAllConnections();
 
-    // 停止WebSocket服务器
-    if (webSocketServer) {
-        try {
-            webSocketServer->stop();
-            LOG_INFO("WebSocket服务器已停止");
-        }
-        catch (const std::exception& e) {
-            LOG_ERROR("停止WebSocket服务器时出错: %s", e.what());
-        }
-    }
 }
 
 void WebRTCSignalServer::clearAllConnections() {
@@ -227,10 +199,11 @@ void WebRTCSignalServer::clearAllConnections() {
         std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[i]);
 
         // 关闭所有WebSocket连接
-        for (auto& pair : webSocketPeerConnections[i]) {
-            if (pair.second && pair.second->webSocket) {
+        for (auto& pair : webrtcSignalSocketBuckets[i]) {
+            if (pair.second && pair.second->getWebSocket().is_open()) {
                 try {
-                    pair.second->webSocket->close();
+                    pair.second->getWebSocket().next_layer().cancel();
+                    pair.second->getWebSocket().close(boost::beast::websocket::close_code::normal);
                     totalConnections++;
                     LOG_DEBUG("关闭连接: %s", pair.first.c_str());
                 }
@@ -241,30 +214,37 @@ void WebRTCSignalServer::clearAllConnections() {
         }
 
         // 清空连接映射
-        webSocketPeerConnections[i].clear();
+        webrtcSignalSocketBuckets[i].clear();
     }
 
     LOG_INFO("连接清理完成 - 共清理 %zu 个连接", totalConnections);
 }
 
-void WebRTCSignalServer::removeConnection(std::shared_ptr<WebRTCConnection> connection) {
-    if (!connection || connection->accountID.empty()) {
-        LOG_DEBUG("跳过移除无效连接");
-        return;
-    }
+size_t WebRTCSignalServer::getBucketIndex(const std::string& userId) {
+    // 假设 std::hash<std::string> 是可用的
+    return std::hash<std::string>{}(userId) % hashValue;
+}
 
-    try {
-        std::lock_guard<std::mutex> hashLock(webSocketHashMutexs[connection->hashIndex]);
-        auto it = webSocketPeerConnections[connection->hashIndex].find(connection->accountID);
-        if (it != webSocketPeerConnections[connection->hashIndex].end()) {
-            webSocketPeerConnections[connection->hashIndex].erase(it);
-            LOG_INFO("成功移除连接: %s (哈希桶: %zu)", connection->accountID.c_str(), connection->hashIndex);
-        }
-        else {
-            LOG_WARNING("尝试移除不存在的连接: %s", connection->accountID.c_str());
-        }
-    }
-    catch (const std::exception& e) {
-        LOG_ERROR("移除连接时出错: %s", e.what());
+// 辅助函数：注册连接 (假设连接 ID 由客户端在 "register" 消息中提供)
+void WebRTCSignalServer::registerConnection(const std::string& userId, std::shared_ptr<WebRTCSignalSocket> socket) {
+    size_t index = getBucketIndex(userId);
+    std::lock_guard<std::mutex> lock(webSocketHashMutexs[index]);
+
+    // 假设 WebRTCSignalSocket 实例需要存储其注册 ID，这里暂不实现
+    // ⚠️ 如果 ID 已经存在，应该先关闭旧连接或处理重连逻辑
+
+    webrtcSignalSocketBuckets[index][userId] = socket;
+    LOG_INFO("注册新用户: %s, 存储在桶 %zu", userId.c_str(), index);
+}
+
+// 辅助函数：移除连接
+void WebRTCSignalServer::removeConnection(const std::string& userId) {
+    if (userId.empty()) return;
+
+    size_t index = getBucketIndex(userId);
+    std::lock_guard<std::mutex> lock(webSocketHashMutexs[index]);
+
+    if (webrtcSignalSocketBuckets[index].erase(userId) > 0) {
+        LOG_INFO("移除用户连接: %s", userId.c_str());
     }
 }
