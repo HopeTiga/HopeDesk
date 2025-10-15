@@ -32,19 +32,13 @@ boost::asio::awaitable<void> WebRTCSignalSocket::handShake() {
     try {
         // 1. 异步读取 HTTP Upgrade 请求
         co_await boost::beast::http::async_read(webSocket.next_layer(), buffer, req, boost::asio::use_awaitable);
-        // 🔍 添加详细日志
-        //LOG_INFO("收到握手请求:");
-        //LOG_INFO("  Method: %s", std::string(req.method_string()).c_str());
-        //LOG_INFO("  Target: %s", std::string(req.target()).c_str());
-        //LOG_INFO("  Connection: %s", std::string(req[boost::beast::http::field::connection]).c_str());
-        //LOG_INFO("  Upgrade: %s", std::string(req[boost::beast::http::field::upgrade]).c_str());
 
-        // 打印所有请求头
-        for (auto const& field : req) {
-            LOG_INFO("  %s: %s",
-                std::string(field.name_string()).c_str(),
-                std::string(field.value()).c_str());
-        }
+        //// 打印所有请求头
+        //for (auto const& field : req) {
+        //    LOG_INFO("  %s: %s",
+        //        std::string(field.name_string()).c_str(),
+        //        std::string(field.value()).c_str());
+        //}
 
         // 2. 打印请求目标 (客户端 handshake("/", ...) 中的路径)
         // req.target() 返回 boost::beast::string_view
