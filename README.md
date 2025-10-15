@@ -5,7 +5,7 @@
 ## 核心架构
 
 ### 1. 信令服务器
-- **技术栈**: LibDataChannel的WebSocketServer
+- **技术栈**: 基于boost::asio和boost::beast实现的C++20 协程WebSocketServer
 - **功能**: 信令数据交换，客户端注册和设备发现
   - 异步 TCP/WebSocket 监听
   - 客户端注册与设备发现
