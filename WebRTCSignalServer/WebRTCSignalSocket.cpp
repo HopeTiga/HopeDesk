@@ -39,22 +39,6 @@ boost::asio::awaitable<void> WebRTCSignalSocket::handShake() {
         // req.target() 返回 boost::beast::string_view
         const std::string target(req.target());
 
-        // 打印关键的 WebSocket 头部
-        const std::string upgrade(req[boost::beast::http::field::upgrade]);
-        const std::string connection(req[boost::beast::http::field::connection]);
-        const std::string key(req[boost::beast::http::field::sec_websocket_key]);
-
-        // 打印一个综合日志
-        LOG_INFO("收到 HTTP 请求: Method='%s', Target='%s', Upgrade='%s', Connection='%s', Key='%s'",
-            method.c_str(),
-            target.c_str(),
-            upgrade.c_str(),
-            connection.c_str(),
-            key.c_str());
-        // 2. [可选] 从请求中获取 host/target，用于业务逻辑或日志
-
-        // const std::string host = std::string(req[boost::beast::http::field::host]);
-
         // 3. 执行 WebSocket 服务端握手 (async_accept)
         co_await webSocket.async_accept(req, boost::asio::use_awaitable);
         boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
