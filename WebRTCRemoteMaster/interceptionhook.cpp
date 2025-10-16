@@ -181,8 +181,6 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 {
     bool isPress = !(keystroke.state & INTERCEPTION_KEY_UP);
 
-    logger->info("code:"+std::to_string(keystroke.code) +":" + std::to_string(keystroke.state));
-
     if(keystroke.code==42 && (keystroke.state==2 || keystroke.state==3)) return;
 
     // 使用系统 API 转换（大部分按键都能正确处理）
