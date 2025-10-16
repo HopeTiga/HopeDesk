@@ -4,7 +4,7 @@
 #include "Utils.h"
 
 
-WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext):ioContext(ioContext),writerChannel(ioContext, 1), resolver(ioContext), registrationTimer(ioContext),webSocket(ioContext), pingTimer(ioContext) {
+WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext):ioContext(ioContext),writerChannel(ioContext, 1), resolver(ioContext), registrationTimer(ioContext),webSocket(ioContext) {
 }
 
 WebRTCSignalSocket::~WebRTCSignalSocket() {
@@ -33,12 +33,12 @@ boost::asio::awaitable<void> WebRTCSignalSocket::handShake() {
         // 1. 异步读取 HTTP Upgrade 请求
         co_await boost::beast::http::async_read(webSocket.next_layer(), buffer, req, boost::asio::use_awaitable);
 
-        //// 打印所有请求头
-        //for (auto const& field : req) {
-        //    LOG_INFO("  %s: %s",
-        //        std::string(field.name_string()).c_str(),
-        //        std::string(field.value()).c_str());
-        //}
+        // 打印所有请求头
+        for (auto const& field : req) {
+            LOG_INFO("  %s: %s",
+                std::string(field.name_string()).c_str(),
+                std::string(field.value()).c_str());
+        }
 
         // 2. 打印请求目标 (客户端 handshake("/", ...) 中的路径)
         // req.target() 返回 boost::beast::string_view
@@ -50,6 +50,7 @@ boost::asio::awaitable<void> WebRTCSignalSocket::handShake() {
             co_await self->registrationTimeout();
             }, boost::asio::detached);
 
+        buffer.consume(buffer.size());
     }
     catch (const boost::system::system_error& se) {
         LOG_ERROR("服务端 WebSocket 握手失败! 错误: %s", se.what());
@@ -92,7 +93,8 @@ void WebRTCSignalSocket::start() {
 
     boost::asio::co_spawn(ioContext, writerCoroutine(), [](std::exception_ptr p) {});
 
-    boost::asio::co_spawn(ioContext, heartbeatCoroutine(), [](std::exception_ptr p) {});
+    webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
+        boost::beast::role_type::server));
 
 }
 
@@ -120,8 +122,6 @@ void WebRTCSignalSocket::closeSocket() {
 
  
     registrationTimer.cancel(); 
-
-    pingTimer.cancel(); // 
 
     // 3. 关闭 WebSocket
     // 发送 WebSocket 关闭帧
@@ -223,50 +223,6 @@ boost::asio::awaitable<void> WebRTCSignalSocket::writerCoroutine() {
 
     co_return;
 
-}
-
-boost::asio::awaitable<void> WebRTCSignalSocket::heartbeatCoroutine() {
-
-    // 默认行为是自动回复 Pong，无需设置回调。
-
-    try {
-        while (!isStop.load()) {
-
-            using namespace std::chrono_literals;
-
-            // 1. 设置下一次 Ping 的等待时间
-            pingTimer.expires_after(PING_INTERVAL);
-
-            // 2. 异步等待定时器
-            boost::system::error_code ec_wait;
-            co_await pingTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec_wait));
-
-            if (isStop.load() || ec_wait == boost::asio::error::operation_aborted) {
-                // 如果是 stop() 导致的取消，则正常退出
-                co_return;
-            }
-
-            // 3. 发送 Ping 帧
-            // 发送 Ping 是一个异步写操作。如果连接已断开（例如被 NAT 超时），此操作将失败并抛出异常。
-            co_await webSocket.async_ping("", boost::asio::use_awaitable);
-
-        }
-    }
-    catch (const boost::system::system_error& se) {
-        if (se.code() != boost::asio::error::operation_aborted) {
-            // Ping 失败，说明连接已断开，可能是超时或网络问题。
-            LOG_WARNING("WebSocket Ping 失败，连接可能已中断: %s. 触发清理。", se.what());
-            this->stop(); // 失败则主动关闭连接
-        }
-        else {
-            // 被 stop() 或析构函数取消
-            LOG_DEBUG("心跳协程被取消。");
-        }
-    }
-    catch (const std::exception& e) {
-        LOG_ERROR("心跳协程出现未预期异常: %s", e.what());
-        this->stop();
-    }
 }
 
 void WebRTCSignalSocket::writerAsync(std::string str) {
