@@ -123,8 +123,6 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
 
-        client->disConnectHandle();
-
         Logger::getInstance()->info("Peer connection closed");
         break;
     default:
@@ -451,7 +449,7 @@ void WebRTCRemoteClient::connect(std::string ip)
     }
 
     // 执行 WebSocket 握手
-    webSocket->handshake(host, "/",ec);
+    webSocket->handshake(host+":"+port, "/",ec);
 
     if(ec){
         Logger::getInstance()->info("handshake webSocketServer failed :" + ec.what());
@@ -1225,6 +1223,8 @@ void WebRTCRemoteClient::handleAsioException()
 {
 
     this->state = WebRTCRemoteState::nullRemote;
+
+    isRemote = false;
 
     if(webSocket && webSocket->is_open()){
 
