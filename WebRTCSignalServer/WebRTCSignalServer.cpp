@@ -6,6 +6,7 @@
 #include <iostream> 
 
 #include "AsioProactors.h"
+#include "Logger.h"
 
 
 WebRTCSignalServer::WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port , size_t hashValue)
@@ -153,11 +154,17 @@ void WebRTCSignalServer::run() {
 
                 co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
 
+                boost::asio::ip::tcp::endpoint remoteEndpoint = webrtcSignalSocket->getSocket().remote_endpoint();
+
+                std::string clientIP = remoteEndpoint.address().to_string();
+
+                unsigned short clientPort = remoteEndpoint.port();
+
+                Logger::getInstance()->info("new Connection from Address: "+std::string(clientIP.c_str()) + ":" + std::to_string(clientPort) );
+
                 boost::asio::co_spawn(pair.second, [this, sharedWebrtcSignalSocket =  webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
                     co_await sharedWebrtcSignalSocket->handShake();
-
-                    sharedWebrtcSignalSocket->setOnMessageHandle(std::bind(&WebRTCSignalServer::handleMessage, this, std::placeholders::_1, std::placeholders::_2));
 
                     sharedWebrtcSignalSocket->start();
 
