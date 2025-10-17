@@ -227,6 +227,348 @@ public:
     }
 };
 
+
+class AudioDeviceModuleImpl : public webrtc::AudioDeviceModule {
+public:
+    AudioDeviceModuleImpl()
+        : audioCallback(nullptr),
+        recording(false),
+        playing(false),
+        initialized(false),
+        speakerInitialized(false),
+        microphoneInitialized(false),
+        recordingInitialized(false),
+        playoutInitialized(false) {
+    }
+
+    ~AudioDeviceModuleImpl() {
+        Terminate();
+    }
+
+    static webrtc::scoped_refptr<AudioDeviceModuleImpl> Create() {
+        return webrtc::scoped_refptr<AudioDeviceModuleImpl>(
+            new webrtc::RefCountedObject<AudioDeviceModuleImpl>());
+    }
+
+    // Key method: Push audio data into WebRTC
+    void PushAudioData(unsigned char* data, size_t size) {
+        if (!recording || !audioCallback) {
+            return;
+        }
+
+        // WebRTC expects audio in specific format:
+        // - 16-bit PCM samples
+        // - 10ms chunks
+        // - Specific sample rates (8000, 16000, 32000, 48000 Hz)
+
+        const int sampleRate = 48000; // You can make this configurable
+        const int channels = 2; // Mono audio, change to 2 for stereo
+        const int bitsPerSample = 16;
+        const int samplesPerChannel = sampleRate / 100; // 10ms of audio
+        const size_t expectedSize = samplesPerChannel * channels * (bitsPerSample / 8);
+
+        // Add data to buffer
+        const uint8_t* audioData = reinterpret_cast<const uint8_t*>(data);
+        audioBuffer.insert(audioBuffer.end(), audioData, audioData + size);
+
+        // Process complete 10ms chunks
+        while (audioBuffer.size() >= expectedSize) {
+            // Extract 10ms chunk
+            std::vector<uint8_t> chunk(audioBuffer.begin(), audioBuffer.begin() + expectedSize);
+            audioBuffer.erase(audioBuffer.begin(), audioBuffer.begin() + expectedSize);
+
+            // Variables for WebRTC callback
+            uint32_t newMicLevel = 0;
+            size_t nSamplesOut = 0;
+            int64_t estimatedCaptureTimeNS = 0; // You might want to calculate this properly
+
+            // Call WebRTC audio callback
+            int32_t result = audioCallback->RecordedDataIsAvailable(
+                chunk.data(),
+                samplesPerChannel,
+                bitsPerSample / 8, // bytes per sample
+                channels,
+                sampleRate,
+                0, // total delay in ms
+                0, // clock drift
+                0, // current mic level
+                false, // key pressed
+                newMicLevel,
+                estimatedCaptureTimeNS
+            );
+
+            if (result != 0) {
+                Logger::getInstance()->error("AudioCallback failed with result: " + std::to_string(result));
+            }
+        }
+    }
+
+    // Alternative method for pushing raw PCM frames directly
+    void PushPCMFrame(const int16_t* samples, size_t numSamples, int sampleRate, int channels) {
+        if (!recording || !audioCallback) {
+            return;
+        }
+
+        const int samplesPerChannel = numSamples / channels;
+        uint32_t newMicLevel = 0;
+
+        int32_t result = audioCallback->RecordedDataIsAvailable(
+            samples,
+            samplesPerChannel,
+            2, // bytes per sample (16-bit)
+            channels,
+            sampleRate,
+            0, // total delay
+            0, // clock drift
+            0, // current mic level
+            false, // key pressed
+            newMicLevel,
+            0  // estimated capture time
+        );
+
+        if (result != 0) {
+            Logger::getInstance()->error("AudioCallback failed");
+        }
+    }
+
+    // Register audio callback - this is called by WebRTC
+    int32_t RegisterAudioCallback(webrtc::AudioTransport* audioCallback) override {
+        this->audioCallback = audioCallback;
+        return 0;
+    }
+
+    // RefCounted interface
+    void AddRef() const override {}
+    webrtc::RefCountReleaseStatus Release() const override {
+        return webrtc::RefCountReleaseStatus::kOtherRefsRemained;
+    }
+
+    // Initialization methods
+    int32_t Init() override {
+        initialized = true;
+        return 0;
+    }
+
+    int32_t Terminate() override {
+        StopRecording();
+        StopPlayout();
+
+        initialized = false;
+        return 0;
+    }
+
+    bool Initialized() const override {
+        return initialized;
+    }
+
+    // Device enumeration (stub implementations for virtual device)
+    int16_t PlayoutDevices() override { return 1; }
+    int16_t RecordingDevices() override { return 1; }
+
+    int32_t PlayoutDeviceName(uint16_t index, char name[webrtc::kAdmMaxDeviceNameSize],
+        char guid[webrtc::kAdmMaxGuidSize]) override {
+        if (index != 0) return -1;
+        strcpy_s(name, webrtc::kAdmMaxDeviceNameSize, "Virtual Playout Device");
+        strcpy_s(guid, webrtc::kAdmMaxGuidSize, "virtual-playout-guid");
+        return 0;
+    }
+
+    int32_t RecordingDeviceName(uint16_t index, char name[webrtc::kAdmMaxDeviceNameSize],
+        char guid[webrtc::kAdmMaxGuidSize]) override {
+        if (index != 0) return -1;
+        strcpy_s(name, webrtc::kAdmMaxDeviceNameSize, "Virtual Recording Device");
+        strcpy_s(guid, webrtc::kAdmMaxGuidSize, "virtual-recording-guid");
+        return 0;
+    }
+
+    // Device selection
+    int32_t SetPlayoutDevice(uint16_t index) override { return (index == 0) ? 0 : -1; }
+    int32_t SetPlayoutDevice(WindowsDeviceType device) override { return 0; }
+    int32_t SetRecordingDevice(uint16_t index) override { return (index == 0) ? 0 : -1; }
+    int32_t SetRecordingDevice(WindowsDeviceType device) override { return 0; }
+
+    // Playout methods
+    int32_t PlayoutIsAvailable(bool* available) override {
+        *available = true;
+        return 0;
+    }
+
+    int32_t InitPlayout() override {
+        playoutInitialized = true;
+        return 0;
+    }
+
+    bool PlayoutIsInitialized() const override {
+        return playoutInitialized;
+    }
+
+    int32_t StartPlayout() override {
+        playing = true;
+        return 0;
+    }
+
+    int32_t StopPlayout() override {
+        playing = false;
+        return 0;
+    }
+
+    bool Playing() const override {
+        return playing;
+    }
+
+    // Recording methods
+    int32_t RecordingIsAvailable(bool* available) override {
+        *available = true;
+        return 0;
+    }
+
+    int32_t InitRecording() override {
+        recordingInitialized = true;
+        return 0;
+    }
+
+    bool RecordingIsInitialized() const override {
+        return recordingInitialized;
+    }
+
+    int32_t StartRecording() override {
+        recording = true;
+        return 0;
+    }
+
+    int32_t StopRecording() override {
+        recording = false;
+
+        audioBuffer.clear();
+
+        return 0;
+    }
+
+    bool Recording() const override {
+        return recording;
+    }
+
+    // Speaker/Microphone initialization
+    int32_t InitSpeaker() override {
+        speakerInitialized = true;
+        return 0;
+    }
+
+    bool SpeakerIsInitialized() const override {
+        return speakerInitialized;
+    }
+
+    int32_t InitMicrophone() override {
+        microphoneInitialized = true;
+        return 0;
+    }
+
+    bool MicrophoneIsInitialized() const override {
+        return microphoneInitialized;
+    }
+
+    // Volume controls (stub implementations)
+    int32_t SpeakerVolumeIsAvailable(bool* available) override {
+        *available = false;
+        return 0;
+    }
+
+    int32_t SetSpeakerVolume(uint32_t volume) override { return -1; }
+    int32_t SpeakerVolume(uint32_t* volume) const override { return -1; }
+    int32_t MaxSpeakerVolume(uint32_t* maxVolume) const override { return -1; }
+    int32_t MinSpeakerVolume(uint32_t* minVolume) const override { return -1; }
+
+    int32_t MicrophoneVolumeIsAvailable(bool* available) override {
+        *available = false;
+        return 0;
+    }
+
+    int32_t SetMicrophoneVolume(uint32_t volume) override { return -1; }
+    int32_t MicrophoneVolume(uint32_t* volume) const override { return -1; }
+    int32_t MaxMicrophoneVolume(uint32_t* maxVolume) const override { return -1; }
+    int32_t MinMicrophoneVolume(uint32_t* minVolume) const override { return -1; }
+
+    // Mute controls
+    int32_t SpeakerMuteIsAvailable(bool* available) override {
+        *available = false;
+        return 0;
+    }
+
+    int32_t SetSpeakerMute(bool enable) override { return -1; }
+    int32_t SpeakerMute(bool* enabled) const override { return -1; }
+
+    int32_t MicrophoneMuteIsAvailable(bool* available) override {
+        *available = false;
+        return 0;
+    }
+
+    int32_t SetMicrophoneMute(bool enable) override { return -1; }
+    int32_t MicrophoneMute(bool* enabled) const override { return -1; }
+
+    // Stereo support
+    int32_t StereoPlayoutIsAvailable(bool* available) const override {
+        *available = false;
+        return 0;
+    }
+
+    int32_t SetStereoPlayout(bool enable) override { return -1; }
+    int32_t StereoPlayout(bool* enabled) const override {
+        *enabled = false;
+        return 0;
+    }
+
+    int32_t StereoRecordingIsAvailable(bool* available) const override {
+        *available = true; // We can support stereo
+        return 0;
+    }
+
+    int32_t SetStereoRecording(bool enable) override {
+        stereoRecording = enable;
+        return 0;
+    }
+
+    int32_t StereoRecording(bool* enabled) const override {
+        *enabled = stereoRecording;
+        return 0;
+    }
+
+    // Delay
+    int32_t PlayoutDelay(uint16_t* delayMS) const override {
+        *delayMS = 0;
+        return 0;
+    }
+
+    // Built-in audio processing
+    bool BuiltInAECIsAvailable() const override { return false; }
+    bool BuiltInAGCIsAvailable() const override { return false; }
+    bool BuiltInNSIsAvailable() const override { return false; }
+
+    int32_t EnableBuiltInAEC(bool enable) override { return -1; }
+    int32_t EnableBuiltInAGC(bool enable) override { return -1; }
+    int32_t EnableBuiltInNS(bool enable) override { return -1; }
+
+    // Active audio layer
+    int32_t ActiveAudioLayer(AudioLayer* audioLayer) const override {
+        *audioLayer = AudioLayer::kDummyAudio;
+        return 0;
+    }
+
+private:
+    webrtc::AudioTransport* audioCallback;
+    std::atomic<bool> recording;
+    std::atomic<bool> playing;
+    std::atomic<bool> initialized;
+    std::atomic<bool> speakerInitialized;
+    std::atomic<bool> microphoneInitialized;
+    std::atomic<bool> recordingInitialized;
+    std::atomic<bool> playoutInitialized;
+    std::atomic<bool> stereoRecording{ false };
+
+    // Audio buffer for accumulating data
+    std::vector<uint8_t> audioBuffer;
+
+};
+
 class SetLocalDescriptionObserver : public webrtc::SetSessionDescriptionObserver {
 
 public:
@@ -419,6 +761,8 @@ private:
 
     webrtc::scoped_refptr<webrtc::RtpSenderInterface> videoSender;
 
+	webrtc::scoped_refptr<webrtc::AudioTrackInterface> audioTrack;
+
     std::unique_ptr<PeerConnectionObserverImpl> peerConnectionObserver;
 
     std::unique_ptr<DataChannelObserverImpl> dataChannelObserver;
@@ -428,6 +772,8 @@ private:
     webrtc::scoped_refptr<CreateAnswerObserverImpl> createAnswerObserver;
 
     webrtc::scoped_refptr<VideoTrackSourceImpl> videoTrackSourceImpl;
+
+	webrtc::scoped_refptr<AudioDeviceModuleImpl> audioDeviceModuleImpl;
 
     std::atomic<bool> isInit{ false };
 

@@ -1,0 +1,4 @@
+[2025-09-17 09:52:32] [INFO]: [MAINPROCESS] Starting service dispatcher with DXGI support | SessionID: 1
+[2025-09-17 09:52:32] [INFO]: [MAINPROCESS] SessionID: 1 - Running in interactive mode with DXGI (not as service)
+[2025-09-17 09:52:32] [INFO]: Current user: Hope | SessionID: 1 | Process Type: MAINPROCESS
+[2025-09-17 09:52:32] [ERROR]: [MAINPROCESS] SessionID: 1 - Must run as SYSTEM user
