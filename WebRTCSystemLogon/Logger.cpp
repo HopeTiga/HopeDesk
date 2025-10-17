@@ -1,13 +1,21 @@
 #include "Logger.h"
 #include <iostream>
 #include <sstream>
+#include <filesystem>
 
 Logger* Logger::instance = nullptr;
 std::mutex Logger::mutex;
 
 Logger::Logger() : minLevel(LogLevels::INFO) {
-    // 默认日志路径
-    logFilePath = "E:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\system.log";
+
+    std::filesystem::path exePath = std::filesystem::current_path();
+
+    // 设置日志文件路径为可执行文件目录
+    logFilePath = (exePath / "system.log").string();
+
+    // 确保目录存在
+    std::filesystem::create_directories(exePath);
+
     logFile.open(logFilePath, std::ios::out | std::ios::app);
     if (!logFile.is_open()) {
         std::cerr << "Failed to open log file: " << logFilePath << std::endl;
@@ -48,7 +56,7 @@ std::string Logger::getCurrentTime() {
     auto now = std::chrono::system_clock::now();
     auto now_time = std::chrono::system_clock::to_time_t(now);
     std::tm local_tm;
-    localtime_s(&local_tm, &now_time); // 使用安全的localtime_s替代localtime
+    localtime_s(&local_tm, &now_time); // ??e????localtime_s????localtime
     std::stringstream ss;
     ss << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S");
     return ss.str();
