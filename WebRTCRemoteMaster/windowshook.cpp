@@ -150,7 +150,7 @@ void WindowsHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)
         char modifiers;
     };
 
-#pragma (pop)
+#pragma pack(pop)
 
     KeyButton * keyButton = new KeyButton{type,windowsVK,modifiers};
 
@@ -179,7 +179,7 @@ void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
         int y;
     };
 
-#pragma (pop)
+#pragma pack(pop)
 
     MouseButton * mouseBtn = new MouseButton{type,button,normalizedX,normalizedY};
 
@@ -208,7 +208,7 @@ void WindowsHook::sendMouseMoveEvent(int x, int y)
         int y;
     };
 
-#pragma (pop)
+#pragma pack(pop)
 
     MouseMove * mouseMove = new MouseMove{0,normalizedX,normalizedY};
 
@@ -229,7 +229,7 @@ void WindowsHook::sendWheelEvent(int delta)
         int y;
     };
 
-#pragma (pop)
+#pragma pack(pop)
 
     MouseWheel * mouseWheel = new MouseWheel{5,delta};
 
