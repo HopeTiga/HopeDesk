@@ -149,7 +149,7 @@ void WebRTCSignalServer::run() {
 
                 std::pair<int, boost::asio::io_context&> pair = AsioProactors::getInstance()->getIoComplatePorts();
 
-                std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<WebRTCSignalSocket>(pair.second);
+                std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<WebRTCSignalSocket>(pair.second,pair.first,*this);
 
                 co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
 

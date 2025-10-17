@@ -2,16 +2,18 @@
 #include <memory>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
-#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/json.hpp>
 
 #include "concurrentqueue.h"
+
+class WebRTCSignalServer;
 
 class WebRTCSignalSocket : public std::enable_shared_from_this<WebRTCSignalSocket>
 {
 public:
 
-	WebRTCSignalSocket(boost::asio::io_context& ioContext);
+	WebRTCSignalSocket(boost::asio::io_context& ioContext,int channelIndex,WebRTCSignalServer & webrtcSignalServer);
 
 	~WebRTCSignalSocket();
 
@@ -58,6 +60,8 @@ private:
 
 private:
 
+	WebRTCSignalServer& webrtcSignalServer;
+
 	boost::asio::io_context& ioContext;
 
 	boost::beast::websocket::stream<boost::asio::ip::tcp::socket> webSocket;
@@ -66,7 +70,7 @@ private:
 
 	moodycamel::ConcurrentQueue<std::string> writerQueues;
 
-	boost::asio::experimental::channel<void(boost::system::error_code)> writerChannel;
+	boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
 
 	std::atomic<bool> isStop{ false };
 
@@ -81,6 +85,8 @@ private:
 	boost::asio::steady_timer registrationTimer; // 计时器成员
 
 	std::atomic<bool> isRegistered{ false }; // 新增：注册状态标志
+
+	int channelIndex;
 
 private:
 

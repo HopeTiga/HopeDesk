@@ -1,9 +1,12 @@
-#include "WebRTCSignalServer.h"
 #include <iostream>
 #include <string>
+#include "WebRTCSignalServer.h"
+#include "LogicSystem.h"
 #include "Utils.h"
 
 int main() {
+
+	LogicSystem::getInstance()->initializeThreads();
 	
 	boost::asio::io_context ioContext;
 

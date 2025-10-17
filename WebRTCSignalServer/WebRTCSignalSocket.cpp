@@ -1,10 +1,19 @@
 ﻿#include "WebRTCSignalSocket.h"
-
+#include "WebRTCSignalServer.h"
+#include "LogicSystem.h"
 
 #include "Utils.h"
 
 
-WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext):ioContext(ioContext),writerChannel(ioContext, 1), resolver(ioContext), registrationTimer(ioContext),webSocket(ioContext) {
+WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext,int channelIndex, WebRTCSignalServer& webrtcSignalServer)
+    : ioContext(ioContext)
+    , writerChannel(ioContext, 1)
+    , resolver(ioContext)
+    , registrationTimer(ioContext)
+    , webSocket(ioContext)
+    , channelIndex(channelIndex)
+    , webrtcSignalServer(webrtcSignalServer){
+    LOG_INFO("WebRTCSignalSocket构造函数触发!");
 }
 
 WebRTCSignalSocket::~WebRTCSignalSocket() {
@@ -170,10 +179,9 @@ boost::asio::awaitable<void> WebRTCSignalSocket::reviceCoroutine() {
 
         boost::json::object json = boost::json::parse(dataStr).as_object();
 
-        if (onMessageHandle) {
+		std::shared_ptr<WebRTCSignalData> data = std::make_shared<WebRTCSignalData>(std::move(json), shared_from_this(), webrtcSignalServer);
 
-			onMessageHandle(json , shared_from_this());
-        }
+        LogicSystem::getInstance()->postMessageToQueue(data,channelIndex);
 
     }
 
@@ -191,17 +199,7 @@ boost::asio::awaitable<void> WebRTCSignalSocket::writerCoroutine() {
 
         }
 
-        if (!isStop) {
-
-            isSuppendWrite.store(true);
-
-            std::string str;
-
-            while (writerQueues.try_dequeue(str)) {
-
-                co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
-
-            }
+        if (!isStop && !isSuppendWrite.exchange(true)) {
 
             co_await writerChannel.async_receive(boost::asio::use_awaitable);
 
