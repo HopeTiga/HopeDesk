@@ -17,6 +17,7 @@ WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext,int ch
 }
 
 WebRTCSignalSocket::~WebRTCSignalSocket() {
+
     LOG_INFO("WebRTCSignalSocket析构函数触发!");
 }
 
@@ -98,7 +99,13 @@ boost::asio::awaitable<void> WebRTCSignalSocket::registrationTimeout() {
 
 void WebRTCSignalSocket::start() {
 
-	boost::asio::co_spawn(ioContext, reviceCoroutine(), [](std::exception_ptr p) {});
+	boost::asio::co_spawn(ioContext, reviceCoroutine(), [this](std::exception_ptr p) {
+        
+        if (isRegistered && onDisConnectHandle) {
+            onDisConnectHandle(accountID);
+        }
+
+        });
 
     boost::asio::co_spawn(ioContext, writerCoroutine(), [](std::exception_ptr p) {});
 
@@ -233,7 +240,7 @@ void WebRTCSignalSocket::writerAsync(std::string str) {
 
 }
 
-void WebRTCSignalSocket::setOnMessageHandle(std::function<void(boost::json::object,std::shared_ptr<WebRTCSignalSocket>)> handle)
+void WebRTCSignalSocket::setOnDisConnectHandle(std::function<void(std::string)> handle)
 {
-	this->onMessageHandle = handle;
+	this->onDisConnectHandle = handle;
 }

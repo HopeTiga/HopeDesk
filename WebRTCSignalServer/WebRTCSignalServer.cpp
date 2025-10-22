@@ -156,6 +156,10 @@ void WebRTCSignalServer::run() {
 
                 boost::asio::ip::tcp::endpoint remoteEndpoint = webrtcSignalSocket->getSocket().remote_endpoint();
 
+                webrtcSignalSocket->setOnDisConnectHandle([this](std::string str) {
+					this->removeConnection(str);
+                    });
+
                 std::string clientIP = remoteEndpoint.address().to_string();
 
                 unsigned short clientPort = remoteEndpoint.port();

@@ -50,7 +50,7 @@ public:
 
 public:
 
-	void setOnMessageHandle(std::function<void(boost::json::object,std::shared_ptr<WebRTCSignalSocket>)> handle);
+	void setOnDisConnectHandle(std::function<void(std::string)> handle);
 
 private:
 
@@ -90,6 +90,6 @@ private:
 
 private:
 
-	std::function<void(boost::json::object, std::shared_ptr<WebRTCSignalSocket>)> onMessageHandle;
+	std::function<void(std::string)> onDisConnectHandle;
 };
 
