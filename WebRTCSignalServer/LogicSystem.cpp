@@ -2,65 +2,47 @@
 #include <chrono>
 #include "Utils.h"
 
-LogicSystem::LogicSystem(size_t size)
-    :size(size)
-    , isStop(false)
-    , threads(size), readyVector(size),ioContexts(size),works(size), channels(size), taskChannels(size)
- {
-
-}
-
-void LogicSystem::initializeThreads() {
-
-    for (int i = 0; i < size; i++) {
-
-        auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
-            boost::asio::make_work_guard(ioContexts[i])
-        );
-
-        works[i] = std::move(work);
-
-        threads[i] = std::move(std::thread([this, i]() {
-            ioContexts[i].run();
-            }));
-
-        channels[i] = std::make_unique<boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>>(ioContexts[i], 1);
-
-        taskChannels.emplace_back(moodycamel::ConcurrentQueue<std::shared_ptr<WebRTCSignalData>>(1024));
+namespace Hope {
+    LogicSystem::LogicSystem(size_t size)
+        :size(size)
+        , isStop(false)
+        , threads(size), readyVector(size), ioContexts(size), works(size), channels(size), taskChannels(size)
+    {
 
     }
 
-    for (int i = 0; i < size; i++) {
+    void LogicSystem::initializeThreads() {
 
-		auto self = shared_from_this();
+        for (int i = 0; i < size; i++) {
 
-        if (!self) {
-            LOG_ERROR("LogicSystem shared_from_this() failed");
-            break;
+            auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+                boost::asio::make_work_guard(ioContexts[i])
+            );
+
+            works[i] = std::move(work);
+
+            threads[i] = std::move(std::thread([this, i]() {
+                ioContexts[i].run();
+                }));
+
+            channels[i] = std::make_unique<boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>>(ioContexts[i], 1);
+
+            taskChannels.emplace_back(moodycamel::ConcurrentQueue<std::shared_ptr<WebRTCSignalData>>(1024));
+
         }
 
-        boost::asio::co_spawn(ioContexts[i], [self,i]() -> boost::asio::awaitable<void> {
+        for (int i = 0; i < size; i++) {
 
-            for (;;) {
+            auto self = shared_from_this();
 
-                std::shared_ptr<WebRTCSignalData> data = nullptr;
+            if (!self) {
+                LOG_ERROR("LogicSystem shared_from_this() failed");
+                break;
+            }
 
-                while (self->taskChannels[i].try_dequeue(data)) {
+            boost::asio::co_spawn(ioContexts[i], [self, i]() -> boost::asio::awaitable<void> {
 
-                    if (data != nullptr) {
-                        
-						data->webRTCSignalServer.handleMessage(data->json, data->webrtcSignalSocket);
-
-                    }
-    
-                    data = nullptr;
-                }
-
-                if (!self->isStop && !self->readyVector[i].exchange(true)) {
-
-                    co_await self->channels[i]->async_receive(boost::asio::use_awaitable);
-                }
-                else {
+                for (;;) {
 
                     std::shared_ptr<WebRTCSignalData> data = nullptr;
 
@@ -68,64 +50,96 @@ void LogicSystem::initializeThreads() {
 
                         if (data != nullptr) {
 
-                            data->webRTCSignalServer.handleMessage(data->json, data->webrtcSignalSocket);
+                            data->webrtcSignalManager->handleMessage(data->json, data->webrtcSignalSocket);
 
                         }
 
                         data = nullptr;
+                    }
+
+                    if (!self->isStop && !self->readyVector[i].exchange(true)) {
+
+                        co_await self->channels[i]->async_receive(boost::asio::use_awaitable);
+                    }
+                    else {
+
+                        std::shared_ptr<WebRTCSignalData> data = nullptr;
+
+                        while (self->taskChannels[i].try_dequeue(data)) {
+
+                            if (data != nullptr) {
+
+                                data->webrtcSignalManager->handleMessage(data->json, data->webrtcSignalSocket);
+
+                            }
+
+                            data = nullptr;
+
+                        }
+
+                        co_return;
 
                     }
 
-                    co_return;
-
                 }
+
+                co_return;
+
+                }, [this](std::exception_ptr p) {
+                    if (p) {
+                        try {
+
+                            std::rethrow_exception(p);
+
+                        }
+                        catch (const std::exception& e) {
+
+                            LOG_ERROR("LogicSystem coroutine std::exception: %s", e.what());
+                        }
+                    }
+                    });
+        }
+
+    }
+
+    LogicSystem::~LogicSystem() {
+
+        isStop = true;
+
+        for (auto& work : works) {
+            // 重置 work guard，这会让 io_context 停止运行
+            if (work) {
+                work.reset();
+            }
+        }
+
+        // 明确停止所有 io_context
+        for (auto& context : ioContexts) {
+            context.stop();
+        }
+
+        for (auto& thread : threads) {
+
+            if (thread.joinable()) {
+
+                thread.join();
 
             }
+        }
 
-            co_return;
-
-            }, [this](std::exception_ptr p) {
-                if (p) {
-                    try {
-
-                        std::rethrow_exception(p);
-
-                    }
-                    catch (const std::exception& e) {
-
-                        LOG_ERROR("LogicSystem coroutine std::exception: %s", e.what());
-                    }
-                }
-                });
     }
 
-}
+    void LogicSystem::postMessageToQueue(std::shared_ptr<WebRTCSignalData> data, int channelIndex) {
 
-LogicSystem::~LogicSystem() {
+        taskChannels[channelIndex].enqueue(data);
 
-	isStop = true;
+        if (readyVector[channelIndex].exchange(false)) {
 
-	for (auto& thread : threads) {
+            channels[channelIndex]->try_send(boost::system::error_code{});
 
-		if (thread.joinable()) {
+        }
 
-			thread.join();
-
-		}
-	}
-
-}
-
-void LogicSystem::postMessageToQueue(std::shared_ptr<WebRTCSignalData> data, int channelIndex) {
-
-    taskChannels[channelIndex].enqueue(data);
-
-    if (readyVector[channelIndex].exchange(false)) {
-
-        channels[channelIndex]->try_send(boost::system::error_code{});
-    
     }
-
 }
 
 

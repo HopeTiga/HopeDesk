@@ -7,89 +7,92 @@
 
 #include "concurrentqueue.h"
 
-class WebRTCSignalServer;
+namespace Hope {
 
-class WebRTCSignalSocket : public std::enable_shared_from_this<WebRTCSignalSocket>
-{
-public:
+	class WebRTCSignalManager;
 
-	WebRTCSignalSocket(boost::asio::io_context& ioContext,int channelIndex,WebRTCSignalServer & webrtcSignalServer);
+	class WebRTCSignalSocket : public std::enable_shared_from_this<WebRTCSignalSocket>
+	{
+	public:
 
-	~WebRTCSignalSocket();
+		WebRTCSignalSocket(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalManager * webrtcSignalManager);
 
-	boost::asio::ip::tcp::socket& getSocket();
+		~WebRTCSignalSocket();
 
-	boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& getWebSocket();
+		boost::asio::ip::tcp::socket& getSocket();
 
-	boost::asio::awaitable<void> handShake();
+		boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& getWebSocket();
 
-	void start();
+		boost::asio::awaitable<void> handShake();
 
-	void stop();
+		void start();
 
-	boost::asio::awaitable<void> reviceCoroutine();
+		void stop();
 
-	boost::asio::awaitable<void> writerCoroutine();
+		boost::asio::awaitable<void> reviceCoroutine();
 
-	void writerAsync(std::string str);
+		boost::asio::awaitable<void> writerCoroutine();
 
-	void setAccountID(const std::string& accountID) { this->accountID = accountID; }
+		void writerAsync(std::string str);
 
-	std::string& getAccountID() { return accountID = this->accountID; }
+		void setAccountID(const std::string& accountID) { this->accountID = accountID; }
 
-	void setTargetID(const std::string& targetID) { this->targetID = targetID; }
+		std::string& getAccountID() { return accountID = this->accountID; }
 
-	std::string& getTargetID(std::string& targetID) { return  targetID = this->targetID; }
+		void setTargetID(const std::string& targetID) { this->targetID = targetID; }
 
-	void setHashIndex(size_t index) { this->hashIndex = index; }
+		std::string& getTargetID(std::string& targetID) { return  targetID = this->targetID; }
 
-	size_t& getHashIndex(size_t& index) { return  index = this->hashIndex; }
+		void setHashIndex(size_t index) { this->hashIndex = index; }
 
-	void setRegistered(bool isRegistered) { this->isRegistered = isRegistered; }
-	
+		size_t& getHashIndex(size_t& index) { return  index = this->hashIndex; }
 
-public:
+		void setRegistered(bool isRegistered) { this->isRegistered = isRegistered; }
 
-	void setOnDisConnectHandle(std::function<void(std::string)> handle);
 
-private:
+	public:
 
-	void closeSocket();
+		void setOnDisConnectHandle(std::function<void(std::string)> handle);
 
-	boost::asio::awaitable<void> registrationTimeout();
+	private:
 
-private:
+		void closeSocket();
 
-	WebRTCSignalServer& webrtcSignalServer;
+		boost::asio::awaitable<void> registrationTimeout();
 
-	boost::asio::io_context& ioContext;
+	private:
 
-	boost::beast::websocket::stream<boost::asio::ip::tcp::socket> webSocket;
+		WebRTCSignalManager* webrtcSignalManager;
 
-	boost::asio::ip::tcp::resolver resolver;
+		boost::asio::io_context& ioContext;
 
-	moodycamel::ConcurrentQueue<std::string> writerQueues;
+		boost::beast::websocket::stream<boost::asio::ip::tcp::socket> webSocket;
 
-	boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
+		boost::asio::ip::tcp::resolver resolver;
 
-	std::atomic<bool> isStop{ false };
+		moodycamel::ConcurrentQueue<std::string> writerQueues{1};
 
-	std::string accountID;
+		boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
 
-	std::string targetID;
+		std::atomic<bool> isStop{ false };
 
-	size_t hashIndex{ 0 };
+		std::string accountID;
 
-	std::atomic<bool> isSuppendWrite{ false };
+		std::string targetID;
 
-	boost::asio::steady_timer registrationTimer; // 计时器成员
+		size_t hashIndex{ 0 };
 
-	std::atomic<bool> isRegistered{ false }; // 新增：注册状态标志
+		std::atomic<bool> isSuppendWrite{ false };
 
-	int channelIndex;
+		boost::asio::steady_timer registrationTimer; // 计时器成员
 
-private:
+		std::atomic<bool> isRegistered{ false }; // 新增：注册状态标志
 
-	std::function<void(std::string)> onDisConnectHandle;
-};
+		int channelIndex;
 
+	private:
+
+		std::function<void(std::string)> onDisConnectHandle;
+	};
+
+}

@@ -2,19 +2,21 @@
 #include <memory>
 #include <boost/json.hpp>
 #include "WebRTCSignalSocket.h"
-#include "WebRTCSignalServer.h"
+#include "WebRTCSignalManager.h"
 
-class WebRTCSignalData {
+namespace Hope {
+	class WebRTCSignalData {
 
-public:
+	public:
 
-	WebRTCSignalData(boost::json::object json, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalServer& webRTCSignalServer);
+		WebRTCSignalData(boost::json::object json, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager);
 
-	std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket;
+		std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket;
 
-	boost::json::object json;
+		boost::json::object json;
 
-	WebRTCSignalServer& webRTCSignalServer;
+		WebRTCSignalManager* webrtcSignalManager;
 
-};
+	};
+}
 

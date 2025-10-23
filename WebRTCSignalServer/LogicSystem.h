@@ -10,46 +10,48 @@
 #include "concurrentqueue.h"
 #include "WebRTCSignalData.h"
 
-class LogicSystem : public std::enable_shared_from_this<LogicSystem>
-{
+namespace Hope {
+	class LogicSystem : public std::enable_shared_from_this<LogicSystem>
+	{
 
-public:
+	public:
 
-	~LogicSystem();
+		~LogicSystem();
 
-	LogicSystem(const LogicSystem& logic) = delete;
+		LogicSystem(const LogicSystem& logic) = delete;
 
-	void operator=(const LogicSystem& logic) = delete;
+		void operator=(const LogicSystem& logic) = delete;
 
-	void postMessageToQueue(std::shared_ptr<WebRTCSignalData> data,int channelIndex);
+		void postMessageToQueue(std::shared_ptr<WebRTCSignalData> data, int channelIndex);
 
-	void initializeThreads();
+		void initializeThreads();
 
-	static std::shared_ptr<LogicSystem> getInstance() {
-		static std::shared_ptr<LogicSystem> instance = std::shared_ptr<LogicSystem>(new LogicSystem());
-		return instance;
-	}
+		static std::shared_ptr<LogicSystem> getInstance() {
+			static std::shared_ptr<LogicSystem> instance = std::shared_ptr<LogicSystem>(new LogicSystem());
+			return instance;
+		}
 
-private:
+	private:
 
-	LogicSystem(size_t minSize = std::thread::hardware_concurrency());
+		LogicSystem(size_t minSize = std::thread::hardware_concurrency());
 
-    std::vector<moodycamel::ConcurrentQueue<std::shared_ptr<WebRTCSignalData>>> taskChannels;
+		std::vector<moodycamel::ConcurrentQueue<std::shared_ptr<WebRTCSignalData>>> taskChannels;
 
-	std::vector<std::thread> threads;
+		std::vector<std::thread> threads;
 
-	std::atomic<bool> isStop;
+		std::atomic<bool> isStop;
 
-	size_t size;
+		size_t size;
 
-	std::vector<boost::asio::io_context> ioContexts;
+		std::vector<boost::asio::io_context> ioContexts;
 
-	std::vector<std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>> works;
+		std::vector<std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>> works;
 
-	std::vector<std::atomic<bool>> readyVector;
+		std::vector<std::atomic<bool>> readyVector;
 
-	std::vector<std::unique_ptr<boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>>> channels;
+		std::vector<std::unique_ptr<boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>>> channels;
 
-};
+	};
 
+}
 
