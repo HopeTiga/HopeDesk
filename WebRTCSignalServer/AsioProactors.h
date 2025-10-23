@@ -25,7 +25,7 @@ namespace Hope {
 
 	private:
 
-		AsioProactors(size_t size = std::thread::hardware_concurrency());
+		AsioProactors(size_t size = std::thread::hardware_concurrency() * 2);
 
 		std::vector<boost::asio::io_context> ioContexts;
 

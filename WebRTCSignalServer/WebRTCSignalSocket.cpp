@@ -99,10 +99,12 @@ namespace Hope {
 
     void WebRTCSignalSocket::start() {
 
-        boost::asio::co_spawn(ioContext, reviceCoroutine(), [this](std::exception_ptr p) {
+        boost::asio::co_spawn(ioContext, reviceCoroutine(), [self = shared_from_this()](std::exception_ptr p) {
 
-            if (isRegistered && onDisConnectHandle) {
-                onDisConnectHandle(accountID);
+            if (self->isRegistered && self->onDisConnectHandle) {
+
+                self->onDisConnectHandle(self->accountID);
+
             }
 
             });
@@ -135,7 +137,6 @@ namespace Hope {
         if (ec) {
             LOG_ERROR("WebRTCSignalSocket::closeSocket() 无法取消 Socket 操作: %s", ec.message().c_str());
         }
-
 
         registrationTimer.cancel();
 

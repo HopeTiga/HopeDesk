@@ -33,7 +33,7 @@ namespace Hope {
 
 	private:
 
-		LogicSystem(size_t minSize = std::thread::hardware_concurrency());
+		LogicSystem(size_t minSize = std::thread::hardware_concurrency()*2);
 
 		std::vector<moodycamel::ConcurrentQueue<std::shared_ptr<WebRTCSignalData>>> taskChannels;
 

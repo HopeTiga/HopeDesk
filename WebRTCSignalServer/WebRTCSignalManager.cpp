@@ -16,7 +16,14 @@ namespace Hope {
 
 	std::shared_ptr<WebRTCSignalSocket> WebRTCSignalManager::generateWebRTCSignalSocket()
 	{
-		return std::make_shared<WebRTCSignalSocket>(ioContext,channelIndex,this);
+
+        std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<WebRTCSignalSocket>(ioContext, channelIndex, this);
+
+        webrtcSignalSocket->setOnDisConnectHandle([self = shared_from_this()](std::string accountID) {
+            self->removeConnection(accountID); // 清理连接映射
+            });
+
+		return webrtcSignalSocket;
 	}
 
 	boost::asio::io_context& WebRTCSignalManager::getIoComplatePorts()
@@ -70,11 +77,6 @@ namespace Hope {
                 
 				manager->getActorSocketMappingIndex()[accountID] = self->channelIndex;
 
-                });
-
-            webrtcSignalSocket->setOnDisConnectHandle([this](std::string accountID) {
-                removeConnection(accountID); // 清理连接映射
-                LOG_INFO("连接断开: %s", accountID.c_str());
                 });
             
 
@@ -199,17 +201,17 @@ namespace Hope {
 
     void WebRTCSignalManager::removeConnection(const std::string& accountID)
     {
+		LOG_INFO("移除连接: %s", accountID.c_str());
+
         webrtcSignalSocketMap.erase(accountID);
 
-        int mapChannelIndex = hasher(accountID) & hashSize;
+        int mapChannelIndex = hasher(accountID) % hashSize;
 
-        auto self = shared_from_this();
+        LOG_INFO("开始异步回调: %d", mapChannelIndex);
 
         webrtcSignalServer->postAsyncTask(mapChannelIndex, [self = shared_from_this(), accountID](std::shared_ptr<WebRTCSignalManager> manager) {
 
             manager->getActorSocketMappingIndex().unsafe_erase(accountID);
-
-            LOG_INFO("异步移除连接");
 
             });
 

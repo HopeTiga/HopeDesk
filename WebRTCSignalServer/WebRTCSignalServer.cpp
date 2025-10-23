@@ -79,13 +79,27 @@ namespace Hope {
 
     }
 
-    void WebRTCSignalServer::postAsyncTask(int channelIndex, std::function<void(std::shared_ptr<WebRTCSignalManager> manager)> asyncHandle)
+    void WebRTCSignalServer::postAsyncTask(int channelIndex,
+        std::function<void(std::shared_ptr<WebRTCSignalManager> manager)> asyncHandle)
     {
+        // 1. 添加边界检查
         if (channelIndex < 0 || channelIndex >= webrtcSignalManagers.size()) {
-            LOG_WARNING("无效的 channelIndex: %d", channelIndex);
+            LOG_ERROR("Invalid channelIndex: %d, size: %zu", channelIndex, webrtcSignalManagers.size());
             return;
         }
-		boost::asio::post(webrtcSignalManagers[channelIndex]->getIoComplatePorts(), std::bind(asyncHandle, webrtcSignalManagers[channelIndex]->shared_from_this()));
+
+        // 2. 使用 lambda 捕获 shared_ptr，确保生命周期安全
+        auto manager = webrtcSignalManagers[channelIndex];
+        if (!manager) {
+            LOG_ERROR("WebRTCSignalManager at index %d is null", channelIndex);
+            return;
+        }
+
+        // 3. 使用 lambda 而不是 std::bind
+        boost::asio::post(manager->getIoComplatePorts(),
+            [manager, asyncHandle = std::move(asyncHandle)]() {
+                asyncHandle(manager);
+            });
     }
 
 
