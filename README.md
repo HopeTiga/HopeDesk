@@ -6,6 +6,8 @@
 
 ### 1. 信令服务器
 - **技术栈**: 基于boost::asio和boost::beast实现的C++20 协程WebSocketServer
+- **IO模型**: 基于Proactor
+- **编程模型**: Actor并发计算模型 所有的线程拥有的内存独立，其他线程无法直接访问 必须通过boost::asio::io_context异步访问,天生线程安全
 - **功能**: 信令数据交换，客户端注册和设备发现
   - 异步 TCP/WebSocket 监听
   - 客户端注册与设备发现
