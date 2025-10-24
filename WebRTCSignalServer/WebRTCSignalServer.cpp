@@ -17,7 +17,7 @@ namespace Hope {
         , size(size)
         , webrtcSignalManagers(size)
     {
-        initlize();
+        initialize();
     }
 
     void WebRTCSignalServer::run() {
@@ -111,7 +111,7 @@ namespace Hope {
 
     }
 
-    void WebRTCSignalServer::initlize()
+    void WebRTCSignalServer::initialize()
     {
 
         for (int i = 0; i < size; i++) {

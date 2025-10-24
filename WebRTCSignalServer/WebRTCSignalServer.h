@@ -50,7 +50,7 @@ namespace Hope {
 
         std::shared_ptr<WebRTCSignalManager> getWebRTCSignalManager();
 
-        void initlize();
+        void initialize();
 
     private:
 

@@ -203,7 +203,7 @@ namespace Hope {
     {
 		LOG_INFO("ÒÆ³ýÁ¬½Ó: %s", accountID.c_str());
 
-        webrtcSignalSocketMap.erase(accountID);
+        webrtcSignalSocketMap.unsafe_erase(accountID);
 
         int mapChannelIndex = hasher(accountID) % hashSize;
 

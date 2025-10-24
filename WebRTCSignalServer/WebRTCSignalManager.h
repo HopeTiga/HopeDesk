@@ -38,7 +38,7 @@ namespace Hope {
 
 		int channelIndex;
 
-		std::unordered_map<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSignalSocketMap;
+		tbb::concurrent_unordered_map<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSignalSocketMap;
 
 		WebRTCSignalServer* webrtcSignalServer;
 
