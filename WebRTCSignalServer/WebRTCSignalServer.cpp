@@ -96,7 +96,7 @@ namespace Hope {
         }
 
         // 3. 使用 lambda 而不是 std::bind
-        boost::asio::post(manager->getIoComplatePorts(),
+        boost::asio::post(manager->getWebRTCLogicSystem()->getIoComplatePorts(),
             [manager, asyncHandle = std::move(asyncHandle)]() {
                 asyncHandle(manager);
             });

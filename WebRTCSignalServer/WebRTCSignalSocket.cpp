@@ -1,6 +1,7 @@
 ﻿#include "WebRTCSignalSocket.h"
 #include "WebRTCSignalManager.h"
-#include "LogicSystem.h"
+#include "WebRTCLogicSystem.h"
+#include "WebRTCSignalData.h"
 
 #include "Utils.h"
 
@@ -189,7 +190,7 @@ namespace Hope {
 
             std::shared_ptr<WebRTCSignalData> data = std::make_shared<WebRTCSignalData>(std::move(json), shared_from_this(), webrtcSignalManager);
 
-            LogicSystem::getInstance()->postMessageToQueue(data, channelIndex);
+			webrtcSignalManager->getWebRTCLogicSystem()->postMessageToQueue(data);
 
         }
 

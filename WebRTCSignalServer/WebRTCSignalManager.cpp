@@ -9,7 +9,11 @@ namespace Hope {
         , localRouteCache([](std::string) -> int {
                 return -1;
             }, 100)
+        , webrtcLogicSystem(nullptr)
 	{
+        webrtcLogicSystem = std::make_shared<WebRTCLogicSystem>();
+
+		webrtcLogicSystem->RunEventLoop();
 	}
 
 	WebRTCSignalManager::~WebRTCSignalManager()
@@ -314,6 +318,11 @@ namespace Hope {
     tbb::concurrent_unordered_map<std::string, int>& WebRTCSignalManager::getActorSocketMappingIndex()
     {
 		return actorSocketMappingIndex;
+    }
+
+    std::shared_ptr<WebRTCLogicSystem> WebRTCSignalManager::getWebRTCLogicSystem()
+    {
+        return webrtcLogicSystem;
     }
 
 	

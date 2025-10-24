@@ -1,15 +1,17 @@
 #pragma once
 #define TBB_PREVIEW_CONCURRENT_LRU_CACHE 1
-#include "WebRTCSignalServer.h"
-#include "WebRTCSignalSocket.h"
+
 #include <vector>
+#include <memory>
 
 #include <boost/asio.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/concurrent_lru_cache.h>
 
-
+#include "WebRTCSignalServer.h"
+#include "WebRTCSignalSocket.h"
+#include "WebRTCLogicSystem.h"
 
 
 namespace Hope {
@@ -34,6 +36,8 @@ namespace Hope {
 
 		tbb::concurrent_unordered_map<std::string,int>& getActorSocketMappingIndex();
 
+		std::shared_ptr<WebRTCLogicSystem> getWebRTCLogicSystem();
+
 	private:
 
 		boost::asio::io_context & ioContext;
@@ -51,6 +55,8 @@ namespace Hope {
 		tbb::concurrent_lru_cache<std::string, int> localRouteCache ;
 
 		std::hash<std::string> hasher;
+
+		std::shared_ptr<WebRTCLogicSystem> webrtcLogicSystem;
 	};
 }
 

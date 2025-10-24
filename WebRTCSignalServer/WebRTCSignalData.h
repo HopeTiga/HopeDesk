@@ -1,10 +1,12 @@
 #pragma once
 #include <memory>
 #include <boost/json.hpp>
-#include "WebRTCSignalSocket.h"
-#include "WebRTCSignalManager.h"
 
 namespace Hope {
+
+	class WebRTCSignalSocket;
+	class WebRTCSignalManager;
+
 	class WebRTCSignalData {
 
 	public:
