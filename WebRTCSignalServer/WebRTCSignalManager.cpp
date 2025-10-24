@@ -6,6 +6,9 @@ namespace Hope {
 	WebRTCSignalManager::WebRTCSignalManager(boost::asio::io_context & ioContext,int channelIndex,WebRTCSignalServer* webrtcSignalServer): ioContext(ioContext)
 		, channelIndex(channelIndex)
         , webrtcSignalServer(webrtcSignalServer)
+        , localRouteCache([](std::string) -> int {
+                return -1;
+            }, 100)
 	{
 	}
 
@@ -109,63 +112,154 @@ namespace Hope {
             // 2. 处理目标未找到 (404)
             if (!targetSocket) {
 
-                int mapChannelIndex = hasher(targetID) % hashSize;
+                tbb::concurrent_lru_cache<std::string, int>::handle handles = localRouteCache[targetID];
 
                 auto self = shared_from_this();
 
-                webrtcSignalServer->postAsyncTask(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
+                if (handles.value() == -1) {
 
-                    if (manager->getActorSocketMappingIndex().find(targetID) != manager->getActorSocketMappingIndex().end()) {
+                    int mapChannelIndex = hasher(targetID) % hashSize;
+
+                    webrtcSignalServer->postAsyncTask(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
+
+                        if (manager->getActorSocketMappingIndex().find(targetID) != manager->getActorSocketMappingIndex().end()) {
+
+                            int targetChannelIndex = manager->getActorSocketMappingIndex()[targetID];
+
+                            self->webrtcSignalServer->postAsyncTask(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
+
+                                if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
+
+									self->localRouteCache[targetID].value() = manager->channelIndex;
+
+                                    boost::json::object forwardMessage = message; // 复制原始消息体
+                                    forwardMessage["state"] = 200;
+                                    forwardMessage["message"] = "WebRTCSignalServer forward";
+
+                                    manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
+
+                                    LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)",
+                                        accountID.c_str(), targetID.c_str(),
+                                        (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+
+                                }
+                                else {
+
+                                    boost::json::object response;
+                                    response["requestType"] = requestTypeValue;
+                                    response["state"] = 404;
+                                    response["message"] = "targetID is not register";
+                                    webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
+
+                                    LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)",
+                                        targetID.c_str(), accountID.c_str(),
+                                        (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+
+                                }
+
+                                });
+
+                        }
+                        else {
+
+                            boost::json::object response;
+                            response["requestType"] = requestTypeValue;
+                            response["state"] = 404;
+                            response["message"] = "targetID is not register";
+                            webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
+
+                            LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)",
+                                targetID.c_str(), accountID.c_str(),
+                                (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+
+                        }
+
+                        });
+                }
+                else {
+               
+                    webrtcSignalServer->postAsyncTask(handles.value(), [=](std::shared_ptr<WebRTCSignalManager> manager) {
                         
-						int targetChannelIndex = manager->getActorSocketMappingIndex()[targetID];
+                        if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
 
-                        self->webrtcSignalServer->postAsyncTask(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
-                            
-                            if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
-                                
-                                boost::json::object forwardMessage = message; // 复制原始消息体
-                                forwardMessage["state"] = 200;
-                                forwardMessage["message"] = "WebRTCSignalServer forward";
+                            self->localRouteCache[targetID].value() = manager->channelIndex;
 
-                                manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
+                            boost::json::object forwardMessage = message; // 复制原始消息体
+                            forwardMessage["state"] = 200;
+                            forwardMessage["message"] = "WebRTCSignalServer forward";
 
-                                LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)",
-                                    accountID.c_str(), targetID.c_str(),
-                                    (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+                            manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
 
-                            }
-                            else {
-                            
-                                boost::json::object response;
-                                response["requestType"] = requestTypeValue;
-                                response["state"] = 404;
-                                response["message"] = "targetID is not register";
-                                webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
+                            LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)",
+                                accountID.c_str(), targetID.c_str(),
+                                (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
 
-                                LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)",
-                                    targetID.c_str(), accountID.c_str(),
-                                    (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
-                                
-                            }
+                        }
+                        else {
 
-                            });
+                            int mapChannelIndex = hasher(targetID) % hashSize;
 
-                    }
-                    else {
+                            webrtcSignalServer->postAsyncTask(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
 
-                        boost::json::object response;
-                        response["requestType"] = requestTypeValue;
-                        response["state"] = 404;
-                        response["message"] = "targetID is not register";
-                        webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
+                                if (manager->getActorSocketMappingIndex().find(targetID) != manager->getActorSocketMappingIndex().end()) {
 
-                        LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)",
-                            targetID.c_str(), accountID.c_str(),
-                            (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+                                    int targetChannelIndex = manager->getActorSocketMappingIndex()[targetID];
 
-                    }
+                                    self->webrtcSignalServer->postAsyncTask(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
 
-                    });
+                                        if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
+
+                                            self->localRouteCache[targetID].value() = manager->channelIndex;
+
+                                            boost::json::object forwardMessage = message; // 复制原始消息体
+                                            forwardMessage["state"] = 200;
+                                            forwardMessage["message"] = "WebRTCSignalServer forward";
+
+                                            manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
+
+                                            LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)",
+                                                accountID.c_str(), targetID.c_str(),
+                                                (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+
+                                        }
+                                        else {
+
+                                            boost::json::object response;
+                                            response["requestType"] = requestTypeValue;
+                                            response["state"] = 404;
+                                            response["message"] = "targetID is not register";
+                                            webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
+
+                                            LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)",
+                                                targetID.c_str(), accountID.c_str(),
+                                                (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+
+                                        }
+
+                                        });
+
+                                }
+                                else {
+
+                                    boost::json::object response;
+                                    response["requestType"] = requestTypeValue;
+                                    response["state"] = 404;
+                                    response["message"] = "targetID is not register";
+                                    webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
+
+                                    LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)",
+                                        targetID.c_str(), accountID.c_str(),
+                                        (requestType == WebRTCRequestState::REQUEST ? "REQUEST" : (requestType == WebRTCRequestState::RESTART ? "RESTART" : "STOPREMOTE")));
+
+                                }
+
+                                });
+
+                        }
+
+                        });
+
+                }
 
                 return;
             }

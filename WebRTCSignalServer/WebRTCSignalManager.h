@@ -1,4 +1,5 @@
 #pragma once
+#define TBB_PREVIEW_CONCURRENT_LRU_CACHE 1
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalSocket.h"
 #include <vector>
@@ -6,6 +7,7 @@
 #include <boost/asio.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
+#include <tbb/concurrent_lru_cache.h>
 
 
 
@@ -45,6 +47,8 @@ namespace Hope {
 		size_t hashSize = std::thread::hardware_concurrency() * 2;
 
 		tbb::concurrent_unordered_map<std::string, int> actorSocketMappingIndex;
+
+		tbb::concurrent_lru_cache<std::string, int> localRouteCache ;
 
 		std::hash<std::string> hasher;
 	};
