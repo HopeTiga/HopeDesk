@@ -1,15 +1,11 @@
 #include <iostream>
 #include <string>
 #include "WebRTCSignalServer.h"
-#include "LogicSystem.h"
+#include "WebRTCLogicSystem.h"
 #include "WebRTCMysqlManager.h"
 #include "Utils.h"
 
 int main() {
-
-	Hope::LogicSystem::getInstance()->initializeThreads();
-
-	Hope::WebRTCMysqlManager::getInstance()->initConnection("61.153.18.148",3306,"root","5164853","mysql");
 	
 	boost::asio::io_context ioContext;
 

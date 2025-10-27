@@ -12,6 +12,7 @@
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalSocket.h"
 #include "WebRTCLogicSystem.h"
+#include "WebRTCMysqlManager.h"
 
 
 namespace Hope {
@@ -57,6 +58,9 @@ namespace Hope {
 		std::hash<std::string> hasher;
 
 		std::shared_ptr<WebRTCLogicSystem> webrtcLogicSystem;
+
+		std::unique_ptr<WebRTCMysqlManager> webrtcMysqlManager;
+		
 	};
 }
 

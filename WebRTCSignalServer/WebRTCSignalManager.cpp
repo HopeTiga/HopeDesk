@@ -3,17 +3,22 @@
 
 namespace Hope {
 	
-	WebRTCSignalManager::WebRTCSignalManager(boost::asio::io_context & ioContext,int channelIndex,WebRTCSignalServer* webrtcSignalServer): ioContext(ioContext)
-		, channelIndex(channelIndex)
+    WebRTCSignalManager::WebRTCSignalManager(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalServer* webrtcSignalServer) : ioContext(ioContext)
+        , channelIndex(channelIndex)
         , webrtcSignalServer(webrtcSignalServer)
         , localRouteCache([](std::string) -> int {
-                return -1;
+        return -1;
             }, 100)
         , webrtcLogicSystem(nullptr)
+        , webrtcMysqlManager(nullptr)
 	{
         webrtcLogicSystem = std::make_shared<WebRTCLogicSystem>();
 
 		webrtcLogicSystem->RunEventLoop();
+
+		webrtcMysqlManager = std::make_unique<WebRTCMysqlManager>(ioContext);
+
+		webrtcMysqlManager->initConnection("61.153.18.148", 13306, "root", "yx913140924", "webrtc");
 	}
 
 	WebRTCSignalManager::~WebRTCSignalManager()

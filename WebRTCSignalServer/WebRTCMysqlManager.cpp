@@ -1,12 +1,14 @@
 #include "WebRTCMysqlManager.h"
 #include "AsioProactors.h"
 #include "Logger.h"
+#include <iostream>
 
 
 namespace Hope {
 
-	WebRTCMysqlManager::WebRTCMysqlManager():mysqlConnections(0), sslContext(boost::asio::ssl::context::tls_client)
+	WebRTCMysqlManager::WebRTCMysqlManager(boost::asio::io_context& ioContext): sslContext(boost::asio::ssl::context::tls_client),ioContext(ioContext)
 	{
+		
 	}
 	WebRTCMysqlManager::~WebRTCMysqlManager()
 	{
@@ -24,56 +26,40 @@ namespace Hope {
 
 		this->database = database;
 
-		this->size = size;
+		boost::mysql::connect_params  params;
 
-		boost::mysql::handshake_params params(
-			username, // 数据库用户名
-			password, // 数据库密码
-			database // 数据库名
-		);
+		params.server_address = boost::mysql::host_and_port(hostIP, static_cast<unsigned short>(port));
 
-		mysqlConnections.resize(size);
+		params.username = username;
 
-		for (int i = 0; i < size; i++) {
+		params.password = password;
 
-			std::pair<int, boost::asio::io_context& > pairs = AsioProactors::getInstance()->getIoCompletePorts();
+		params.database = database;
 
-			mysqlConnections[i] = std::move(std::make_shared<boost::mysql::tcp_ssl_connection>(pairs.second, sslContext));
+		params.ssl = boost::mysql::ssl_mode::disable;
 
-			boost::asio::co_spawn(pairs.second, [this, i, params, hostIP]() -> boost::asio::awaitable<void> {
+		mysqlConnection = std::make_shared<boost::mysql::any_connection>(ioContext);
 
-				try {
+		boost::asio::co_spawn(ioContext, [this, params, hostIP]() -> boost::asio::awaitable<void> {
 
-					boost::asio::ip::tcp::resolver resolver(co_await boost::asio::this_coro::executor);
+			try {
 
-					auto endpoints = co_await resolver.async_resolve(
-						hostIP, "3306", boost::asio::use_awaitable
-					);
+				co_await mysqlConnection->async_connect(params);
 
-					co_await mysqlConnections[i]->async_connect(
-						*endpoints.begin(),
-						params,
-						boost::asio::use_awaitable
-					);
+			}
+			catch (const std::exception& e) {
+				Logger::getInstance()->error(std::string("MySQL Connection failed: ") + e.what());
+			}
 
-				}
-				catch (const std::exception& e) {
-					Logger::getInstance()->error(std::string("MySQL Connection failed: ") + e.what());
-				}
-
-				// 连接成功，可以执行查询等操作
-				}, boost::asio::detached);
-
-		}
+			// 连接成功，可以执行查询等操作
+			}, boost::asio::detached);
 
 	}
 
-	std::shared_ptr<boost::mysql::tcp_ssl_connection> WebRTCMysqlManager::getConnection()
+	std::shared_ptr<boost::mysql::any_connection> WebRTCMysqlManager::getConnection()
 	{
 
-		size_t index = currentIndex.fetch_add(1) % size;
-
-		return mysqlConnections[index];
+		return mysqlConnection;
 
 	}
 
