@@ -21,7 +21,7 @@ namespace Hope {
 
 		AsioProactors& operator=(const AsioProactors& asioProactors) = delete;
 
-		std::pair<int, boost::asio::io_context&> getIoComplatePorts();
+		std::pair<int, boost::asio::io_context&> getIoCompletePorts();
 
 	private:
 

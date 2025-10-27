@@ -31,7 +31,7 @@ namespace Hope {
 
 		void RunEventLoop();
 
-		boost::asio::io_context& getIoComplatePorts();
+		boost::asio::io_context& getIoCompletePorts();
 
 	private:
 

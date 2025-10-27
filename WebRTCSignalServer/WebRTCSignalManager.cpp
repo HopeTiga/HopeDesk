@@ -33,7 +33,7 @@ namespace Hope {
 		return webrtcSignalSocket;
 	}
 
-	boost::asio::io_context& WebRTCSignalManager::getIoComplatePorts()
+	boost::asio::io_context& WebRTCSignalManager::getIoCompletePorts()
 	{
 		return ioContext;
 	}
@@ -134,7 +134,9 @@ namespace Hope {
 
                                 if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
 
-									self->localRouteCache[targetID].value() = manager->channelIndex;
+                                    if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetID]) {
+                                        handles.value() = manager->channelIndex;
+                                    }
 
                                     boost::json::object forwardMessage = message; // 复制原始消息体
                                     forwardMessage["state"] = 200;
@@ -186,7 +188,9 @@ namespace Hope {
                         
                         if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
 
-                            self->localRouteCache[targetID].value() = manager->channelIndex;
+                            if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetID]) {
+                                handles.value() = manager->channelIndex;
+                            }
 
                             boost::json::object forwardMessage = message; // 复制原始消息体
                             forwardMessage["state"] = 200;
@@ -213,7 +217,9 @@ namespace Hope {
 
                                         if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
 
-                                            self->localRouteCache[targetID].value() = manager->channelIndex;
+                                            if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetID]) {
+                                                handles.value() = manager->channelIndex;
+                                            }
 
                                             boost::json::object forwardMessage = message; // 复制原始消息体
                                             forwardMessage["state"] = 200;
@@ -300,6 +306,8 @@ namespace Hope {
     void WebRTCSignalManager::removeConnection(const std::string& accountID)
     {
 		LOG_INFO("移除连接: %s", accountID.c_str());
+
+        webrtcSignalSocketMap[accountID]->stop();
 
         webrtcSignalSocketMap.unsafe_erase(accountID);
 

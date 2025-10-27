@@ -28,7 +28,7 @@ namespace Hope {
 
 		std::shared_ptr<WebRTCSignalSocket> generateWebRTCSignalSocket();
 
-		boost::asio::io_context& getIoComplatePorts();
+		boost::asio::io_context& getIoCompletePorts();
 
 		void handleMessage(boost::json::object message, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket);
 

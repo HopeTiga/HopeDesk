@@ -46,13 +46,10 @@ namespace Hope {
 		}
 	}
 
-	std::pair<int, boost::asio::io_context&> AsioProactors::getIoComplatePorts() {
-		int balancing = loadBalancing++;
-		boost::asio::io_context& context = ioContexts[balancing % size];
-		ioPressures[balancing % size]++;
-		if (loadBalancing >= size) {
-			loadBalancing = 0;
-		}
-		return std::pair<int, boost::asio::io_context&>(balancing, context);
+	std::pair<int, boost::asio::io_context&> AsioProactors::getIoCompletePorts() {
+		size_t current = loadBalancing.fetch_add(1, std::memory_order_relaxed);
+		size_t index = current % size;
+		ioPressures[index]++;
+		return { static_cast<int>(index), ioContexts[index] };
 	}
 }

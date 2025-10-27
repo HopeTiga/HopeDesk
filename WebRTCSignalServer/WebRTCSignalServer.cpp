@@ -44,7 +44,7 @@ namespace Hope {
 
                     Logger::getInstance()->info("new Connection from Address: " + std::string(clientIP.c_str()) + ":" + std::to_string(clientPort));
 
-                    boost::asio::co_spawn(manager->getIoComplatePorts(), [this, sharedWebrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(manager->getIoCompletePorts(), [this, sharedWebrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
                         co_await sharedWebrtcSignalSocket->handShake();
 
@@ -96,7 +96,7 @@ namespace Hope {
         }
 
         // 3. 使用 lambda 而不是 std::bind
-        boost::asio::post(manager->getWebRTCLogicSystem()->getIoComplatePorts(),
+        boost::asio::post(manager->getWebRTCLogicSystem()->getIoCompletePorts(),
             [manager, asyncHandle = std::move(asyncHandle)]() {
                 asyncHandle(manager);
             });
@@ -116,7 +116,7 @@ namespace Hope {
 
         for (int i = 0; i < size; i++) {
 
-            std::pair<int, boost::asio::io_context&> channelPairs =  AsioProactors::getInstance()->getIoComplatePorts();
+            std::pair<int, boost::asio::io_context&> channelPairs =  AsioProactors::getInstance()->getIoCompletePorts();
             
 			webrtcSignalManagers[i] = std::make_shared<WebRTCSignalManager>(channelPairs.second, channelPairs.first,this);
 

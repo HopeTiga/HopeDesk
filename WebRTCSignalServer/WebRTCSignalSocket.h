@@ -37,15 +37,15 @@ namespace Hope {
 
 		void setAccountID(const std::string& accountID) { this->accountID = accountID; }
 
-		std::string& getAccountID() { return accountID = this->accountID; }
+		std::string getAccountID() { return accountID = this->accountID; }
 
 		void setTargetID(const std::string& targetID) { this->targetID = targetID; }
 
-		std::string& getTargetID(std::string& targetID) { return  targetID = this->targetID; }
+		std::string getTargetID(std::string& targetID) { return  targetID = this->targetID; }
 
 		void setHashIndex(size_t index) { this->hashIndex = index; }
 
-		size_t& getHashIndex(size_t& index) { return  index = this->hashIndex; }
+		size_t getHashIndex(size_t& index) { return  index = this->hashIndex; }
 
 		void setRegistered(bool isRegistered) { this->isRegistered = isRegistered; }
 

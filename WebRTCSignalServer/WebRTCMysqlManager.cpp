@@ -36,7 +36,7 @@ namespace Hope {
 
 		for (int i = 0; i < size; i++) {
 
-			std::pair<int, boost::asio::io_context& > pairs = AsioProactors::getInstance()->getIoComplatePorts();
+			std::pair<int, boost::asio::io_context& > pairs = AsioProactors::getInstance()->getIoCompletePorts();
 
 			mysqlConnections[i] = std::move(std::make_shared<boost::mysql::tcp_ssl_connection>(pairs.second, sslContext));
 

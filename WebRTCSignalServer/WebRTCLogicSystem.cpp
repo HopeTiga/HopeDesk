@@ -28,7 +28,7 @@ namespace Hope {
             }));
     }
 
-    boost::asio::io_context& WebRTCLogicSystem::getIoComplatePorts()
+    boost::asio::io_context& WebRTCLogicSystem::getIoCompletePorts()
     {
 		return ioContext;
     }
