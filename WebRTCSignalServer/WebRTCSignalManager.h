@@ -21,6 +21,8 @@ namespace Hope {
 
 	class WebRTCSignalManager : public std::enable_shared_from_this<WebRTCSignalManager>
 	{
+		friend class WebRTCLogicSystem;
+
 	public:
 
 		WebRTCSignalManager(boost::asio::io_context & ioContext,int channelIndex,WebRTCSignalServer * webrtcSignalServer);
@@ -30,8 +32,6 @@ namespace Hope {
 		std::shared_ptr<WebRTCSignalSocket> generateWebRTCSignalSocket();
 
 		boost::asio::io_context& getIoCompletePorts();
-
-		void handleMessage(boost::json::object message, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket);
 
 		void removeConnection(const std::string& accountID);
 

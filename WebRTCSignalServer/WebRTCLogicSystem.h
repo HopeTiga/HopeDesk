@@ -1,9 +1,10 @@
 #pragma once
 
 #include "WebRTCSignalSocket.h"
-#include <vector>
-#include <thread>
+#include <unordered_map>
 #include <memory>
+#include <functional>
+
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
@@ -35,13 +36,15 @@ namespace Hope {
 
 	private:
 
-	
+		void initHandlers();
 
 		std::thread threads;
 
 		boost::asio::io_context ioContext;
 
 		std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
+
+		std::unordered_map<int,std::function<void(std::shared_ptr<WebRTCSignalData>)>> webrtcHandlers;
 
 	};
 
