@@ -50,37 +50,6 @@ namespace hope {
         {
             LOG_INFO("Remove WebRTCSignalSocket: %s", accountID.c_str());
 
-            if (webrtcSignalSocketMap[accountID]->getCloudGame()) {
-
-				auto self = shared_from_this();
-                
-                boost::asio::co_spawn(this->webrtcLogicSystem->getIoCompletePorts(),[self, accountID]() -> boost::asio::awaitable<void> {
-
-                    std::shared_ptr<boost::mysql::any_connection> connection = self->webrtcMysqlManager->getConnection();
-
-					boost::mysql::results updateResults;
-
-                    boost::mysql::statement updateStmt = connection->prepare_statement(
-                        "UPDATE game_processes SET is_idle = 1 , is_login = 0  WHERE process_id = ? and del_flag = 0"
-					);
-
-                    co_await connection->async_execute(updateStmt.bind(accountID), updateResults);
-
-                    if (updateResults.affected_rows() == 0) {
-
-                        LOG_ERROR("CloudGameProcessID: %s update state failed!", accountID.c_str());
-
-                        co_return;
-                    }
-
-                    LOG_INFO("CloudGameProcessID: %s update state successful!", accountID.c_str());
-
-                    co_return;
-                        
-                    }, boost::asio::detached);
-
-            }
-
             webrtcSignalSocketMap.unsafe_erase(accountID);
 
             int mapChannelIndex = hasher(accountID) % hashSize;

@@ -64,35 +64,31 @@ namespace hope {
 
         void WebRTCLogicSystem::postMessageToQueue(std::shared_ptr<WebRTCSignalData> data) {
 
-            boost::asio::post(ioContext, [this, data = std::move(data)]() {
+            int type = data->json["requestType"].as_int64();
 
-                int type = data->json["requestType"].as_int64();
+            if (this->webrtcHandlers.find(type) != this->webrtcHandlers.end()) {
 
-                if (this->webrtcHandlers.find(type) != this->webrtcHandlers.end()) {
-
-                    boost::asio::co_spawn(ioContext, this->webrtcHandlers[type](data),
-                        [this](std::exception_ptr ptr) {
-                            // 正确的异常处理方式
-                            if (ptr) { // 重要：检查是否确实有异常发生
-                                try {
-                                    std::rethrow_exception(ptr); // 重新抛出异常
-                                }
-                                catch (const std::exception& e) {
-                                    // 现在可以正常捕获并处理了
-                                    LOG_ERROR("webrtcLogicSystem boost::asio::co_spawn Exception: %s", e.what());
-                                }
+                boost::asio::co_spawn(ioContext, this->webrtcHandlers[type](std::move(data)),
+                    [this](std::exception_ptr ptr) {
+                        // 正确的异常处理方式
+                        if (ptr) { // 重要：检查是否确实有异常发生
+                            try {
+                                std::rethrow_exception(ptr); // 重新抛出异常
+                            }
+                            catch (const std::exception& e) {
+                                // 现在可以正常捕获并处理了
+                                LOG_ERROR("webrtcLogicSystem boost::asio::co_spawn Exception: %s", e.what());
                             }
                         }
-                    );
+                    }
+                );
 
-                }
-                else {
+            }
+            else {
 
-                    LOG_ERROR("未知的 WebRTC 请求类型: %d", type);
+                LOG_ERROR("未知的 WebRTC 请求类型: %d", type);
 
-                }
-
-                });
+            }
 
         }
 
@@ -324,19 +320,19 @@ namespace hope {
 
             webrtcHandlers[static_cast<int>(WebRTCRequestState::REQUEST)] = [self, forawrdHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
 
-                forawrdHandler(std::move(data),"REQUEST");
+                co_await forawrdHandler(std::move(data),"REQUEST");
                
                 };
 
             webrtcHandlers[static_cast<int>(WebRTCRequestState::RESTART)] = [self, forawrdHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
 
-                forawrdHandler(std::move(data), "RESTART");
+                co_await forawrdHandler(std::move(data), "RESTART");
 
                 };
 
             webrtcHandlers[static_cast<int>(WebRTCRequestState::STOPREMOTE)] = [self, forawrdHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
 
-                forawrdHandler(std::move(data), "STOPREMOTE");
+                co_await forawrdHandler(std::move(data), "STOPREMOTE");
 
                 };
 
