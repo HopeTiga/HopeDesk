@@ -7,92 +7,102 @@
 
 #include "concurrentqueue.h"
 
-namespace Hope {
 
-	class WebRTCSignalManager;
+namespace hope {
 
-	class WebRTCSignalSocket : public std::enable_shared_from_this<WebRTCSignalSocket>
-	{
-	public:
+	namespace core {
+		
+		class WebRTCSignalManager;
 
-		WebRTCSignalSocket(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalManager * webrtcSignalManager);
+		class WebRTCSignalSocket : public std::enable_shared_from_this<WebRTCSignalSocket>
+		{
+		public:
 
-		~WebRTCSignalSocket();
+			WebRTCSignalSocket(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalManager* webrtcSignalManager);
 
-		boost::asio::ip::tcp::socket& getSocket();
+			~WebRTCSignalSocket();
 
-		boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& getWebSocket();
+			boost::asio::ip::tcp::socket& getSocket();
 
-		boost::asio::awaitable<void> handShake();
+			boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& getWebSocket();
 
-		void start();
+			boost::asio::awaitable<void> handShake();
 
-		void stop();
+			void start();
 
-		boost::asio::awaitable<void> reviceCoroutine();
+			void stop();
 
-		boost::asio::awaitable<void> writerCoroutine();
+			boost::asio::awaitable<void> reviceCoroutine();
 
-		void writerAsync(std::string str);
+			boost::asio::awaitable<void> writerCoroutine();
 
-		void setAccountID(const std::string& accountID) { this->accountID = accountID; }
+			void writerAsync(std::string str);
 
-		std::string getAccountID() { return accountID = this->accountID; }
+			void setAccountID(const std::string& accountID);
 
-		void setTargetID(const std::string& targetID) { this->targetID = targetID; }
+			std::string getAccountID();
 
-		std::string getTargetID(std::string& targetID) { return  targetID = this->targetID; }
+			void setTargetID(const std::string& targetID);
 
-		void setHashIndex(size_t index) { this->hashIndex = index; }
+			std::string getTargetID(std::string& targetID);
 
-		size_t getHashIndex(size_t& index) { return  index = this->hashIndex; }
+			void setHashIndex(size_t index);
 
-		void setRegistered(bool isRegistered) { this->isRegistered = isRegistered; }
+			size_t getHashIndex(size_t& index);
 
+			void setRegistered(bool isRegistered);
 
-	public:
+			void setCloudGame(bool cloudGame);
 
-		void setOnDisConnectHandle(std::function<void(std::string)> handle);
+			bool getCloudGame();
 
-	private:
+		public:
 
-		void closeSocket();
+			void setOnDisConnectHandle(std::function<void(std::string)> handle);
 
-		boost::asio::awaitable<void> registrationTimeout();
+		private:
 
-	private:
+			void closeSocket();
 
-		WebRTCSignalManager* webrtcSignalManager;
+			boost::asio::awaitable<void> registrationTimeout();
 
-		boost::asio::io_context& ioContext;
+		private:
 
-		boost::beast::websocket::stream<boost::asio::ip::tcp::socket> webSocket;
+			WebRTCSignalManager* webrtcSignalManager;
 
-		boost::asio::ip::tcp::resolver resolver;
+			boost::asio::io_context& ioContext;
 
-		moodycamel::ConcurrentQueue<std::string> writerQueues{1};
+			boost::beast::websocket::stream<boost::asio::ip::tcp::socket> webSocket;
 
-		boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
+			boost::asio::ip::tcp::resolver resolver;
 
-		std::atomic<bool> isStop{ false };
+			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
 
-		std::string accountID;
+			boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
 
-		std::string targetID;
+			std::atomic<bool> isStop{ false };
 
-		size_t hashIndex{ 0 };
+			std::string accountID;
 
-		std::atomic<bool> isSuppendWrite{ false };
+			std::string targetID;
 
-		boost::asio::steady_timer registrationTimer; // º∆ ±∆˜≥…‘±
+			size_t hashIndex{ 0 };
 
-		std::atomic<bool> isRegistered{ false }; // –¬‘ˆ£∫◊¢≤·◊¥Ã¨±Í÷æ
+			std::atomic<bool> isSuppendWrite{ false };
 
-		int channelIndex;
+			boost::asio::steady_timer registrationTimer; // ËÆ°Êó∂Âô®ÊàêÂëò
 
-	private:
+			std::atomic<bool> isRegistered{ false }; // Êñ∞Â¢ûÔºöÊ≥®ÂÜåÁä∂ÊÄÅÊ†áÂøó
 
-		std::function<void(std::string)> onDisConnectHandle;
-	};
+			int channelIndex;
+
+			std::atomic<bool> cloudGame{ false };
+
+		private:
+
+			std::function<void(std::string)> onDisConnectHandle;
+		};
+
+	}
 
 }

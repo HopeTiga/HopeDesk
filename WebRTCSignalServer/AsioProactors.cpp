@@ -2,12 +2,13 @@
 #include <iostream>
 #include "Utils.h"
 
-namespace Hope {
-	AsioProactors::AsioProactors(size_t size) :size(size),
+namespace hope {
+	namespace core{
+		AsioProactors::AsioProactors(size_t size) :size(size),
 		ioContexts(size), works(size), threads(size), ioPressures(size), isStop(false) {
 
 		for (int i = 0; i < size; i++) {
-			// Ê¹ÓÃĞÂµÄ work guard API
+			// ä½¿ç”¨æ–°çš„ work guard API
 			auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
 				boost::asio::make_work_guard(ioContexts[i])
 			);
@@ -28,13 +29,13 @@ namespace Hope {
 		isStop = true;
 
 		for (auto& work : works) {
-			// ÖØÖÃ work guard£¬Õâ»áÈÃ io_context Í£Ö¹ÔËĞĞ
+			// é‡ç½® work guardï¼Œè¿™ä¼šè®© io_context åœæ­¢è¿è¡Œ
 			if (work) {
 				work.reset();
 			}
 		}
 
-		// Ã÷È·Í£Ö¹ËùÓĞ io_context
+		// æ˜ç¡®åœæ­¢æ‰€æœ‰ io_context
 		for (auto& context : ioContexts) {
 			context.stop();
 		}
@@ -51,5 +52,6 @@ namespace Hope {
 		size_t index = current % size;
 		ioPressures[index]++;
 		return { static_cast<int>(index), ioContexts[index] };
+	}
 	}
 }

@@ -8,42 +8,43 @@
 #include <boost/mysql.hpp>
 
 
-namespace Hope {
+namespace hope {
 
-	class WebRTCMysqlManager : public std::enable_shared_from_this<WebRTCMysqlManager>
-	{
+	namespace core {
+		class WebRTCMysqlManager : public std::enable_shared_from_this<WebRTCMysqlManager>
+		{
 
-	public:
+		public:
 
-		WebRTCMysqlManager(boost::asio::io_context& ioContext);
+			WebRTCMysqlManager(boost::asio::io_context& ioContext);
 
-		~WebRTCMysqlManager();
+			~WebRTCMysqlManager();
 
-		void initConnection(std::string hostIP, size_t port, std::string username, std::string password,std::string database,size_t size = std::thread::hardware_concurrency() * 2);
+			void initConnection(std::string hostIP, size_t port, std::string username, std::string password, std::string database, size_t size = std::thread::hardware_concurrency() * 2);
 
-	private:
+			std::shared_ptr<boost::mysql::any_connection> getConnection();
 
-		std::shared_ptr<boost::mysql::any_connection> getConnection();
+		private:
 
-	private:
+			boost::asio::io_context& ioContext;
 
-		boost::asio::io_context& ioContext;
+			boost::asio::ssl::context sslContext;
 
-		boost::asio::ssl::context sslContext;
+			std::shared_ptr<boost::mysql::any_connection> mysqlConnection;
 
-		std::shared_ptr<boost::mysql::any_connection> mysqlConnection;
+			std::string hostIP;
 
-		std::string hostIP;
+			size_t port;
 
-		size_t port;
+			std::string username;
 
-		std::string username;
+			std::string password;
 
-		std::string password;
-
-		std::string database;
+			std::string database;
 
 
-	};
+		};
+	}
+	
 }
 

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <memory>
 #include <string>
 #include <mutex>
@@ -11,61 +11,68 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 
-#include "Utils.h"
 
-namespace Hope {
+namespace hope {
 
-    class WebRTCSignalManager;
+	namespace core {
+        class WebRTCSignalManager;
 
-    enum class WebRTCRequestState {
-        REGISTER = 0,
-        REQUEST = 1,
-        RESTART = 2,
-        STOPREMOTE = 3,
-        CLOSE = 4,
-    };
+        enum class WebRTCRequestState {
+            REGISTER = 0,
+            REQUEST = 1,
+            RESTART = 2,
+            STOPREMOTE = 3,
+            CLOSE = 4,
+            CLOUD_PROCESS_LOGIN = 5,
+            CLOUD_PROCESS_LOGOUT = 6,
+            CLOUD_PROCESS_HEARTBEAT = 7,
+            CLOUD_GAME_START = 8,
+            CLOUD_GAME_STOP = 9,
+        };
 
 
-    class WebRTCSignalServer {
-    public:
-        WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, size_t size = std::thread::hardware_concurrency() * 2);
+        class WebRTCSignalServer {
+        public:
+            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, size_t size = std::thread::hardware_concurrency() * 2);
 
-        ~WebRTCSignalServer();  // 🔧 新增析构函数声明
+            ~WebRTCSignalServer();  // 🔧 新增析构函数声明
 
-        // 禁止拷贝和赋值
-        WebRTCSignalServer(const WebRTCSignalServer&) = delete;
+            // 禁止拷贝和赋值
+            WebRTCSignalServer(const WebRTCSignalServer&) = delete;
 
-        WebRTCSignalServer& operator=(const WebRTCSignalServer&) = delete;
+            WebRTCSignalServer& operator=(const WebRTCSignalServer&) = delete;
 
-        void run();
+            void run();
 
-        void stop();
+            void stop();
 
-        // 新增：优雅关闭方法
-        void shutdown();
+            // 新增：优雅关闭方法
+            void shutdown();
 
-        void postAsyncTask(int channelIndex,std::function<void(std::shared_ptr<WebRTCSignalManager>)> asyncHandle);
+            void postAsyncTask(int channelIndex, std::function<void(std::shared_ptr<WebRTCSignalManager>)> asyncHandle);
 
-    private:
+        private:
 
-        std::shared_ptr<WebRTCSignalManager> getWebRTCSignalManager();
+            std::shared_ptr<WebRTCSignalManager> getWebRTCSignalManager();
 
-        void initialize();
+            void initialize();
 
-    private:
+        private:
 
-        std::vector<std::shared_ptr<WebRTCSignalManager>> webrtcSignalManagers;
+            std::vector<std::shared_ptr<WebRTCSignalManager>> webrtcSignalManagers;
 
-		std::atomic<size_t> managerIndex{ 0 };
+            std::atomic<size_t> managerIndex{ 0 };
 
-        std::atomic<bool> isShuttingDown{ false };  // 🔧 新增：关闭标志
+            std::atomic<bool> isShuttingDown{ false };  // 🔧 新增：关闭标志
 
-        boost::asio::io_context& ioContext;
+            boost::asio::io_context& ioContext;
 
-        boost::asio::ip::tcp::acceptor acceptor;
+            boost::asio::ip::tcp::acceptor acceptor;
 
-        size_t port;
+            size_t port;
 
-        size_t size;
-    };
+            size_t size;
+        };
+	}
+   
 }

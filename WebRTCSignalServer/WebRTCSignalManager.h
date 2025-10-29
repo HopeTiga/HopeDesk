@@ -15,52 +15,54 @@
 #include "WebRTCMysqlManager.h"
 
 
-namespace Hope {
+namespace hope {
+	namespace core {
 
-	class WebRTCSignalServer;
+		class WebRTCSignalServer;
 
-	class WebRTCSignalManager : public std::enable_shared_from_this<WebRTCSignalManager>
-	{
-		friend class WebRTCLogicSystem;
+		class WebRTCSignalManager : public std::enable_shared_from_this<WebRTCSignalManager>
+		{
+			friend class WebRTCLogicSystem;
 
-	public:
+		public:
 
-		WebRTCSignalManager(boost::asio::io_context & ioContext,int channelIndex,WebRTCSignalServer * webrtcSignalServer);
+			WebRTCSignalManager(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalServer* webrtcSignalServer);
 
-		~WebRTCSignalManager();
+			~WebRTCSignalManager();
 
-		std::shared_ptr<WebRTCSignalSocket> generateWebRTCSignalSocket();
+			std::shared_ptr<WebRTCSignalSocket> generateWebRTCSignalSocket();
 
-		boost::asio::io_context& getIoCompletePorts();
+			boost::asio::io_context& getIoCompletePorts();
 
-		void removeConnection(const std::string& accountID);
+			void removeConnection(const std::string& accountID);
 
-		tbb::concurrent_unordered_map<std::string,int>& getActorSocketMappingIndex();
+			tbb::concurrent_unordered_map<std::string, int>& getActorSocketMappingIndex();
 
-		std::shared_ptr<WebRTCLogicSystem> getWebRTCLogicSystem();
+			std::shared_ptr<WebRTCLogicSystem> getWebRTCLogicSystem();
 
-	private:
+		private:
 
-		boost::asio::io_context & ioContext;
+			boost::asio::io_context& ioContext;
 
-		int channelIndex;
+			int channelIndex;
 
-		tbb::concurrent_unordered_map<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSignalSocketMap;
+			tbb::concurrent_unordered_map<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSignalSocketMap;
 
-		WebRTCSignalServer* webrtcSignalServer;
+			WebRTCSignalServer* webrtcSignalServer;
 
-		size_t hashSize = std::thread::hardware_concurrency() * 2;
+			size_t hashSize = std::thread::hardware_concurrency() * 2;
 
-		tbb::concurrent_unordered_map<std::string, int> actorSocketMappingIndex;
+			tbb::concurrent_unordered_map<std::string, int> actorSocketMappingIndex;
 
-		tbb::concurrent_lru_cache<std::string, int> localRouteCache ;
+			tbb::concurrent_lru_cache<std::string, int> localRouteCache;
 
-		std::hash<std::string> hasher;
+			std::hash<std::string> hasher;
 
-		std::shared_ptr<WebRTCLogicSystem> webrtcLogicSystem;
+			std::shared_ptr<WebRTCLogicSystem> webrtcLogicSystem;
 
-		std::unique_ptr<WebRTCMysqlManager> webrtcMysqlManager;
-		
-	};
+			std::unique_ptr<WebRTCMysqlManager> webrtcMysqlManager;
+
+		};
+	}
 }
 

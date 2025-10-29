@@ -11,42 +11,44 @@
 #include "concurrentqueue.h"
 
 
-namespace Hope {
+namespace hope {
 
-	class WebRTCSignalData;
+	namespace core {
+		class WebRTCSignalData;
 
-	class WebRTCLogicSystem : public std::enable_shared_from_this<WebRTCLogicSystem>
-	{
+		class WebRTCLogicSystem : public std::enable_shared_from_this<WebRTCLogicSystem>
+		{
 
-	public:
+		public:
 
-		WebRTCLogicSystem();
+			WebRTCLogicSystem();
 
-		~WebRTCLogicSystem();
+			~WebRTCLogicSystem();
 
-		WebRTCLogicSystem(const WebRTCLogicSystem& logic) = delete;
+			WebRTCLogicSystem(const WebRTCLogicSystem& logic) = delete;
 
-		void operator=(const WebRTCLogicSystem& logic) = delete;
+			void operator=(const WebRTCLogicSystem& logic) = delete;
 
-		void postMessageToQueue(std::shared_ptr<WebRTCSignalData> data);
+			void postMessageToQueue(std::shared_ptr<WebRTCSignalData> data);
 
-		void RunEventLoop();
+			void RunEventLoop();
 
-		boost::asio::io_context& getIoCompletePorts();
+			boost::asio::io_context& getIoCompletePorts();
 
-	private:
+		private:
 
-		void initHandlers();
+			void initHandlers();
 
-		std::thread threads;
+			std::thread threads;
 
-		boost::asio::io_context ioContext;
+			boost::asio::io_context ioContext;
 
-		std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
+			std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
 
-		std::unordered_map<int,std::function<void(std::shared_ptr<WebRTCSignalData>)>> webrtcHandlers;
+			std::unordered_map<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>)>> webrtcHandlers;
 
-	};
+		};
+	}
 
 }
 
