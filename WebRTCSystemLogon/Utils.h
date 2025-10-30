@@ -11,13 +11,13 @@
 #include <cstdint>
 
 #ifdef _MSC_VER
-#include <intrin.h>  // MSVC ĞèÒªÕâ¸ö
+#include <intrin.h>  // MSVC éœ€è¦è¿™ä¸ª
 #pragma intrinsic(_mm256_fmadd_ps)
 #else
-#include <cpuid.h>   // GCC/Clang ĞèÒªÕâ¸ö
+#include <cpuid.h>   // GCC/Clang éœ€è¦è¿™ä¸ª
 #endif
 
-// ÈÕÖ¾¼¶±ğÃ¶¾Ù
+// æ—¥å¿—çº§åˆ«æšä¸¾
 typedef enum {
     LOG_INFO,
     LOG_WARNING,
@@ -25,26 +25,26 @@ typedef enum {
     LOG_DEBUG
 } LogLevel;
 
-// ÈÕÖ¾µÄºê¶¨Òå
+// æ—¥å¿—çš„å®å®šä¹‰
 #define LOG_INFO(fmt, ...)    log_message(LOG_INFO, fmt, ##__VA_ARGS__)
 #define LOG_WARNING(fmt, ...) log_message(LOG_WARNING, fmt, ##__VA_ARGS__)
 #define LOG_ERROR(fmt, ...)   log_message(LOG_ERROR, fmt, ##__VA_ARGS__)
 #define LOG_DEBUG(fmt, ...)   log_message(LOG_DEBUG, fmt, ##__VA_ARGS__)
 
-// ÎŞÑÕÉ«°æ±¾µÄºê
+// æ— é¢œè‰²ç‰ˆæœ¬çš„å®
 #define LOG_INFO_PLAIN(fmt, ...)    log_message_plain(LOG_INFO, fmt, ##__VA_ARGS__)
 #define LOG_WARNING_PLAIN(fmt, ...) log_message_plain(LOG_WARNING, fmt, ##__VA_ARGS__)
 #define LOG_ERROR_PLAIN(fmt, ...)   log_message_plain(LOG_ERROR, fmt, ##__VA_ARGS__)
 #define LOG_DEBUG_PLAIN(fmt, ...)   log_message_plain(LOG_DEBUG, fmt, ##__VA_ARGS__)
 
-// ANSIÑÕÉ«´úÂë
+// ANSIé¢œè‰²ä»£ç 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_RED     "\033[91m"
 #define COLOR_GREEN   "\033[92m"
 #define COLOR_YELLOW  "\033[93m"
 #define COLOR_BLUE    "\033[94m"
 
-// º¯ÊıÉùÃ÷
+// å‡½æ•°å£°æ˜
 void get_timestamp(char* buffer, size_t size);
 void get_level_info(LogLevel level, const char** level_str, const char** color);
 void log_message(LogLevel level, const char* format, ...);
@@ -73,19 +73,19 @@ inline void fastCopy(void* dst, const void* src, size_t size) {
     uint8_t* d = (uint8_t*)dst;
     const uint8_t* s = (const uint8_t*)src;
 
-    // Ğ¡Êı¾İÖ±½ÓÓÃ memcpy£¨±àÒëÆ÷ÓÅ»¯¸üºÃ£©
+    // å°æ•°æ®ç›´æ¥ç”¨ memcpyï¼ˆç¼–è¯‘å™¨ä¼˜åŒ–æ›´å¥½ï¼‰
     if (size < 128) {
         memcpy(d, s, size);
         return;
     }
 
-    // ¼ì²é AVX2 Ö§³Ö
+    // æ£€æŸ¥ AVX2 æ”¯æŒ
     if (!hasAVX2()) {
         memcpy(d, s, size);
         return;
     }
 
-    // AVX2 ÓÅ»¯Â·¾¶
+    // AVX2 ä¼˜åŒ–è·¯å¾„
     size_t chunks = size / 128;
     for (size_t i = 0; i < chunks; i++) {
         __m256i v0 = _mm256_loadu_si256((const __m256i*)(s + 0));
@@ -102,7 +102,7 @@ inline void fastCopy(void* dst, const void* src, size_t size) {
         d += 128;
     }
 
-    // ´¦ÀíÊ£Óà
+    // å¤„ç†å‰©ä½™
     size_t remaining = size % 128;
     if (remaining > 0) {
         memcpy(d, s, remaining);

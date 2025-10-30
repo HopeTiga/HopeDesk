@@ -1,4 +1,4 @@
-﻿#include "ScreenCapture.h"
+#include "ScreenCapture.h"
 #include <algorithm>
 #include <thread>
 #include <d3dcompiler.h>

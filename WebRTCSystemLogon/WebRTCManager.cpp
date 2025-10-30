@@ -1,4 +1,4 @@
-﻿#include "WebRTCManager.h"
+#include "WebRTCManager.h"
 
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -198,12 +198,12 @@ void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* des
         webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error);
 
     if (modifiedDesc) {
-		Logger::getInstance()->info("Set modified SDP with playout delay optimization");
+        Logger::getInstance()->info("Set modified SDP with playout delay optimization");
         peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(),
             modifiedDesc.release());
     }
     else {
-		Logger::getInstance()->error("Failed to parse modified SDP: " + error.description);
+        Logger::getInstance()->error("Failed to parse modified SDP: " + error.description);
         // 如果修改失败，使用原始描述
         peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(), desc);
     }

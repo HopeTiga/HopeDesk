@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #define WEBRTC_WIN 1
 #define WEBRTC_ARCH_LITTLE_ENDIAN 1
 #define NOMINMAX 1
@@ -730,6 +730,7 @@ private:
 		encoding.bitrate_priority = 4.0;
         encoding.max_framerate = 120;
         encoding.scale_resolution_down_by = 1.0;
+        encoding.bitrate_priority = 1.0;
         encoding.scalability_mode = "L1T1";
         encoding.network_priority = webrtc::Priority::kHigh;
         return encoding;

@@ -1,8 +1,9 @@
 #include "CursorHooks.h"
 #include <iostream>
+#include "Logger.h"
 #include "Utils.h"
 
-// 静态成员定义
+// Static member definition
 CursorHooks* CursorHooks::instance = nullptr;
 
 CursorHooks::~CursorHooks()
@@ -24,10 +25,10 @@ void CursorHooks::startHooks()
     instance = this;
     isRunning = true;
 
-    // 在独立线程中运行消息循环
+    // Run message loop in a separate thread
     hookThread = std::thread(&CursorHooks::hookThreadProc, this);
 
-    // 等待钩子安装完成
+    // Wait for hook installation to complete
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
@@ -39,9 +40,9 @@ void CursorHooks::stopHooks()
 
     isRunning = false;
 
-    // 发送退出消息到钩子线程
+    // Send exit message to hook thread
     if (hookThread.joinable()) {
-        // 向钩子线程发送WM_QUIT消息
+        // Send WM_QUIT message to hook thread
         PostThreadMessage(GetThreadId(hookThread.native_handle()), WM_QUIT, 0, 0);
         hookThread.join();
     }
@@ -51,47 +52,46 @@ void CursorHooks::stopHooks()
 
 void CursorHooks::hookThreadProc()
 {
-    // 安装低级鼠标钩子
+    // Install low-level mouse hook
     mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
 
     if (!mouseHook) {
-        std::cout << "无法安装鼠标钩子，错误代码: " << GetLastError() << std::endl;
+        Logger::getInstance()->error("Failed to install mouse hook, error code: " + std::to_string(GetLastError()));
         isRunning = false;
         return;
     }
 
-    std::cout << "鼠标钩子安装成功！" << std::endl;
+    Logger::getInstance()->info("mouseHooks Installed");
 
-    // 消息循环（必须的，否则钩子不工作）
+    // Message loop (required, otherwise hook won't work)
     MSG msg;
     while (isRunning && GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
 
-    // 卸载钩子
+    // Uninstall hook
     if (mouseHook) {
         UnhookWindowsHookEx(mouseHook);
         mouseHook = nullptr;
-        std::cout << "鼠标钩子已卸载" << std::endl;
+        Logger::getInstance()->info("mouseHooks Uninstalled");
     }
 }
 
 LRESULT CALLBACK CursorHooks::LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode >= 0 && instance && instance->isRunning) {
-        // 鼠标事件发生时检查光标
+        // Check cursor when mouse event occurs
         instance->checkCursorChange();
     }
 
-    // 继续传递消息
+    // Continue passing the message
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-
 void CursorHooks::checkCursorChange()
 {
-    // 获取当前光标
+    // Get current cursor
     CURSORINFO cursorInfo = { sizeof(CURSORINFO) };
     if (!GetCursorInfo(&cursorInfo)) {
         return;
@@ -99,14 +99,14 @@ void CursorHooks::checkCursorChange()
 
     HCURSOR currentCursor = cursorInfo.hCursor;
 
-    // 光标没变化，直接返回
+    // Cursor unchanged, return directly
     if (currentCursor == lastCursor) {
         return;
     }
 
     lastCursor = currentCursor;
 
-    std::cout << "检测到新光标: " << currentCursor << std::endl;
+    Logger::getInstance()->debug("Detected new cursor: " + std::to_string(reinterpret_cast<uintptr_t>(currentCursor)));
 
 #pragma pack(push,1)
     struct Cursors {
@@ -122,7 +122,7 @@ void CursorHooks::checkCursorChange()
     if (cursorCaches.find(currentCursor) == cursorCaches.end()) {
         cursorCaches[currentCursor] = cursorCaches.size();
 
-        // 如果有处理器，获取光标数据并调用
+        // If handler exists, get cursor data and call it
         if (cursorHandler && currentCursor) {
             unsigned char* bitmapData = nullptr;
             size_t bitmapSize = 0;
@@ -132,7 +132,7 @@ void CursorHooks::checkCursorChange()
             if (bitmapData && bitmapSize > 0) {
                 int index = cursorCaches[currentCursor];
 
-                // 获取光标信息
+                // Get cursor information
                 ICONINFO iconInfo = { 0 };
                 int hotX = 0, hotY = 0;
                 int width = 0, height = 0;
@@ -141,7 +141,7 @@ void CursorHooks::checkCursorChange()
                     hotX = iconInfo.xHotspot;
                     hotY = iconInfo.yHotspot;
 
-                    // 获取宽度和高度
+                    // Get width and height
                     if (iconInfo.hbmColor) {
                         BITMAP bm = { 0 };
                         GetObject(iconInfo.hbmColor, sizeof(BITMAP), &bm);
@@ -155,10 +155,10 @@ void CursorHooks::checkCursorChange()
                         height = bm.bmHeight / 2;
                     }
 
-                    std::cout << "光标热点: (" << hotX << ", " << hotY << ")" << std::endl;
-                    std::cout << "光标尺寸: " << width << "x" << height << std::endl;
+                    Logger::getInstance()->debug("Cursor hotspot: (" + std::to_string(hotX) + ", " + std::to_string(hotY) + ")");
+                    Logger::getInstance()->debug("Cursor size: " + std::to_string(width) + "x" + std::to_string(height));
 
-                    // 清理ICONINFO资源
+                    // Clean up ICONINFO resources
                     if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
                     if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
                 }
@@ -166,20 +166,20 @@ void CursorHooks::checkCursorChange()
                 cursorHotPos.emplace_back(hotX, hotY);
                 cursorSizes.emplace_back(width, height);
 
-                // 分配内存：结构体 + 位图数据
+                // Allocate memory: struct + bitmap data
                 size_t totalSize = sizeof(Cursors) + bitmapSize;
                 unsigned char* finalData = new unsigned char[totalSize];
 
-                // 直接将结构体写入缓冲区
+                // Write struct directly to buffer
                 Cursors* cursors = reinterpret_cast<Cursors*>(finalData);
-                cursors->type = 1;  // 新光标数据
+                cursors->type = 1;  // New cursor data
                 cursors->index = index;
                 cursors->width = width;
                 cursors->height = height;
                 cursors->hotX = hotX;
                 cursors->hotY = hotY;
 
-                // 复制位图数据到结构体后面
+                // Copy bitmap data after struct
                 fastCopy(finalData + sizeof(Cursors), bitmapData, bitmapSize);
 
                 if (cursorHandler) {
@@ -191,24 +191,24 @@ void CursorHooks::checkCursorChange()
         }
     }
     else {
-        // 已缓存的光标，只发送索引
+        // Cached cursor, send index only
         int index = cursorCaches[currentCursor];
 
-        // 边界检查
+        // Bounds check
         if (index >= cursorHotPos.size() || index >= cursorSizes.size()) {
-            std::cerr << "Invalid cursor cache index: " << index << std::endl;
+            Logger::getInstance()->error("Invalid cursor cache index: " + std::to_string(index));
             return;
         }
 
         std::pair<int, int> cursorPos = cursorHotPos[index];
         std::pair<int, int> cursorSize = cursorSizes[index];
 
-        // 只需要分配结构体大小
+        // Allocate only struct size
         unsigned char* data = new unsigned char[sizeof(Cursors)];
 
-        // 直接使用结构体指针操作
+        // Operate directly using struct pointer
         Cursors* cursors = reinterpret_cast<Cursors*>(data);
-        cursors->type = 0;  // 光标索引消息
+        cursors->type = 0;  // Cursor index message
         cursors->index = index;
         cursors->width = cursorSize.first;
         cursors->height = cursorSize.second;
@@ -220,8 +220,6 @@ void CursorHooks::checkCursorChange()
         }
     }
 }
-
-
 
 void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, size_t& size)
 {
@@ -243,11 +241,11 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
     }
 
     if (!GetIconInfo(hCursor, &iconInfo)) {
-        std::cout << "GetIconInfo失败，错误代码: " << GetLastError() << std::endl;
+        Logger::getInstance()->error("GetIconInfo failed, error code: " + std::to_string(GetLastError()));
         return;
     }
 
-    // 获取位图信息
+    // Get bitmap information
     if (iconInfo.hbmColor) {
         GetObject(iconInfo.hbmColor, sizeof(BITMAP), &bmColor);
         hasColor = true;
@@ -257,23 +255,23 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
         GetObject(iconInfo.hbmMask, sizeof(BITMAP), &bmMask);
     }
 
-    // 使用有颜色位图或掩码位图的尺寸
+    // Use size from color bitmap or mask bitmap
     width = hasColor ? bmColor.bmWidth : bmMask.bmWidth;
     height = hasColor ? bmColor.bmHeight : bmMask.bmHeight / 2;
 
     if (width <= 0 || height <= 0) {
-        std::cout << "无效的光标尺寸: " << width << "x" << height << std::endl;
+        Logger::getInstance()->warning("Invalid cursor size: " + std::to_string(width) + "x" + std::to_string(height));
         goto cleanup;
     }
 
-    std::cout << "光标尺寸: " << width << "x" << height << std::endl;
+    Logger::getInstance()->debug("Cursor size: " + std::to_string(width) + "x" + std::to_string(height));
 
-    // 计算需要的内存大小
+    // Calculate required memory size
     size = width * height * bytesPerPixel;
     data = new unsigned char[size];
     memset(data, 0, size);
 
-    // 获取位图数据
+    // Get bitmap data
     hdc = GetDC(NULL);
     hdcMem = CreateCompatibleDC(hdc);
 
@@ -287,12 +285,12 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
         bmi.bmiHeader.biCompression = BI_RGB;
 
         if (hasColor) {
-            // 彩色光标 - 直接获取原始颜色
+            // Color cursor - Get original colors directly
             if (GetDIBits(hdcMem, iconInfo.hbmColor, 0, height, data, &bmi, DIB_RGB_COLORS)) {
-                std::cout << "成功获取彩色光标数据(保持原始颜色)" << std::endl;
+                Logger::getInstance()->debug("Successfully got color cursor data (preserving original colors)");
             }
             else {
-                std::cout << "GetDIBits失败，错误代码: " << GetLastError() << std::endl;
+                Logger::getInstance()->error("GetDIBits failed, error code: " + std::to_string(GetLastError()));
                 delete[] data;
                 data = nullptr;
                 size = 0;
@@ -300,7 +298,7 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
             }
         }
         else {
-            // 单色光标处理
+            // Monochrome cursor handling
             unsigned char* maskData = new unsigned char[width * bmMask.bmHeight * 4];
             memset(maskData, 0, width * bmMask.bmHeight * 4);
 
@@ -313,13 +311,13 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
             bmiMask.bmiHeader.biCompression = BI_RGB;
 
             if (GetDIBits(hdcMem, iconInfo.hbmMask, 0, bmMask.bmHeight, maskData, &bmiMask, DIB_RGB_COLORS)) {
-                // 处理单色光标 - 保持原始黑白模式
+                // Handle monochrome cursor - Preserve original black and white mode
                 for (int i = 0; i < width * height; i++) {
                     int idx = i * 4;
-                    int xorIdx = (i + width * height) * 4; // XOR掩码在下半部分
+                    int xorIdx = (i + width * height) * 4; // XOR mask in lower half
 
                     if (maskData[xorIdx] > 0) {
-                        // XOR白色 -> 显示白色
+                        // XOR white -> Display white
                         data[idx] = 255;     // R
                         data[idx + 1] = 255; // G
                         data[idx + 2] = 255; // B
@@ -328,11 +326,11 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
                     else {
                         int andIdx = i * 4;
                         if (maskData[andIdx] > 0) {
-                            // AND白色 -> 透明
+                            // AND white -> Transparent
                             data[idx + 3] = 0; // A
                         }
                         else {
-                            // AND黑色 -> 显示黑色（不是白色）
+                            // AND black -> Display black (not white)
                             data[idx] = 0;       // R
                             data[idx + 1] = 0;   // G
                             data[idx + 2] = 0;   // B
@@ -340,10 +338,10 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
                         }
                     }
                 }
-                std::cout << "成功获取单色光标数据(保持原始黑白)" << std::endl;
+                Logger::getInstance()->debug("Successfully got monochrome cursor data (preserving original black and white)");
 
-                // ====== 添加黑色边框 ======
-    // 创建临时缓冲区存储原始数据
+                // ====== Add black border ======
+                // Create temporary buffer to store original data
                 unsigned char* tempData = new unsigned char[size];
                 fastCopy(tempData, data, size);
 
@@ -351,11 +349,11 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
                     for (int x = 0; x < width; x++) {
                         int idx = (y * width + x) * 4;
 
-                        // 只处理透明像素
+                        // Process only transparent pixels
                         if (tempData[idx + 3] == 0) {
                             bool hasOpaqueNeighbor = false;
 
-                            // 检查8个方向的邻居
+                            // Check 8 neighboring directions
                             for (int dy = -1; dy <= 1; dy++) {
                                 for (int dx = -1; dx <= 1; dx++) {
                                     if (dx == 0 && dy == 0) continue;
@@ -374,9 +372,9 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
                                 if (hasOpaqueNeighbor) break;
                             }
 
-                            // 如果有不透明邻居，添加纯黑色边框
+                            // If has opaque neighbor, add pure black border
                             if (hasOpaqueNeighbor) {
-                                // 使用RGB格式设置纯黑色
+                                // Set pure black in RGB format
                                 data[idx] = 0;       // R
                                 data[idx + 1] = 0;   // G
                                 data[idx + 2] = 0;   // B
@@ -386,7 +384,7 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
                     }
                 }
                 delete[] tempData;
-                std::cout << "已添加黑色边框(RGB)" << std::endl;
+                Logger::getInstance()->debug("Black border added (RGB)");
             }
             else {
                 delete[] data;
@@ -397,8 +395,6 @@ void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, siz
             }
             delete[] maskData;
         }
-
-        // 移除了人工添加黑色边框的代码 - 保持原始光标外观
     }
 
 cleanup:
