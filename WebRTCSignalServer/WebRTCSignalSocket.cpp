@@ -10,7 +10,6 @@ namespace hope {
     namespace core{
         WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalManager* webrtcSignalManager)
             : ioContext(ioContext)
-            , writerChannel(ioContext, 1)
             , resolver(ioContext)
             , registrationTimer(ioContext)
             , webSocket(ioContext)
@@ -110,8 +109,6 @@ namespace hope {
 
                 });
 
-            boost::asio::co_spawn(ioContext, writerCoroutine(), [](std::exception_ptr p) {});
-
             webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                 boost::beast::role_type::server));
 
@@ -167,9 +164,6 @@ namespace hope {
                 }
             }
 
-            // 5. 关闭 writerChannel
-            writerChannel.close(); // 确保 writerCoroutine 退出等待
-
 
             LOG_INFO("WebRTCSignalSocket is close");
         }
@@ -196,52 +190,6 @@ namespace hope {
 
         }
 
-        boost::asio::awaitable<void> WebRTCSignalSocket::writerCoroutine() {
-
-            for (;;) {
-
-                std::string str;
-
-                while (writerQueues.try_dequeue(str)) {
-
-                    co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
-
-                }
-
-                if (!isStop && !isSuppendWrite.exchange(true)) {
-
-                    co_await writerChannel.async_receive(boost::asio::use_awaitable);
-
-                }
-                else {
-
-                    std::string str;
-
-                    while (writerQueues.try_dequeue(str)) {
-
-                        co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
-
-                    }
-
-                    co_return;
-                }
-
-            }
-
-            co_return;
-
-        }
-
-        void WebRTCSignalSocket::writerAsync(std::string str) {
-
-            writerQueues.enqueue(str);
-
-            if (isSuppendWrite.exchange(false)) {
-                writerChannel.async_send(boost::system::error_code(), [](boost::system::error_code ec) {});
-            }
-
-        }
-
         void WebRTCSignalSocket::setOnDisConnectHandle(std::function<void(std::string)> handle)
         {
             this->onDisConnectHandle = handle;
@@ -250,21 +198,21 @@ namespace hope {
 
         void WebRTCSignalSocket::setAccountID(const std::string& accountID) { this->accountID = accountID; }
 
-        std::string WebRTCSignalSocket::getAccountID() { return accountID = this->accountID; }
+        std::string WebRTCSignalSocket::getAccountID() { return  this->accountID; }
 
         void WebRTCSignalSocket::setTargetID(const std::string& targetID) { this->targetID = targetID; }
 
-        std::string WebRTCSignalSocket::getTargetID(std::string& targetID) { return  targetID = this->targetID; }
+        std::string WebRTCSignalSocket::getTargetID(std::string& targetID) { return  this->targetID; }
 
         void WebRTCSignalSocket::setHashIndex(size_t index) { this->hashIndex = index; }
 
-        size_t WebRTCSignalSocket::getHashIndex(size_t& index) { return  index = this->hashIndex; }
+        size_t WebRTCSignalSocket::getHashIndex(size_t& index) { return  this->hashIndex; }
 
         void WebRTCSignalSocket::setRegistered(bool isRegistered) { this->isRegistered = isRegistered; }
 
-        void WebRTCSignalSocket::setCloudGame(bool cloudGame) { this->cloudGame.store(cloudGame); };
+        void WebRTCSignalSocket::setCloudProcess(bool cloudGame) { this->cloudProcess.store(cloudGame); };
 
-        bool WebRTCSignalSocket::getCloudGame() { return this->cloudGame.load(); };
+        bool WebRTCSignalSocket::getCloudProcess() { return this->cloudProcess.load(); };
 
     }
 

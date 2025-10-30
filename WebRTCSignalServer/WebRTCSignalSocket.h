@@ -34,10 +34,6 @@ namespace hope {
 
 			boost::asio::awaitable<void> reviceCoroutine();
 
-			boost::asio::awaitable<void> writerCoroutine();
-
-			void writerAsync(std::string str);
-
 			void setAccountID(const std::string& accountID);
 
 			std::string getAccountID();
@@ -52,10 +48,9 @@ namespace hope {
 
 			void setRegistered(bool isRegistered);
 
-			void setCloudGame(bool cloudGame);
+			void setCloudProcess(bool cloudProcess);
 
-			bool getCloudGame();
-
+			bool getCloudProcess();
 		public:
 
 			void setOnDisConnectHandle(std::function<void(std::string)> handle);
@@ -76,10 +71,6 @@ namespace hope {
 
 			boost::asio::ip::tcp::resolver resolver;
 
-			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
-
-			boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
-
 			std::atomic<bool> isStop{ false };
 
 			std::string accountID;
@@ -96,7 +87,7 @@ namespace hope {
 
 			int channelIndex;
 
-			std::atomic<bool> cloudGame{ false };
+			std::atomic<bool> cloudProcess{ false };
 
 		private:
 
