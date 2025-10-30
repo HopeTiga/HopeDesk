@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <QRhiWidget>
 #include <QTimer>
 #include <QPushButton>

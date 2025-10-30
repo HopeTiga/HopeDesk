@@ -1,4 +1,4 @@
-﻿#include "MainWindow.h"
+#include "MainWindow.h"
 #include "VideoWidget.h"
 #include "webrtcremoteclient.h"
 #include <QApplication>

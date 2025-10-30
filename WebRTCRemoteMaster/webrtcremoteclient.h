@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #ifndef WEBRTCREMOTECLIENT_H
 #define WEBRTCREMOTECLIENT_H
 

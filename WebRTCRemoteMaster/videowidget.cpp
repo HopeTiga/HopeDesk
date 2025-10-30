@@ -1,4 +1,4 @@
-﻿#include "videowidget.h"
+#include "videowidget.h"
 #include "webrtcremoteclient.h"
 #include "Logger.h"
 #include <QVBoxLayout>
