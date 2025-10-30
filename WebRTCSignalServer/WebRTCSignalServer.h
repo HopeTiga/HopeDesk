@@ -17,20 +17,6 @@ namespace hope {
 	namespace core {
         class WebRTCSignalManager;
 
-        enum class WebRTCRequestState {
-            REGISTER = 0,
-            REQUEST = 1,
-            RESTART = 2,
-            STOPREMOTE = 3,
-            CLOSE = 4,
-            CLOUD_PROCESS_LOGIN = 5,
-            CLOUD_PROCESS_LOGOUT = 6,
-            CLOUD_PROCESS_HEARTBEAT = 7,
-            CLOUD_GAME_START = 8,
-            CLOUD_GAME_STOP = 9,
-        };
-
-
         class WebRTCSignalServer {
         public:
             WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, size_t size = std::thread::hardware_concurrency() * 2);
@@ -49,7 +35,7 @@ namespace hope {
             // 新增：优雅关闭方法
             void shutdown();
 
-            void postAsyncTask(int channelIndex, std::function<void(std::shared_ptr<WebRTCSignalManager>)> asyncHandle);
+            void postAsyncTask(int channelIndex, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>)> asyncHandle);
 
         private:
 

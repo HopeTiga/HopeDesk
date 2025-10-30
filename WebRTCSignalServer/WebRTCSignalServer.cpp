@@ -83,7 +83,7 @@ namespace hope {
         }
 
         void WebRTCSignalServer::postAsyncTask(int channelIndex,
-            std::function<void(std::shared_ptr<WebRTCSignalManager> manager)> asyncHandle)
+            std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager> manager)> asyncHandle)
         {
             // 1. 添加边界检查
             if (channelIndex < 0 || channelIndex >= webrtcSignalManagers.size()) {
@@ -99,9 +99,20 @@ namespace hope {
             }
 
             // 3. 使用 lambda 而不是 std::bind
-            boost::asio::post(manager->getWebRTCLogicSystem()->getIoCompletePorts(),
-                [manager, asyncHandle = std::move(asyncHandle)]() {
-                    asyncHandle(manager);
+            boost::asio::co_spawn(manager->getWebRTCLogicSystem()->getIoCompletePorts(),
+                [manager, asyncHandle = std::move(asyncHandle)]() -> boost::asio::awaitable<void> {
+                    co_await asyncHandle(manager);  // 在协程内部执行
+                }, [this](std::exception_ptr ptr) {
+                    // 正确的异常处理方式
+                    if (ptr) { // 重要：检查是否确实有异常发生
+                        try {
+                            std::rethrow_exception(ptr); // 重新抛出异常
+                        }
+                        catch (const std::exception& e) {
+                            // 现在可以正常捕获并处理了
+                            LOG_ERROR("webrtcSignalServer boost::asio::co_spawn Exception: %s", e.what());
+                        }
+                    }
                 });
         }
 

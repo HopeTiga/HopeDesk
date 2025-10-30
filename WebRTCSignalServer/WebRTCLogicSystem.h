@@ -14,6 +14,23 @@
 namespace hope {
 
 	namespace core {
+
+
+		enum class WebRTCRequestState {
+			REGISTER = 0,
+			REQUEST = 1,
+			RESTART = 2,
+			STOPREMOTE = 3,
+			CLOSE = 4,
+			CLOUD_GAME_SERVERS_REGISTER = 5,
+			CLOUD_PROCESS_LOGIN = 6,
+			CLOUD_PROCESS_LOGOUT = 7,
+			CLOUD_PROCESS_HEARTBEAT = 8,
+			CLOUD_GAME_START = 9,
+			CLOUD_GAME_STOP = 10,
+		};
+
+
 		class WebRTCSignalData;
 
 		class WebRTCLogicSystem : public std::enable_shared_from_this<WebRTCLogicSystem>

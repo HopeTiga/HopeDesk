@@ -56,9 +56,11 @@ namespace hope {
 
             LOG_INFO("Start Async Post Task: %d", mapChannelIndex);
 
-            webrtcSignalServer->postAsyncTask(mapChannelIndex, [self = shared_from_this(), accountID](std::shared_ptr<WebRTCSignalManager> manager) {
+            webrtcSignalServer->postAsyncTask(mapChannelIndex, [self = shared_from_this(), accountID](std::shared_ptr<WebRTCSignalManager> manager) -> boost::asio::awaitable<void> {
 
                 manager->getActorSocketMappingIndex().unsafe_erase(accountID);
+
+                co_return;
 
                 });
             

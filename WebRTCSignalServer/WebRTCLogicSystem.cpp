@@ -97,7 +97,7 @@ namespace hope {
 
             auto self = shared_from_this();
 
-            std::function<boost::asio::awaitable <void>(std::shared_ptr<WebRTCSignalData>, std::string)> forawrdHandler = [self](std::shared_ptr<WebRTCSignalData> data, std::string requestTypeStr)->boost::asio::awaitable<void> {
+            std::function<boost::asio::awaitable <void>(std::shared_ptr<WebRTCSignalData>, std::string)> forwardHandler = [self](std::shared_ptr<WebRTCSignalData> data, std::string requestTypeStr)->boost::asio::awaitable<void> {
                 
                 boost::json::object message = data->json;
 
@@ -134,13 +134,13 @@ namespace hope {
 
                         int mapChannelIndex = data->webrtcSignalManager->hasher(targetID) % data->webrtcSignalManager->hashSize;
 
-                        data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
+                        data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) ->boost::asio::awaitable<void> {
 
                             if (manager->getActorSocketMappingIndex().find(targetID) != manager->getActorSocketMappingIndex().end()) {
 
                                 int targetChannelIndex = manager->getActorSocketMappingIndex()[targetID];
 
-                                self->webrtcSignalServer->postAsyncTask(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
+                                self->webrtcSignalServer->postAsyncTask(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
 
                                     if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
 
@@ -156,6 +156,8 @@ namespace hope {
 
                                         LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
+                                        co_return;
+
                                     }
                                     else {
 
@@ -166,6 +168,8 @@ namespace hope {
                                         webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
                                         LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+
+                                        co_return;
 
                                     }
 
@@ -182,13 +186,15 @@ namespace hope {
 
                                 LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
 
+                                co_return;
+
                             }
 
                             });
                     }
                     else {
 
-                        data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(handles.value(), [=](std::shared_ptr<WebRTCSignalManager> manager) {
+                        data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(handles.value(), [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
 
                             if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
 
@@ -204,18 +210,20 @@ namespace hope {
 
                                 LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
+                                co_return;
+
                             }
                             else {
 
                                 int mapChannelIndex = data->webrtcSignalManager->hasher(targetID) % data->webrtcSignalManager->hashSize;
 
-                                data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
+                                data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
 
                                     if (manager->getActorSocketMappingIndex().find(targetID) != manager->getActorSocketMappingIndex().end()) {
 
                                         int targetChannelIndex = manager->getActorSocketMappingIndex()[targetID];
 
-                                        self->webrtcSignalServer->postAsyncTask(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) {
+                                        self->webrtcSignalServer->postAsyncTask(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager) ->boost::asio::awaitable<void> {
 
                                             if (manager->webrtcSignalSocketMap.find(targetID) != manager->webrtcSignalSocketMap.end()) {
 
@@ -231,6 +239,8 @@ namespace hope {
 
                                                 LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
+                                                co_return;
+
                                             }
                                             else {
 
@@ -241,6 +251,8 @@ namespace hope {
                                                 webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
                                                 LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+
+                                                co_return;
 
                                             }
 
@@ -257,6 +269,7 @@ namespace hope {
 
                                         LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
 
+                                        co_return;
                                     }
 
                                     });
@@ -307,9 +320,11 @@ namespace hope {
 
                 int mapChannelIndex = data->webrtcSignalManager->hasher(accountID) % data->webrtcSignalManager->hashSize;
 
-                data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(mapChannelIndex, [self = data->webrtcSignalManager->shared_from_this(), accountID, mapChannelIndex](std::shared_ptr<WebRTCSignalManager> manager) {
+                data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(mapChannelIndex, [self = data->webrtcSignalManager->shared_from_this(), accountID, mapChannelIndex](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
 
                     manager->getActorSocketMappingIndex()[accountID] = self->channelIndex;
+
+                    co_return;
 
                     });
 
@@ -318,21 +333,21 @@ namespace hope {
 
                 };
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::REQUEST)] = [self, forawrdHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::REQUEST)] = [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
 
-                co_await forawrdHandler(std::move(data),"REQUEST");
+                co_await forwardHandler(std::move(data),"REQUEST");
                
                 };
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::RESTART)] = [self, forawrdHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::RESTART)] = [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
 
-                co_await forawrdHandler(std::move(data), "RESTART");
+                co_await forwardHandler(std::move(data), "RESTART");
 
                 };
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::STOPREMOTE)] = [self, forawrdHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::STOPREMOTE)] = [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
 
-                co_await forawrdHandler(std::move(data), "STOPREMOTE");
+                co_await forwardHandler(std::move(data), "STOPREMOTE");
 
                 };
 
@@ -348,6 +363,102 @@ namespace hope {
 
                 LOG_INFO("收到用户 %s 的 CLOSE 请求，连接已停止", accountID.c_str());
 
+
+                };
+
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::CLOUD_GAME_SERVERS_REGISTER)] = [self](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+                
+                boost::json::object response;
+
+                response["requestType"] = static_cast<int64_t>(WebRTCRequestState::CLOUD_PROCESS_LOGIN);
+
+                auto webrtcSignalSocket = data->webrtcSignalSocket;
+
+                auto json = data->json;
+
+                auto manager = data->webrtcSignalManager;
+
+                auto conn = manager->webrtcMysqlManager->getConnection();
+
+                std::string serverIP = webrtcSignalSocket->getSocket()
+                    .remote_endpoint()
+                    .address()
+                    .to_string();
+
+                boost::mysql::results selectResult;
+
+                boost::mysql::statement stmt = co_await conn->async_prepare_statement("select * from game_servers where ip_address = ?",boost::asio::use_awaitable);
+
+                co_await conn->async_execute(stmt.bind(serverIP),selectResult);
+                
+                if (!selectResult.rows().empty()) {
+                    
+                    response["state"] = 500;
+
+                    response["message"] = "This server ip already be used";
+
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+
+                    co_return;
+
+                }
+
+                // 3. 解析请求字段
+                if (!json.contains("maxProcess") || !json.contains("name") || !json.contains("hostname") ||
+                    !json.contains("location") || !json.contains("region")) {
+                    response["state"] = 400;
+                    response["message"] = "缺少必要字段";
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+                    co_return;
+                }
+
+                boost::uuids::random_generator gen;
+                std::string serverId = boost::uuids::to_string(gen());
+
+                int max_process = json["maxProcess"].as_int64();
+                std::string name = json["name"].as_string().c_str();
+                std::string hostname = json["hostname"].as_string().c_str();
+                std::string location = json["location"].as_string().c_str();
+                std::string region = json["region"].as_string().c_str();
+                std::string tags = json.contains("tags") ? boost::json::serialize(json["tags"]) : "{}";
+                std::string specifications = json.contains("specifications") ? boost::json::serialize(json["specifications"]) : "{}";
+
+                // 4. 插入数据库
+                boost::mysql::statement insertStmt = co_await conn->async_prepare_statement(
+                    R"(INSERT INTO game_servers (server_id, ip_address, name, hostname, location, specifications, max_processes, 
+            current_processes, status, region, tags, last_heartbeat, created_at, updated_at, del_flag) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'online', ?, ?, NOW(), NOW(), NOW(), 0))",
+                    boost::asio::use_awaitable
+                );
+
+                boost::mysql::results insertResult;
+                co_await conn->async_execute(
+                    insertStmt.bind(
+                        serverId, serverIP, name, hostname,
+                        location, specifications, max_process,
+                        region, tags
+                    ), insertResult,
+                    boost::asio::use_awaitable
+                );
+
+
+                // 6. 注册成功响应
+                response["state"] = 200;
+                response["message"] = "注册成功";
+                response["serverId"] = serverId;
+                response["maxProcess"] = max_process;
+
+                webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+
+                manager->webrtcSignalSocketMap[serverId] = webrtcSignalSocket;
+                // 7. 设置 socket 状态
+                webrtcSignalSocket->setRegistered(true);
+
+                webrtcSignalSocket->setAccountID(serverId);  // 可自定义
+
+                LOG_INFO("云游戏服务器注册成功: ID=%llu, IP=%s, Name=%s",
+                    serverId, serverIP.c_str(), name.c_str());
+
+                co_return;
 
                 };
 
@@ -386,13 +497,13 @@ namespace hope {
                 auto register_socket = [&](const std::string& processId) {
                     webrtcSignalSocket->setRegistered(true);
                     webrtcSignalSocket->setAccountID(processId);
-					webrtcSignalSocket->setCloudGame(true);
+					webrtcSignalSocket->setCloudProcess(true);
                     manager->webrtcSignalSocketMap[processId] = webrtcSignalSocket;
                     };
 
                 auto update_current_processes = [&](int64_t cur) -> boost::asio::awaitable<bool> {
-                    boost::mysql::statement stmt = conn->prepare_statement(
-                        "UPDATE game_servers SET current_processes = ? WHERE server_id = ?");
+                    boost::mysql::statement stmt =co_await conn->async_prepare_statement(
+                        "UPDATE game_servers SET current_processes = ? WHERE server_id = ?", boost::asio::use_awaitable);
                     boost::mysql::results r;
                     co_await conn->async_execute(stmt.bind(cur, serverId), r, boost::asio::use_awaitable);
                     co_return r.affected_rows() == 1;
@@ -404,8 +515,8 @@ namespace hope {
 
                 try {
                     // ---------- 1. 验证服务器 ----------
-                    boost::mysql::statement stmt = conn->prepare_statement(
-                        "SELECT * FROM game_servers WHERE server_id = ? AND ip_address = ?");
+                    boost::mysql::statement stmt =co_await conn->async_prepare_statement(
+                        "SELECT * FROM game_servers WHERE server_id = ? AND ip_address = ?", boost::asio::use_awaitable);
                     boost::mysql::results result;
                     co_await conn->async_execute(stmt.bind(serverId, serverIP), result,
                         boost::asio::use_awaitable);
@@ -434,14 +545,14 @@ namespace hope {
                         boost::uuids::random_generator gen;
                         assignedProcessId = boost::uuids::to_string(gen());
 
-                        stmt = conn->prepare_statement(
+                        stmt =co_await conn->async_prepare_statement(
                             "INSERT INTO game_processes "
                             "(process_id, server_id, process_name, game_type, game_version, "
                             "is_idle, startup_parameters, health_status, "
                             "last_health_check, last_heartbeat, started_at, "
                             "created_at, updated_at, del_flag, is_login) "
                             "VALUES (?, ?, ?, ?, ?, 1, '', 'healthy', NULL, NULL, NOW(), "
-                            "        NOW(), NOW(), 0, 0)");
+                            "        NOW(), NOW(), 0, 0)", boost::asio::use_awaitable);
 
                         boost::mysql::results ins;
                         co_await conn->async_execute(
@@ -472,9 +583,9 @@ namespace hope {
                         if (!idle.empty()) {
                             // 复用第一个空闲进程
                             assignedProcessId = idle[0].process_id;
-                            stmt = conn->prepare_statement(
+                            stmt =co_await conn->async_prepare_statement(
                                 "UPDATE game_processes SET is_login = 1, is_idle = 0, last_heartbeat = NOW() "
-                                "WHERE process_id = ?");
+                                "WHERE process_id = ?", boost::asio::use_awaitable);
                             co_await conn->async_execute(stmt.bind(assignedProcessId), result,
                                 boost::asio::use_awaitable);
                             LOG_INFO("复用空闲进程: %s", assignedProcessId.c_str());
@@ -484,14 +595,14 @@ namespace hope {
                             boost::uuids::random_generator gen;
                             assignedProcessId = boost::uuids::to_string(gen());
 
-                            stmt = conn->prepare_statement(
+                            stmt =co_await conn->async_prepare_statement(
                                 "INSERT INTO game_processes "
                                 "(process_id, server_id, process_name, game_type, game_version, "
                                 "is_idle, startup_parameters, health_status, "
                                 "last_health_check, last_heartbeat, started_at, "
                                 "created_at, updated_at, del_flag, is_login) "
                                 "VALUES (?, ?, ?, ?, ?, 0, '', 'healthy', NULL, NULL, NOW(), "
-                                "        NOW(), NOW(), 0, 1)");
+                                "        NOW(), NOW(), 0, 1)", boost::asio::use_awaitable);
 
                             boost::mysql::results ins;
                             co_await conn->async_execute(
