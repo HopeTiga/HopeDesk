@@ -6,10 +6,11 @@
 #include "Utils.h"
 
 namespace hope {
-    
-    namespace core{
+
+    namespace core {
         WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalManager* webrtcSignalManager)
             : ioContext(ioContext)
+            , writerChannel(ioContext, 1)
             , resolver(ioContext)
             , registrationTimer(ioContext)
             , webSocket(ioContext)
@@ -63,7 +64,7 @@ namespace hope {
                 buffer.consume(buffer.size());
             }
             catch (const boost::system::system_error& se) {
-                LOG_ERROR("服务端 WebSocket 握手失败! 错误: %s", se.what());
+                LOG_ERROR("服务端 WebSocket handshake failed! ERROR: %s", se.what());
                 // ... 错误处理 ...
                 closeSocket();
             }
@@ -91,7 +92,7 @@ namespace hope {
 
             // 4. 超时发生，且尚未注册，则关闭连接
             if (!isRegistered.load()) {
-                LOG_WARNING("注册超时 (10s): 连接未注册，自动关闭 socket.");
+                LOG_WARNING("Rgister Timeout (10s): WebRTCSignalSocket not rigster，close socket.");
                 // 调用 stop() 会执行 closeSocket()
                 this->stop();
             }
@@ -109,6 +110,8 @@ namespace hope {
 
                 });
 
+            boost::asio::co_spawn(ioContext, writerCoroutine(), [](std::exception_ptr p) {});
+
             webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                 boost::beast::role_type::server));
 
@@ -117,7 +120,7 @@ namespace hope {
         void WebRTCSignalSocket::stop() {
 
             if (isStop.exchange(true) == false) {
-                LOG_INFO("正在停止连接...");
+                LOG_INFO("stop connect...");
                 // 确保所有 IO 操作中断
                 closeSocket();
             }
@@ -133,7 +136,7 @@ namespace hope {
             webSocket.next_layer().cancel(ec);
 
             if (ec) {
-                LOG_ERROR("WebRTCSignalSocket::closeSocket() can't cancel Socket 操作: %s", ec.message().c_str());
+                LOG_ERROR("WebRTCSignalSocket::closeSocket() can't cancel Socket: %s", ec.message().c_str());
             }
 
             registrationTimer.cancel();
@@ -164,6 +167,9 @@ namespace hope {
                 }
             }
 
+            // 5. 关闭 writerChannel
+            writerChannel.close(); // 确保 writerCoroutine 退出等待
+
 
             LOG_INFO("WebRTCSignalSocket is close");
         }
@@ -186,6 +192,52 @@ namespace hope {
 
                 webrtcSignalManager->getWebRTCLogicSystem()->postMessageToQueue(data);
 
+            }
+
+        }
+
+        boost::asio::awaitable<void> WebRTCSignalSocket::writerCoroutine() {
+
+            for (;;) {
+
+                std::string str;
+
+                while (writerQueues.try_dequeue(str)) {
+
+                    co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
+
+                }
+
+                if (!isStop && !isSuppendWrite.exchange(true)) {
+
+                    co_await writerChannel.async_receive(boost::asio::use_awaitable);
+
+                }
+                else {
+
+                    std::string str;
+
+                    while (writerQueues.try_dequeue(str)) {
+
+                        co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
+
+                    }
+
+                    co_return;
+                }
+
+            }
+
+            co_return;
+
+        }
+
+        void WebRTCSignalSocket::writerAsync(std::string str) {
+
+            writerQueues.enqueue(str);
+
+            if (isSuppendWrite.exchange(false)) {
+                writerChannel.async_send(boost::system::error_code(), [](boost::system::error_code ec) {});
             }
 
         }

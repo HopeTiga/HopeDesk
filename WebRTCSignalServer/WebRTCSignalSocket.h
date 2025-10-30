@@ -11,7 +11,7 @@
 namespace hope {
 
 	namespace core {
-		
+
 		class WebRTCSignalManager;
 
 		class WebRTCSignalSocket : public std::enable_shared_from_this<WebRTCSignalSocket>
@@ -33,6 +33,10 @@ namespace hope {
 			void stop();
 
 			boost::asio::awaitable<void> reviceCoroutine();
+
+			boost::asio::awaitable<void> writerCoroutine();
+
+			void writerAsync(std::string str);
 
 			void setAccountID(const std::string& accountID);
 
@@ -70,6 +74,10 @@ namespace hope {
 			boost::beast::websocket::stream<boost::asio::ip::tcp::socket> webSocket;
 
 			boost::asio::ip::tcp::resolver resolver;
+
+			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
+
+			boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
 
 			std::atomic<bool> isStop{ false };
 

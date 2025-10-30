@@ -15,7 +15,6 @@ namespace hope {
 
 	namespace core {
 
-
 		enum class WebRTCRequestState {
 			REGISTER = 0,
 			REQUEST = 1,
@@ -28,6 +27,7 @@ namespace hope {
 			CLOUD_PROCESS_HEARTBEAT = 8,
 			CLOUD_GAME_START = 9,
 			CLOUD_GAME_STOP = 10,
+			USER_GET_GAMES_PROCESS_ID = 11
 		};
 
 

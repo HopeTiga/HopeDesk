@@ -86,7 +86,7 @@ namespace hope {
             }
             else {
 
-                LOG_ERROR("未知的 WebRTC 请求类型: %d", type);
+                LOG_ERROR("Unknow WebRTC Request Type: %d", type);
 
             }
 
@@ -106,7 +106,7 @@ namespace hope {
                 int64_t requestTypeValue = message["requestType"].as_int64();
 
                 if (!message.contains("accountID") || !message.contains("targetID")) {
-                    LOG_WARNING("转发消息缺少 accountID 或 targetID.");
+                    LOG_WARNING("Forward Message Missing accountID or targetID.");
                     co_return;
                 }
 
@@ -152,10 +152,9 @@ namespace hope {
                                         forwardMessage["state"] = 200;
                                         forwardMessage["message"] = "WebRTCSignalServer forward";
 
-                                        co_await manager->webrtcSignalSocketMap[targetID]->getWebSocket().async_write(
-                                            boost::asio::buffer(boost::json::serialize(forwardMessage)));
+                                        manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
 
-                                        LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                        LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                         co_return;
 
@@ -166,10 +165,9 @@ namespace hope {
                                         response["requestType"] = requestTypeValue;
                                         response["state"] = 404;
                                         response["message"] = "targetID is not register";
-                                        co_await webrtcSignalSocket->getWebSocket().async_write(
-                                            boost::asio::buffer(boost::json::serialize(response))); // 响应发送方
+                                        webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                        LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                        LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
 
                                         co_return;
 
@@ -184,10 +182,9 @@ namespace hope {
                                 response["requestType"] = requestTypeValue;
                                 response["state"] = 404;
                                 response["message"] = "targetID is not register";
-                                co_await webrtcSignalSocket->getWebSocket().async_write(
-                                    boost::asio::buffer(boost::json::serialize(response))); // 响应发送方
+                                webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
 
                                 co_return;
 
@@ -209,10 +206,9 @@ namespace hope {
                                 forwardMessage["state"] = 200;
                                 forwardMessage["message"] = "WebRTCSignalServer forward";
 
-                                co_await manager->webrtcSignalSocketMap[targetID]->getWebSocket().async_write(
-                                    boost::asio::buffer(boost::json::serialize(forwardMessage)));
+                                manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
 
-                                LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                 co_return;
 
@@ -239,10 +235,9 @@ namespace hope {
                                                 forwardMessage["state"] = 200;
                                                 forwardMessage["message"] = "WebRTCSignalServer forward";
 
-                                                co_await manager->webrtcSignalSocketMap[targetID]->getWebSocket().async_write(
-                                                    boost::asio::buffer(boost::json::serialize(forwardMessage)));
+                                                manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
 
-                                                LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                                LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                                 co_return;
 
@@ -253,10 +248,9 @@ namespace hope {
                                                 response["requestType"] = requestTypeValue;
                                                 response["state"] = 404;
                                                 response["message"] = "targetID is not register";
-                                                co_await webrtcSignalSocket->getWebSocket().async_write(
-                                                    boost::asio::buffer(boost::json::serialize(response))); // 响应发送方
+                                                webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                                LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                                LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
 
                                                 co_return;
 
@@ -271,10 +265,9 @@ namespace hope {
                                         response["requestType"] = requestTypeValue;
                                         response["state"] = 404;
                                         response["message"] = "targetID is not register";
-                                        co_await webrtcSignalSocket->getWebSocket().async_write(
-                                            boost::asio::buffer(boost::json::serialize(response))); // 响应发送方
+                                        webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                        LOG_WARNING("目标用户未找到: %s (来自: %s, 请求类型: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                        LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
 
                                         co_return;
                                     }
@@ -294,10 +287,9 @@ namespace hope {
                 boost::json::object forwardMessage = message; // 复制原始消息体
                 forwardMessage["state"] = 200;
                 forwardMessage["message"] = "WebRTCSignalServer forward";
-                co_await targetSocket->getWebSocket().async_write(
-                    boost::asio::buffer(boost::json::serialize(forwardMessage))); // 转发给目标方
+                targetSocket->writerAsync(boost::json::serialize(forwardMessage)); // 转发给目标方
 
-                LOG_INFO("消息转发成功: %s -> %s (请求类型: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                 };
 
@@ -308,7 +300,7 @@ namespace hope {
                 auto webrtcSignalSocket = data->webrtcSignalSocket;
 
                 if (!message.contains("accountID")) {
-                    LOG_WARNING("REGISTER 消息缺少 accountID.");
+                    LOG_WARNING("REGISTER Message Missing accountID.");
                     co_return;
                 }
                 std::string accountID = message["accountID"].as_string().c_str();
@@ -324,8 +316,7 @@ namespace hope {
                 response["state"] = 200;
                 response["message"] = "register successful";
 
-                co_await webrtcSignalSocket->getWebSocket().async_write(
-                    boost::asio::buffer(boost::json::serialize(response)));
+                webrtcSignalSocket->writerAsync(boost::json::serialize(response));
 
                 int mapChannelIndex = data->webrtcSignalManager->hasher(accountID) % data->webrtcSignalManager->hashSize;
 
@@ -338,7 +329,7 @@ namespace hope {
                     });
 
 
-                LOG_INFO("用户注册成功: %s (channelIndex: %d)", accountID.c_str(), data->webrtcSignalManager->channelIndex);
+                LOG_INFO("User Register Successful : %s (channelIndex: %d)", accountID.c_str(), data->webrtcSignalManager->channelIndex);
 
                 };
 
@@ -370,7 +361,7 @@ namespace hope {
                 }
                 data->webrtcSignalSocket->stop(); // 关闭 socket 实例
 
-                LOG_INFO("收到用户 %s 的 CLOSE 请求，连接已停止", accountID.c_str());
+                LOG_INFO("Receive User %s CLOSE Request，WebRTCSignalSocket is Stop", accountID.c_str());
 
 
                 };
@@ -406,8 +397,7 @@ namespace hope {
 
                     response["message"] = "This server ip already be used";
 
-                    co_await webrtcSignalSocket->getWebSocket().async_write(
-                        boost::asio::buffer(boost::json::serialize(response)));
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
 
                     co_return;
 
@@ -418,8 +408,7 @@ namespace hope {
                     !json.contains("location") || !json.contains("region")) {
                     response["state"] = 400;
                     response["message"] = "缺少必要字段";
-                    co_await webrtcSignalSocket->getWebSocket().async_write(
-                        boost::asio::buffer(boost::json::serialize(response)));
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
                     co_return;
                 }
 
@@ -458,8 +447,7 @@ namespace hope {
                 response["serverId"] = serverId;
                 response["maxProcess"] = max_process;
 
-                co_await webrtcSignalSocket->getWebSocket().async_write(
-                    boost::asio::buffer(boost::json::serialize(response)));
+                webrtcSignalSocket->writerAsync(boost::json::serialize(response));
 
                 manager->webrtcSignalSocketMap[serverId] = webrtcSignalSocket;
                 // 7. 设置 socket 状态
@@ -467,7 +455,7 @@ namespace hope {
 
                 webrtcSignalSocket->setAccountID(serverId);  // 可自定义
 
-                LOG_INFO("云游戏服务器注册成功: ID=%llu, IP=%s, Name=%s",
+                LOG_INFO("CloudGame is Register Successful: ID=%llu, IP=%s, Name=%s",
                     serverId, serverIP.c_str(), name.c_str());
 
                 co_return;
@@ -477,7 +465,7 @@ namespace hope {
             webrtcHandlers[static_cast<int>(WebRTCRequestState::CLOUD_PROCESS_LOGIN)] =
                 [self](std::shared_ptr<WebRTCSignalData> data) -> boost::asio::awaitable<void> {
                 // ------------------- 基础准备 -------------------
-                LOG_INFO("处理 CLOUD_PROCESS_LOGIN 请求");
+                LOG_INFO("Process CLOUD_PROCESS_LOGIN Request");
 
                 boost::json::object response;
                 response["requestType"] = static_cast<int64_t>(WebRTCRequestState::CLOUD_PROCESS_LOGIN);
@@ -500,11 +488,10 @@ namespace hope {
                     .to_string();
 
                 // ------------------- 辅助函数 -------------------
-                auto send_error = [&](int code, const std::string& msg)->boost::asio::awaitable<void> {
+                auto send_error = [&](int code, const std::string& msg) {
                     response["state"] = code;
                     response["message"] = msg;
-                    co_await webrtcSignalSocket->getWebSocket().async_write(
-                        boost::asio::buffer(boost::json::serialize(response)));
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
                     };
 
                 auto register_socket = [&](const std::string& processId) {
@@ -601,7 +588,7 @@ namespace hope {
                                 "WHERE process_id = ?", boost::asio::use_awaitable);
                             co_await conn->async_execute(stmt.bind(assignedProcessId), result,
                                 boost::asio::use_awaitable);
-                            LOG_INFO("复用空闲进程: %s", assignedProcessId.c_str());
+                            LOG_INFO("ReUse The ProcessID: %s", assignedProcessId.c_str());
                         }
                         else if (static_cast<int64_t>(allProcesses.size()) < gameServer.max_processes) {
                             // 新建进程（直接标记为已登录、非空闲）
@@ -630,11 +617,11 @@ namespace hope {
                                 throw std::runtime_error("GameServers Update CurrentProcess Error");
                             }
 
-                            LOG_INFO("新建进程（已登录）: %s", assignedProcessId.c_str());
+                            LOG_INFO("New Create Process（Already Login）: %s", assignedProcessId.c_str());
                         }
                         else {
                             // 超限
-                            send_error(507, "服务器已达到最大进程数限制，无法创建新进程");
+                            send_error(507, "The Server is Max Process,Can't Create More Process");
                             co_await conn->async_execute("ROLLBACK", dummy, boost::asio::use_awaitable);
                             co_return;
                         }
@@ -650,8 +637,7 @@ namespace hope {
                     response["processName"] = processName;
                     response["gameType"] = gameType;
 
-                    co_await webrtcSignalSocket->getWebSocket().async_write(
-                        boost::asio::buffer(boost::json::serialize(response)));
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
 
                     // 提交事务
                     co_await conn->async_execute("COMMIT", dummy, boost::asio::use_awaitable);
@@ -659,7 +645,7 @@ namespace hope {
                 catch (const std::exception& e) {
                     // 任何异常都回滚
                     conn->async_execute("ROLLBACK", dummy, boost::asio::detached);
-                    LOG_ERROR("CLOUD_PROCESS_LOGIN 事务失败: %s", e.what());
+                    LOG_ERROR("CLOUD_PROCESS_LOGIN Matters: %s", e.what());
                     send_error(500, e.what());
                 }
 
@@ -673,3 +659,6 @@ namespace hope {
     }
 
 }
+
+
+
