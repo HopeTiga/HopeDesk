@@ -167,7 +167,7 @@ namespace hope {
                                         response["message"] = "targetID is not register";
                                         webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                        LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                         co_return;
 
@@ -184,7 +184,7 @@ namespace hope {
                                 response["message"] = "targetID is not register";
                                 webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                 co_return;
 
@@ -250,7 +250,7 @@ namespace hope {
                                                 response["message"] = "targetID is not register";
                                                 webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                                LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                                 co_return;
 
@@ -267,7 +267,7 @@ namespace hope {
                                         response["message"] = "targetID is not register";
                                         webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                        LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                         co_return;
                                     }

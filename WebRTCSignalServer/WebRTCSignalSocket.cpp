@@ -64,7 +64,7 @@ namespace hope {
                 buffer.consume(buffer.size());
             }
             catch (const boost::system::system_error& se) {
-                LOG_ERROR("服务端 WebSocket handshake failed! ERROR: %s", se.what());
+                LOG_ERROR("WebRTCSignalServer WebSocket handshake failed! ERROR: %s", se.what());
                 // ... 错误处理 ...
                 closeSocket();
             }
