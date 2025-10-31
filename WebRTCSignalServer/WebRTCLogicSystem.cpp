@@ -154,7 +154,7 @@ namespace hope {
 
                                         manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
 
-                                        LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                         co_return;
 
@@ -167,7 +167,7 @@ namespace hope {
                                         response["message"] = "targetID is not register";
                                         webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                        LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                        LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                         co_return;
 
@@ -184,7 +184,7 @@ namespace hope {
                                 response["message"] = "targetID is not register";
                                 webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                 co_return;
 
@@ -208,7 +208,7 @@ namespace hope {
 
                                 manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
 
-                                LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                 co_return;
 
@@ -237,7 +237,7 @@ namespace hope {
 
                                                 manager->webrtcSignalSocketMap[targetID]->writerAsync(boost::json::serialize(forwardMessage));
 
-                                                LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                                 co_return;
 
@@ -250,7 +250,7 @@ namespace hope {
                                                 response["message"] = "targetID is not register";
                                                 webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                                LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                                LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                                 co_return;
 
@@ -267,7 +267,7 @@ namespace hope {
                                         response["message"] = "targetID is not register";
                                         webrtcSignalSocket->writerAsync(boost::json::serialize(response)); // 响应发送方
 
-                                        LOG_WARNING("Message forward: %s -> %s (Request Type: %s)", targetID.c_str(), accountID.c_str(), requestTypeStr);
+                                        LOG_WARNING("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                                         co_return;
                                     }
@@ -289,7 +289,7 @@ namespace hope {
                 forwardMessage["message"] = "WebRTCSignalServer forward";
                 targetSocket->writerAsync(boost::json::serialize(forwardMessage)); // 转发给目标方
 
-                LOG_INFO("Message forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
+                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountID.c_str(), targetID.c_str(), requestTypeStr);
 
                 };
 
@@ -488,20 +488,36 @@ namespace hope {
                     .to_string();
 
                 // ------------------- 辅助函数 -------------------
-                auto send_error = [&](int code, const std::string& msg) {
+                auto sendError = [&](int code, const std::string& msg) {
                     response["state"] = code;
                     response["message"] = msg;
                     webrtcSignalSocket->writerAsync(boost::json::serialize(response));
                     };
 
-                auto register_socket = [&](const std::string& processId) {
+                auto registerSocket = [&](const std::string& processId) {
+
                     webrtcSignalSocket->setRegistered(true);
+
                     webrtcSignalSocket->setAccountID(processId);
+
                     webrtcSignalSocket->setCloudProcess(true);
+
                     manager->webrtcSignalSocketMap[processId] = webrtcSignalSocket;
+
+                    int mapChannelIndex = data->webrtcSignalManager->hasher(processId) % data->webrtcSignalManager->hashSize;
+
+                    data->webrtcSignalManager->webrtcSignalServer->postAsyncTask(mapChannelIndex, [self = data->webrtcSignalManager->shared_from_this(), processId, mapChannelIndex](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+
+                        manager->getActorSocketMappingIndex()[processId] = self->channelIndex;
+
+                        co_return;
+
+                        });
+
+
                     };
 
-                auto update_current_processes = [&](int64_t cur) -> boost::asio::awaitable<bool> {
+                auto updateCurrentProcesses = [&](int64_t cur) -> boost::asio::awaitable<bool> {
                     boost::mysql::statement stmt = co_await conn->async_prepare_statement(
                         "UPDATE game_servers SET current_processes = ? WHERE server_id = ?", boost::asio::use_awaitable);
                     boost::mysql::results r;
@@ -522,7 +538,7 @@ namespace hope {
                         boost::asio::use_awaitable);
 
                     if (result.rows().empty()) {
-                        send_error(404, "server not register");
+                        sendError(404, "server not register");
                         co_await conn->async_execute("ROLLBACK", dummy, boost::asio::use_awaitable);
                         co_return;
                     }
@@ -563,7 +579,7 @@ namespace hope {
                             throw std::runtime_error("GameProcess Insert Error");
                         }
 
-                        if (!co_await update_current_processes(gameServer.current_processes + 1)) {
+                        if (!co_await updateCurrentProcesses(gameServer.current_processes + 1)) {
                             throw std::runtime_error("GameServers Update CurrentProcess Error");
                         }
 
@@ -584,7 +600,7 @@ namespace hope {
                             // 复用第一个空闲进程
                             assignedProcessId = idle[0].process_id;
                             stmt = co_await conn->async_prepare_statement(
-                                "UPDATE game_processes SET is_login = 1, is_idle = 0, last_heartbeat = NOW() "
+                                "UPDATE game_processes SET is_login = 1, is_idle = 1, last_heartbeat = NOW() "
                                 "WHERE process_id = ?", boost::asio::use_awaitable);
                             co_await conn->async_execute(stmt.bind(assignedProcessId), result,
                                 boost::asio::use_awaitable);
@@ -613,7 +629,7 @@ namespace hope {
                                 throw std::runtime_error("GameProcess Insert Error");
                             }
 
-                            if (!co_await update_current_processes(gameServer.current_processes + 1)) {
+                            if (!co_await updateCurrentProcesses(gameServer.current_processes + 1)) {
                                 throw std::runtime_error("GameServers Update CurrentProcess Error");
                             }
 
@@ -621,18 +637,18 @@ namespace hope {
                         }
                         else {
                             // 超限
-                            send_error(507, "The Server is Max Process,Can't Create More Process");
+                            sendError(507, "The Server is Max Process,Can't Create More Process");
                             co_await conn->async_execute("ROLLBACK", dummy, boost::asio::use_awaitable);
                             co_return;
                         }
                     }
 
                     // ---------- 4. 注册 Socket ----------
-                    register_socket(assignedProcessId);
+                    registerSocket(assignedProcessId);
 
                     // ---------- 5. 成功返回 ----------
                     response["state"] = 200;
-                    response["message"] = "进程分配成功";
+                    response["message"] = "Process Allocate Successful";
                     response["processId"] = assignedProcessId;
                     response["processName"] = processName;
                     response["gameType"] = gameType;
@@ -646,12 +662,90 @@ namespace hope {
                     // 任何异常都回滚
                     conn->async_execute("ROLLBACK", dummy, boost::asio::detached);
                     LOG_ERROR("CLOUD_PROCESS_LOGIN Matters: %s", e.what());
-                    send_error(500, e.what());
+                    sendError(500, e.what());
                 }
 
                 co_return;
                 };
 
+
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::USER_GET_GAMES_PROCESS_ID)] = [self](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+
+                std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket = data->webrtcSignalSocket;
+
+                WebRTCSignalManager * manager = data->webrtcSignalManager;
+
+                std::shared_ptr<boost::mysql::any_connection> connection = manager->webrtcMysqlManager->getConnection();
+
+                boost::json::object json = data->json;
+
+                boost::json::object response;
+
+                response["requestType"] = json["requestType"].as_int64();
+
+                std::string gameType = json["gameType"].as_string().c_str();
+
+                boost::mysql::results selectResult;
+
+                boost::mysql::statement state = co_await connection->async_prepare_statement("SELECT s.server_id,COUNT(p.server_id) AS idle_count FROM game_servers s LEFT JOIN game_processes p ON s.server_id = p.server_id AND p.is_login = 1 AND p.is_idle = 1 WHERE JSON_CONTAINS(s.tags, JSON_OBJECT('tags', ?)) and s.del_flag = 0 and p.del_flag = 0 GROUP BY s.server_id ORDER BY idle_count DESC LIMIT 1",boost::asio::use_awaitable
+                );
+
+                co_await connection->async_execute(state.bind(gameType), selectResult, boost::asio::use_awaitable);
+
+                if (selectResult.rows().empty()) {
+
+                    response["state"] = 500;
+                
+                    response["message"] = "The Cloud Game Type:" + gameType + "Service is not Exist";
+
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+
+                    co_return;
+                }
+
+                if (selectResult.rows().at(0).at(1).as_int64() == 0) {
+                
+                    response["state"] = 500;
+
+                    response["message"] = "The Request Cloud Game Type:" + gameType + "Service is full";
+
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+
+                    co_return;
+
+                }
+
+                std::string serverID = selectResult.rows().at(0).at(0).as_string();
+
+                state = co_await connection->async_prepare_statement("SELECT *  FROM game_processes WHERE del_flag = 0 and game_type = ? and is_login = 1 and is_idle = 1 and server_id = ?", boost::asio::use_awaitable);
+
+                co_await connection->async_execute(state.bind(gameType,serverID),selectResult, boost::asio::use_awaitable);
+
+                if (selectResult.empty()) {
+                
+                    response["state"] = 500;
+
+                    response["message"] = "The Server:" + serverID + " Type:"+ gameType +" Service is full";
+
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+
+                    co_return;
+
+                }
+
+                hope::entity::GameProcesses gameProcess(selectResult.rows().at(0));
+
+                response["state"] = 200;
+
+                response["message"] = "Cloud Games Process Allocate Successful";
+
+                response["processId"] = gameProcess.process_id;
+
+                response["serverId"] = gameProcess.server_id;
+
+                webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+
+            };
 
         }
 
