@@ -1,8 +1,6 @@
 #include <iostream>
 #include <string>
 #include "WebRTCSignalServer.h"
-#include "WebRTCLogicSystem.h"
-#include "WebRTCMysqlManager.h"
 #include "Utils.h"
 
 int main() {
