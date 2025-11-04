@@ -829,13 +829,13 @@ bool WebRTCManager::initializePeerConnection() {
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
 
-    stunServer.uri = "stun:150.158.173.80:3478";
+    stunServer.uri = "stun:121.5.37.53:3478";
 
     config.servers.push_back(stunServer);
 
     webrtc::PeerConnectionInterface::IceServer turnServer;
 
-    turnServer.uri = "turn:150.158.173.80:3478";
+    turnServer.uri = "turn:121.5.37.53:3478";
 
     turnServer.username = "HopeTiga";
 
