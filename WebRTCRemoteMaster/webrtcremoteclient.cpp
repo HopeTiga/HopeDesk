@@ -824,11 +824,11 @@ bool WebRTCRemoteClient::initializePeerConnection()
     config.set_dscp(true);
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
-    stunServer.uri = "stun:150.158.173.80:3478";
+    stunServer.uri = "stun:121.5.37.53:3478";
     config.servers.push_back(stunServer);
 
     webrtc::PeerConnectionInterface::IceServer turnServer;
-    turnServer.uri = "turn:150.158.173.80:3478";
+    turnServer.uri = "turn:121.5.37.53:3478";
     turnServer.username = "HopeTiga";
     turnServer.password = "dy913140924";
     config.servers.emplace_back(turnServer);
@@ -1428,9 +1428,10 @@ void WebRTCRemoteClient::disConnect()
 
     this->state == WebRTCRemoteState::nullRemote;
 
+    disConnectHandle();
+
     isRemote = false;
 
-    disConnectHandle();
 }
 
 void VideoTrackSink::OnFrame(const webrtc::VideoFrame &frame)
