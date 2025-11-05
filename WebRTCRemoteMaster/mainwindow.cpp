@@ -64,6 +64,8 @@ MainWindow::MainWindow(QWidget* parent)
     QIntValidator *portValidator = new QIntValidator(1, 65535, this);
     ui->portEdit->setValidator(portValidator);
 
+    ui->refreshDeviceButton->setEnabled(false);
+
     // 初始化设备列表
     initializeDeviceLists();
 
@@ -250,11 +252,6 @@ void MainWindow::initializeDeviceLists()
     myDeviceHeader->setFont(headerFont);
     ui->deviceListWidget->addItem(myDeviceHeader);
 
-    // 在我的设备分组下添加固定的4个设备
-    ui->deviceListWidget->addItem("91314024@qq.com");
-    ui->deviceListWidget->addItem("2044580040@qq.com");
-    ui->deviceListWidget->addItem("396887208@qq.com");
-    ui->deviceListWidget->addItem("147718387@qq.com");
 
     // 添加云设备分组（可折叠）
     QListWidgetItem* cloudDeviceHeader = new QListWidgetItem("▶ 云设备");
@@ -265,9 +262,6 @@ void MainWindow::initializeDeviceLists()
     cloudDeviceHeader->setFont(headerFont);
     ui->deviceListWidget->addItem(cloudDeviceHeader);
 
-    // 在云设备分组下添加固定的2个云设备
-    ui->deviceListWidget->addItem("cloud_device1@qq.com");
-    ui->deviceListWidget->addItem("cloud_device2@qq.com");
 
     for (int i = 0; i < ui->deviceListWidget->count(); ++i) {
         QListWidgetItem* item = ui->deviceListWidget->item(i);
@@ -293,7 +287,9 @@ void MainWindow::setupConnections()
 
     // 设备列表
     connect(ui->refreshDeviceButton, &QPushButton::clicked, this, [this]() {
-        updateTargetList();
+        if (isConnected) {
+            updateTargetList();
+        }
     });
 
     connect(ui->deviceListWidget, &QListWidget::itemSelectionChanged,
@@ -374,7 +370,7 @@ void MainWindow::loadAccounts()
     ui->accountComboBox->clear();
     if (accountList.isEmpty()) {
         // 添加默认账号
-        accountList << "91314024@qq.com";
+        accountList << "913140924@qq.com";
         accountList << "2044580040@qq.com";
         accountList << "396887208@qq.com";
         accountList << "147718387@qq.com";
@@ -517,25 +513,23 @@ void MainWindow::onAccountChanged(int index)
 void MainWindow::onTargetSelectionChanged()
 {
     QListWidgetItem* currentItem = ui->deviceListWidget->currentItem();
-    bool hasSelection = currentItem != nullptr &&
-                        currentItem->flags() & Qt::ItemIsSelectable;
 
-    ui->sendRequestButton->setEnabled(hasSelection);
-
-    if (hasSelection) {
-        QString targetId = currentItem->text();
-        ui->remoteStatusLabel->setText(QString("已选择: %1").arg(targetId));
-        ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
-        webRTCRemoteClient->setTargetID(targetId.toStdString());
-    } else {
+    // 如果是提示项或分组标题，禁用发送请求按钮
+    if (!currentItem ||
+        !(currentItem->flags() & Qt::ItemIsSelectable) ||
+        currentItem->text() == "请先连接服务器") {
+        ui->sendRequestButton->setEnabled(false);
         ui->remoteStatusLabel->setText("请选择目标设备");
         ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("default"));
-
-        // 如果选择了分类标题，清除选择
-        if (currentItem && !(currentItem->flags() & Qt::ItemIsSelectable)) {
-            ui->deviceListWidget->clearSelection();
-        }
+        return;
     }
+
+    // 正常的选择逻辑
+    QString targetId = currentItem->text();
+    ui->remoteStatusLabel->setText(QString("已选择: %1").arg(targetId));
+    ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
+    webRTCRemoteClient->setTargetID(targetId.toStdString());
+    ui->sendRequestButton->setEnabled(true);
 }
 
 void MainWindow::onSendRequestClicked()
@@ -775,10 +769,11 @@ void MainWindow::onConnectionStateChanged(bool connected)
 
     if (connected) {
         statusBar()->showMessage("已连接到服务器");
-        updateTargetList();
+        updateTargetList();  // 连接后从服务器获取设备列表
     } else {
         statusBar()->showMessage("连接已断开");
-        ui->deviceListWidget->clear();
+        // 断开连接时重新初始化设备列表（显示未连接提示）
+        initializeDeviceLists();
 
         if (videoWidget) {
             videoWidget->clearDisplay();
@@ -787,6 +782,12 @@ void MainWindow::onConnectionStateChanged(bool connected)
         if (remoteConnectionTimer->isActive()) {
             remoteConnectionTimer->stop();
         }
+
+        // 断开连接时禁用相关按钮
+        ui->sendRequestButton->setEnabled(false);
+        ui->disconnectRemoteButton->setEnabled(false);
+        ui->showVideoButton->setEnabled(false);
+        ui->hideVideoButton->setEnabled(false);
     }
 }
 
@@ -799,6 +800,9 @@ void MainWindow::updateConnectionState(bool connected)
     ui->connectButton->setText("连接服务器");
     ui->disconnectButton->setEnabled(connected);
 
+    // 控制刷新按钮状态
+    ui->refreshDeviceButton->setEnabled(connected);
+
     if (connected) {
         ui->connectionStatusLabel->setText(QString("已连接 (账号: %1)").arg(ui->accountComboBox->currentText()));
         ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("success"));
@@ -810,33 +814,77 @@ void MainWindow::updateConnectionState(bool connected)
 
 void MainWindow::updateTargetList()
 {
-    // 刷新时只更新设备状态，不改变结构
-    // 这里可以添加在线状态更新等逻辑
+    if (!isConnected) {
+        // 未连接时，清空并显示提示
+        ui->deviceListWidget->clear();
+        QListWidgetItem* hintItem = new QListWidgetItem("请先连接服务器");
+        hintItem->setFlags(hintItem->flags() & ~Qt::ItemIsSelectable);
+        hintItem->setForeground(Qt::gray);
+        hintItem->setTextAlignment(Qt::AlignCenter);
+        ui->deviceListWidget->addItem(hintItem);
+        statusBar()->showMessage("未连接服务器，无法获取设备列表");
+        return;
+    }
 
-    // 例如：标记在线设备
+    // 连接状态下，从服务器获取设备列表
+    // 先清空现有列表
+    ui->deviceListWidget->clear();
+
+    // 添加我的设备分组
+    QListWidgetItem* myDeviceHeader = new QListWidgetItem("▼ 我的设备");
+    myDeviceHeader->setData(Qt::UserRole, "my_devices_header");
+    myDeviceHeader->setFlags(myDeviceHeader->flags() & ~Qt::ItemIsSelectable);
+    myDeviceHeader->setBackground(QColor(240, 245, 255));
+    myDeviceHeader->setForeground(QColor(66, 153, 225));
+    QFont headerFont = myDeviceHeader->font();
+    headerFont.setBold(true);
+    myDeviceHeader->setFont(headerFont);
+    ui->deviceListWidget->addItem(myDeviceHeader);
+
+    // 这里应该从服务器获取真实的设备列表
+    // 暂时使用示例数据
+    QStringList myDevices;
+    myDevices << "913140924@qq.com" << "2044580040@qq.com" << "396887208@qq.com" << "147718387@qq.com";
+
     QStringList onlineDevices;
-    onlineDevices << "91314024@qq.com" << "2044580040@qq.com" << "cloud_device1@qq.com";
+    onlineDevices << "913140924@qq.com" << "2044580040@qq.com" << "396887208@qq.com" << "147718387@qq.com"<< "cloud_device1@qq.com" << "cloud_device2@qq.com"; // 示例在线设备
 
-    for (int i = 0; i < ui->deviceListWidget->count(); ++i) {
-        QListWidgetItem* item = ui->deviceListWidget->item(i);
-        QString itemType = item->data(Qt::UserRole).toString();
-
-        // 跳过分组标题
-        if (!itemType.isEmpty()) {
-            continue;
-        }
-
-        // 更新设备在线状态
-        QString deviceId = item->text();
-        if (onlineDevices.contains(deviceId)) {
+    // 添加我的设备
+    for (const QString& device : myDevices) {
+        QListWidgetItem* item = new QListWidgetItem(device);
+        if (onlineDevices.contains(device)) {
             item->setForeground(Qt::black);
-            // 可以添加在线图标等
+            // 可以添加在线图标
         } else {
             item->setForeground(Qt::gray);
         }
+        ui->deviceListWidget->addItem(item);
     }
 
-    statusBar()->showMessage("设备列表已刷新");
+    // 添加云设备分组
+    QListWidgetItem* cloudDeviceHeader = new QListWidgetItem("▼ 云设备");
+    cloudDeviceHeader->setData(Qt::UserRole, "cloud_devices_header");
+    cloudDeviceHeader->setFlags(cloudDeviceHeader->flags() & ~Qt::ItemIsSelectable);
+    cloudDeviceHeader->setBackground(QColor(240, 245, 255));
+    cloudDeviceHeader->setForeground(QColor(66, 153, 225));
+    cloudDeviceHeader->setFont(headerFont);
+    ui->deviceListWidget->addItem(cloudDeviceHeader);
+
+    // 添加云设备
+    QStringList cloudDevices;
+    cloudDevices << "cloud_device1@qq.com" << "cloud_device2@qq.com";
+
+    for (const QString& device : cloudDevices) {
+        QListWidgetItem* item = new QListWidgetItem(device);
+        if (onlineDevices.contains(device)) {
+            item->setForeground(Qt::black);
+        } else {
+            item->setForeground(Qt::gray);
+        }
+        ui->deviceListWidget->addItem(item);
+    }
+
+    statusBar()->showMessage("设备列表已从服务器获取");
 }
 
 
