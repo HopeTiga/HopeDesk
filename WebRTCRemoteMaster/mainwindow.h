@@ -1,25 +1,16 @@
 #pragma once
 
 #include <QMainWindow>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGridLayout>
-#include <QLineEdit>
-#include <QPushButton>
-#include <QLabel>
-#include <QGroupBox>
-#include <QSpinBox>
-#include <QStatusBar>
-#include <QMenuBar>
-#include <QAction>
-#include <QMessageBox>
-#include <QTimer>
 #include <QSettings>
-#include <QComboBox>
-#include <QListWidget>
+#include <QTimer>
+#include <QListWidgetItem>
 
 class VideoWidget;
 class WebRTCRemoteClient;
+
+namespace Ui {
+class MainWindow;
+}
 
 class MainWindow : public QMainWindow
 {
@@ -71,11 +62,11 @@ private Q_SLOTS:
     // 远程连接超时处理
     void onRemoteConnectionTimeout();
 
+    void onDeviceItemClicked(QListWidgetItem* item);
+
+
 private:
     // UI初始化
-    void setupUI();
-    void setupMenuBar();
-    void setupStatusBar();
     void setupConnections();
     void applyModernStyles();
 
@@ -89,72 +80,26 @@ private:
 
     QString createStatusLabelStyle(const QString& type);
 
-    QString createRegularLabelStyle();
-
     // 状态管理
     void updateConnectionState(bool connected);
     void showErrorMessage(const QString& title, const QString& message);
     void updateTargetList();
 
-    // 样式辅助函数
-    QString createButtonStyle(const QString& bgColor, const QString& hoverColor, const QString& textColor = "#FFFFFF");
-    QString createGroupBoxStyle();
-    QString createInputStyle();
-    QString createListWidgetStyle();
+    // 初始化设备列表
+    void initializeDeviceLists();
+
+    // WebRTC回调设置
+    void setupWebRTCCallbacks();
+
+    // 配置文件加载
+    void loadConfigFile();
 
 private:
+    Ui::MainWindow *ui;
+
     // 主要组件
     VideoWidget* videoWidget;
     WebRTCRemoteClient* webRTCRemoteClient;
-
-    // UI控件
-    QWidget* centralWidget;
-    QVBoxLayout* mainLayout;
-
-    // 连接控制面板
-    QGroupBox* connectionGroup;
-    QGridLayout* connectionLayout;
-    QLineEdit* serverAddressEdit;
-    QSpinBox* portSpinBox;
-
-    // 账号选择
-    QLabel* accountLabel;
-    QComboBox* accountComboBox;
-    QPushButton* addAccountButton;
-    QPushButton* removeAccountButton;
-
-    QPushButton* connectButton;
-    QPushButton* disconnectButton;
-    QLabel* connectionStatusLabel;
-
-    // 目标账号面板
-    QGroupBox* targetGroup;
-    QVBoxLayout* targetLayout;
-    QListWidget* targetListWidget;
-    QPushButton* sendRequestButton;
-    QPushButton* disconnectRemoteButton;  // 新增断开远程操控按钮
-    QLabel* targetStatusLabel;
-
-    // 视频窗口控制按钮
-    QPushButton* showVideoButton;
-    QPushButton* hideVideoButton;
-
-    // 菜单和工具栏
-    QMenuBar* menuBars;
-    QAction* aboutAction;
-    QAction* settingsAction;
-    QAction* fullScreenAction;
-    QAction* exitAction;
-
-    // 状态栏
-    QStatusBar* statusBars;
-    QLabel* statusLabel;
-    QLabel* fpsLabel;
-    QTimer* statusTimer;
-
-    // 远程连接超时定时器
-    QTimer* remoteConnectionTimer;
-    static const int REMOTE_CONNECTION_TIMEOUT = 15000; // 15秒超时
 
     // 设置
     QSettings* settings;
@@ -162,14 +107,17 @@ private:
     // 状态
     bool isConnected;
     bool isFullScreen;
-    bool isRemoteConnected;  // 新增远程连接状态
+    bool isRemoteConnected;
     QString lastError;
 
     // 账号列表
     QStringList accountList;
-    QStringList targetList; // 模拟的目标账号列表
+    QStringList targetList;
 
-    int reConnectNums = 0;
+    int reConnectNums;
+    int reConnectTimes;
 
-    int reConnectTimes = 5000;
+    // 远程连接超时定时器
+    QTimer* remoteConnectionTimer;
+    static const int REMOTE_CONNECTION_TIMEOUT = 15000;
 };

@@ -29,7 +29,7 @@ VideoWidget::VideoWidget(QWidget* parent)
     logger = Logger::getInstance();
     logger->info("VideoWidget初始化开始");
 
-    QIcon windowIcon(":/logo/res/Wilson_DST.png");
+    QIcon windowIcon(":/logo/res/hope.png");
     if (!windowIcon.isNull()) {
         setWindowIcon(windowIcon);
     }
