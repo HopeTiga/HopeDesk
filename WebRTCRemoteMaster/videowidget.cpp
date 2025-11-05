@@ -775,8 +775,8 @@ void VideoWidget::updateControlsPosition()
 void VideoWidget::resizeEvent(QResizeEvent* event)
 {
     QRhiWidget::resizeEvent(event);
-    if (windowsHook) {
-        windowsHook->setVideoSize(event->size().width(), event->size().height());
+    if (interceptionHook) {
+        interceptionHook->setVideoSize(event->size().width(), event->size().height());
     }
     updateControlsPosition();
 }

@@ -90,6 +90,10 @@ private:
     int screenWidth;
     int screenHeight;
 
+    int videoWidth;
+
+    int videoHeight;
+
     std::atomic<bool> numLockState;
 };
 
