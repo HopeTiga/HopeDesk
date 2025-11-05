@@ -1,10 +1,13 @@
 #include "WebRTCSignalManager.h"
 #include "WebRTCSignalServer.h"
+
+#include "ConfigManager.h"
+
 #include "Utils.h"
 
 namespace hope {
-	
-	namespace core {
+
+    namespace core {
         WebRTCSignalManager::WebRTCSignalManager(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalServer* webrtcSignalServer) : ioContext(ioContext)
             , channelIndex(channelIndex)
             , webrtcSignalServer(webrtcSignalServer)
@@ -20,7 +23,11 @@ namespace hope {
 
             webrtcMysqlManager = std::make_unique<WebRTCMysqlManager>(ioContext);
 
-            webrtcMysqlManager->initConnection("sh-cynosdbmysql-grp-75t233bm.sql.tencentcdb.com", 22008, "CloudGame", "WebRTC251028~Dd", "cloudgame");
+            webrtcMysqlManager->initConnection(ConfigManager::Instance().GetString("Mysql.ip")
+                , ConfigManager::Instance().GetInt("Mysql.port")
+                , ConfigManager::Instance().GetString("Mysql.username")
+                , ConfigManager::Instance().GetString("Mysql.password")
+                , ConfigManager::Instance().GetString("Mysql.database"));
         }
 
         WebRTCSignalManager::~WebRTCSignalManager()
@@ -63,7 +70,7 @@ namespace hope {
                 co_return;
 
                 });
-            
+
 
         }
 
@@ -77,6 +84,6 @@ namespace hope {
             return webrtcLogicSystem;
         }
 
-	}
+    }
 
 }
