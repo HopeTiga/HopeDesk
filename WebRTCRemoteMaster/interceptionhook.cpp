@@ -2,9 +2,6 @@
 #include "videowidget.h"
 #include "webrtcremoteclient.h"
 #include "Logger.h"
-
-#include <algorithm>
-
 #include <QWidget>
 #include <QApplication>
 
@@ -53,8 +50,7 @@ void InterceptionHook::setRemoteClient(WebRTCRemoteClient* client)
 
 void InterceptionHook::setVideoSize(int width, int height)
 {
-    videoWidth = width;
-    videoHeight = height;
+
 }
 
 bool InterceptionHook::startCapture()
@@ -225,6 +221,7 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 
 void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
 {
+    // 获取当前鼠标位置
     POINT cursorPos;
     GetCursorPos(&cursorPos);
 
@@ -233,19 +230,22 @@ void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
     if (targetHwnd) {
         ScreenToClient(targetHwnd, &clientPt);
 
-        // 使用缓存的视频尺寸，而不是每次都获取窗口尺寸
-        int currentVideoWidth = videoWidth;
-        int currentVideoHeight = videoHeight;
+        // 获取窗口客户区大小
+        RECT clientRect;
+        GetClientRect(targetHwnd, &clientRect);
+        int windowWidth = clientRect.right - clientRect.left;
+        int windowHeight = clientRect.bottom - clientRect.top;
 
-        // 将窗口坐标映射到屏幕坐标系
-        if (currentVideoWidth > 0 && currentVideoHeight > 0) {
-            // 使用整数运算避免浮点开销
-            clientPt.x = MulDiv(clientPt.x, screenWidth, currentVideoWidth);
-            clientPt.y = MulDiv(clientPt.y, screenHeight, currentVideoHeight);
+        // 将窗口坐标映射到屏幕坐标系（保持相对位置）
+        if (windowWidth > 0 && windowHeight > 0) {
+            clientPt.x = (clientPt.x * screenWidth) / windowWidth;
+            clientPt.y = (clientPt.y * screenHeight) / windowHeight;
 
-            // 优化的边界检查
-            clientPt.x = std::clamp<LONG>(clientPt.x, 0, screenWidth - 1);
-            clientPt.y = std::clamp<LONG>(clientPt.y, 0, screenHeight - 1);
+            // 边界检查
+            if (clientPt.x < 0) clientPt.x = 0;
+            if (clientPt.x >= screenWidth) clientPt.x = screenWidth - 1;
+            if (clientPt.y < 0) clientPt.y = 0;
+            if (clientPt.y >= screenHeight) clientPt.y = screenHeight - 1;
         }
     }
 

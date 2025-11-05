@@ -48,7 +48,7 @@ private:
 
     // 获取当前修饰键状态
     static char getCurrentModifiers();
-    
+
     // 检查NumLock状态
     bool isNumLockOn();
 
@@ -90,9 +90,6 @@ private:
     int screenWidth;
     int screenHeight;
 
-    int videoWidth;
-
-    int videoHeight;
 
     std::atomic<bool> numLockState;
 };

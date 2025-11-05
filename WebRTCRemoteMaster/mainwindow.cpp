@@ -279,6 +279,8 @@ void MainWindow::setupConnections()
     // 连接按钮
     connect(ui->connectButton, &QPushButton::clicked, this, &MainWindow::onConnectClicked);
     connect(ui->disconnectButton, &QPushButton::clicked, this, &MainWindow::onDisconnectClicked);
+    connect(ui->disconnectRemoteButton, &QPushButton::clicked,
+            this, &MainWindow::onDisconnectRemoteControl);
 
     connect(ui->deviceListWidget, &QListWidget::itemClicked, this, &MainWindow::onDeviceItemClicked);
     // 账号管理
