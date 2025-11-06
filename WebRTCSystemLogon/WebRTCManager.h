@@ -731,7 +731,7 @@ private:
         encoding.max_framerate = 120;
         encoding.scale_resolution_down_by = 1.0;
         encoding.bitrate_priority = 1.0;
-        encoding.scalability_mode = "L1T1";
+        encoding.scalability_mode = "S2T1";
         encoding.network_priority = webrtc::Priority::kHigh;
         return encoding;
     }
