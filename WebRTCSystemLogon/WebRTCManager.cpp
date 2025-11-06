@@ -955,10 +955,7 @@ bool WebRTCManager::initializePeerConnection() {
                 // 添加其他可用编解码器（排除重复项和辅助编解码器）
                 for (const auto& codec : senderCapabilities.codecs) {
 
-                    if (codec.name != priorityCodec &&
-                        codec.name != "red" &&
-                        codec.name != "ulpfec" &&
-                        codec.name != "rtx") {
+                    if (codec.name != priorityCodec) {
 
                         preferredCodecs.push_back(codec);
 
