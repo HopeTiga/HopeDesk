@@ -29,6 +29,7 @@ MainWindow::MainWindow(QWidget* parent)
     , isRemoteConnected(false)
     , reConnectNums(0)
     , reConnectTimes(5000)
+    , background(nullptr)
 {
     ui->setupUi(this);
 
@@ -41,12 +42,11 @@ MainWindow::MainWindow(QWidget* parent)
         qDebug() << "警告：无法加载应用程序图标：:/logo/res/hope.jpg";
     }
 
+    // 创建背景标签
+    background = new QLabel(this);
     QPixmap bg(":/logo/res/windows.jpg");
-    bg = bg.scaled(size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-
-    QLabel *background = new QLabel(this);
     background->setPixmap(bg);
-    background->setScaledContents(true);
+    background->setScaledContents(true);  // 关键：让图片自动缩放填充
     background->setGeometry(0, 0, width(), height());
     background->lower(); // 放到最底层
     // 初始化设置
@@ -922,6 +922,16 @@ void MainWindow::closeEvent(QCloseEvent* event)
     event->accept();
 }
 
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+
+    // 只更新背景标签的大小，不重新加载图片
+    if (background) {
+        background->setGeometry(0, 0, width(), height());
+    }
+}
+
 QString MainWindow::createStatusLabelStyle(const QString& type)
 {
     if (type == "success") {
@@ -1009,3 +1019,9 @@ void MainWindow::onRemoveAccountClicked()
         updateTargetList();
     }
 }
+
+void MainWindow::on_disconnectButton_clicked()
+{
+
+}
+

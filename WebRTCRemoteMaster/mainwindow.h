@@ -4,6 +4,8 @@
 #include <QSettings>
 #include <QTimer>
 #include <QListWidgetItem>
+#include <QCloseEvent>
+#include <QLabel>
 
 class VideoWidget;
 class WebRTCRemoteClient;
@@ -22,6 +24,8 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+
+    void resizeEvent(QResizeEvent* event) override;  // 添加这一行
 
 private Q_SLOTS:
     // 连接控制
@@ -94,6 +98,7 @@ private:
     // 配置文件加载
     void loadConfigFile();
 
+
 private:
     Ui::MainWindow *ui;
 
@@ -120,4 +125,6 @@ private:
     // 远程连接超时定时器
     QTimer* remoteConnectionTimer;
     static const int REMOTE_CONNECTION_TIMEOUT = 15000;
+
+    QLabel* background;
 };
