@@ -101,7 +101,7 @@ void RunSystemLoop() {
 
     std::string processType = GetProcessTypeString();
 
-    std::unique_ptr<WebRTCManager> webrtcManager = std::make_unique<WebRTCManager>();
+    std::unique_ptr<hope::rtc::WebRTCManager> webrtcManager = std::make_unique<hope::rtc::WebRTCManager>();
 
     boost::asio::io_context ioContext;
 
@@ -162,12 +162,12 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     HANDLE process = nullptr;
 
-    if (!SessionHelper::CheckActiveTerminalSession()) {
+    if (!hope::rtc::SessionHelper::CheckActiveTerminalSession()) {
         logger->info("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
             " - Service running in Session 0, respawning in active session...");
 
         try {
-            process = SessionHelper::CreateSystemProcessInUserSession(L"--respawned");
+            process = hope::rtc::SessionHelper::CreateSystemProcessInUserSession(L"--respawned");
             logger->info("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
                 " - Respawned process in active session");
             WaitForSingleObject(stopEvent, INFINITE);

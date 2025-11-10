@@ -7,1241 +7,1249 @@
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
 #include <api/video/i420_buffer.h>
+#include "WebRTCVideoEncoderFactory.h"
 
 
-// Observer实现
-void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
-    switch (newState) {
-    case webrtc::PeerConnectionInterface::kClosed: {
-        Logger::getInstance()->info("Signaling state: kClosed");
-        break;
-    }
-    default:
-        break;
-    }
-}
+namespace hope {
 
-void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
-}
+	namespace rtc {
+	
+        // Observer实现
+        void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
+            switch (newState) {
+            case webrtc::PeerConnectionInterface::kClosed: {
+                Logger::getInstance()->info("Signaling state: kClosed");
+                break;
+            }
+            default:
+                break;
+            }
+        }
 
-void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState newState) {
-    if (newState == webrtc::PeerConnectionInterface::kIceGatheringComplete) {
-        Logger::getInstance()->info("ICE gathering complete");
-    }
-}
+        void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
+        }
 
-void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
-    if (!candidate) {
-        Logger::getInstance()->error("OnIceCandidate called with null candidate");
-        return;
-    }
+        void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState newState) {
+            if (newState == webrtc::PeerConnectionInterface::kIceGatheringComplete) {
+                Logger::getInstance()->info("ICE gathering complete");
+            }
+        }
 
-    std::string sdp;
-    if (!candidate->ToString(&sdp)) {
-        Logger::getInstance()->error("Failed to convert ICE candidate to string");
-        return;
-    }
+        void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
+            if (!candidate) {
+                Logger::getInstance()->error("OnIceCandidate called with null candidate");
+                return;
+            }
 
-    boost::json::object msg;
-    msg["type"] = "candidate";
-    msg["candidate"] = sdp;
-    msg["mid"] = candidate->sdp_mid();
-    msg["mlineIndex"] = candidate->sdp_mline_index();
-
-    manager->sendSignalingMessage(msg);
-}
-
-void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
-    switch (newState) {
-    case webrtc::PeerConnectionInterface::kIceConnectionConnected:
-        Logger::getInstance()->info("ICE connection established");
-        break;
-    case webrtc::PeerConnectionInterface::kIceConnectionFailed:
-        Logger::getInstance()->error("ICE connection failed");
-        break;
-    default:
-        break;
-    }
-}
-
-void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
-    switch (newState) {
-    case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected: {
-
-        Logger::getInstance()->info("Peer connection established");
-
-        auto localDesc = manager->peerConnection->local_description();
-        if (localDesc) {
             std::string sdp;
-            localDesc->ToString(&sdp);
+            if (!candidate->ToString(&sdp)) {
+                Logger::getInstance()->error("Failed to convert ICE candidate to string");
+                return;
+            }
 
-            // 简单解析SDP找到第一个video编解码器
-            std::istringstream stream(sdp);
-            std::string line;
-            while (std::getline(stream, line)) {
-                if (line.find("a=rtpmap:") == 0 && line.find("/90000") != std::string::npos) {
-                    // 找到视频编解码器行，提取编解码器名称
-                    size_t spacePos = line.find(' ');
-                    if (spacePos != std::string::npos) {
-                        std::string codecInfo = line.substr(spacePos + 1);
-                        size_t slashPos = codecInfo.find('/');
-                        if (slashPos != std::string::npos) {
-                            std::string codecName = codecInfo.substr(0, slashPos);
-                            Logger::getInstance()->info("=== Video codec actually being used: " + codecName + " ===");
-                            break;
+            boost::json::object msg;
+            msg["type"] = "candidate";
+            msg["candidate"] = sdp;
+            msg["mid"] = candidate->sdp_mid();
+            msg["mlineIndex"] = candidate->sdp_mline_index();
+
+            manager->sendSignalingMessage(msg);
+        }
+
+        void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
+            switch (newState) {
+            case webrtc::PeerConnectionInterface::kIceConnectionConnected:
+                Logger::getInstance()->info("ICE connection established");
+                break;
+            case webrtc::PeerConnectionInterface::kIceConnectionFailed:
+                Logger::getInstance()->error("ICE connection failed");
+                break;
+            default:
+                break;
+            }
+        }
+
+        void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
+            switch (newState) {
+            case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected: {
+
+                Logger::getInstance()->info("Peer connection established");
+
+                auto localDesc = manager->peerConnection->local_description();
+                if (localDesc) {
+                    std::string sdp;
+                    localDesc->ToString(&sdp);
+
+                    // 简单解析SDP找到第一个video编解码器
+                    std::istringstream stream(sdp);
+                    std::string line;
+                    while (std::getline(stream, line)) {
+                        if (line.find("a=rtpmap:") == 0 && line.find("/90000") != std::string::npos) {
+                            // 找到视频编解码器行，提取编解码器名称
+                            size_t spacePos = line.find(' ');
+                            if (spacePos != std::string::npos) {
+                                std::string codecInfo = line.substr(spacePos + 1);
+                                size_t slashPos = codecInfo.find('/');
+                                if (slashPos != std::string::npos) {
+                                    std::string codecName = codecInfo.substr(0, slashPos);
+                                    Logger::getInstance()->info("=== Video codec actually being used: " + codecName + " ===");
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
+
+                boost::json::object json;
+
+                json["requestType"] = static_cast<int64_t>(WebRTCRequestState::START);
+
+                std::string jsonStr = boost::json::serialize(json);
+
+                std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
+
+                manager->writerAsync(data);
+
+                break;
+            }
+            case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
+
+                Logger::getInstance()->error("Peer connection failed");
+
+                boost::json::object json;
+
+                json["requestType"] = static_cast<int64_t>(WebRTCRequestState::CLOSE);
+
+                std::string jsonStr = boost::json::serialize(json);
+
+                std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
+
+                manager->writerAsync(data);
+
+                break;
+            }
+            case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed: {
+
+                break;
+            }
+            default:
+                break;
             }
         }
 
-        boost::json::object json;
+        void DataChannelObserverImpl::OnMessage(const webrtc::DataBuffer& buffer)
+        {
+            if (buffer.size() == 0) {
+                return;
+            }
 
-        json["requestType"] = static_cast<int64_t>(WebRTCRequestState::START);
+            if (buffer.size() > 1024 * 1024) { // 1MB limit
+                Logger::getInstance()->error("Data channel message too large: " + std::to_string(buffer.size()));
+                return;
+            }
 
-        std::string jsonStr = boost::json::serialize(json);
-
-        std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-
-        manager->writerAsync(data);
-
-        break;
-    }
-    case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
-
-        Logger::getInstance()->error("Peer connection failed");
-
-        boost::json::object json;
-
-        json["requestType"] = static_cast<int64_t>(WebRTCRequestState::CLOSE);
-
-        std::string jsonStr = boost::json::serialize(json);
-
-        std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-
-        manager->writerAsync(data);
-
-        break;
-    }
-    case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed: {
-
-        break;
-    }
-    default:
-        break;
-    }
-}
-
-void DataChannelObserverImpl::OnMessage(const webrtc::DataBuffer& buffer)
-{
-    if (buffer.size() == 0) {
-        return;
-    }
-
-    if (buffer.size() > 1024 * 1024) { // 1MB limit
-        Logger::getInstance()->error("Data channel message too large: " + std::to_string(buffer.size()));
-        return;
-    }
-
-    manager->processDataChannelMessage(std::move(reinterpret_cast<const unsigned char*>(buffer.data.data())), buffer.size());
-}
-
-// SetLocalDescriptionObserver实现
-void SetLocalDescriptionObserver::OnSuccess() {
-}
-
-void SetLocalDescriptionObserver::OnFailure(webrtc::RTCError error) {
-    Logger::getInstance()->error("SetLocalDescription failed: " + std::string(error.message()));
-}
-
-// SetRemoteDescriptionObserver实现
-void SetRemoteDescriptionObserver::OnSuccess() {
-}
-
-void SetRemoteDescriptionObserver::OnFailure(webrtc::RTCError error) {
-    Logger::getInstance()->error("SetRemoteDescription failed: " + std::string(error.message()));
-}
-
-// CreateOfferObserverImpl实现
-void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
-    if (!desc) {
-        Logger::getInstance()->error("CreateOffer success callback received null description");
-        manager->isProcessingOffer = false;
-        return;
-    }
-
-    // 获取并修改 SDP
-    std::string sdp;
-    desc->ToString(&sdp);
-
-    // 为 playout-delay 扩展添加延迟参数（min=0ms, max=0ms）
-    // 在 video m-line 中查找 playout-delay 扩展
-    size_t playoutDelayPos = sdp.find("http://www.webrtc.org/experiments/rtp-hdrext/playout-delay");
-    if (playoutDelayPos != std::string::npos) {
-        // 找到对应的 extmap 行
-        size_t lineStart = sdp.rfind("\r\na=extmap:", playoutDelayPos);
-        size_t lineEnd = sdp.find("\r\n", playoutDelayPos);
-
-        if (lineStart != std::string::npos && lineEnd != std::string::npos) {
-            std::string extmapLine = sdp.substr(lineStart, lineEnd - lineStart);
-            // 添加延迟参数: min=0;max=0 表示最低延迟
-            std::string modifiedLine = extmapLine + ";min=0;max=0";
-            sdp.replace(lineStart, lineEnd - lineStart, modifiedLine);
-
-            Logger::getInstance()->info("Added playout delay optimization: min=0;max=0");
+            manager->processDataChannelMessage(std::move(reinterpret_cast<const unsigned char*>(buffer.data.data())), buffer.size());
         }
-    }
 
-    // 用修改后的 SDP 重新创建 SessionDescription
-    webrtc::SdpParseError error;
-    std::unique_ptr<webrtc::SessionDescriptionInterface> modifiedDesc =
-        webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error);
+        // SetLocalDescriptionObserver实现
+        void SetLocalDescriptionObserver::OnSuccess() {
+        }
 
-    if (modifiedDesc) {
-        Logger::getInstance()->info("Set modified SDP with playout delay optimization");
-        peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(),
-            modifiedDesc.release());
-    }
-    else {
-        Logger::getInstance()->error("Failed to parse modified SDP: " + error.description);
-        // 如果修改失败，使用原始描述
-        peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(), desc);
-    }
+        void SetLocalDescriptionObserver::OnFailure(webrtc::RTCError error) {
+            Logger::getInstance()->error("SetLocalDescription failed: " + std::string(error.message()));
+        }
 
-    // 发送信令
-    boost::json::object msg;
-    msg["type"] = "offer";
-    msg["sdp"] = sdp;
-    manager->sendSignalingMessage(msg);
-}
+        // SetRemoteDescriptionObserver实现
+        void SetRemoteDescriptionObserver::OnSuccess() {
+        }
 
-void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
-    Logger::getInstance()->error("CreateOffer failed: " + std::string(error.message()));
-    manager->isProcessingOffer = false;
-}
+        void SetRemoteDescriptionObserver::OnFailure(webrtc::RTCError error) {
+            Logger::getInstance()->error("SetRemoteDescription failed: " + std::string(error.message()));
+        }
 
-// CreateAnswerObserverImpl实现
-void CreateAnswerObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
-    if (!desc) {
-        Logger::getInstance()->error("CreateAnswer success callback received null description");
-        return;
-    }
+        // CreateOfferObserverImpl实现
+        void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
+            if (!desc) {
+                Logger::getInstance()->error("CreateOffer success callback received null description");
+                manager->isProcessingOffer = false;
+                return;
+            }
 
-    peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(), desc);
+            // 获取并修改 SDP
+            std::string sdp;
+            desc->ToString(&sdp);
 
-    std::string sdp;
-    if (!desc->ToString(&sdp)) {
-        Logger::getInstance()->error("Failed to convert answer to string");
-        return;
-    }
+            // 为 playout-delay 扩展添加延迟参数（min=0ms, max=0ms）
+            // 在 video m-line 中查找 playout-delay 扩展
+            size_t playoutDelayPos = sdp.find("http://www.webrtc.org/experiments/rtp-hdrext/playout-delay");
+            if (playoutDelayPos != std::string::npos) {
+                // 找到对应的 extmap 行
+                size_t lineStart = sdp.rfind("\r\na=extmap:", playoutDelayPos);
+                size_t lineEnd = sdp.find("\r\n", playoutDelayPos);
 
-    boost::json::object msg;
-    msg["type"] = "answer";
-    msg["sdp"] = sdp;
+                if (lineStart != std::string::npos && lineEnd != std::string::npos) {
+                    std::string extmapLine = sdp.substr(lineStart, lineEnd - lineStart);
+                    // 添加延迟参数: min=0;max=0 表示最低延迟
+                    std::string modifiedLine = extmapLine + ";min=0;max=0";
+                    sdp.replace(lineStart, lineEnd - lineStart, modifiedLine);
 
-    manager->sendSignalingMessage(msg);
-}
-
-void CreateAnswerObserverImpl::OnFailure(webrtc::RTCError error) {
-    Logger::getInstance()->error("CreateAnswer failed: " + std::string(error.message()));
-}
-
-// Add releaseSource implementation
-void WebRTCManager::releaseSource() {
-    // Stop screen capture first
-    if (screenCapture) {
-        screenCapture.reset();
-    }
-
-    // Close peer connection
-    if (peerConnection) {
-        peerConnection->Close();
-        peerConnection = nullptr;
-    }
-
-    // Reset observers
-    if (peerConnectionObserver) {
-        peerConnectionObserver.reset();
-    }
-
-    if (dataChannelObserver) {
-        dataChannelObserver.reset();
-    }
-
-    if (createOfferObserver) {
-        createOfferObserver = nullptr;
-    }
-
-    if (createAnswerObserver) {
-        createAnswerObserver = nullptr;
-    }
-
-    // Reset tracks
-    if (videoTrack) {
-        videoTrack = nullptr;
-    }
-
-    if (videoSender) {
-        videoSender = nullptr;
-    }
-
-    if (dataChannel) {
-        dataChannel = nullptr;
-    }
-
-    if (videoTrackSourceImpl) {
-        videoTrackSourceImpl = nullptr;
-    }
-
-    // Reset factory
-    if (peerConnectionFactory) {
-        peerConnectionFactory = nullptr;
-    }
-
-    // Reset state flags
-    isInit = false;
-    isProcessingOffer = false;
-}
-
-WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
-    : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
-    accept(socketIoContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), 19998)),
-    state(WebRTCRemoteState::nullRemote),
-    connetState(WebRTCConnetState::none),
-    peerConnection(nullptr),
-    writerChannel(socketIoContext),
-    winLogon(nullptr),
-    keyMouseSim(nullptr),
-    codec(codec),
-    rtpEncodingParameters(rtpEncodingParameters),
-    inputInjector(nullptr),
-    cursorHooks(nullptr) {
-
-    Logger::getInstance()->info("WebRTCManager starting on port 19998");
-
-    ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
-        boost::asio::make_work_guard(ioContext));
-
-    ioContextThread = std::move(std::thread([this]() {
-        this->ioContext.run();
-        }));
-
-    socketIoContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
-        boost::asio::make_work_guard(socketIoContext));
-
-    socketIoContextThread = std::move(std::thread([this]() {
-        this->socketIoContext.run();
-        }));
-
-    boost::asio::co_spawn(socketIoContext, [this]()-> boost::asio::awaitable<void> {
-        tcpSocket = std::make_unique<boost::asio::ip::tcp::socket>(socketIoContext);
-        co_await accept.async_accept(*tcpSocket, boost::asio::use_awaitable);
-        Logger::getInstance()->info("TCP connection accepted");
-        socketEventLoop();
-        }, [this](std::exception_ptr p) {
-            try {
-                if (p) {
-                    std::rethrow_exception(p);
+                    Logger::getInstance()->info("Added playout delay optimization: min=0;max=0");
                 }
             }
-            catch (const std::exception& e) {
-                Logger::getInstance()->error("TCP acceptor error: " + std::string(e.what()));
+
+            // 用修改后的 SDP 重新创建 SessionDescription
+            webrtc::SdpParseError error;
+            std::unique_ptr<webrtc::SessionDescriptionInterface> modifiedDesc =
+                webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error);
+
+            if (modifiedDesc) {
+                Logger::getInstance()->info("Set modified SDP with playout delay optimization");
+                peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(),
+                    modifiedDesc.release());
             }
-            });
+            else {
+                Logger::getInstance()->error("Failed to parse modified SDP: " + error.description);
+                // 如果修改失败，使用原始描述
+                peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(), desc);
+            }
 
-        keyMouseSim = std::make_unique<KeyMouseSimulator>();
-
-        if (!keyMouseSim->Initialize()) {
-            Logger::getInstance()->error("KeyMouseSimulator initialization failed");
+            // 发送信令
+            boost::json::object msg;
+            msg["type"] = "offer";
+            msg["sdp"] = sdp;
+            manager->sendSignalingMessage(msg);
         }
 
-        inputInjector = winrt::Windows::UI::Input::Preview::Injection::InputInjector::TryCreate();
-
-        if (!inputInjector) {
-            Logger::getInstance()->warning("InputInjector creation failed, using KeyMouseSimulator");
+        void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
+            Logger::getInstance()->error("CreateOffer failed: " + std::string(error.message()));
+            manager->isProcessingOffer = false;
         }
 
-}
+        // CreateAnswerObserverImpl实现
+        void CreateAnswerObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
+            if (!desc) {
+                Logger::getInstance()->error("CreateAnswer success callback received null description");
+                return;
+            }
 
-void WebRTCManager::sendSignalingMessage(const boost::json::object& message) {
-    boost::json::object fullMsg;
-    fullMsg["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
-    fullMsg["accountID"] = accountID;
-    fullMsg["targetID"] = targetID;
-    fullMsg["state"] = 200;
+            peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(), desc);
 
-    for (auto& [key, value] : message) {
-        fullMsg[key] = value;
-    }
+            std::string sdp;
+            if (!desc->ToString(&sdp)) {
+                Logger::getInstance()->error("Failed to convert answer to string");
+                return;
+            }
 
-    std::string msgStr = boost::json::serialize(fullMsg);
-    auto data = std::make_shared<WriterData>(const_cast<char*>(msgStr.c_str()), msgStr.size());
+            boost::json::object msg;
+            msg["type"] = "answer";
+            msg["sdp"] = sdp;
 
-    writerAsync(data);
-}
+            manager->sendSignalingMessage(msg);
+        }
 
-void WebRTCManager::processOffer(const std::string& sdp) {
-    if (sdp.empty()) {
-        Logger::getInstance()->error("Received empty SDP offer");
-        isInit = false;
-        return;
-    }
+        void CreateAnswerObserverImpl::OnFailure(webrtc::RTCError error) {
+            Logger::getInstance()->error("CreateAnswer failed: " + std::string(error.message()));
+        }
 
-    webrtc::SdpParseError error;
-    std::unique_ptr<webrtc::SessionDescriptionInterface> desc =
-        webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error);
+        // Add releaseSource implementation
+        void WebRTCManager::releaseSource() {
+            // Stop screen capture first
+            if (screenCapture) {
+                screenCapture.reset();
+            }
 
-    if (desc) {
-        peerConnection->SetRemoteDescription(
-            SetRemoteDescriptionObserver::Create().get(), desc.release());
+            // Close peer connection
+            if (peerConnection) {
+                peerConnection->Close();
+                peerConnection = nullptr;
+            }
 
-        webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-        createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
-        peerConnection->CreateAnswer(createAnswerObserver.get(), options);
-    }
-    else {
-        Logger::getInstance()->error("Failed to parse offer: " + error.description);
-        isInit = false;
-    }
-}
+            // Reset observers
+            if (peerConnectionObserver) {
+                peerConnectionObserver.reset();
+            }
 
-void WebRTCManager::processAnswer(const std::string& sdp) {
-    if (sdp.empty()) {
-        Logger::getInstance()->error("Received empty SDP answer");
-        isInit = false;
-        return;
-    }
+            if (dataChannelObserver) {
+                dataChannelObserver.reset();
+            }
 
-    webrtc::SdpParseError error;
-    std::unique_ptr<webrtc::SessionDescriptionInterface> desc =
-        webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer, sdp, &error);
+            if (createOfferObserver) {
+                createOfferObserver = nullptr;
+            }
 
-    if (desc) {
-        peerConnection->SetRemoteDescription(
-            SetRemoteDescriptionObserver::Create().get(), desc.release());
-    }
-    else {
-        Logger::getInstance()->error("Failed to parse answer: " + error.description);
-        isInit = false;
-    }
-}
+            if (createAnswerObserver) {
+                createAnswerObserver = nullptr;
+            }
 
-void WebRTCManager::processIceCandidate(const std::string& candidate,
-    const std::string& mid, int lineIndex) {
-    if (candidate.empty()) {
-        return;
-    }
+            // Reset tracks
+            if (videoTrack) {
+                videoTrack = nullptr;
+            }
 
-    webrtc::SdpParseError error;
-    std::unique_ptr<webrtc::IceCandidateInterface> iceCandidate(
-        webrtc::CreateIceCandidate(mid, lineIndex, candidate, &error));
+            if (videoSender) {
+                videoSender = nullptr;
+            }
 
-    if (iceCandidate) {
-        peerConnection->AddIceCandidate(iceCandidate.release());
-    }
-    else {
-        Logger::getInstance()->error("Failed to parse ICE candidate: " + error.description);
-    }
-}
+            if (dataChannel) {
+                dataChannel = nullptr;
+            }
 
-void WebRTCManager::socketEventLoop() {
-    socketRuns = true;
+            if (videoTrackSourceImpl) {
+                videoTrackSourceImpl = nullptr;
+            }
 
-    // 读取协程
-    boost::asio::co_spawn(socketIoContext, [this]() -> boost::asio::awaitable<void> {
-        try {
-            char headerBuffer[8];
-            size_t headerSize = sizeof(int64_t);
+            // Reset factory
+            if (peerConnectionFactory) {
+                peerConnectionFactory = nullptr;
+            }
 
-            while (socketRuns) {
-                std::memset(headerBuffer, 0, headerSize);
+            // Reset state flags
+            isInit = false;
+            isProcessingOffer = false;
+        }
 
-                // 接收消息头
-                size_t headerRead = 0;
-                while (headerRead < headerSize) {
+        WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
+            : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
+            accept(socketIoContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), 19998)),
+            state(WebRTCRemoteState::nullRemote),
+            connetState(WebRTCConnetState::none),
+            peerConnection(nullptr),
+            writerChannel(socketIoContext),
+            winLogon(nullptr),
+            keyMouseSim(nullptr),
+            codec(codec),
+            rtpEncodingParameters(rtpEncodingParameters),
+            inputInjector(nullptr),
+            cursorHooks(nullptr) {
+
+            Logger::getInstance()->info("WebRTCManager starting on port 19998");
+
+            ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+                boost::asio::make_work_guard(ioContext));
+
+            ioContextThread = std::move(std::thread([this]() {
+                this->ioContext.run();
+                }));
+
+            socketIoContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+                boost::asio::make_work_guard(socketIoContext));
+
+            socketIoContextThread = std::move(std::thread([this]() {
+                this->socketIoContext.run();
+                }));
+
+            boost::asio::co_spawn(socketIoContext, [this]()-> boost::asio::awaitable<void> {
+                tcpSocket = std::make_unique<boost::asio::ip::tcp::socket>(socketIoContext);
+                co_await accept.async_accept(*tcpSocket, boost::asio::use_awaitable);
+                Logger::getInstance()->info("TCP connection accepted");
+                socketEventLoop();
+                }, [this](std::exception_ptr p) {
                     try {
-                        size_t n = co_await this->tcpSocket->async_read_some(
-                            boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
-                            boost::asio::use_awaitable);
-
-                        if (n == 0) {
-                            co_return;
+                        if (p) {
+                            std::rethrow_exception(p);
                         }
+                    }
+                    catch (const std::exception& e) {
+                        Logger::getInstance()->error("TCP acceptor error: " + std::string(e.what()));
+                    }
+                    });
 
-                        headerRead += n;
-                    }
-                    catch (const boost::system::system_error& e) {
-                        Logger::getInstance()->error("Socket read error: " + std::string(e.what()));
-                        co_return;
-                    }
+                keyMouseSim = std::make_unique<KeyMouseSimulator>();
+
+                if (!keyMouseSim->Initialize()) {
+                    Logger::getInstance()->error("KeyMouseSimulator initialization failed");
                 }
 
-                int64_t rawBodyLength = 0;
-                fastCopy(&rawBodyLength, headerBuffer, sizeof(int64_t));
-                int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
+                inputInjector = winrt::Windows::UI::Input::Preview::Injection::InputInjector::TryCreate();
 
-                if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
-                    Logger::getInstance()->error("Invalid body length: " + std::to_string(bodyLength));
-                    co_return;
+                if (!inputInjector) {
+                    Logger::getInstance()->warning("InputInjector creation failed, using KeyMouseSimulator");
                 }
 
-                size_t bodySize = static_cast<size_t>(bodyLength);
+        }
 
-                std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]);
-                if (!bodyBuffer) {
-                    Logger::getInstance()->error("Failed to allocate buffer");
-                    co_return;
-                }
-                std::memset(bodyBuffer.get(), 0, bodySize + 1);
+        void WebRTCManager::sendSignalingMessage(const boost::json::object& message) {
+            boost::json::object fullMsg;
+            fullMsg["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
+            fullMsg["accountID"] = accountID;
+            fullMsg["targetID"] = targetID;
+            fullMsg["state"] = 200;
 
-                // 接收消息体
-                size_t bodyRead = 0;
-                while (bodyRead < bodySize) {
-                    try {
-                        size_t n = co_await this->tcpSocket->async_read_some(
-                            boost::asio::buffer(bodyBuffer.get() + bodyRead, bodySize - bodyRead),
-                            boost::asio::use_awaitable);
+            for (auto& [key, value] : message) {
+                fullMsg[key] = value;
+            }
 
-                        if (n == 0) {
-                            co_return;
-                        }
+            std::string msgStr = boost::json::serialize(fullMsg);
+            auto data = std::make_shared<WriterData>(const_cast<char*>(msgStr.c_str()), msgStr.size());
 
-                        bodyRead += n;
-                    }
-                    catch (const boost::system::system_error& e) {
-                        Logger::getInstance()->error("Socket read error: " + std::string(e.what()));
-                        co_return;
-                    }
-                }
+            writerAsync(data);
+        }
 
-                std::string bodyStr(bodyBuffer.get(), bodySize);
+        void WebRTCManager::processOffer(const std::string& sdp) {
+            if (sdp.empty()) {
+                Logger::getInstance()->error("Received empty SDP offer");
+                isInit = false;
+                return;
+            }
 
-                // 解析JSON
+            webrtc::SdpParseError error;
+            std::unique_ptr<webrtc::SessionDescriptionInterface> desc =
+                webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error);
+
+            if (desc) {
+                peerConnection->SetRemoteDescription(
+                    SetRemoteDescriptionObserver::Create().get(), desc.release());
+
+                webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+                createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
+                peerConnection->CreateAnswer(createAnswerObserver.get(), options);
+            }
+            else {
+                Logger::getInstance()->error("Failed to parse offer: " + error.description);
+                isInit = false;
+            }
+        }
+
+        void WebRTCManager::processAnswer(const std::string& sdp) {
+            if (sdp.empty()) {
+                Logger::getInstance()->error("Received empty SDP answer");
+                isInit = false;
+                return;
+            }
+
+            webrtc::SdpParseError error;
+            std::unique_ptr<webrtc::SessionDescriptionInterface> desc =
+                webrtc::CreateSessionDescription(webrtc::SdpType::kAnswer, sdp, &error);
+
+            if (desc) {
+                peerConnection->SetRemoteDescription(
+                    SetRemoteDescriptionObserver::Create().get(), desc.release());
+            }
+            else {
+                Logger::getInstance()->error("Failed to parse answer: " + error.description);
+                isInit = false;
+            }
+        }
+
+        void WebRTCManager::processIceCandidate(const std::string& candidate,
+            const std::string& mid, int lineIndex) {
+            if (candidate.empty()) {
+                return;
+            }
+
+            webrtc::SdpParseError error;
+            std::unique_ptr<webrtc::IceCandidateInterface> iceCandidate(
+                webrtc::CreateIceCandidate(mid, lineIndex, candidate, &error));
+
+            if (iceCandidate) {
+                peerConnection->AddIceCandidate(iceCandidate.release());
+            }
+            else {
+                Logger::getInstance()->error("Failed to parse ICE candidate: " + error.description);
+            }
+        }
+
+        void WebRTCManager::socketEventLoop() {
+            socketRuns = true;
+
+            // 读取协程
+            boost::asio::co_spawn(socketIoContext, [this]() -> boost::asio::awaitable<void> {
                 try {
-                    boost::json::object json = boost::json::parse(bodyStr).as_object();
+                    char headerBuffer[8];
+                    size_t headerSize = sizeof(int64_t);
 
-                    if (json.contains("requestType")) {
-                        int64_t requestType = json["requestType"].as_int64();
+                    while (socketRuns) {
+                        std::memset(headerBuffer, 0, headerSize);
 
-                        if (!json.contains("state")) {
-                            continue;
-                        }
+                        // 接收消息头
+                        size_t headerRead = 0;
+                        while (headerRead < headerSize) {
+                            try {
+                                size_t n = co_await this->tcpSocket->async_read_some(
+                                    boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
+                                    boost::asio::use_awaitable);
 
-                        int64_t responseState = json["state"].as_int64();
-
-                        if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
-                            if (responseState == 200) {
-                                if (json.contains("webRTCRemoteState")) {
-                                    WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
-
-                                    if (state.load() == WebRTCRemoteState::nullRemote) {
-                                        if (remoteState == WebRTCRemoteState::masterRemote) {
-                                            state = WebRTCRemoteState::followerRemote;
-
-                                            if (!initializePeerConnection()) {
-                                                Logger::getInstance()->error("Failed to initialize peer connection");
-                                                continue;
-                                            }
-
-                                            if (!initializeScreenCapture()) {
-                                                Logger::getInstance()->error("Failed to initialize screen capture");
-                                                continue;
-                                            }
-
-                                            if (json.contains("accountID")) {
-                                                targetID = std::string(json["accountID"].as_string().c_str());
-                                            }
-
-                                            if (json.contains("targetID")) {
-                                                accountID = std::string(json["targetID"].as_string().c_str());
-                                            }
-
-                                            if (!isProcessingOffer.exchange(true)) {
-                                                webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-                                                options.offer_to_receive_video = true;
-                                                options.offer_to_receive_audio = false;
-
-                                                createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
-                                                peerConnection->CreateOffer(createOfferObserver.get(), options);
-                                            }
-                                        }
-                                    }
+                                if (n == 0) {
+                                    co_return;
                                 }
 
-                                if (json.contains("type")) {
-                                    std::string type(json["type"].as_string().c_str());
+                                headerRead += n;
+                            }
+                            catch (const boost::system::system_error& e) {
+                                Logger::getInstance()->error("Socket read error: " + std::string(e.what()));
+                                co_return;
+                            }
+                        }
 
-                                    if (type == "answer") {
-                                        if (!isInit.load()) {
-                                            std::string sdp(json["sdp"].as_string().c_str());
-                                            processAnswer(sdp);
+                        int64_t rawBodyLength = 0;
+                        fastCopy(&rawBodyLength, headerBuffer, sizeof(int64_t));
+                        int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
-                                            isInit = true;
-                                            isProcessingOffer = false;
+                        if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
+                            Logger::getInstance()->error("Invalid body length: " + std::to_string(bodyLength));
+                            co_return;
+                        }
+
+                        size_t bodySize = static_cast<size_t>(bodyLength);
+
+                        std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]);
+                        if (!bodyBuffer) {
+                            Logger::getInstance()->error("Failed to allocate buffer");
+                            co_return;
+                        }
+                        std::memset(bodyBuffer.get(), 0, bodySize + 1);
+
+                        // 接收消息体
+                        size_t bodyRead = 0;
+                        while (bodyRead < bodySize) {
+                            try {
+                                size_t n = co_await this->tcpSocket->async_read_some(
+                                    boost::asio::buffer(bodyBuffer.get() + bodyRead, bodySize - bodyRead),
+                                    boost::asio::use_awaitable);
+
+                                if (n == 0) {
+                                    co_return;
+                                }
+
+                                bodyRead += n;
+                            }
+                            catch (const boost::system::system_error& e) {
+                                Logger::getInstance()->error("Socket read error: " + std::string(e.what()));
+                                co_return;
+                            }
+                        }
+
+                        std::string bodyStr(bodyBuffer.get(), bodySize);
+
+                        // 解析JSON
+                        try {
+                            boost::json::object json = boost::json::parse(bodyStr).as_object();
+
+                            if (json.contains("requestType")) {
+                                int64_t requestType = json["requestType"].as_int64();
+
+                                if (!json.contains("state")) {
+                                    continue;
+                                }
+
+                                int64_t responseState = json["state"].as_int64();
+
+                                if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
+                                    if (responseState == 200) {
+                                        if (json.contains("webRTCRemoteState")) {
+                                            WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
+
+                                            if (state.load() == WebRTCRemoteState::nullRemote) {
+                                                if (remoteState == WebRTCRemoteState::masterRemote) {
+                                                    state = WebRTCRemoteState::followerRemote;
+
+                                                    if (!initializePeerConnection()) {
+                                                        Logger::getInstance()->error("Failed to initialize peer connection");
+                                                        continue;
+                                                    }
+
+                                                    if (!initializeScreenCapture()) {
+                                                        Logger::getInstance()->error("Failed to initialize screen capture");
+                                                        continue;
+                                                    }
+
+                                                    if (json.contains("accountID")) {
+                                                        targetID = std::string(json["accountID"].as_string().c_str());
+                                                    }
+
+                                                    if (json.contains("targetID")) {
+                                                        accountID = std::string(json["targetID"].as_string().c_str());
+                                                    }
+
+                                                    if (!isProcessingOffer.exchange(true)) {
+                                                        webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+                                                        options.offer_to_receive_video = true;
+                                                        options.offer_to_receive_audio = false;
+
+                                                        createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
+                                                        peerConnection->CreateOffer(createOfferObserver.get(), options);
+                                                    }
+                                                }
+                                            }
                                         }
-                                    }
-                                    else if (type == "candidate") {
-                                        std::string candidateStr(json["candidate"].as_string().c_str());
-                                        std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
-                                        int lineIndex = json.contains("mlineIndex") ? json["mlineIndex"].as_int64() : 0;
 
-                                        if (peerConnection) {
-                                            processIceCandidate(candidateStr, mid, lineIndex);
+                                        if (json.contains("type")) {
+                                            std::string type(json["type"].as_string().c_str());
+
+                                            if (type == "answer") {
+                                                if (!isInit.load()) {
+                                                    std::string sdp(json["sdp"].as_string().c_str());
+                                                    processAnswer(sdp);
+
+                                                    isInit = true;
+                                                    isProcessingOffer = false;
+                                                }
+                                            }
+                                            else if (type == "candidate") {
+                                                std::string candidateStr(json["candidate"].as_string().c_str());
+                                                std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
+                                                int lineIndex = json.contains("mlineIndex") ? json["mlineIndex"].as_int64() : 0;
+
+                                                if (peerConnection) {
+                                                    processIceCandidate(candidateStr, mid, lineIndex);
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
+                        }
+                        catch (const std::exception& e) {
+                            Logger::getInstance()->error("JSON parse error: " + std::string(e.what()));
                         }
                     }
                 }
                 catch (const std::exception& e) {
-                    Logger::getInstance()->error("JSON parse error: " + std::string(e.what()));
+                    Logger::getInstance()->error("Reader coroutine error: " + std::string(e.what()));
                 }
-            }
-        }
-        catch (const std::exception& e) {
-            Logger::getInstance()->error("Reader coroutine error: " + std::string(e.what()));
-        }
 
-        co_return;
+                co_return;
 
-        }, [this](std::exception_ptr p) {
-            try {
-                if (p) {
-                    std::rethrow_exception(p);
-                }
-            }
-            catch (const std::exception& e) {
-                Logger::getInstance()->error("Reader coroutine exception: " + std::string(e.what()));
-            }
-            });
-
-        // 写入协程
-        boost::asio::co_spawn(socketIoContext, [this]() -> boost::asio::awaitable<void> {
-            try {
-                for (;;) {
-
-                    std::shared_ptr<WriterData> nowNode = nullptr;
-
-                    while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
-
-                        try {
-                            co_await boost::asio::async_write(*this->tcpSocket,
-                                boost::asio::buffer(nowNode->data, nowNode->size),
-                                boost::asio::use_awaitable);
-
+                }, [this](std::exception_ptr p) {
+                    try {
+                        if (p) {
+                            std::rethrow_exception(p);
                         }
-                        catch (const boost::system::system_error& e) {
+                    }
+                    catch (const std::exception& e) {
+                        Logger::getInstance()->error("Reader coroutine exception: " + std::string(e.what()));
+                    }
+                    });
 
-                            Logger::getInstance()->error("Socket write error: " + std::string(e.what()));
+                // 写入协程
+                boost::asio::co_spawn(socketIoContext, [this]() -> boost::asio::awaitable<void> {
+                    try {
+                        for (;;) {
 
-                            break;
+                            std::shared_ptr<WriterData> nowNode = nullptr;
+
+                            while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
+
+                                try {
+                                    co_await boost::asio::async_write(*this->tcpSocket,
+                                        boost::asio::buffer(nowNode->data, nowNode->size),
+                                        boost::asio::use_awaitable);
+
+                                }
+                                catch (const boost::system::system_error& e) {
+
+                                    Logger::getInstance()->error("Socket write error: " + std::string(e.what()));
+
+                                    break;
+
+                                }
+                            }
+
+                            if (!socketRuns) {
+
+                                std::shared_ptr<WriterData> nowNode = nullptr;
+
+                                while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
+                                    try {
+                                        co_await boost::asio::async_write(*this->tcpSocket,
+                                            boost::asio::buffer(nowNode->data, nowNode->size),
+                                            boost::asio::use_awaitable);
+                                    }
+                                    catch (const std::exception& e) {
+                                        break;
+                                    }
+                                }
+
+                                co_return;
+                            }
+                            else {
+
+                                co_await this->writerChannel.async_receive(boost::asio::use_awaitable);
+
+                            }
 
                         }
                     }
+                    catch (const std::exception& e) {
 
-                    if (!socketRuns) {
+                        Logger::getInstance()->error("Writer coroutine error: " + std::string(e.what()));
 
-                        std::shared_ptr<WriterData> nowNode = nullptr;
+                    }
 
-                        while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
-                            try {
-                                co_await boost::asio::async_write(*this->tcpSocket,
-                                    boost::asio::buffer(nowNode->data, nowNode->size),
-                                    boost::asio::use_awaitable);
+                    co_return;
+
+                    }, [this](std::exception_ptr p) {
+                        try {
+
+                            if (p) {
+
+                                std::rethrow_exception(p);
+
                             }
-                            catch (const std::exception& e) {
+
+                        }
+                        catch (const std::exception& e) {
+
+                            Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
+
+                        }
+                        });
+        }
+
+        inline void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
+
+            if (!data) {
+
+                return;
+
+            }
+
+            writerDataQueues.enqueue(data);
+
+            if (writerChannel.is_open()) {
+
+                writerChannel.try_send(boost::system::error_code{});
+
+            }
+        }
+
+        bool WebRTCManager::initializePeerConnection() {
+            // Clean up any existing connection first
+            if (peerConnection) {
+
+                releaseSource();
+
+            }
+
+            webrtc::InitializeSSL();
+
+            if (!peerConnectionFactory) {
+
+                networkThread = webrtc::Thread::CreateWithSocketServer();
+
+                if (!networkThread) {
+
+                    Logger::getInstance()->error("Failed to create network thread");
+
+                    return false;
+
+                }
+                networkThread->SetName("network_thread", nullptr);
+
+                if (!networkThread->Start()) {
+
+                    Logger::getInstance()->error("Failed to start network thread");
+
+                    return false;
+
+                }
+
+                workerThread = webrtc::Thread::Create();
+
+                if (!workerThread) {
+
+                    Logger::getInstance()->error("Failed to create worker thread");
+
+                    return false;
+                }
+                workerThread->SetName("worker_thread", nullptr);
+
+                if (!workerThread->Start()) {
+
+                    Logger::getInstance()->error("Failed to start worker thread");
+
+                    return false;
+                }
+
+                signalingThread = webrtc::Thread::Create();
+
+                if (!signalingThread) {
+
+                    Logger::getInstance()->error("Failed to create signaling thread");
+
+                    return false;
+
+                }
+                signalingThread->SetName("signaling_thread", nullptr);
+
+                if (!signalingThread->Start()) {
+
+                    Logger::getInstance()->error("Failed to start signaling thread");
+
+                    return false;
+
+                }
+
+                networkThread->PostTask([this]() {
+                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+                    });
+
+                workerThread->PostTask([this]() {
+                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+                    });
+
+                audioDeviceModuleImpl = AudioDeviceModuleImpl::Create();
+
+                peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
+                    networkThread.get(),
+                    workerThread.get(),
+                    signalingThread.get(),
+                    audioDeviceModuleImpl,
+                    webrtc::CreateBuiltinAudioEncoderFactory(),
+                    webrtc::CreateBuiltinAudioDecoderFactory(),
+                    std::make_unique<WebRTCVideoEncoderFactory>(),
+                    webrtc::CreateBuiltinVideoDecoderFactory(),
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr
+                );
+
+                if (!peerConnectionFactory) {
+
+                    Logger::getInstance()->error("Failed to create PeerConnectionFactory");
+
+                    return false;
+
+                }
+            }
+
+            webrtc::PeerConnectionInterface::RTCConfiguration config;
+
+            config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+
+            config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
+
+            config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
+
+            config.tcp_candidate_policy = webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
+
+            config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
+
+            config.ice_unwritable_timeout = 10000;                  // 3秒无响应则标记为不可写
+
+            config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
+
+            config.set_dscp(true);
+
+            webrtc::PeerConnectionInterface::IceServer stunServer;
+
+            stunServer.uri = "stun:121.5.37.53:3478";
+
+            config.servers.push_back(stunServer);
+
+            webrtc::PeerConnectionInterface::IceServer turnServer;
+
+            turnServer.uri = "turn:121.5.37.53:3478";
+
+            turnServer.username = "HopeTiga";
+
+            turnServer.password = "dy913140924";
+
+            config.servers.emplace_back(turnServer);
+
+            peerConnectionObserver = std::make_unique<PeerConnectionObserverImpl>(this);
+
+            webrtc::PeerConnectionDependencies pcDependencies(peerConnectionObserver.get());
+
+            auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
+
+            if (!pcResult.ok()) {
+
+                Logger::getInstance()->error("Failed to create PeerConnection: " + std::string(pcResult.error().message()));
+
+                return false;
+
+            }
+
+            peerConnection = pcResult.MoveValue();
+
+            // 如果是发送端，创建视频源和轨道
+            if (state == WebRTCRemoteState::followerRemote) {
+
+                videoTrackSourceImpl = webrtc::make_ref_counted<VideoTrackSourceImpl>();
+
+                videoTrack = peerConnectionFactory->CreateVideoTrack(videoTrackSourceImpl, "videoTrack");
+
+                if (!videoTrack) {
+
+                    Logger::getInstance()->error("Failed to create video track");
+
+                    return false;
+
+                }
+
+                std::vector<webrtc::RtpEncodingParameters> encodings;
+
+                encodings.push_back(rtpEncodingParameters);
+
+                std::vector<std::string> streamIds = { "mediaStream" };
+
+                auto addTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
+
+                if (!addTrackResult.ok()) {
+
+                    Logger::getInstance()->error("Failed to add video track: " + std::string(addTrackResult.error().message()));
+
+                    return false;
+
+                }
+
+                videoSender = addTrackResult.MoveValue();
+
+                auto transceivers = peerConnection->GetTransceivers();
+
+                for (auto& transceiver : transceivers) {
+
+                    if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
+                        // 从工厂获取发送器能力，而不是空的偏好设置
+                        webrtc::RtpCapabilities senderCapabilities = peerConnectionFactory->GetRtpSenderCapabilities(
+                            webrtc::MediaType::MEDIA_TYPE_VIDEO);
+
+                        if (senderCapabilities.codecs.empty()) {
+
+                            Logger::getInstance()->warning("No video codecs available from factory");
+
+                            continue;
+
+                        }
+
+                        std::vector<webrtc::RtpCodecCapability> preferredCodecs;
+                        // 根据枚举选择优先编解码器
+                        std::string priorityCodec;
+
+                        switch (this->codec) {
+
+                        case WebRTCVideoCodec::VP9: priorityCodec = "VP9"; break;
+
+                        case WebRTCVideoCodec::H264: priorityCodec = "H264"; break;
+
+                        case WebRTCVideoCodec::VP8: priorityCodec = "VP8"; break;
+
+                        case WebRTCVideoCodec::H265: priorityCodec = "H265"; break;
+
+                        case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
+
+                        }
+
+                        Logger::getInstance()->info("Attempting to prioritize codec: " + priorityCodec);
+
+                        // 首先添加优先编解码器
+                        bool foundPriorityCodec = false;
+
+                        for (const auto& codec : senderCapabilities.codecs) {
+
+                            if (codec.name == priorityCodec) {
+
+                                preferredCodecs.push_back(codec);
+
+                                foundPriorityCodec = true;
+
+                                Logger::getInstance()->info("Found and prioritized codec: " + codec.name);
+
                                 break;
                             }
                         }
 
-                        co_return;
-                    }
-                    else {
+                        if (!foundPriorityCodec) {
 
-                        co_await this->writerChannel.async_receive(boost::asio::use_awaitable);
+                            Logger::getInstance()->warning("Priority codec " + priorityCodec + " not found in available codecs");
 
-                    }
+                        }
 
-                }
-            }
-            catch (const std::exception& e) {
+                        // 添加其他可用编解码器（排除重复项和辅助编解码器）
+                        for (const auto& codec : senderCapabilities.codecs) {
 
-                Logger::getInstance()->error("Writer coroutine error: " + std::string(e.what()));
+                            if (codec.name != priorityCodec) {
 
-            }
+                                preferredCodecs.push_back(codec);
 
-            co_return;
+                                Logger::getInstance()->info("Added additional codec: " + codec.name);
 
-            }, [this](std::exception_ptr p) {
-                try {
+                            }
+                        }
 
-                    if (p) {
+                        // 验证是否有编解码器可设置
+                        if (preferredCodecs.empty()) {
 
-                        std::rethrow_exception(p);
+                            Logger::getInstance()->error("No valid codecs to set as preferences");
 
-                    }
+                            continue;
 
-                }
-                catch (const std::exception& e) {
+                        }
 
-                    Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
+                        // 设置编解码器偏好
+                        auto result = transceiver->SetCodecPreferences(preferredCodecs);
 
-                }
-                });
-}
+                        if (result.ok()) {
 
-inline void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
+                            Logger::getInstance()->info("Successfully set codec preferences with " +
+                                std::to_string(preferredCodecs.size()) + " codecs");
 
-    if (!data) {
+                        }
+                        else {
 
-        return;
+                            Logger::getInstance()->error("Failed to set codec preferences: " +
+                                std::string(result.message()));
 
-    }
-
-    writerDataQueues.enqueue(data);
-
-    if (writerChannel.is_open()) {
-
-        writerChannel.try_send(boost::system::error_code{});
-
-    }
-}
-
-bool WebRTCManager::initializePeerConnection() {
-    // Clean up any existing connection first
-    if (peerConnection) {
-
-        releaseSource();
-
-    }
-
-    webrtc::InitializeSSL();
-
-    if (!peerConnectionFactory) {
-
-        networkThread = webrtc::Thread::CreateWithSocketServer();
-
-        if (!networkThread) {
-
-            Logger::getInstance()->error("Failed to create network thread");
-
-            return false;
-
-        }
-        networkThread->SetName("network_thread", nullptr);
-
-        if (!networkThread->Start()) {
-
-            Logger::getInstance()->error("Failed to start network thread");
-
-            return false;
-
-        }
-
-        workerThread = webrtc::Thread::Create();
-
-        if (!workerThread) {
-
-            Logger::getInstance()->error("Failed to create worker thread");
-
-            return false;
-        }
-        workerThread->SetName("worker_thread", nullptr);
-
-        if (!workerThread->Start()) {
-
-            Logger::getInstance()->error("Failed to start worker thread");
-
-            return false;
-        }
-
-        signalingThread = webrtc::Thread::Create();
-
-        if (!signalingThread) {
-
-            Logger::getInstance()->error("Failed to create signaling thread");
-
-            return false;
-
-        }
-        signalingThread->SetName("signaling_thread", nullptr);
-
-        if (!signalingThread->Start()) {
-
-            Logger::getInstance()->error("Failed to start signaling thread");
-
-            return false;
-
-        }
-
-        networkThread->PostTask([this]() {
-            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-            });
-
-        workerThread->PostTask([this]() {
-            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-            });
-
-        audioDeviceModuleImpl = AudioDeviceModuleImpl::Create();
-
-        peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
-            networkThread.get(),
-            workerThread.get(),
-            signalingThread.get(),
-            audioDeviceModuleImpl,
-            webrtc::CreateBuiltinAudioEncoderFactory(),
-            webrtc::CreateBuiltinAudioDecoderFactory(),
-            webrtc::CreateBuiltinVideoEncoderFactory(),
-            webrtc::CreateBuiltinVideoDecoderFactory(),
-            nullptr,
-            nullptr,
-            nullptr,
-            nullptr
-        );
-
-        if (!peerConnectionFactory) {
-
-            Logger::getInstance()->error("Failed to create PeerConnectionFactory");
-
-            return false;
-
-        }
-    }
-
-    webrtc::PeerConnectionInterface::RTCConfiguration config;
-
-    config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
-
-    config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
-
-    config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
-
-    config.tcp_candidate_policy = webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
-
-    config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
-
-    config.ice_unwritable_timeout = 10000;                  // 3秒无响应则标记为不可写
-
-    config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
-
-    config.set_dscp(true);
-
-    webrtc::PeerConnectionInterface::IceServer stunServer;
-
-    stunServer.uri = "stun:121.5.37.53:3478";
-
-    config.servers.push_back(stunServer);
-
-    webrtc::PeerConnectionInterface::IceServer turnServer;
-
-    turnServer.uri = "turn:121.5.37.53:3478";
-
-    turnServer.username = "HopeTiga";
-
-    turnServer.password = "dy913140924";
-
-    config.servers.emplace_back(turnServer);
-
-    peerConnectionObserver = std::make_unique<PeerConnectionObserverImpl>(this);
-
-    webrtc::PeerConnectionDependencies pcDependencies(peerConnectionObserver.get());
-
-    auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
-
-    if (!pcResult.ok()) {
-
-        Logger::getInstance()->error("Failed to create PeerConnection: " + std::string(pcResult.error().message()));
-
-        return false;
-
-    }
-
-    peerConnection = pcResult.MoveValue();
-
-    // 如果是发送端，创建视频源和轨道
-    if (state == WebRTCRemoteState::followerRemote) {
-
-        videoTrackSourceImpl = webrtc::make_ref_counted<VideoTrackSourceImpl>();
-
-        videoTrack = peerConnectionFactory->CreateVideoTrack(videoTrackSourceImpl, "videoTrack");
-
-        if (!videoTrack) {
-
-            Logger::getInstance()->error("Failed to create video track");
-
-            return false;
-
-        }
-
-        std::vector<webrtc::RtpEncodingParameters> encodings;
-
-        encodings.push_back(rtpEncodingParameters);
-
-        std::vector<std::string> streamIds = { "mediaStream" };
-
-        auto addTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
-
-        if (!addTrackResult.ok()) {
-
-            Logger::getInstance()->error("Failed to add video track: " + std::string(addTrackResult.error().message()));
-
-            return false;
-
-        }
-
-        videoSender = addTrackResult.MoveValue();
-
-        auto transceivers = peerConnection->GetTransceivers();
-
-        for (auto& transceiver : transceivers) {
-
-            if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
-                // 从工厂获取发送器能力，而不是空的偏好设置
-                webrtc::RtpCapabilities senderCapabilities = peerConnectionFactory->GetRtpSenderCapabilities(
-                    webrtc::MediaType::MEDIA_TYPE_VIDEO);
-
-                if (senderCapabilities.codecs.empty()) {
-
-                    Logger::getInstance()->warning("No video codecs available from factory");
-
-                    continue;
-
-                }
-
-                std::vector<webrtc::RtpCodecCapability> preferredCodecs;
-                // 根据枚举选择优先编解码器
-                std::string priorityCodec;
-
-                switch (this->codec) {
-
-                case WebRTCVideoCodec::VP9: priorityCodec = "VP9"; break;
-
-                case WebRTCVideoCodec::H264: priorityCodec = "H264"; break;
-
-                case WebRTCVideoCodec::VP8: priorityCodec = "VP8"; break;
-
-                case WebRTCVideoCodec::H265: priorityCodec = "H265"; break;
-
-                case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
-
-                }
-
-                Logger::getInstance()->info("Attempting to prioritize codec: " + priorityCodec);
-
-                // 首先添加优先编解码器
-                bool foundPriorityCodec = false;
-
-                for (const auto& codec : senderCapabilities.codecs) {
-
-                    if (codec.name == priorityCodec) {
-
-                        preferredCodecs.push_back(codec);
-
-                        foundPriorityCodec = true;
-
-                        Logger::getInstance()->info("Found and prioritized codec: " + codec.name);
-
-                        break;
+                        }
                     }
                 }
 
-                if (!foundPriorityCodec) {
+                webrtc::RtpParameters parameters = videoSender->GetParameters();
 
-                    Logger::getInstance()->warning("Priority codec " + priorityCodec + " not found in available codecs");
+                if (!parameters.encodings.empty()) {
 
-                }
-
-                // 添加其他可用编解码器（排除重复项和辅助编解码器）
-                for (const auto& codec : senderCapabilities.codecs) {
-
-                    if (codec.name != priorityCodec) {
-
-                        preferredCodecs.push_back(codec);
-
-                        Logger::getInstance()->info("Added additional codec: " + codec.name);
-
-                    }
-                }
-
-                // 验证是否有编解码器可设置
-                if (preferredCodecs.empty()) {
-
-                    Logger::getInstance()->error("No valid codecs to set as preferences");
-
-                    continue;
-
-                }
-
-                // 设置编解码器偏好
-                auto result = transceiver->SetCodecPreferences(preferredCodecs);
-
-                if (result.ok()) {
-
-                    Logger::getInstance()->info("Successfully set codec preferences with " +
-                        std::to_string(preferredCodecs.size()) + " codecs");
+                    parameters.encodings[0] = rtpEncodingParameters;
 
                 }
                 else {
+                    parameters.encodings = encodings;
+                }
 
-                    Logger::getInstance()->error("Failed to set codec preferences: " +
-                        std::string(result.message()));
+                parameters.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
+
+                auto setParamsResult = videoSender->SetParameters(parameters);
+
+                if (!setParamsResult.ok()) {
+                    Logger::getInstance()->error("Failed to set RTP parameters: " + std::string(setParamsResult.message()));
+                    return false;
+                }
+            }
+
+            std::unique_ptr<webrtc::DataChannelInit> dataChannelConfig = std::make_unique<webrtc::DataChannelInit>();
+
+            dataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
+
+            dataChannel = peerConnection->CreateDataChannel("dataChannel", dataChannelConfig.get());
+            if (!dataChannel) {
+                Logger::getInstance()->error("Failed to create data channel");
+                return false;
+            }
+
+            dataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
+            dataChannel->RegisterObserver(dataChannelObserver.get());
+
+            return true;
+        }
+
+        bool WebRTCManager::initializeScreenCapture() {
+            if (screenCapture) {
+                return false;
+            }
+
+            screenCapture = std::make_shared<ScreenCapture>();
+
+            screenCapture->setFrameCallback([this](const uint8_t* data, size_t size, int width, int height) {
+
+                if (!videoTrackSourceImpl || !data || size == 0) {
+                    return;
+                }
+
+                size_t expectedSize = width * height * 3 / 2;
+                if (size != expectedSize) {
+                    return;
+                }
+
+                webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer =
+                    webrtc::I420Buffer::Create(width, height);
+
+                if (!i420Buffer) {
+                    return;
+                }
+
+                const int ySize = width * height;
+                const int uvWidth = (width + 1) / 2;
+                const int uvHeight = (height + 1) / 2;
+                const int uvSize = uvWidth * uvHeight;
+
+                fastCopy(i420Buffer->MutableDataY(), data, ySize);
+                fastCopy(i420Buffer->MutableDataU(), data + ySize, uvSize);
+                fastCopy(i420Buffer->MutableDataV(), data + ySize + uvSize, uvSize);
+
+                webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
+                    .set_video_frame_buffer(i420Buffer)
+                    .set_timestamp_us(webrtc::TimeMicros())
+                    .build();
+
+                videoTrackSourceImpl->PushFrame(frame);
+
+                });
+
+            if (!screenCapture->initialize()) {
+                Logger::getInstance()->error("Failed to initialize screen capture");
+                return false;
+            }
+
+            if (!screenCapture->startCapture()) {
+                Logger::getInstance()->error("Failed to start screen capture");
+                return false;
+            }
+
+            cursorHooks = std::make_unique<CursorHooks>();
+
+            cursorHooks->setCursorHandler([this](unsigned char* data, size_t size) {
+
+                if (!dataChannel) {
+
+                    delete[] data;
+
+                    return;
 
                 }
+
+                webrtc::CopyOnWriteBuffer buffer(data, size);
+
+                webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+
+                dataChannel->SendAsync(dataBuffer, [this, data](webrtc::RTCError) {
+
+                    delete[] data;
+
+                    });
+
+                });
+
+            cursorHooks->startHooks();
+
+            return true;
+        }
+
+        void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t size)
+        {
+            if (size < sizeof(short)) {
+                return;
+            }
+
+            const short eventType = *reinterpret_cast<const short*>(data);
+
+            // 缓存屏幕分辨率
+            thread_local static const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+            thread_local static const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+            switch (eventType) {
+            case 0: { // Mouse move
+                if (size < sizeof(short) + 2 * sizeof(int)) {
+                    return;
+                }
+
+                const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short));
+
+                // 使用位运算替代除法：归一化坐标 * 屏幕尺寸 >> 16
+                // 65535 ≈ 2^16，所以右移16位等价于除以65536（误差可忽略）
+                int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
+                int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
+
+                keyMouseSim->MouseMove(posX, posY, true);
+                break;
+            }
+
+            case 1: // Mouse button down
+            case 2: { // Mouse button up
+                if (size < sizeof(short) * 2 + 2 * sizeof(int)) {
+                    return;
+                }
+
+                const short mouseType = *reinterpret_cast<const short*>(data + sizeof(short));
+                const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short) * 2);
+
+                // 同样使用位运算
+                int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
+                int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
+
+                if (eventType == 1) {
+                    keyMouseSim->MouseButtonDown(mouseType, posX, posY);
+                }
+                else {
+                    keyMouseSim->MouseButtonUp(mouseType);
+                }
+                break;
+            }
+
+            case 3: // Key down
+            case 4: { // Key up
+                if (size < sizeof(short) + 2) {
+                    return;
+                }
+
+                const unsigned char* keyData = data + sizeof(short);
+
+                if (eventType == 3) {
+                    keyMouseSim->KeyDown(keyData[0], keyData[1]);
+                }
+                else {
+                    keyMouseSim->KeyUp(keyData[0], keyData[1]);
+                }
+                break;
+            }
+
+            case 5: { // Mouse wheel
+                if (size < sizeof(short) + sizeof(int)) {
+                    return;
+                }
+
+                keyMouseSim->MouseWheel(*reinterpret_cast<const int*>(data + sizeof(short)));
+                break;
+            }
+
+            default:
+                break;
             }
         }
 
-        webrtc::RtpParameters parameters = videoSender->GetParameters();
-
-        if (!parameters.encodings.empty()) {
-
-            parameters.encodings[0] = rtpEncodingParameters;
-
-        }
-        else {
-            parameters.encodings = encodings;
+        WebRTCManager::~WebRTCManager() {
+            Cleanup();
         }
 
-        parameters.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
+        void WebRTCManager::Cleanup() {
+            socketRuns = false;
 
-        auto setParamsResult = videoSender->SetParameters(parameters);
+            releaseSource();
 
-        if (!setParamsResult.ok()) {
-            Logger::getInstance()->error("Failed to set RTP parameters: " + std::string(setParamsResult.message()));
-            return false;
+            if (writerChannel.is_open()) {
+                writerChannel.close();
+            }
+
+            if (tcpSocket && tcpSocket->is_open()) {
+                boost::system::error_code ec;
+                tcpSocket->close(ec);
+            }
+
+            if (ioContextWorkPtr) {
+                ioContextWorkPtr.reset();
+            }
+
+            if (socketIoContextWorkPtr) {
+                socketIoContextWorkPtr.reset();
+            }
+
+            if (ioContextThread.joinable()) {
+                ioContextThread.join();
+            }
+
+            if (socketIoContextThread.joinable()) {
+                socketIoContextThread.join();
+            }
+
+            if (networkThread) {
+                networkThread->Stop();
+            }
+
+            if (workerThread) {
+                workerThread->Stop();
+            }
+
+            if (signalingThread) {
+                signalingThread->Stop();
+            }
+
+            if (cursorHooks) {
+                cursorHooks->stopHooks();
+                cursorHooks.reset();
+            }
+
+            webrtc::CleanupSSL();
         }
-    }
+	}
 
-    std::unique_ptr<webrtc::DataChannelInit> dataChannelConfig = std::make_unique<webrtc::DataChannelInit>();
-
-    dataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
-
-    dataChannel = peerConnection->CreateDataChannel("dataChannel", dataChannelConfig.get());
-    if (!dataChannel) {
-        Logger::getInstance()->error("Failed to create data channel");
-        return false;
-    }
-
-    dataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
-    dataChannel->RegisterObserver(dataChannelObserver.get());
-
-    return true;
-}
-
-bool WebRTCManager::initializeScreenCapture() {
-    if (screenCapture) {
-        return false;
-    }
-
-    screenCapture = std::make_shared<ScreenCapture>();
-
-    screenCapture->setFrameCallback([this](const uint8_t* data, size_t size, int width, int height) {
-
-        if (!videoTrackSourceImpl || !data || size == 0) {
-            return;
-        }
-
-        size_t expectedSize = width * height * 3 / 2;
-        if (size != expectedSize) {
-            return;
-        }
-
-        webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer =
-            webrtc::I420Buffer::Create(width, height);
-
-        if (!i420Buffer) {
-            return;
-        }
-
-        const int ySize = width * height;
-        const int uvWidth = (width + 1) / 2;
-        const int uvHeight = (height + 1) / 2;
-        const int uvSize = uvWidth * uvHeight;
-
-        fastCopy(i420Buffer->MutableDataY(), data, ySize);
-        fastCopy(i420Buffer->MutableDataU(), data + ySize, uvSize);
-        fastCopy(i420Buffer->MutableDataV(), data + ySize + uvSize, uvSize);
-
-        webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
-            .set_video_frame_buffer(i420Buffer)
-            .set_timestamp_us(webrtc::TimeMicros())
-            .build();
-
-        videoTrackSourceImpl->PushFrame(frame);
-
-        });
-
-    if (!screenCapture->initialize()) {
-        Logger::getInstance()->error("Failed to initialize screen capture");
-        return false;
-    }
-
-    if (!screenCapture->startCapture()) {
-        Logger::getInstance()->error("Failed to start screen capture");
-        return false;
-    }
-
-    cursorHooks = std::make_unique<CursorHooks>();
-
-    cursorHooks->setCursorHandler([this](unsigned char* data, size_t size) {
-
-        if (!dataChannel) {
-
-            delete[] data;
-
-            return;
-
-        }
-
-        webrtc::CopyOnWriteBuffer buffer(data, size);
-
-        webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
-
-        dataChannel->SendAsync(dataBuffer, [this, data](webrtc::RTCError) {
-
-            delete[] data;
-
-            });
-
-        });
-
-    cursorHooks->startHooks();
-
-    return true;
-}
-
-void WebRTCManager::processDataChannelMessage(const unsigned char* data, size_t size)
-{
-    if (size < sizeof(short)) {
-        return;
-    }
-
-    const short eventType = *reinterpret_cast<const short*>(data);
-
-    // 缓存屏幕分辨率
-    thread_local static const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    thread_local static const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-
-    switch (eventType) {
-    case 0: { // Mouse move
-        if (size < sizeof(short) + 2 * sizeof(int)) {
-            return;
-        }
-
-        const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short));
-
-        // 使用位运算替代除法：归一化坐标 * 屏幕尺寸 >> 16
-        // 65535 ≈ 2^16，所以右移16位等价于除以65536（误差可忽略）
-        int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
-        int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
-
-        keyMouseSim->MouseMove(posX, posY, true);
-        break;
-    }
-
-    case 1: // Mouse button down
-    case 2: { // Mouse button up
-        if (size < sizeof(short) * 2 + 2 * sizeof(int)) {
-            return;
-        }
-
-        const short mouseType = *reinterpret_cast<const short*>(data + sizeof(short));
-        const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short) * 2);
-
-        // 同样使用位运算
-        int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
-        int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
-
-        if (eventType == 1) {
-            keyMouseSim->MouseButtonDown(mouseType, posX, posY);
-        }
-        else {
-            keyMouseSim->MouseButtonUp(mouseType);
-        }
-        break;
-    }
-
-    case 3: // Key down
-    case 4: { // Key up
-        if (size < sizeof(short) + 2) {
-            return;
-        }
-
-        const unsigned char* keyData = data + sizeof(short);
-
-        if (eventType == 3) {
-            keyMouseSim->KeyDown(keyData[0], keyData[1]);
-        }
-        else {
-            keyMouseSim->KeyUp(keyData[0], keyData[1]);
-        }
-        break;
-    }
-
-    case 5: { // Mouse wheel
-        if (size < sizeof(short) + sizeof(int)) {
-            return;
-        }
-
-        keyMouseSim->MouseWheel(*reinterpret_cast<const int*>(data + sizeof(short)));
-        break;
-    }
-
-    default:
-        break;
-    }
-}
-
-WebRTCManager::~WebRTCManager() {
-    Cleanup();
-}
-
-void WebRTCManager::Cleanup() {
-    socketRuns = false;
-
-    releaseSource();
-
-    if (writerChannel.is_open()) {
-        writerChannel.close();
-    }
-
-    if (tcpSocket && tcpSocket->is_open()) {
-        boost::system::error_code ec;
-        tcpSocket->close(ec);
-    }
-
-    if (ioContextWorkPtr) {
-        ioContextWorkPtr.reset();
-    }
-
-    if (socketIoContextWorkPtr) {
-        socketIoContextWorkPtr.reset();
-    }
-
-    if (ioContextThread.joinable()) {
-        ioContextThread.join();
-    }
-
-    if (socketIoContextThread.joinable()) {
-        socketIoContextThread.join();
-    }
-
-    if (networkThread) {
-        networkThread->Stop();
-    }
-
-    if (workerThread) {
-        workerThread->Stop();
-    }
-
-    if (signalingThread) {
-        signalingThread->Stop();
-    }
-
-    if (cursorHooks) {
-        cursorHooks->stopHooks();
-        cursorHooks.reset();
-    }
-
-    webrtc::CleanupSSL();
 }

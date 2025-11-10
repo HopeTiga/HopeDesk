@@ -5,43 +5,51 @@
 #include <thread>
 #include <unordered_map>
 
-class CursorHooks {
-public:
-    CursorHooks() = default;
-    ~CursorHooks();
+namespace hope {
 
-    void setCursorHandler(std::function<void(unsigned char*, size_t)> handler);
-    void startHooks();
-    void stopHooks();
+	namespace rtc {
+	
+        class CursorHooks {
+        public:
+            CursorHooks() = default;
+            ~CursorHooks();
 
-private:
-    // 低级鼠标钩子处理
-    static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
+            void setCursorHandler(std::function<void(unsigned char*, size_t)> handler);
+            void startHooks();
+            void stopHooks();
 
-    // 工作线程函数
-    void hookThreadProc();
+        private:
+            // 低级鼠标钩子处理
+            static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
 
-    // 获取光标位图数据
-    void getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, size_t& size);
+            // 工作线程函数
+            void hookThreadProc();
 
-    // 检查并处理光标变化
-    void checkCursorChange();
+            // 获取光标位图数据
+            void getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, size_t& size);
 
-private:
-    static CursorHooks* instance;
-    std::function<void(unsigned char*, size_t)> cursorHandler;
-    std::atomic<bool> isRunning{ false };
+            // 检查并处理光标变化
+            void checkCursorChange();
 
-    HHOOK mouseHook = nullptr;
+        private:
+            static CursorHooks* instance;
+            std::function<void(unsigned char*, size_t)> cursorHandler;
+            std::atomic<bool> isRunning{ false };
 
-    HCURSOR lastCursor = nullptr;
+            HHOOK mouseHook = nullptr;
 
-    std::thread hookThread;
+            HCURSOR lastCursor = nullptr;
 
-    // 用于缓存已处理的光标，避免重复处理
-    std::unordered_map<HCURSOR, int> cursorCaches;
+            std::thread hookThread;
 
-    std::vector<std::pair<int, int>> cursorHotPos;
+            // 用于缓存已处理的光标，避免重复处理
+            std::unordered_map<HCURSOR, int> cursorCaches;
 
-    std::vector<std::pair<int, int>> cursorSizes;
-};
+            std::vector<std::pair<int, int>> cursorHotPos;
+
+            std::vector<std::pair<int, int>> cursorSizes;
+        };
+	
+	}
+
+}

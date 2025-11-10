@@ -31,141 +31,147 @@
 #include "concurrentqueue.h"
 #include "WinLogon.h"
 
-struct DirtyRegionTracker;
-struct GPUTextureRing;
-class MouseCursor;  // Forward declaration
+namespace hope {
 
-struct CapturedFrame {
-    std::vector<uint8_t> bgraData;
-    int width;
-    int height;
-    int stride;
-    std::chrono::steady_clock::time_point timestamp;
-    bool isYUV = false;
+	namespace rtc {
+        struct DirtyRegionTracker;
+        struct GPUTextureRing;
+        class MouseCursor;  // Forward declaration
 
-    CapturedFrame() = default;
-    CapturedFrame(int w, int h, int s)
-        : width(w), height(h), stride(s),
-        bgraData(s* h),
-        timestamp(std::chrono::steady_clock::now()) {
-    }
-};
+        struct CapturedFrame {
+            std::vector<uint8_t> bgraData;
+            int width;
+            int height;
+            int stride;
+            std::chrono::steady_clock::time_point timestamp;
+            bool isYUV = false;
 
-class ScreenCapture {
-public:
-    using FrameCallback = std::function<void(const uint8_t* data, size_t size, int width, int height)>;
-    using GPUEncoderCallback = std::function<void(ID3D11Texture2D* texture)>;
+            CapturedFrame() = default;
+            CapturedFrame(int w, int h, int s)
+                : width(w), height(h), stride(s),
+                bgraData(s* h),
+                timestamp(std::chrono::steady_clock::now()) {
+            }
+        };
 
-    struct CaptureConfig {
-        int width = 0;
-        int height = 0;
-        int fps = 120;
-        UINT outputNum = 0;
-        bool enableGPUEncoding = true;
-        bool enableDirtyRects = true;
-    };
+        class ScreenCapture {
+        public:
+            using FrameCallback = std::function<void(const uint8_t* data, size_t size, int width, int height)>;
+            using GPUEncoderCallback = std::function<void(ID3D11Texture2D* texture)>;
 
-    ScreenCapture();
-    ~ScreenCapture();
+            struct CaptureConfig {
+                int width = 0;
+                int height = 0;
+                int fps = 120;
+                UINT outputNum = 0;
+                bool enableGPUEncoding = true;
+                bool enableDirtyRects = true;
+            };
 
-    bool initialize();
-    bool startCapture();
-    void stopCapture();
+            ScreenCapture();
+            ~ScreenCapture();
 
-    void setFrameCallback(FrameCallback callback) { frameCallback = callback; }
-    void setGPUEncoderCallback(GPUEncoderCallback callback) { gpuEncoderCallback = callback; }
+            bool initialize();
+            bool startCapture();
+            void stopCapture();
 
-    void setConfig(const CaptureConfig& cfg) { config = cfg; }
-    const CaptureConfig& getConfig() const { return config; }
+            void setFrameCallback(FrameCallback callback) { frameCallback = callback; }
+            void setGPUEncoderCallback(GPUEncoderCallback callback) { gpuEncoderCallback = callback; }
 
-private:
-    bool initializeDXGI();
-    bool initializeGPUConverter();
-    void initializeFramePool(size_t poolSize);
+            void setConfig(const CaptureConfig& cfg) { config = cfg; }
+            const CaptureConfig& getConfig() const { return config; }
 
-    void captureThreadFunc();
-    bool captureFrame();
-    bool processFrame(ID3D11Texture2D* texture);
+        private:
+            bool initializeDXGI();
+            bool initializeGPUConverter();
+            void initializeFramePool(size_t poolSize);
 
-    void ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture);
-    void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
-    std::vector<RECT> MergeDirtyRects(RECT* rects, UINT count);
+            void captureThreadFunc();
+            bool captureFrame();
+            bool processFrame(ID3D11Texture2D* texture);
 
-    void ProcessOnGPU(ID3D11Texture2D* sourceTexture);
-    bool convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std::vector<uint8_t>& yuvBuffer);
+            void ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture);
+            void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
+            std::vector<RECT> MergeDirtyRects(RECT* rects, UINT count);
 
-    void encodeFrame(std::shared_ptr<CapturedFrame> frame);
-    bool convertBGRAToYUV420(const uint8_t* bgraData, int stride, std::vector<uint8_t>& yuvBuffer);
+            void ProcessOnGPU(ID3D11Texture2D* sourceTexture);
+            bool convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std::vector<uint8_t>& yuvBuffer);
 
-    std::shared_ptr<CapturedFrame> getFrameFromPool();
-    void returnFrameToPool(std::shared_ptr<CapturedFrame> frame);
+            void encodeFrame(std::shared_ptr<CapturedFrame> frame);
+            bool convertBGRAToYUV420(const uint8_t* bgraData, int stride, std::vector<uint8_t>& yuvBuffer);
 
-    void handleCaptureError(HRESULT hr);
+            std::shared_ptr<CapturedFrame> getFrameFromPool();
+            void returnFrameToPool(std::shared_ptr<CapturedFrame> frame);
 
-    void releaseResources();
-    void releaseResourceDXGI();
+            void handleCaptureError(HRESULT hr);
 
-    Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
-    Microsoft::WRL::ComPtr<ID3D11Device1> d3dDevice1;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext1> d3dContext1;
-    Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
-    Microsoft::WRL::ComPtr<IDXGIAdapter> dxgiAdapter;
-    Microsoft::WRL::ComPtr<IDXGIOutput> dxgiOutput;
-    Microsoft::WRL::ComPtr<IDXGIOutput1> dxgiOutput1;
-    Microsoft::WRL::ComPtr<IDXGIOutput5> dxgiOutput5;
-    Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dxgiDuplication;
+            void releaseResources();
+            void releaseResourceDXGI();
 
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> workingTexture;
+            Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
+            Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
+            Microsoft::WRL::ComPtr<ID3D11Device1> d3dDevice1;
+            Microsoft::WRL::ComPtr<ID3D11DeviceContext1> d3dContext1;
+            Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+            Microsoft::WRL::ComPtr<IDXGIAdapter> dxgiAdapter;
+            Microsoft::WRL::ComPtr<IDXGIOutput> dxgiOutput;
+            Microsoft::WRL::ComPtr<IDXGIOutput1> dxgiOutput1;
+            Microsoft::WRL::ComPtr<IDXGIOutput5> dxgiOutput5;
+            Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dxgiDuplication;
 
-    Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
-    Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
-    Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
-    Microsoft::WRL::ComPtr<ID3D11Buffer> stagingBuffer;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> workingTexture;
 
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> gpuEncoderTexture;
-    Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> gpuEncoderUAV;
+            Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
+            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
+            Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
+            Microsoft::WRL::ComPtr<ID3D11Buffer> stagingBuffer;
 
-    static constexpr int NUM_BUFFERS = 5;
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[NUM_BUFFERS];
-    int currentTexture = 0;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> gpuEncoderTexture;
+            Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> gpuEncoderUAV;
 
-    std::unique_ptr<GPUTextureRing> gpuRing;
-    std::unique_ptr<DirtyRegionTracker> dirtyTracker;
+            static constexpr int NUM_BUFFERS = 5;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[NUM_BUFFERS];
+            int currentTexture = 0;
 
-    std::thread captureThread;
-    std::thread encoderThread;
-    std::atomic<bool> capturing{ false };
-    std::atomic<bool> encoderRunning{ false };
-    std::atomic<bool> hasAcquiredFrame{ false };
+            std::unique_ptr<GPUTextureRing> gpuRing;
+            std::unique_ptr<DirtyRegionTracker> dirtyTracker;
 
-    boost::asio::io_context encoderContext;
-    boost::asio::experimental::concurrent_channel
-        <void(boost::system::error_code) > encoderChannel;
-    std::unique_ptr<boost::asio::executor_work_guard<
-        boost::asio::io_context::executor_type >> encoderWorkGuard;
+            std::thread captureThread;
+            std::thread encoderThread;
+            std::atomic<bool> capturing{ false };
+            std::atomic<bool> encoderRunning{ false };
+            std::atomic<bool> hasAcquiredFrame{ false };
 
-    moodycamel::ConcurrentQueue<std::shared_ptr<CapturedFrame>> frameQueue;
-    moodycamel::ConcurrentQueue<std::shared_ptr<CapturedFrame>> framePool;
-    static constexpr size_t MAX_QUEUE_SIZE = 10;
+            boost::asio::io_context encoderContext;
+            boost::asio::experimental::concurrent_channel
+                <void(boost::system::error_code) > encoderChannel;
+            std::unique_ptr<boost::asio::executor_work_guard<
+                boost::asio::io_context::executor_type >> encoderWorkGuard;
 
-    std::unique_ptr<WinLogon> winLogonSwitcher;
+            moodycamel::ConcurrentQueue<std::shared_ptr<CapturedFrame>> frameQueue;
+            moodycamel::ConcurrentQueue<std::shared_ptr<CapturedFrame>> framePool;
+            static constexpr size_t MAX_QUEUE_SIZE = 10;
 
-    std::atomic<bool> isOnWinLogonDesktop{ false };
+            std::unique_ptr<WinLogon> winLogonSwitcher;
 
-    std::atomic<bool> desktopSwitchInProgress{ false };
+            std::atomic<bool> isOnWinLogonDesktop{ false };
 
-    CaptureConfig config;
+            std::atomic<bool> desktopSwitchInProgress{ false };
 
-    FrameCallback frameCallback;
+            CaptureConfig config;
 
-    GPUEncoderCallback gpuEncoderCallback;
+            FrameCallback frameCallback;
 
-    bool useAdvancedFeatures = false;
+            GPUEncoderCallback gpuEncoderCallback;
 
-    std::vector<uint8_t> yuvBuffer;
+            bool useAdvancedFeatures = false;
 
-    int invalidCallCount = 0;
+            std::vector<uint8_t> yuvBuffer;
 
-    int invalidCallDxgi = 0;
-};
+            int invalidCallCount = 0;
+
+            int invalidCallDxgi = 0;
+        };
+	}
+
+}
