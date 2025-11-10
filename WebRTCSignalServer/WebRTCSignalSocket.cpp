@@ -102,7 +102,7 @@ namespace hope {
 
             boost::asio::co_spawn(ioContext, reviceCoroutine(), [self = shared_from_this()](std::exception_ptr p) {
 
-                if (self->isRegistered && self->onDisConnectHandle) {
+                if (self->isRegistered && self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
 
                     self->onDisConnectHandle(self->accountID);
 
@@ -110,7 +110,15 @@ namespace hope {
 
                 });
 
-            boost::asio::co_spawn(ioContext, writerCoroutine(), [](std::exception_ptr p) {});
+            boost::asio::co_spawn(ioContext, writerCoroutine(), [self = shared_from_this()](std::exception_ptr p) {
+
+                if (self->isRegistered && self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
+
+                    self->onDisConnectHandle(self->accountID);
+
+                }
+
+                });
 
             webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                 boost::beast::role_type::server));
@@ -120,7 +128,7 @@ namespace hope {
         void WebRTCSignalSocket::stop() {
 
             if (isStop.exchange(true) == false) {
-                LOG_INFO("stop connect...");
+                LOG_INFO("Stop connect...");
                 // 确保所有 IO 操作中断
                 closeSocket();
             }

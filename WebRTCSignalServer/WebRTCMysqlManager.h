@@ -3,48 +3,47 @@
 #include <vector>
 #include <thread>
 #include <string>
+#include <atomic>
 
 #include <boost/asio.hpp>
 #include <boost/mysql.hpp>
-
+#include <boost/asio/steady_timer.hpp>
 
 namespace hope {
+    namespace core {
+        class WebRTCMysqlManager : public std::enable_shared_from_this<WebRTCMysqlManager> {
+        public:
+            WebRTCMysqlManager(boost::asio::io_context& ioContext);
+            ~WebRTCMysqlManager();
 
-	namespace core {
-		class WebRTCMysqlManager : public std::enable_shared_from_this<WebRTCMysqlManager>
-		{
+            void initConnection(std::string hostIP, size_t port, std::string username,
+                std::string password, std::string database);
 
-		public:
+            std::shared_ptr<boost::mysql::any_connection> getConnection();
 
-			WebRTCMysqlManager(boost::asio::io_context& ioContext);
+            void startHeartbeat(std::chrono::seconds interval = std::chrono::seconds(300)); // ƒ¨»œ5∑÷÷”
+            void stopHeartbeat();
 
-			~WebRTCMysqlManager();
+        private:
+            void doHeartbeat();
+            boost::asio::awaitable<void> executeHeartbeat();
+            boost::asio::awaitable<bool> checkAndReconnect();
 
-			void initConnection(std::string hostIP, size_t port, std::string username, std::string password, std::string database, size_t size = std::thread::hardware_concurrency() * 2);
+            boost::asio::io_context& ioContext;
+            boost::asio::ssl::context sslContext;
+            boost::asio::steady_timer heartbeatTimer;
 
-			std::shared_ptr<boost::mysql::any_connection> getConnection();
+            std::shared_ptr<boost::mysql::any_connection> mysqlConnection;
 
-		private:
+            std::string hostIP;
+            size_t port;
+            std::string username;
+            std::string password;
+            std::string database;
 
-			boost::asio::io_context& ioContext;
-
-			boost::asio::ssl::context sslContext;
-
-			std::shared_ptr<boost::mysql::any_connection> mysqlConnection;
-
-			std::string hostIP;
-
-			size_t port;
-
-			std::string username;
-
-			std::string password;
-
-			std::string database;
-
-
-		};
-	}
-	
+            std::chrono::seconds heartbeatInterval;
+            std::atomic<bool> heartbeatRunning{ false };
+            std::atomic<bool> isConnected{ false };
+        };
+    }
 }
-

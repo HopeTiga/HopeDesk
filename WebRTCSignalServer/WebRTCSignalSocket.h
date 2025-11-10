@@ -97,6 +97,8 @@ namespace hope {
 
 			std::atomic<bool> cloudProcess{ false };
 
+			std::atomic<bool> isHandleDisConnect{ false };
+
 		private:
 
 			std::function<void(std::string)> onDisConnectHandle;
