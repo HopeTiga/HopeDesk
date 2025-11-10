@@ -19,6 +19,10 @@
 #include "Logger.h"
 #include "interceptionhook.h"
 
+namespace hope{
+
+namespace rtc{
+
 class WebRTCRemoteClient;
 struct VideoFrame;
 
@@ -162,3 +166,8 @@ private:
 
 
 };
+
+
+}
+
+}

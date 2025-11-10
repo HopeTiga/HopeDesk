@@ -7,124 +7,132 @@
 #include <QCloseEvent>
 #include <QLabel>
 
-class VideoWidget;
-class WebRTCRemoteClient;
-
 namespace Ui {
 class MainWindow;
 }
 
-class MainWindow : public QMainWindow
-{
-    Q_OBJECT
+namespace hope{
 
-public:
-    MainWindow(QWidget* parent = nullptr);
-    ~MainWindow();
+    namespace rtc{
 
-protected:
-    void closeEvent(QCloseEvent* event) override;
+    class VideoWidget;
+    class WebRTCRemoteClient;
 
-    void resizeEvent(QResizeEvent* event) override;  // 添加这一行
+    class MainWindow : public QMainWindow
+    {
+        Q_OBJECT
 
-private Q_SLOTS:
-    // 连接控制
-    void onConnectClicked();
-    void onDisconnectClicked();
+    public:
+        MainWindow(QWidget* parent = nullptr);
+        ~MainWindow();
 
-    // 账号管理
-    void onAccountChanged(int index);
-    void onAddAccountClicked();
-    void onRemoveAccountClicked();
-    void onTargetSelectionChanged();
-    void onSendRequestClicked();
+    protected:
+        void closeEvent(QCloseEvent* event) override;
 
-    // 远程操控
-    void onDisconnectRemoteControl();
+        void resizeEvent(QResizeEvent* event) override;  // 添加这一行
 
-    // WebRTC客户端事件
-    void onConnectionStateChanged(bool connected);
-    void onClientError(const QString& error);
+    private Q_SLOTS:
+        // 连接控制
+        void onConnectClicked();
+        void onDisconnectClicked();
 
-    // 菜单操作
-    void onAbout();
-    void onSettings();
-    void onFullScreen();
+        // 账号管理
+        void onAccountChanged(int index);
+        void onAddAccountClicked();
+        void onRemoveAccountClicked();
+        void onTargetSelectionChanged();
+        void onSendRequestClicked();
 
-    // 视频窗口控制
-    void onShowVideoWindow();
-    void onHideVideoWindow();
+        // 远程操控
+        void onDisconnectRemoteControl();
 
-    // 状态更新
-    void updateStatus();
+        // WebRTC客户端事件
+        void onConnectionStateChanged(bool connected);
+        void onClientError(const QString& error);
 
-    void onRemoteControlStarted();
+        // 菜单操作
+        void onAbout();
+        void onSettings();
+        void onFullScreen();
 
-    // 被远程端断开连接的处理
-    void onRemoteDisconnectedByPeer();
+        // 视频窗口控制
+        void onShowVideoWindow();
+        void onHideVideoWindow();
 
-    // 远程连接超时处理
-    void onRemoteConnectionTimeout();
+        // 状态更新
+        void updateStatus();
 
-    void onDeviceItemClicked(QListWidgetItem* item);
+        void onRemoteControlStarted();
 
+        // 被远程端断开连接的处理
+        void onRemoteDisconnectedByPeer();
 
-private:
-    // UI初始化
-    void setupConnections();
-    void applyModernStyles();
+        // 远程连接超时处理
+        void onRemoteConnectionTimeout();
 
-    // 设置管理
-    void loadSettings();
-    void saveSettings();
-    void loadAccounts();
-    void saveAccounts();
-
-    void createVideoWidget();
-
-    QString createStatusLabelStyle(const QString& type);
-
-    // 状态管理
-    void updateConnectionState(bool connected);
-    void showErrorMessage(const QString& title, const QString& message);
-    void updateTargetList();
-
-    // 初始化设备列表
-    void initializeDeviceLists();
-
-    // WebRTC回调设置
-    void setupWebRTCCallbacks();
-
-    // 配置文件加载
-    void loadConfigFile();
+        void onDeviceItemClicked(QListWidgetItem* item);
 
 
-private:
-    Ui::MainWindow *ui;
+    private:
+        // UI初始化
+        void setupConnections();
+        void applyModernStyles();
 
-    // 主要组件
-    VideoWidget* videoWidget;
-    WebRTCRemoteClient* webRTCRemoteClient;
+        // 设置管理
+        void loadSettings();
+        void saveSettings();
+        void loadAccounts();
+        void saveAccounts();
 
-    // 设置
-    QSettings* settings;
+        void createVideoWidget();
 
-    // 状态
-    bool isConnected;
-    bool isFullScreen;
-    bool isRemoteConnected;
-    QString lastError;
+        QString createStatusLabelStyle(const QString& type);
 
-    // 账号列表
-    QStringList accountList;
-    QStringList targetList;
+        // 状态管理
+        void updateConnectionState(bool connected);
+        void showErrorMessage(const QString& title, const QString& message);
+        void updateTargetList();
 
-    int reConnectNums;
-    int reConnectTimes;
+        // 初始化设备列表
+        void initializeDeviceLists();
 
-    // 远程连接超时定时器
-    QTimer* remoteConnectionTimer;
-    static const int REMOTE_CONNECTION_TIMEOUT = 15000;
+        // WebRTC回调设置
+        void setupWebRTCCallbacks();
 
-    QLabel* background;
-};
+        // 配置文件加载
+        void loadConfigFile();
+
+
+    private:
+        Ui::MainWindow *ui;
+
+        // 主要组件
+        VideoWidget* videoWidget;
+        WebRTCRemoteClient* webRTCRemoteClient;
+
+        // 设置
+        QSettings* settings;
+
+        // 状态
+        bool isConnected;
+        bool isFullScreen;
+        bool isRemoteConnected;
+        QString lastError;
+
+        // 账号列表
+        QStringList accountList;
+        QStringList targetList;
+
+        int reConnectNums;
+        int reConnectTimes;
+
+        // 远程连接超时定时器
+        QTimer* remoteConnectionTimer;
+        static const int REMOTE_CONNECTION_TIMEOUT = 15000;
+
+        QLabel* background;
+    };
+
+    }
+
+}

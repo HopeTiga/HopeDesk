@@ -10,9 +10,15 @@
 #include <thread>
 #include <memory>
 
+class Logger;
+
+namespace hope{
+
+namespace rtc{
+
 class WebRTCRemoteClient;
 class VideoWidget;
-class Logger;
+
 
 class InterceptionHook : public QObject
 {
@@ -93,5 +99,9 @@ private:
 
     std::atomic<bool> numLockState;
 };
+
+}
+
+}
 
 #endif // INTERCEPTIONHOOK_H

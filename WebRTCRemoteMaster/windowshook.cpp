@@ -6,6 +6,10 @@
 #include <cstring>
 #include <algorithm>
 
+namespace hope{
+
+namespace rtc{
+
 // 静态成员初始化
 WindowsHook* WindowsHook::sInstance = nullptr;
 
@@ -348,4 +352,9 @@ LRESULT CALLBACK WindowsHook::LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM
 
     // 继续传递事件，不拦截
     return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
+
+}
+
 }

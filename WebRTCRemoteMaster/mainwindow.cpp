@@ -18,6 +18,10 @@
 #include <QTimer>
 #include <QMessageBox>
 
+namespace hope{
+
+    namespace rtc{
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -1020,8 +1024,7 @@ void MainWindow::onRemoveAccountClicked()
     }
 }
 
-void MainWindow::on_disconnectButton_clicked()
-{
+
+    }
 
 }
-

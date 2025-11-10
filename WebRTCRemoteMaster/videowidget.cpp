@@ -9,6 +9,9 @@
 #include <QDir>
 #include <algorithm>
 
+namespace hope{
+
+namespace rtc{
 VideoWidget::VideoWidget(QWidget* parent)
     : QRhiWidget(parent)
     , webRTCRemoteClient(nullptr)
@@ -907,4 +910,8 @@ void VideoWidget::leaveEvent(QEvent* event)
     }
 
     SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
+}
+
+}
+
 }

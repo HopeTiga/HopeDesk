@@ -55,6 +55,10 @@
 typedef LONG NTSTATUS;
 #endif
 
+namespace hope{
+
+namespace rtc{
+
 enum class WebRTCRemoteState{
     nullRemote = 0,
     masterRemote = 1,  // 接收端：接收并显示视频流
@@ -417,5 +421,10 @@ private:
 
     std::vector<std::vector<unsigned char>> cursorArray ;
 };
+
+
+}
+
+}
 
 #endif // WEBRTCREMOTECLIENT_H

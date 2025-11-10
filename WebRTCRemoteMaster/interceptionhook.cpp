@@ -5,6 +5,10 @@
 #include <QWidget>
 #include <QApplication>
 
+namespace hope{
+
+    namespace rtc{
+
 InterceptionHook::InterceptionHook(QObject* parent)
     : QObject(parent)
     , context(nullptr)
@@ -394,4 +398,9 @@ void InterceptionHook::convertClientToScreen(int& x, int& y)
         x = (x * screenWidth) / windowWidth;
         y = (y * screenHeight) / windowHeight;
     }
+}
+
+
+    }
+
 }

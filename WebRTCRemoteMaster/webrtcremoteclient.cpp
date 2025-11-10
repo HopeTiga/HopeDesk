@@ -8,6 +8,9 @@
 #include <immintrin.h>
 #include "Logger.h"
 
+namespace hope{
+
+namespace rtc{
 void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
     switch (newState) {
     case webrtc::PeerConnectionInterface::kStable:
@@ -688,19 +691,19 @@ void WebRTCRemoteClient::connect(std::string ip)
 
             }
         }, [this](std::exception_ptr p) {
-            try {
-                if (p) {
-                    std::rethrow_exception(p);
-                }
-                    }  catch (const std::exception& e) {
-                        Logger::getInstance()->error("webSocket Read coroutinePtr Error: " + std::string(e.what()));
-                            if(webSocketRuns){
-                                if(webSocketDisConnect){
-                                    webSocketDisConnect(e);
-                                    }
-                                }
-                            }
-                        });
+                                  try {
+                                      if (p) {
+                                          std::rethrow_exception(p);
+                                      }
+                                  }  catch (const std::exception& e) {
+                                      Logger::getInstance()->error("webSocket Read coroutinePtr Error: " + std::string(e.what()));
+                                      if(webSocketRuns){
+                                          if(webSocketDisConnect){
+                                              webSocketDisConnect(e);
+                                          }
+                                      }
+                                  }
+                              });
 
         boost::json::object request;
 
@@ -1409,7 +1412,7 @@ void WebRTCRemoteClient::disConnect()
     if (webSocket && webSocket->is_open()) {
         try{
             webSocket->next_layer().cancel();
-            webSocket->close(boost::beast::websocket::close_code::normal);
+            webSocket->async_close(boost::beast::websocket::close_code::normal,boost::asio::detached);
         }catch(std::exception &e){
             Logger::getInstance()->info(e.what());
         }
@@ -1466,4 +1469,8 @@ void VideoTrackSink::OnFrame(const webrtc::VideoFrame &frame)
     if (client->videoFrameCallback) {
         client->videoFrameCallback(rgbFrame);
     }
+}
+
+}
+
 }

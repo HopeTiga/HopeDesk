@@ -10,6 +10,10 @@
 #include <thread>
 #include <mutex>
 
+namespace hope{
+
+namespace rtc{
+
 class WebRTCRemoteClient;
 class VideoWidget;
 
@@ -81,4 +85,9 @@ private:
     std::thread hookThread;
     std::atomic<bool> running;
 };
+
+}
+
+}
+
 #endif // WINDOWSHOOK_H

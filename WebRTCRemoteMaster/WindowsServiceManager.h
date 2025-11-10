@@ -4,6 +4,10 @@
 #include <iostream>
 #include "Logger.h"  // 添加Logger头文件
 
+namespace hope{
+
+namespace rtc{
+
 class WindowsServiceManager {
 public:
     // 注册服务
@@ -243,3 +247,8 @@ public:
         return isSuccess;
     }
 };
+
+
+}
+
+}
