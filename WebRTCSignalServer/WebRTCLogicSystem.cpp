@@ -60,7 +60,7 @@ namespace hope {
 
         }
 
-        void WebRTCLogicSystem::postMessageToQueue(std::shared_ptr<WebRTCSignalData> data) {
+        void WebRTCLogicSystem::postTaskAsync(std::shared_ptr<WebRTCSignalData> data) {
 
             int type = data->json["requestType"].as_int64();
 
