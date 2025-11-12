@@ -198,7 +198,7 @@ namespace hope {
 
                 std::shared_ptr<WebRTCSignalData> data = std::make_shared<WebRTCSignalData>(std::move(json), shared_from_this(), webrtcSignalManager);
 
-                webrtcSignalManager->getWebRTCLogicSystem()->postMessageToQueue(data);
+                webrtcSignalManager->getWebRTCLogicSystem()->postTaskAsync(data);
 
             }
 

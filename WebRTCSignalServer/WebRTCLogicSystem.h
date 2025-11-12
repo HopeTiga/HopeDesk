@@ -46,7 +46,7 @@ namespace hope {
 
 			void operator=(const WebRTCLogicSystem& logic) = delete;
 
-			void postMessageToQueue(std::shared_ptr<WebRTCSignalData> data);
+			void postTaskAsync(std::shared_ptr<WebRTCSignalData> data);
 
 			void RunEventLoop();
 
