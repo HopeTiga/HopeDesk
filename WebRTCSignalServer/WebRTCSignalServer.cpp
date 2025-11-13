@@ -58,7 +58,7 @@ namespace hope {
                     }
                     catch (const std::exception& e) {
                         if (!isShuttingDown.load()) {
-                            LOG_ERROR("接受连接时出错: %s", e.what());
+                            LOG_ERROR("Accept Connection Error: %s", e.what());
                         }
                     }
                 }
@@ -68,13 +68,13 @@ namespace hope {
 
 
         WebRTCSignalServer::~WebRTCSignalServer() {
-            LOG_INFO("WebRTC信令服务器开始关闭...");
+            LOG_INFO("WebRTCSignalServer Start Shutdown...");
             shutdown();
-            LOG_INFO("WebRTC信令服务器已完全关闭");
+            LOG_INFO("WebRTCSignalServer Already Shutdown");
         }
 
         void WebRTCSignalServer::shutdown() {
-            LOG_INFO("设置关闭标志，停止接受新连接");
+            LOG_INFO("Setting Close Marks , Stop Accept New Connection");
             // 设置关闭标志，防止新连接
             isShuttingDown.store(true);
 
