@@ -1,3 +1,4 @@
+// ScreenCapture.h (完整改动后代码)
 #pragma once
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -33,7 +34,7 @@
 
 namespace hope {
 
-	namespace rtc {
+    namespace rtc {
         struct DirtyRegionTracker;
         struct GPUTextureRing;
         class MouseCursor;  // Forward declaration
@@ -59,6 +60,7 @@ namespace hope {
             using FrameCallback = std::function<void(const uint8_t* data, size_t size, int width, int height)>;
             using GPUEncoderCallback = std::function<void(ID3D11Texture2D* texture)>;
 
+
             struct CaptureConfig {
                 int width = 0;
                 int height = 0;
@@ -66,6 +68,7 @@ namespace hope {
                 UINT outputNum = 0;
                 bool enableGPUEncoding = true;
                 bool enableDirtyRects = true;
+                bool enableGPUYUV = true;
             };
 
             ScreenCapture();
@@ -119,7 +122,7 @@ namespace hope {
             Microsoft::WRL::ComPtr<IDXGIOutput5> dxgiOutput5;
             Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dxgiDuplication;
 
-            Microsoft::WRL::ComPtr<ID3D11Texture2D> workingTexture;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> sharedTexture;
 
             Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
@@ -171,7 +174,9 @@ namespace hope {
             int invalidCallCount = 0;
 
             int invalidCallDxgi = 0;
+
+            HANDLE sharedHandle = nullptr;
         };
-	}
+    }
 
 }
