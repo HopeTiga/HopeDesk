@@ -9,6 +9,8 @@
 #include <boost/uuid/uuid_generators.hpp> // 生成器  
 #include <boost/uuid/uuid_io.hpp>   
 
+#include "AsyncTransactionGuard.h"
+
 #include "Utils.h"
 
 
