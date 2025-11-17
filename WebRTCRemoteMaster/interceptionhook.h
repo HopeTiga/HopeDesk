@@ -98,6 +98,8 @@ private:
 
 
     std::atomic<bool> numLockState;
+
+    std::atomic<uint64_t> mouseMoveNums {0};
 };
 
 }
