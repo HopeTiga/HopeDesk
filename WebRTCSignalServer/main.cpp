@@ -26,6 +26,18 @@ int main() {
 
     webrtcSignalServer.run();
 
+    boost::asio::signal_set signals(ioContext, SIGINT, SIGTERM);
+
+    signals.async_wait([&ioContext, &webrtcSignalServer, &work](const boost::system::error_code& error, int signal) {
+
+        webrtcSignalServer.shutdown();
+
+        work.reset();
+
+        ioContext.stop();
+
+        });
+
     ioContext.run();
 
     return 0;
