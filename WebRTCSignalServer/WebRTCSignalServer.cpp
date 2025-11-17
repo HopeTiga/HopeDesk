@@ -68,17 +68,22 @@ namespace hope {
 
 
         WebRTCSignalServer::~WebRTCSignalServer() {
-            LOG_INFO("WebRTCSignalServer Start Shutdown...");
+
+            if (isShuttingDown.exchange(true)) return;
+
             shutdown();
-            LOG_INFO("WebRTCSignalServer Already Shutdown");
+
         }
 
         void WebRTCSignalServer::shutdown() {
-            LOG_INFO("Setting Close Marks , Stop Accept New Connection");
+
+            LOG_INFO("WebRTCSignalServer Start Shutdown...");
             // 设置关闭标志，防止新连接
             isShuttingDown.store(true);
 
             webrtcSignalManagers.clear();
+
+            LOG_INFO("WebRTCSignalServer Already Shutdown");
 
         }
 
