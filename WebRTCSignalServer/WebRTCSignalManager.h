@@ -50,7 +50,7 @@ namespace hope {
 
 			WebRTCSignalServer* webrtcSignalServer;
 
-			size_t hashSize = std::thread::hardware_concurrency() * 2;
+			size_t hashSize = std::thread::hardware_concurrency() ;
 
 			tbb::concurrent_unordered_map<std::string, int> actorSocketMappingIndex;
 
@@ -59,8 +59,6 @@ namespace hope {
 			std::hash<std::string> hasher;
 
 			std::shared_ptr<WebRTCLogicSystem> webrtcLogicSystem;
-
-			std::unique_ptr<WebRTCMysqlManager> webrtcMysqlManager;
 
 		};
 	}

@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <memory>
 #include <functional>
+#include <utility>
 
 #include <boost/asio.hpp>
 #include <boost/json.hpp>
@@ -22,16 +23,20 @@ namespace hope {
 			STOPREMOTE = 3,
 			CLOSE = 4,
 			CLOUD_GAME_SERVERS_REGISTER = 5,
-			CLOUD_PROCESS_LOGIN = 6,
-			CLOUD_PROCESS_LOGOUT = 7,
-			CLOUD_PROCESS_HEARTBEAT = 8,
-			CLOUD_GAME_START = 9,
-			CLOUD_GAME_STOP = 10,
-			USER_GET_GAMES_PROCESS_ID = 11
+			CLOUD_GAME_SERVERS_LOGIN = 6,
+			CLOUD_GAME_SERVERS_LOGOUT = 7,
+			CLOUD_PROCESS_LOGIN = 8,
+			CLOUD_PROCESS_LOGOUT = 9,
+			CLOUD_PROCESS_HEARTBEAT = 10,
+			CLOUD_GAME_START = 11,
+			CLOUD_GAME_STOP = 12,
+			USER_GET_GAMES_PROCESS_ID = 13
 		};
 
 
 		class WebRTCSignalData;
+
+		class WebRTCMysqlManager;
 
 		class WebRTCLogicSystem : public std::enable_shared_from_this<WebRTCLogicSystem>
 		{
@@ -62,7 +67,7 @@ namespace hope {
 
 			std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
 
-			std::unordered_map<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>)>> webrtcHandlers;
+			std::unordered_map<int, std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>)>>> webrtcHandlers;
 
 		};
 	}

@@ -19,7 +19,7 @@ namespace hope {
 
         class WebRTCSignalServer {
         public:
-            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, size_t size = std::thread::hardware_concurrency() * 2);
+            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, size_t size = std::thread::hardware_concurrency());
 
             ~WebRTCSignalServer();  // 🔧 新增析构函数声明
 

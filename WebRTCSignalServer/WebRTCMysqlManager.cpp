@@ -34,21 +34,25 @@ namespace hope {
 
             mysqlConnection = std::make_shared<boost::mysql::any_connection>(ioContext);
 
-            boost::asio::co_spawn(ioContext, [this, params]() -> boost::asio::awaitable<void> {
-                try {
+            boost::asio::co_spawn(ioContext, [weak_self = std::weak_ptr<WebRTCMysqlManager>(shared_from_this()), params]() -> boost::asio::awaitable<void> {
+                // 尝试将weak_ptr提升为shared_ptr
+                if (auto self = weak_self.lock()) {
+                    try {
+                        co_await self->mysqlConnection->async_connect(params);
 
-                    co_await mysqlConnection->async_connect(params);
+                        self->isConnected = true;
 
-                    isConnected = true;
+                        Logger::getInstance()->info("MySQL connection established successfully");
 
-                    startHeartbeat();
-
-                    Logger::getInstance()->info("MySQL connection established successfully");
-
+                        self->startHeartbeat(std::chrono::seconds(30));
+                    }
+                    catch (const std::exception& e) {
+                        self->isConnected = false;
+                        Logger::getInstance()->error(std::string("MySQL Connection failed: ") + e.what());
+                    }
                 }
-                catch (const std::exception& e) {
-                    isConnected = false;
-                    Logger::getInstance()->error(std::string("MySQL Connection failed: ") + e.what());
+                else {
+                    Logger::getInstance()->warning("WebRTCMysqlManager instance has been destroyed before connection attempt");
                 }
                 }, boost::asio::detached);
         }

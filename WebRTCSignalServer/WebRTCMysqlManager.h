@@ -21,7 +21,7 @@ namespace hope {
 
             std::shared_ptr<boost::mysql::any_connection> getConnection();
 
-            void startHeartbeat(std::chrono::seconds interval = std::chrono::seconds(300)); // Ä¬ÈÏ5·ÖÖÓ
+            void startHeartbeat(std::chrono::seconds interval = std::chrono::seconds(300)); // é»˜è®¤5åˆ†é’Ÿ
             void stopHeartbeat();
 
         private:

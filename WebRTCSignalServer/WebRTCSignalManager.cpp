@@ -1,13 +1,13 @@
 #include "WebRTCSignalManager.h"
 #include "WebRTCSignalServer.h"
 
-#include "ConfigManager.h"
+#include "WebRTCSignalData.h"
 
 #include "Utils.h"
 
 namespace hope {
-
-    namespace core {
+	
+	namespace core {
         WebRTCSignalManager::WebRTCSignalManager(boost::asio::io_context& ioContext, int channelIndex, WebRTCSignalServer* webrtcSignalServer) : ioContext(ioContext)
             , channelIndex(channelIndex)
             , webrtcSignalServer(webrtcSignalServer)
@@ -15,25 +15,19 @@ namespace hope {
             return -1;
                 }, 100)
             , webrtcLogicSystem(nullptr)
-            , webrtcMysqlManager(nullptr)
         {
             webrtcLogicSystem = std::make_shared<WebRTCLogicSystem>();
 
             webrtcLogicSystem->RunEventLoop();
 
-            webrtcMysqlManager = std::make_unique<WebRTCMysqlManager>(ioContext);
-
-            webrtcMysqlManager->initConnection(ConfigManager::Instance().GetString("Mysql.ip")
-                , ConfigManager::Instance().GetInt("Mysql.port")
-                , ConfigManager::Instance().GetString("Mysql.username")
-                , ConfigManager::Instance().GetString("Mysql.password")
-                , ConfigManager::Instance().GetString("Mysql.database"));
         }
 
         WebRTCSignalManager::~WebRTCSignalManager()
         {
             webrtcSignalSocketMap.clear();
         }
+
+
 
         std::shared_ptr<WebRTCSignalSocket> WebRTCSignalManager::generateWebRTCSignalSocket()
         {
@@ -57,7 +51,31 @@ namespace hope {
         {
             LOG_INFO("Remove WebRTCSignalSocket: %s", accountID.c_str());
 
-            webrtcSignalSocketMap.unsafe_erase(accountID);
+            std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket;
+
+            {
+                // 使用互斥锁或原子操作保护
+                auto it = webrtcSignalSocketMap.find(accountID);
+
+                if (it == webrtcSignalSocketMap.end()) {
+
+                    LOG_WARNING("Connection already removed: %s", accountID.c_str());
+
+                    return;
+                }
+                webrtcSignalSocket = it->second;
+
+                webrtcSignalSocketMap.unsafe_erase(it);
+
+            }
+
+            if (!webrtcSignalSocket) {
+
+                return;
+
+            }
+
+            webrtcSignalSocket = nullptr;
 
             int mapChannelIndex = hasher(accountID) % hashSize;
 
@@ -70,7 +88,7 @@ namespace hope {
                 co_return;
 
                 });
-
+            
 
         }
 
@@ -84,6 +102,6 @@ namespace hope {
             return webrtcLogicSystem;
         }
 
-    }
+	}
 
 }

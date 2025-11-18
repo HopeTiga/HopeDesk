@@ -1,6 +1,7 @@
 #include "WebRTCLogicSystem.h"
 #include "WebRTCSignalData.h"
 #include "WebRTCSignalManager.h"
+#include "WebRTCMysqlManagerPools.h"
 
 #include <iostream>
 #include <chrono>
@@ -11,9 +12,10 @@
 
 #include "AsyncTransactionGuard.h"
 
+#include "ConfigManager.h"
 #include "Utils.h"
 
-
+constexpr static char secretKey[] = "913140924@qq.com";
 
 namespace hope {
 
@@ -68,28 +70,65 @@ namespace hope {
 
             if (this->webrtcHandlers.find(type) != this->webrtcHandlers.end()) {
 
-                boost::asio::co_spawn(ioContext, this->webrtcHandlers[type](std::move(data)),
-                    [this](std::exception_ptr ptr) {
-                        // 正确的异常处理方式
-                        if (ptr) { // 重要：检查是否确实有异常发生
+                std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>)>> pairs = this->webrtcHandlers[type];
+
+                if (pairs.first) {
+
+                    std::shared_ptr<WebRTCMysqlManager> manager = WebRTCMysqlManagerPools::getInstance()->getTransactionMysqlManager();
+
+                    if (manager) {
+
+                        boost::asio::co_spawn(ioContext, [this, type, pairs, manager, data]() mutable -> boost::asio::awaitable<void> {
+
                             try {
-                                std::rethrow_exception(ptr); // 重新抛出异常
+                                co_await pairs.second(data, manager);
                             }
-                            catch (const std::exception& e) {
-                                // 现在可以正常捕获并处理了
-                                LOG_ERROR("webrtcLogicSystem boost::asio::co_spawn Exception: %s", e.what());
+                            catch (...) {
+                                WebRTCMysqlManagerPools::getInstance()->returnTransactionMysqlManager(std::move(manager));
+                                throw;
                             }
-                        }
+
+                            WebRTCMysqlManagerPools::getInstance()->returnTransactionMysqlManager(std::move(manager));
+                            },
+                            [this, type](std::exception_ptr ptr) {
+                                if (ptr) {
+                                    try {
+                                        std::rethrow_exception(ptr);
+                                    }
+                                    catch (const std::exception& e) {
+                                        LOG_ERROR("webrtcLogicSystem boost::asio::co_spawn Task: %d Exception: %s", type, e.what());
+                                    }
+                                }
+                            });
+
                     }
-                );
+                    else {
+                        postTaskAsync(data); // 暂不加重试，保持原样
+                    }
+
+                }
+                else {
+                    std::shared_ptr<WebRTCMysqlManager> manager = WebRTCMysqlManagerPools::getInstance()->getMysqlManager();
+
+                    boost::asio::co_spawn(ioContext, [this, type, pairs, manager, data]() -> boost::asio::awaitable<void> {
+                        co_await pairs.second(data, manager);
+                        },
+                        [this, type](std::exception_ptr ptr) {
+                            if (ptr) {
+                                try {
+                                    std::rethrow_exception(ptr);
+                                }
+                                catch (const std::exception& e) {
+                                    LOG_ERROR("webrtcLogicSystem boost::asio::co_spawn Task: %d Exception: %s", type, e.what());
+                                }
+                            }
+                        });
+                }
 
             }
             else {
-
-                LOG_ERROR("Unknow WebRTC Request Type: %d", type);
-
+                LOG_ERROR("Unknown WebRTC Request Type: %d", type);
             }
-
         }
 
 
@@ -97,7 +136,7 @@ namespace hope {
 
             auto self = shared_from_this();
 
-            std::function<boost::asio::awaitable <void>(std::shared_ptr<WebRTCSignalData>, std::string)> forwardHandler = [self](std::shared_ptr<WebRTCSignalData> data, std::string requestTypeStr)->boost::asio::awaitable<void> {
+            std::function<boost::asio::awaitable <void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>, std::string)> forwardHandler = [self](std::shared_ptr<WebRTCSignalData> data, std::shared_ptr<WebRTCMysqlManager>, std::string requestTypeStr)->boost::asio::awaitable<void> {
 
                 boost::json::object message = data->json;
 
@@ -293,16 +332,29 @@ namespace hope {
 
                 };
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::REGISTER)] = [self](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::REGISTER)] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>)>>(false, [self](std::shared_ptr<WebRTCSignalData> data, std::shared_ptr<WebRTCMysqlManager > mysqlManager)->boost::asio::awaitable<void> {
 
                 boost::json::object& message = data->json;
 
                 auto webrtcSignalSocket = data->webrtcSignalSocket;
 
+                boost::json::object response;
+
+                response["requestType"] = static_cast<int64_t>(WebRTCRequestState::REGISTER);
+
                 if (!message.contains("accountID")) {
-                    LOG_WARNING("REGISTER Message Missing accountID.");
+
+                    LOG_WARNING("REGISTER Message Missing AccountID.");
+
+                    response["state"] = 500;
+
+                    response["message"] = "REGISTER Message Missing AccountID.";
+
+                    webrtcSignalSocket->writerAsync(boost::json::serialize(response));
+
                     co_return;
                 }
+
                 std::string accountID = message["accountID"].as_string().c_str();
 
                 webrtcSignalSocket->setAccountID(accountID); // 假设 setAccountID 存在
@@ -311,9 +363,8 @@ namespace hope {
 
                 data->webrtcSignalManager->webrtcSignalSocketMap[accountID] = webrtcSignalSocket;
 
-                boost::json::object response;
-                response["requestType"] = static_cast<int64_t>(WebRTCRequestState::REGISTER);
                 response["state"] = 200;
+
                 response["message"] = "register successful";
 
                 webrtcSignalSocket->writerAsync(boost::json::serialize(response));
@@ -331,27 +382,27 @@ namespace hope {
 
                 LOG_INFO("User Register Successful : %s (channelIndex: %d)", accountID.c_str(), data->webrtcSignalManager->channelIndex);
 
-                };
+                });
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::REQUEST)] = [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::REQUEST)] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>)>>(false, [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data, std::shared_ptr<WebRTCMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
 
-                co_await forwardHandler(std::move(data), "REQUEST");
+                co_await forwardHandler(std::move(data), mysqlManager, "REQUEST");
 
-                };
+                });
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::RESTART)] = [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::RESTART)] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>)>>(false, [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data, std::shared_ptr<WebRTCMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
 
-                co_await forwardHandler(std::move(data), "RESTART");
+                co_await forwardHandler(std::move(data), mysqlManager, "RESTART");
 
-                };
+                });
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::STOPREMOTE)] = [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::STOPREMOTE)] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>)>>(false, [self, forwardHandler](std::shared_ptr<WebRTCSignalData> data, std::shared_ptr<WebRTCMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
 
-                co_await forwardHandler(std::move(data), "STOPREMOTE");
+                co_await forwardHandler(std::move(data), mysqlManager, "STOPREMOTE");
 
-                };
+                });
 
-            webrtcHandlers[static_cast<int>(WebRTCRequestState::CLOSE)] = [self](std::shared_ptr<WebRTCSignalData> data)->boost::asio::awaitable<void> {
+            webrtcHandlers[static_cast<int>(WebRTCRequestState::CLOSE)] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::shared_ptr<WebRTCMysqlManager>)>>(false, [self](std::shared_ptr<WebRTCSignalData> data, std::shared_ptr<WebRTCMysqlManager> mysqlManger)->boost::asio::awaitable<void> {
 
                 std::string accountID = data->webrtcSignalSocket->getAccountID();
 
@@ -359,15 +410,14 @@ namespace hope {
 
                     data->webrtcSignalManager->removeConnection(accountID); // 假设 removeConnection 封装了哈希桶移除逻辑
                 }
+
                 data->webrtcSignalSocket->stop(); // 关闭 socket 实例
 
                 LOG_INFO("Receive User %s CLOSE Request，WebRTCSignalSocket is Stop", accountID.c_str());
 
                 co_return;
+                });
 
-                };
-
-           
         }
 
 

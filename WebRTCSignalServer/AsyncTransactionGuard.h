@@ -14,16 +14,24 @@ namespace hope::core {
 
         static boost::asio::awaitable<AsyncTransactionGuard>
             create(std::shared_ptr<boost::mysql::any_connection> conn) {
+
             boost::mysql::results r;
+
             co_await conn->async_execute("START TRANSACTION", r,
                 boost::asio::use_awaitable);
+
             co_return AsyncTransactionGuard(std::move(conn));
         }
 
         boost::asio::awaitable<void> commit() {
+
+            if (committed) co_return;
+
             boost::mysql::results r;
+
             co_await conn->async_execute("COMMIT", r,
                 boost::asio::use_awaitable);
+
             committed = true;
         }
 
@@ -31,21 +39,31 @@ namespace hope::core {
       * @brief 显式异步回滚（一般不需要手动调用，析构会回滚）
       * @throw boost::mysql::error_with_diagnostics 回滚失败时抛出
       */
-        boost::asio::awaitable<void> rollback() {
+        boost::asio::awaitable<void> asyncRollback() {
+
+            if (committed) co_return;
+
             boost::mysql::results r;
+
             co_await conn->async_execute("ROLLBACK", r,
                 boost::asio::use_awaitable);
+
+            committed = true; // 标记为已处理
+        }
+
+        void rollback() {
+
+            if (committed) return;
+
+            boost::mysql::results r;
+
+            conn->execute("ROLLBACK", r);
+
             committed = true; // 标记为已处理
         }
 
         ~AsyncTransactionGuard() {
-            if (!committed && conn) {
-                try {
-                    boost::mysql::results r;
-                    conn->async_execute("ROLLBACK", r,boost::asio::detached);
-                }
-                catch (...) {}
-            }
+
         }
 
         explicit AsyncTransactionGuard(std::shared_ptr<boost::mysql::any_connection> c)

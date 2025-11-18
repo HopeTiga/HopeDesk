@@ -7,6 +7,7 @@
 
 #include "AsioProactors.h"
 #include "WebRTCSignalManager.h"
+#include "WebRTCMysqlManagerPools.h"
 #include "Logger.h"
 #include "Utils.h"
 
@@ -21,6 +22,8 @@ namespace hope {
             , webrtcSignalManagers(size)
         {
             initialize();
+
+            WebRTCMysqlManagerPools::getInstance();
         }
 
         void WebRTCSignalServer::run() {
