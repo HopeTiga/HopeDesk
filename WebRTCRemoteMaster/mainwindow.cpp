@@ -17,6 +17,7 @@
 #include <QLabel>
 #include <QTimer>
 #include <QMessageBox>
+#include "ConfigManager.h"
 
 namespace hope{
 
@@ -227,14 +228,7 @@ void MainWindow::setupWebRTCCallbacks()
 
 void MainWindow::loadConfigFile()
 {
-    QString fileName = "config.ini";
-    QSettings settings(fileName, QSettings::IniFormat);
 
-    std::string webrtcExe = settings.value("WebRTC/WebRTCEXE").toString().toStdString();
-    webRTCRemoteClient->setSystemServiceExe(webrtcExe);
-
-    std::string loggerPath = settings.value("Logger/LoggerPath").toString().toStdString();
-    Logger::getInstance()->setLogFilePath(loggerPath);
 }
 
 void MainWindow::initializeDeviceLists()
@@ -331,8 +325,8 @@ void MainWindow::loadSettings()
     restoreGeometry(settings->value("geometry").toByteArray());
     restoreState(settings->value("windowState").toByteArray());
 
-    ui->serverAddressEdit->setText(settings->value("serverAddress", "121.5.37.53").toString());
-    ui->portEdit->setText(settings->value("port", "8088").toString());
+    ui->serverAddressEdit->setText(QString::fromStdString(ConfigManager::Instance().GetString("WebRTCSignalServer.Host")));
+    ui->portEdit->setText(QString::number(ConfigManager::Instance().GetInt("WebRTCSignalServer.Port")));
 
     QString lastAccount = settings->value("lastAccount", "").toString();
     if (!lastAccount.isEmpty()) {
@@ -347,8 +341,6 @@ void MainWindow::saveSettings()
 {
     settings->setValue("geometry", saveGeometry());
     settings->setValue("windowState", saveState());
-    settings->setValue("serverAddress", ui->serverAddressEdit->text());
-    settings->setValue("port", ui->portEdit->text());
 
     if (ui->accountComboBox->currentIndex() >= 0 && !accountList.isEmpty()) {
         settings->setValue("lastAccount", ui->accountComboBox->currentText());

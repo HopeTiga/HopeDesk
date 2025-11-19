@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include <QApplication>
+#include "ConfigManager.h"
 
 int main(int argc, char *argv[])
 {
@@ -9,6 +10,8 @@ int main(int argc, char *argv[])
     app.setApplicationVersion("1.0");
     app.setOrganizationName("WebRTCClient");
     app.setOrganizationDomain("webrtcclient.local");
+
+    ConfigManager::Instance().Load();
 
     // ===== 设置全局应用程序图标 =====
     QIcon appIcon(":/logo/res/hope.jpg");

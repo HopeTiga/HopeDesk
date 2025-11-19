@@ -6,6 +6,7 @@
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
 #include <immintrin.h>
+#include "ConfigManager.h"
 #include "Logger.h"
 
 namespace hope{
@@ -405,11 +406,18 @@ WebRTCRemoteClient::WebRTCRemoteClient(WebRTCRemoteState state)
     ,channel(ioContext),tcpSocket(nullptr),resolver(nullptr)
     ,ioContextWorkPtr(nullptr),writerChannel(ioContext)
 {
+
     webSocket = std::make_unique<boost::beast::websocket::stream<boost::asio::ip::tcp::socket>>(ioContext);
+
     ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
+
     ioContextThread = std::move(std::thread([this](){
         this->ioContext.run();
     }));
+
+    systemService = ConfigManager::Instance().GetString("WebRTC.WebRTCService");
+
+    systemServiceExe = ConfigManager::Instance().GetString("WebRTC.WebRTCEXE");
 }
 
 void WebRTCRemoteClient::connect(std::string ip)
@@ -542,6 +550,12 @@ void WebRTCRemoteClient::connect(std::string ip)
                                                         wrtierCoroutineAsync();
 
                                                         receiveCoroutineAysnc();
+
+                                                        std::string registerStr = "{\"requestType\":0,\"webrtcManagerPath\":\"" + ConfigManager::Instance().GetString("WebRTC.WebRTCConfigPath") + "\",\"state\":200}";
+
+                                                        std::shared_ptr<WriterData> registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
+
+                                                        writerAsync(registerData);
 
                                                         // 发送初始数据
                                                         std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
@@ -827,16 +841,23 @@ bool WebRTCRemoteClient::initializePeerConnection()
     config.set_dscp(true);
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
-    stunServer.uri = "stun:121.5.37.53:3478";
+
+    stunServer.uri = ConfigManager::Instance().GetString("Stun.Host");
+
     config.servers.push_back(stunServer);
 
     webrtc::PeerConnectionInterface::IceServer turnServer;
-    turnServer.uri = "turn:121.5.37.53:3478";
-    turnServer.username = "HopeTiga";
-    turnServer.password = "dy913140924";
+
+    turnServer.uri = ConfigManager::Instance().GetString("Turn.Host");
+
+    turnServer.username = ConfigManager::Instance().GetString("Turn.Username");
+
+    turnServer.password = ConfigManager::Instance().GetString("Turn.Password");
+
     config.servers.emplace_back(turnServer);
 
     peerConnectionObserver = std::make_unique<PeerConnectionObserverImpl>(this);
+
     webrtc::PeerConnectionDependencies pcDependencies(peerConnectionObserver.get());
 
     auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
