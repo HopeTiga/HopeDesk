@@ -5,7 +5,7 @@ int main(int argc, char *argv[])
 {
 
     QApplication app(argc, argv);
-    app.setApplicationName("WebRTC视频客户端");
+    app.setApplicationName("WebRTC远程桌面");
     app.setApplicationVersion("1.0");
     app.setOrganizationName("WebRTCClient");
     app.setOrganizationDomain("webrtcclient.local");

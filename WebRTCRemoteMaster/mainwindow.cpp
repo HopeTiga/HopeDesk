@@ -228,9 +228,7 @@ void MainWindow::setupWebRTCCallbacks()
 void MainWindow::loadConfigFile()
 {
     QString fileName = "config.ini";
-    QString nowPath = QCoreApplication::applicationDirPath();
-    QString configIniPath = QDir::toNativeSeparators(nowPath + QDir::separator() + fileName);
-    QSettings settings(configIniPath, QSettings::IniFormat);
+    QSettings settings(fileName, QSettings::IniFormat);
 
     std::string webrtcExe = settings.value("WebRTC/WebRTCEXE").toString().toStdString();
     webRTCRemoteClient->setSystemServiceExe(webrtcExe);
