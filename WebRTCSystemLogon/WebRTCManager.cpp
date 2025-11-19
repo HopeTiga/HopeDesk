@@ -543,6 +543,10 @@ namespace hope {
                                                 if (remoteState == WebRTCRemoteState::masterRemote) {
                                                     state = WebRTCRemoteState::followerRemote;
 
+                                                    if (json.contains("codec")) {
+                                                        codec =  static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
+                                                    }
+
                                                     if (!initializePeerConnection()) {
                                                         Logger::getInstance()->error("Failed to initialize peer connection");
                                                         continue;
@@ -878,6 +882,8 @@ namespace hope {
                     return false;
 
                 }
+
+				videoTrack->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
 
                 std::vector<webrtc::RtpEncodingParameters> encodings;
 
