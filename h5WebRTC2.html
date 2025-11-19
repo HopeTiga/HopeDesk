@@ -1,0 +1,1927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta http-equiv="x-dns-prefetch-control" content="on" />
+    <meta name="viewport" content="width=320.1,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,minimal-ui" />
+    <meta name="apple-mobile-web-app-title" content="yeziyuan" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta content="telephone=no" name="format-detection" />
+    <meta name="full-screen" content="yes" />
+    <meta name="x5-fullscreen" content="true" />
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+    <!--QQ强制全屏-->
+    <meta name="x5-fullscreen" content="true">
+    <!--UC强制全屏-->
+    <meta name="fullscreen" content="yes">
+    <title>WebRTC远程控制终端</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: fixed;
+            -webkit-user-select: none;
+            user-select: none;
+            touch-action: none;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            color: #fff;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        .btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .btn.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .btn.danger {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+        }
+
+        .btn.warning {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .codec-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 6px 12px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        .codec-label {
+            font-size: 0.85rem;
+            opacity: 0.8;
+            white-space: nowrap;
+        }
+
+        .codec-select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            color: white;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            outline: none;
+            min-width: 100px;
+        }
+
+        .codec-select option {
+            background: #333;
+            color: white;
+        }
+
+        .account-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 6px 12px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        .account-label {
+            font-size: 0.85rem;
+            opacity: 0.8;
+            white-space: nowrap;
+        }
+
+        .account-select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            color: white;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            outline: none;
+            min-width: 150px;
+        }
+
+        .account-select option {
+            background: #333;
+            color: white;
+        }
+
+        .video-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            overflow: hidden;
+        }
+
+        .video-panel {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+            background: #000;
+        }
+
+        .video-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 1.2rem;
+            pointer-events: none;
+        }
+
+        .status-bar {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin-top: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            font-size: 0.85rem;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-label {
+            opacity: 0.7;
+        }
+
+        .status-value {
+            font-weight: 600;
+            padding: 2px 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        .status-value.connected {
+            background: rgba(56, 239, 125, 0.2);
+            color: #38ef7d;
+        }
+
+        .status-value.disconnected {
+            background: rgba(235, 51, 73, 0.2);
+            color: #f45c43;
+        }
+
+        .console {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 12px;
+            max-height: 120px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            border-radius: 8px;
+            margin-top: 12px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            padding-left: 8px;
+            border-left: 2px solid #667eea;
+            opacity: 0.8;
+        }
+
+        .cinema-mode {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 9999;
+        }
+
+        .cinema-mode.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .cinema-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+        }
+
+        .cinema-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .expand-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: rgba(102, 126, 234, 0.9);
+            color: white;
+            border: none;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s;
+        }
+
+        .expand-btn.expanded {
+            background: rgba(235, 51, 73, 0.9);
+        }
+
+        .expand-btn:active {
+            transform: scale(0.9);
+        }
+
+        .function-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            max-width: 220px;
+            opacity: 0;
+            transform: translateY(20px);
+            pointer-events: none;
+            transition: all 0.3s;
+        }
+
+        .function-buttons.show {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        .cinema-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s;
+        }
+
+        .cinema-btn:active {
+            transform: scale(0.9);
+        }
+
+        .cinema-btn.active {
+            background: rgba(102, 126, 234, 0.8);
+            border-color: rgba(102, 126, 234, 1);
+        }
+
+        .cinema-btn.danger {
+            background: rgba(235, 51, 73, 0.6);
+        }
+
+        .hidden-input {
+            position: fixed;
+            top: -9999px;
+            left: -9999px;
+            opacity: 0;
+            width: 1px;
+            height: 1px;
+        }
+
+        /* 虚拟键盘样式 */
+        .virtual-keyboard {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 10px;
+            border-top: 1px solid #333;
+            z-index: 10002;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .virtual-keyboard.active {
+            transform: translateY(0);
+        }
+
+        .keyboard-row {
+            display: flex;
+            justify-content: center;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+
+        .keyboard-key {
+            flex: 1;
+            min-width: 30px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: white;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            touch-action: manipulation;
+        }
+
+        .keyboard-key:active {
+            background: rgba(102, 126, 234, 0.8);
+            transform: scale(0.95);
+        }
+
+        .keyboard-key.wide {
+            flex: 2;
+        }
+
+        .keyboard-key.extra-wide {
+            flex: 3;
+        }
+
+        .keyboard-key.space {
+            flex: 8;
+        }
+
+        .keyboard-key.special {
+            background: rgba(102, 126, 234, 0.3);
+        }
+
+        .keyboard-key.active {
+            background: rgba(102, 126, 234, 0.8);
+        }
+
+        .keyboard-key.locked {
+            background: rgba(235, 51, 73, 0.8);
+        }
+
+        .keyboard-shift-indicator {
+            position: absolute;
+            top: -20px;
+            right: 5px;
+            color: #667eea;
+            font-size: 12px;
+        }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 8px;
+        }
+
+        .volume-slider {
+            flex: 1;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .volume-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .header-controls {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .status-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+
+            .btn {
+                padding: 6px 12px;
+                font-size: 0.85rem;
+            }
+
+            .keyboard-key {
+                min-width: 24px;
+                height: 36px;
+                font-size: 12px;
+            }
+
+            .codec-selector, .account-selector {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+
+        @supports (padding: max(0px)) {
+            .header {
+                padding-top: max(12px, env(safe-area-inset-top));
+                padding-left: max(16px, env(safe-area-inset-left));
+                padding-right: max(16px, env(safe-area-inset-right));
+            }
+
+            .cinema-controls {
+                bottom: max(20px, env(safe-area-inset-bottom));
+                left: max(20px, env(safe-area-inset-left));
+            }
+
+            .virtual-keyboard {
+                padding-bottom: max(10px, env(safe-area-inset-bottom));
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="main-container">
+    <div class="header">
+        <div class="header-title">🎮 远程控制终端</div>
+        <div class="header-controls">
+            <div class="account-selector">
+                <span class="account-label">目标账户:</span>
+                <select id="account-select" class="account-select">
+                    <option value="913140924@qq.com">913140924@qq.com</option>
+                    <option value="2044580040@qq.com">2044580040@qq.com</option>
+                    <option value="396887208@qq.com">396887208@qq.com</option>
+                    <option value="147718387@qq.com">147718387@qq.com</option>
+                </select>
+            </div>
+            <div class="codec-selector">
+                <span class="codec-label">编码器:</span>
+                <select id="codec-select" class="codec-select">
+                    <option value="">自动选择</option>
+                    <option value="0">VP8</option>
+                    <option value="1">VP9</option>
+                    <option value="2">H.264</option>
+                    <option value="3">H.265</option>
+                    <option value="4">AV1</option>
+                </select>
+            </div>
+            <button id="start-btn" class="btn">连接服务器</button>
+            <button id="call-btn" class="btn success" disabled>开始控制</button>
+            <button id="cinema-btn" class="btn warning">影院模式</button>
+            <button id="restart-btn" class="btn" disabled>重新连接</button>
+            <button id="stop-btn" class="btn danger" disabled>断开连接</button>
+        </div>
+    </div>
+
+    <div class="video-wrapper">
+        <div class="video-panel">
+            <canvas id="main-canvas" class="video-canvas"></canvas>
+            <div id="video-placeholder" class="video-placeholder">等待连接...</div>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="status-label">信令</span>
+                    <span id="signal-status" class="status-value disconnected">未连接</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">ICE</span>
+                    <span id="ice-status" class="status-value disconnected">未连接</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">数据通道</span>
+                    <span id="channel-status" class="status-value disconnected">关闭</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">分辨率</span>
+                    <span id="resolution" class="status-value">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">帧率</span>
+                    <span id="fps" class="status-value">0 FPS</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">音频</span>
+                    <span id="audio-status" class="status-value disconnected">未连接</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">编码器</span>
+                    <span id="codec-status" class="status-value">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">目标账户</span>
+                    <span id="target-account-status" class="status-value">-</span>
+                </div>
+            </div>
+
+            <div class="volume-control">
+                <span>🔊</span>
+                <input type="range" id="volume-slider" class="volume-slider" min="0" max="100" value="70">
+                <span id="volume-value">70%</span>
+            </div>
+        </div>
+
+        <div class="console" id="console"></div>
+    </div>
+</div>
+
+<div id="cinema-mode" class="cinema-mode">
+    <canvas id="cinema-canvas" class="cinema-canvas"></canvas>
+
+    <div class="cinema-controls">
+        <button id="expand-btn" class="expand-btn">☰</button>
+        <div id="function-buttons" class="function-buttons">
+            <button id="mouse-mode-btn" class="cinema-btn active">🖱️</button>
+            <button id="click-mode-btn" class="cinema-btn">👆</button>
+            <button id="scroll-mode-btn" class="cinema-btn">📜</button>
+            <button id="keyboard-btn" class="cinema-btn">⌨️</button>
+            <button id="audio-toggle-btn" class="cinema-btn">🔊</button>
+            <button id="fullscreen-btn" class="cinema-btn">⛶</button>
+            <button id="exit-cinema-btn" class="cinema-btn danger">✕</button>
+        </div>
+    </div>
+</div>
+
+<!-- 虚拟键盘 -->
+<div id="virtual-keyboard" class="virtual-keyboard">
+    <!-- 键盘布局将通过JavaScript动态生成 -->
+</div>
+
+<input type="text" id="hidden-input" class="hidden-input"
+       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+<script>
+    const log = (msg) => {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        document.getElementById('console').appendChild(entry);
+        document.getElementById('console').scrollTop = document.getElementById('console').scrollHeight;
+        console.log(msg);
+    };
+
+    // 全局状态
+    let ws = null;
+    let pc = null;
+    let dataChannel = null;
+    let videoElement = null;
+    let audioElement = null;
+    let remoteStream = null;
+
+    let mainGL = null;
+    let cinemaGL = null;
+
+    // 生成UUID作为自己的账户ID
+    let accountID = generateUUID();
+    let targetID = '913140924@qq.com'; // 默认目标账户
+
+    let isDragMode = true;
+    let isRightClick = false;
+    let isScrollInverted = false;
+    let isCinemaMode = false;
+    let isControlsExpanded = false;
+    let isAudioMuted = false;
+    let isFullscreen = false;
+
+    let remoteWidth = 1920;
+    let remoteHeight = 1080;
+
+    let animationId = null;
+    let frameCount = 0;
+    let lastFpsTime = performance.now();
+
+    const scale = 2;
+
+    // 虚拟键盘状态
+    let isShiftActive = false;
+    let isCapsActive = false;
+    let isKeyboardVisible = false;
+    let isCtrlLocked = false;  // Ctrl锁定状态
+    let isShiftLocked = false; // Shift锁定状态
+
+    // 编码器映射
+    const CODEC_MAP = {
+        '0': 'VP8',
+        '1': 'VP9',
+        '2': 'H.264',
+        '3': 'H.265',
+        '4': 'AV1'
+    };
+
+    // 生成UUID函数
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
+    // Windows VK 键码映射
+    const VK_MAP = {
+        // 字母键 (A-Z)
+        ...Object.fromEntries(
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(c => [c, c.charCodeAt(0)])
+        ),
+        // 小写字母也映射
+        ...Object.fromEntries(
+            'abcdefghijklmnopqrstuvwxyz'.split('').map(c => [c, c.toUpperCase().charCodeAt(0)])
+        ),
+
+        // 数字键 (0-9)
+        ...Object.fromEntries(
+            '0123456789'.split('').map(c => [c, c.charCodeAt(0)])
+        ),
+
+        // 功能键
+        'F1': 0x70, 'F2': 0x71, 'F3': 0x72, 'F4': 0x73, 'F5': 0x74, 'F6': 0x75,
+        'F7': 0x76, 'F8': 0x77, 'F9': 0x78, 'F10': 0x79, 'F11': 0x7A, 'F12': 0x7B,
+
+        // 特殊键
+        'ESC': 0x1B, 'TAB': 0x09, 'CAPS': 0x14, 'LSHIFT': 0xA0, 'RSHIFT': 0xA1,
+        'LCTRL': 0xA2, 'RCTRL': 0xA3, 'LALT': 0xA4, 'RALT': 0xA5, 'SPACE': 0x20,
+        'ENTER': 0x0D, 'BACKSPACE': 0x08, 'DELETE': 0x2E, 'INSERT': 0x2D,
+        'HOME': 0x24, 'END': 0x23, 'PAGEUP': 0x21, 'PAGEDOWN': 0x22,
+        'UP': 0x26, 'DOWN': 0x28, 'LEFT': 0x25, 'RIGHT': 0x27,
+
+        // 符号键
+        '`': 0xC0, '~': 0xC0,
+        '1': 0x31, '!': 0x31,
+        '2': 0x32, '@': 0x32,
+        '3': 0x33, '#': 0x33,
+        '4': 0x34, '$': 0x34,
+        '5': 0x35, '%': 0x35,
+        '6': 0x36, '^': 0x36,
+        '7': 0x37, '&': 0x37,
+        '8': 0x38, '*': 0x38,
+        '9': 0x39, '(': 0x39,
+        '0': 0x30, ')': 0x30,
+        '-': 0xBD, '_': 0xBD,
+        '=': 0xBB, '+': 0xBB,
+        '[': 0xDB, '{': 0xDB,
+        ']': 0xDD, '}': 0xDD,
+        '\\': 0xDC, '|': 0xDC,
+        ';': 0xBA, ':': 0xBA,
+        "'": 0xDE, '"': 0xDE,
+        ',': 0xBC, '<': 0xBC,
+        '.': 0xBE, '>': 0xBE,
+        '/': 0xBF, '?': 0xBF
+    };
+
+    // 键盘布局 - 修改：左Shift锁定，右Ctrl锁定
+    const KEYBOARD_LAYOUTS = {
+        normal: [
+            ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'BACKSPACE'],
+            ['TAB', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'],
+            ['CAPS', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'", 'ENTER'],
+            ['LSHIFT', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 'RCTRL'],
+            ['LCTRL', 'LALT', 'SPACE', 'RALT', 'CLOSE']
+        ],
+        shift: [
+            ['~', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', 'BACKSPACE'],
+            ['TAB', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '|'],
+            ['CAPS', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', 'ENTER'],
+            ['LSHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 'RCTRL'],
+            ['LCTRL', 'LALT', 'SPACE', 'RALT', 'CLOSE']
+        ]
+    };
+
+    // WebGL着色器
+    const vertexShaderSource = `
+            attribute vec2 a_position;
+            attribute vec2 a_texCoord;
+            varying vec2 v_texCoord;
+            void main() {
+                gl_Position = vec4(a_position, 0.0, 1.0);
+                v_texCoord = a_texCoord;
+            }
+        `;
+
+    const fragmentShaderSource = `
+            precision highp float;
+            uniform sampler2D u_texture;
+            varying vec2 v_texCoord;
+            void main() {
+                gl_FragColor = texture2D(u_texture, v_texCoord);
+            }
+        `;
+
+    function createShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('Shader error:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+
+    function initWebGL(canvas) {
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        if (!gl) {
+            log('WebGL不可用');
+            return null;
+        }
+
+        canvas.width = canvas.clientWidth * scale;
+        canvas.height = canvas.clientHeight * scale;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        const vertShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertShader);
+        gl.attachShader(program, fragShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('Program link failed');
+            return null;
+        }
+
+        const posBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1, 1, -1, -1, 1,
+            -1, 1, 1, -1, 1, 1
+        ]), gl.STATIC_DRAW);
+
+        const texBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            0, 1, 1, 1, 0, 0,
+            0, 0, 1, 1, 1, 0
+        ]), gl.STATIC_DRAW);
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+        return {
+            gl, program, posBuffer, texBuffer, texture,
+            posLocation: gl.getAttribLocation(program, 'a_position'),
+            texLocation: gl.getAttribLocation(program, 'a_texCoord'),
+            canvas
+        };
+    }
+
+    function renderWebGL(context, video) {
+        if (!context || !video || video.readyState < 2) return;
+
+        const { gl, program, posBuffer, texBuffer, texture, posLocation, texLocation, canvas } = context;
+
+        const newWidth = canvas.clientWidth * scale;
+        const newHeight = canvas.clientHeight * scale;
+
+        if (canvas.width !== newWidth || canvas.height !== newHeight) {
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            gl.viewport(0, 0, newWidth, newHeight);
+        }
+
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(program);
+
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+        gl.enableVertexAttribArray(posLocation);
+        gl.vertexAttribPointer(posLocation, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+        gl.enableVertexAttribArray(texLocation);
+        gl.vertexAttribPointer(texLocation, 2, gl.FLOAT, false, 0, 0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    function renderLoop() {
+        if (videoElement && videoElement.readyState >= 2) {
+            const w = videoElement.videoWidth;
+            const h = videoElement.videoHeight;
+
+            if (w > 0 && h > 0 && (w !== remoteWidth || h !== remoteHeight)) {
+                remoteWidth = w;
+                remoteHeight = h;
+                document.getElementById('resolution').textContent = `${w}×${h}`;
+                log(`视频分辨率: ${w}×${h}`);
+            }
+
+            const context = isCinemaMode ? cinemaGL : mainGL;
+            if (context) {
+                renderWebGL(context, videoElement);
+            }
+        }
+
+        frameCount++;
+        const now = performance.now();
+        if (now - lastFpsTime >= 1000) {
+            document.getElementById('fps').textContent = `${frameCount} FPS`;
+            frameCount = 0;
+            lastFpsTime = now;
+        }
+
+        animationId = requestAnimationFrame(renderLoop);
+    }
+
+    function startRenderLoop() {
+        if (!animationId) {
+            animationId = requestAnimationFrame(renderLoop);
+            log('渲染循环已启动');
+        }
+    }
+
+    function stopRenderLoop() {
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+            frameCount = 0;
+            document.getElementById('fps').textContent = '0 FPS';
+        }
+    }
+
+    function sendDataChannelMessage(type, data) {
+        if (!dataChannel || dataChannel.readyState !== 'open') return;
+
+        let buffer, view;
+
+        switch(type) {
+            case 'mouseMove':
+                buffer = new ArrayBuffer(12);
+                view = new DataView(buffer);
+                view.setInt16(0, 0, true);
+                view.setInt32(4, data.x, true);
+                view.setInt32(8, data.y, true);
+                break;
+
+            case 'mouseDown':
+                buffer = new ArrayBuffer(12);
+                view = new DataView(buffer);
+                view.setInt16(0, 1, true);
+                view.setInt16(2, data.button || 0, true);
+                view.setInt32(4, data.x, true);
+                view.setInt32(8, data.y, true);
+                break;
+
+            case 'mouseUp':
+                buffer = new ArrayBuffer(12);
+                view = new DataView(buffer);
+                view.setInt16(0, 2, true);
+                view.setInt16(2, data.button || 0, true);
+                view.setInt32(4, data.x, true);
+                view.setInt32(8, data.y, true);
+                break;
+
+            case 'scroll':
+                buffer = new ArrayBuffer(6);
+                view = new DataView(buffer);
+                const delta = isScrollInverted ? -data.deltaY : data.deltaY;
+                view.setInt16(0, 5, true);
+                view.setInt32(2, Math.round(delta * 1.5), true);
+                break;
+
+            case 'keyDown':
+            case 'keyUp':
+                buffer = new ArrayBuffer(4);
+                view = new DataView(buffer);
+                view.setInt16(0, type === 'keyDown' ? 3 : 4, true);
+                view.setUint8(2, data.keyCode);
+                view.setInt8(3, data.modifiers || 0);
+                break;
+        }
+
+        if (buffer) dataChannel.send(buffer);
+    }
+
+    function normalizeCoords(x, y, rect) {
+        const relX = x / rect.width;
+        const relY = y / rect.height;
+        return {
+            x: Math.max(0, Math.min(65535, Math.round(relX * 65535))),
+            y: Math.max(0, Math.min(65535, Math.round(relY * 65535)))
+        };
+    }
+
+    function bindTouchEvents(canvas) {
+        let touching = false;
+        let touchStart = null;
+        let lastTouchY = null;
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+
+            if (e.touches.length === 1) {
+                touching = true;
+                const touch = e.touches[0];
+                const rect = canvas.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                const point = normalizeCoords(x, y, rect);
+
+                touchStart = point;
+                lastTouchY = touch.clientY;
+
+                // 只有在鼠标模式下才发送按下事件
+                if (isDragMode) {
+                    const button = isRightClick ? 1 : 0;
+                    sendDataChannelMessage('mouseDown', { ...point, button });
+                    log(`鼠标按下 (${point.x}, ${point.y}) 按钮: ${button}`);
+                }
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+
+            if (touching && e.touches.length === 1) {
+                const touch = e.touches[0];
+                const rect = canvas.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                const point = normalizeCoords(x, y, rect);
+
+                if (!isDragMode) {
+                    // 拖动模式：发送滚轮事件
+                    if (lastTouchY !== null) {
+                        const deltaY = touch.clientY - lastTouchY;
+                        const scrollDelta = isScrollInverted ? -deltaY : deltaY;
+
+                        sendDataChannelMessage('scroll', {
+                            deltaY: scrollDelta * 3 // 放大滚动效果
+                        });
+
+                        log(`滚轮滚动: deltaY=${scrollDelta}`);
+                    }
+                    lastTouchY = touch.clientY;
+                } else {
+                    // 鼠标模式：发送鼠标移动事件
+                    sendDataChannelMessage('mouseMove', point);
+                }
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+
+            // 只有在鼠标模式下才发送释放事件
+            if (isDragMode && touching && touchStart) {
+                const button = isRightClick ? 1 : 0;
+                sendDataChannelMessage('mouseUp', { ...touchStart, button });
+                log(`鼠标释放 (${touchStart.x}, ${touchStart.y}) 按钮: ${button}`);
+            }
+
+            touching = false;
+            touchStart = null;
+            lastTouchY = null;
+        }, { passive: false });
+
+        // 添加滚轮事件监听（用于桌面端的鼠标滚轮）
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+
+            // 发送滚轮事件
+            const delta = isScrollInverted ? -e.deltaY : e.deltaY;
+            sendDataChannelMessage('scroll', {
+                deltaY: delta
+            });
+
+            log(`鼠标滚轮: deltaY=${delta}`);
+        }, { passive: false });
+    }
+
+    // 虚拟键盘功能
+    function createVirtualKeyboard() {
+        const keyboard = document.getElementById('virtual-keyboard');
+        keyboard.innerHTML = '';
+
+        const layout = (isShiftActive || isShiftLocked) ? KEYBOARD_LAYOUTS.shift : KEYBOARD_LAYOUTS.normal;
+
+        layout.forEach(row => {
+            const rowElement = document.createElement('div');
+            rowElement.className = 'keyboard-row';
+
+            row.forEach(key => {
+                const keyElement = document.createElement('div');
+                keyElement.className = 'keyboard-key';
+
+                // 根据Shift状态显示正确的字符
+                let displayChar = getKeyDisplay(key);
+                if (key.length === 1 && (isShiftActive || isShiftLocked)) {
+                    // 显示大写或符号
+                    if (key >= 'a' && key <= 'z') {
+                        displayChar = key.toUpperCase();
+                    } else {
+                        // 符号键的Shift版本
+                        const shiftMap = {
+                            '`': '~', '1': '!', '2': '@', '3': '#', '4': '$', '5': '%',
+                            '6': '^', '7': '&', '8': '*', '9': '(', '0': ')', '-': '_',
+                            '=': '+', '[': '{', ']': '}', '\\': '|', ';': ':', "'": '"',
+                            ',': '<', '.': '>', '/': '?'
+                        };
+                        displayChar = shiftMap[key] || displayChar;
+                    }
+                }
+
+                keyElement.textContent = displayChar;
+                keyElement.dataset.key = key;
+
+                // 设置特殊键的样式
+                if (['BACKSPACE', 'TAB', 'CAPS', 'ENTER', 'LSHIFT', 'RCTRL', 'LCTRL', 'LALT', 'RALT'].includes(key)) {
+                    keyElement.classList.add('special');
+                }
+                if (key === 'SPACE') {
+                    keyElement.classList.add('space');
+                }
+                if (key === 'BACKSPACE' || key === 'TAB' || key === 'ENTER') {
+                    keyElement.classList.add('wide');
+                }
+                if (key === 'CAPS') {
+                    keyElement.classList.add('wide');
+                    if (isCapsActive) {
+                        keyElement.classList.add('active');
+                    }
+                }
+                if (key === 'LSHIFT') {
+                    if (isShiftLocked) {
+                        keyElement.classList.add('locked');
+                    } else if (isShiftActive) {
+                        keyElement.classList.add('active');
+                    }
+                }
+                if (key === 'RCTRL') {
+                    if (isCtrlLocked) {
+                        keyElement.classList.add('locked');
+                    }
+                }
+                // 为关闭按钮添加特殊样式
+                if (key === 'CLOSE') {
+                    keyElement.classList.add('danger');
+                    keyElement.style.background = 'rgba(235, 51, 73, 0.8)';
+                }
+
+                keyElement.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    handleVirtualKeyPress(key);
+                });
+
+                keyElement.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                });
+
+                rowElement.appendChild(keyElement);
+            });
+
+            keyboard.appendChild(rowElement);
+        });
+    }
+
+    function getKeyDisplay(key) {
+        const displayMap = {
+            'BACKSPACE': '⌫',
+            'TAB': 'Tab',
+            'CAPS': 'Caps',
+            'ENTER': '↵',
+            'LSHIFT': '⇧',
+            'RCTRL': 'Ctrl',
+            'LCTRL': 'Ctrl',
+            'LALT': 'Alt',
+            'RALT': 'Alt',
+            'SPACE': '空格',
+            'CLOSE': '✕'
+        };
+        return displayMap[key] || key;
+    }
+
+    function handleVirtualKeyPress(key) {
+        // 处理关闭按钮
+        if (key === 'CLOSE') {
+            toggleVirtualKeyboard();
+            return;
+        }
+
+        switch(key) {
+            case 'LSHIFT':
+                // 左Shift：锁定功能
+                isShiftLocked = !isShiftLocked;
+                if (isShiftLocked) {
+                    sendDataChannelMessage('keyDown', { keyCode: 0xA0 }); // VK_LSHIFT
+                    log('Shift锁定开启');
+                } else {
+                    sendDataChannelMessage('keyUp', { keyCode: 0xA0 }); // VK_LSHIFT
+                    log('Shift锁定关闭');
+                }
+                createVirtualKeyboard();
+                break;
+
+            case 'RCTRL':
+                // 右Ctrl：锁定功能
+                isCtrlLocked = !isCtrlLocked;
+                if (isCtrlLocked) {
+                    sendDataChannelMessage('keyDown', { keyCode: 0xA3 }); // VK_RCONTROL
+                    log('Ctrl锁定开启');
+                } else {
+                    sendDataChannelMessage('keyUp', { keyCode: 0xA3 }); // VK_RCONTROL
+                    log('Ctrl锁定关闭');
+                }
+                createVirtualKeyboard();
+                break;
+
+            case 'CAPS':
+                isCapsActive = !isCapsActive;
+                createVirtualKeyboard();
+                break;
+
+            case 'BACKSPACE':
+                sendKeyEvent('BACKSPACE');
+                break;
+
+            case 'ENTER':
+                sendKeyEvent('ENTER');
+                break;
+
+            case 'TAB':
+                sendKeyEvent('TAB');
+                break;
+
+            case 'SPACE':
+                sendKeyEvent('SPACE');
+                break;
+
+            case 'LCTRL':
+                // 左Ctrl：普通按下释放
+                sendDataChannelMessage('keyDown', { keyCode: 0xA2 }); // VK_LCONTROL
+                sendDataChannelMessage('keyUp', { keyCode: 0xA2 });
+                break;
+
+            case 'LALT':
+            case 'RALT':
+                // Alt键：普通按下释放
+                const altVK = key === 'LALT' ? 0xA4 : 0xA5;
+                sendDataChannelMessage('keyDown', { keyCode: altVK });
+                sendDataChannelMessage('keyUp', { keyCode: altVK });
+                break;
+
+            default:
+                // 普通字符键
+                if (key.length === 1) {
+                    // 如果有Shift锁定或临时Shift激活，发送Shift组合
+                    const needsShift = isShiftLocked || isShiftActive;
+
+                    if (needsShift && !isShiftLocked) {
+                        // 临时Shift：先按Shift
+                        sendDataChannelMessage('keyDown', { keyCode: 0xA0 });
+                    }
+
+                    // 发送字符键
+                    sendKeyEvent(key);
+
+                    if (needsShift && !isShiftLocked) {
+                        // 临时Shift：释放Shift
+                        sendDataChannelMessage('keyUp', { keyCode: 0xA0 });
+                        // 发送后关闭临时Shift状态
+                        isShiftActive = false;
+                        createVirtualKeyboard();
+                    }
+                }
+                break;
+        }
+    }
+
+    // 修复sendKeyEvent函数，确保所有按键都能发送
+    function sendKeyEvent(key) {
+        let vkCode = VK_MAP[key];
+
+        // 如果直接找不到，尝试转换大小写
+        if (vkCode === undefined && key.length === 1) {
+            if (key >= 'a' && key <= 'z') {
+                vkCode = key.toUpperCase().charCodeAt(0);
+            } else if (key >= 'A' && key <= 'Z') {
+                vkCode = key.charCodeAt(0);
+            }
+        }
+
+        if (vkCode !== undefined) {
+            // 如果有Ctrl锁定，先发送Ctrl
+            if (isCtrlLocked) {
+                sendDataChannelMessage('keyDown', { keyCode: 0xA3 }); // VK_RCONTROL
+            }
+
+            sendDataChannelMessage('keyDown', { keyCode: vkCode });
+            sendDataChannelMessage('keyUp', { keyCode: vkCode });
+
+            if (isCtrlLocked) {
+                sendDataChannelMessage('keyUp', { keyCode: 0xA3 }); // VK_RCONTROL
+            }
+
+            log(`发送按键: ${key} (VK: 0x${vkCode.toString(16)})${isShiftLocked ? ' + Shift' : ''}${isCtrlLocked ? ' + Ctrl' : ''}`);
+        } else {
+            log(`未知按键: ${key}`);
+        }
+    }
+
+    function toggleVirtualKeyboard() {
+        isKeyboardVisible = !isKeyboardVisible;
+        const keyboard = document.getElementById('virtual-keyboard');
+        keyboard.classList.toggle('active', isKeyboardVisible);
+        document.getElementById('keyboard-btn').classList.toggle('active', isKeyboardVisible);
+
+        if (isKeyboardVisible) {
+            createVirtualKeyboard();
+        } else {
+            // 关闭键盘时释放所有锁定键
+            if (isShiftLocked) {
+                sendDataChannelMessage('keyUp', { keyCode: 0xA0 });
+                isShiftLocked = false;
+            }
+            if (isCtrlLocked) {
+                sendDataChannelMessage('keyUp', { keyCode: 0xA3 });
+                isCtrlLocked = false;
+            }
+        }
+    }
+
+    function createVideoElement() {
+        if (!videoElement) {
+            videoElement = document.createElement('video');
+            videoElement.autoplay = true;
+            videoElement.playsInline = true;
+            videoElement.muted = true;
+            videoElement.style.display = 'none';
+            document.body.appendChild(videoElement);
+        }
+        return videoElement;
+    }
+
+    function createAudioElement() {
+        if (!audioElement) {
+            audioElement = document.createElement('audio');
+            audioElement.autoplay = true;
+            audioElement.style.display = 'none';
+            document.body.appendChild(audioElement);
+            audioElement.volume = 0.7;
+            audioElement.muted = isAudioMuted;
+        }
+        return audioElement;
+    }
+
+    function createPeerConnection() {
+        const config = {
+            iceServers: [
+                { urls: "stun:121.5.37.53:3478" },
+                {
+                    urls: "turn:121.5.37.53:3478",
+                    username: "HopeTiga",
+                    credential: "dy913140924"
+                }
+            ]
+        };
+
+        const newPc = new RTCPeerConnection(config);
+
+        newPc.onicecandidate = (event) => {
+            if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    requestType: 1,
+                    state: 200,
+                    type: 'candidate',
+                    candidate: event.candidate.candidate,
+                    mid: event.candidate.sdpMid,
+                    mlineIndex: event.candidate.sdpMLineIndex,
+                    accountID: accountID,
+                    targetID: targetID
+                }));
+            }
+        };
+
+        newPc.ontrack = (event) => {
+            log(`收到${event.track.kind}流`);
+
+            if (!remoteStream) {
+                remoteStream = new MediaStream();
+            }
+
+            remoteStream.addTrack(event.track);
+
+            if (event.track.kind === 'video') {
+                const video = createVideoElement();
+                video.srcObject = remoteStream;
+
+                video.onloadedmetadata = () => {
+                    log(`视频元数据加载完成: ${video.videoWidth}×${video.videoHeight}`);
+                    document.getElementById('video-placeholder').style.display = 'none';
+
+                    video.play().then(() => {
+                        log('视频播放成功');
+                        startRenderLoop();
+                    }).catch(err => {
+                        log('视频播放失败: ' + err.message);
+                    });
+                };
+
+                video.oncanplay = () => {
+                    log('视频可以播放');
+                };
+
+                video.onerror = (e) => {
+                    log('视频错误: ' + e);
+                };
+            }
+            else if (event.track.kind === 'audio') {
+                const audio = createAudioElement();
+                audio.srcObject = new MediaStream([event.track]);
+
+                audio.play().then(() => {
+                    document.getElementById('audio-status').textContent = '播放中';
+                    document.getElementById('audio-status').className = 'status-value connected';
+                    log('音频播放成功');
+                }).catch(err => {
+                    log('音频播放失败: ' + err.message);
+                    document.getElementById('audio-status').textContent = '需手动启动';
+                });
+            }
+        };
+
+        newPc.oniceconnectionstatechange = () => {
+            const status = newPc.iceConnectionState;
+            document.getElementById('ice-status').textContent = status;
+            document.getElementById('ice-status').className = 'status-value ' +
+                (status === 'connected' ? 'connected' : 'disconnected');
+
+            if (status === 'connected') {
+                log('ICE连接成功');
+            }
+        };
+
+        newPc.ondatachannel = (event) => {
+            dataChannel = event.channel;
+            dataChannel.binaryType = 'arraybuffer';
+
+            dataChannel.onopen = () => {
+                document.getElementById('channel-status').textContent = '已打开';
+                document.getElementById('channel-status').className = 'status-value connected';
+                log('数据通道已打开');
+            };
+
+            dataChannel.onclose = () => {
+                document.getElementById('channel-status').textContent = '已关闭';
+                document.getElementById('channel-status').className = 'status-value disconnected';
+            };
+        };
+
+        return newPc;
+    }
+
+    function connectWebSocket() {
+        ws = new WebSocket('ws://121.5.37.53:8088');
+
+        ws.onopen = () => {
+            log('WebSocket已连接');
+            document.getElementById('signal-status').textContent = '已连接';
+            document.getElementById('signal-status').className = 'status-value connected';
+
+            ws.send(JSON.stringify({
+                requestType: 0,
+                accountID: accountID
+            }));
+
+            document.getElementById('call-btn').disabled = false;
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            handleSignalingMessage(data);
+        };
+
+        ws.onerror = () => {
+            log('WebSocket错误');
+        };
+
+        ws.onclose = () => {
+            log('WebSocket已断开');
+            document.getElementById('signal-status').textContent = '未连接';
+            document.getElementById('signal-status').className = 'status-value disconnected';
+            document.getElementById('call-btn').disabled = true;
+        };
+    }
+
+    async function handleSignalingMessage(data) {
+        if (!pc) return;
+
+        if (data.requestType === 0 && data.state === 200) {
+            log('注册成功');
+
+        }
+        else if (data.requestType === 1 && data.state === 200) {
+            if (data.type === 'offer') {
+                targetID = data.accountID;
+                await pc.setRemoteDescription(new RTCSessionDescription({
+                    type: 'offer',
+                    sdp: data.sdp
+                }));
+
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+
+                ws.send(JSON.stringify({
+                    requestType: 1,
+                    state: 200,
+                    type: 'answer',
+                    sdp: answer.sdp,
+                    accountID: accountID,
+                    targetID: targetID
+                }));
+            }
+            else if (data.type === 'answer') {
+                await pc.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: data.sdp
+                }));
+            }
+            else if (data.type === 'candidate') {
+                await pc.addIceCandidate(new RTCIceCandidate({
+                    candidate: data.candidate,
+                    sdpMid: data.mid,
+                    sdpMLineIndex: data.mlineIndex
+                }));
+            }
+        }
+        else if (data.requestType === 2 && data.state === 200) {
+            if (data.remoteState === 'Ready') {
+                startCall();
+            }
+        }
+        else if (data.requestType === 3 && data.state === 200) {
+            log('对端已断开');
+            cleanup();
+            pc = createPeerConnection();
+        }
+
+    }
+
+    function startCall() {
+        if (!targetID) {
+            log('无目标ID');
+            return;
+        }
+
+        const codecSelect = document.getElementById('codec-select');
+        const selectedCodec = codecSelect.value;
+
+        const requestData = {
+            accountID: accountID,
+            targetID: targetID,
+            requestType: 1,
+            webRTCRemoteState: 1
+        };
+
+        // 如果选择了编码器，就添加到请求数据中
+        if (selectedCodec !== '') {
+            requestData.codec = parseInt(selectedCodec);
+            const codecName = CODEC_MAP[selectedCodec];
+            document.getElementById('codec-status').textContent = codecName;
+            log(`使用编码器: ${codecName}`);
+        } else {
+            document.getElementById('codec-status').textContent = '自动选择';
+            log('使用自动编码器选择');
+        }
+
+        ws.send(JSON.stringify(requestData));
+        log('发起连接请求');
+    }
+
+    function cleanup() {
+        if (dataChannel) {
+            dataChannel.close();
+            dataChannel = null;
+        }
+
+        if (remoteStream) {
+            remoteStream.getTracks().forEach(track => track.stop());
+            remoteStream = null;
+        }
+
+        if (pc) {
+            pc.close();
+            pc = null;
+        }
+
+        if (videoElement) {
+            videoElement.srcObject = null;
+        }
+
+        if (audioElement) {
+            audioElement.srcObject = null;
+        }
+
+        stopRenderLoop();
+    }
+
+    function enterCinemaMode() {
+        isCinemaMode = true;
+        document.getElementById('main-container').style.display = 'none';
+        document.getElementById('cinema-mode').classList.add('active');
+
+        if (!cinemaGL) {
+            cinemaGL = initWebGL(document.getElementById('cinema-canvas'));
+            if (!cinemaGL) {
+                log('影院WebGL初始化失败');
+                exitCinemaMode();
+                return;
+            }
+        }
+
+        bindTouchEvents(document.getElementById('cinema-canvas'));
+        log('进入影院模式');
+    }
+
+    function exitCinemaMode() {
+        isCinemaMode = false;
+        isControlsExpanded = false;
+
+        // 如果处于全屏状态,先退出全屏
+        if (isFullscreen) {
+            exitFullscreen();
+        }
+
+        document.getElementById('main-container').style.display = '';
+        document.getElementById('cinema-mode').classList.remove('active');
+        document.getElementById('function-buttons').classList.remove('show');
+        document.getElementById('expand-btn').classList.remove('expanded');
+        document.getElementById('expand-btn').textContent = '☰';
+
+        // 隐藏虚拟键盘
+        document.getElementById('virtual-keyboard').classList.remove('active');
+        isKeyboardVisible = false;
+        document.getElementById('keyboard-btn').classList.remove('active');
+
+        log('退出影院模式');
+    }
+
+    // 全屏功能
+    function toggleFullscreen() {
+        if (!isFullscreen) {
+            enterFullscreen();
+        } else {
+            exitFullscreen();
+        }
+    }
+
+    function enterFullscreen() {
+        const elem = document.getElementById('cinema-mode');
+
+        try {
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) {
+                // iOS Safari
+                elem.webkitRequestFullscreen();
+            } else if (elem.webkitEnterFullscreen) {
+                // 旧版iOS
+                elem.webkitEnterFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                // IE11
+                elem.msRequestFullscreen();
+            } else if (elem.mozRequestFullScreen) {
+                // Firefox
+                elem.mozRequestFullScreen();
+            }
+
+            isFullscreen = true;
+            document.getElementById('fullscreen-btn').textContent = '⛶';
+            document.getElementById('fullscreen-btn').classList.add('active');
+            log('进入全屏模式');
+        } catch (err) {
+            log('全屏请求失败: ' + err.message);
+        }
+    }
+
+    function exitFullscreen() {
+        try {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.webkitCancelFullScreen) {
+                // iOS Safari
+                document.webkitCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            }
+
+            isFullscreen = false;
+            document.getElementById('fullscreen-btn').textContent = '⛶';
+            document.getElementById('fullscreen-btn').classList.remove('active');
+            log('退出全屏模式');
+        } catch (err) {
+            log('退出全屏失败: ' + err.message);
+        }
+    }
+
+    // 监听全屏状态变化
+    function handleFullscreenChange() {
+        const isCurrentlyFullscreen = !!(document.fullscreenElement ||
+            document.webkitFullscreenElement ||
+            document.webkitCurrentFullScreenElement ||
+            document.msFullscreenElement ||
+            document.mozFullScreenElement);
+
+        if (isFullscreen && !isCurrentlyFullscreen) {
+            // 用户通过系统方式退出了全屏
+            isFullscreen = false;
+            document.getElementById('fullscreen-btn').textContent = '⛶';
+            document.getElementById('fullscreen-btn').classList.remove('active');
+            log('全屏已退出');
+        }
+    }
+
+    // 初始化
+    window.addEventListener('load', () => {
+        mainGL = initWebGL(document.getElementById('main-canvas'));
+        bindTouchEvents(document.getElementById('main-canvas'));
+
+        // 监听全屏状态变化
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+        // 初始化账户选择
+        const accountSelect = document.getElementById('account-select');
+        accountSelect.addEventListener('change', (e) => {
+            targetID = e.target.value;
+            document.getElementById('target-account-status').textContent = targetID;
+            log(`选择目标账户: ${targetID}`);
+        });
+
+        // 设置默认目标账户状态显示
+        document.getElementById('target-account-status').textContent = targetID;
+        log(`当前账户ID: ${accountID}`);
+        log(`默认目标账户: ${targetID}`);
+
+        document.getElementById('start-btn').addEventListener('click', () => {
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('start-btn').textContent = '连接中...';
+
+            connectWebSocket();
+            pc = createPeerConnection();
+
+            setTimeout(() => {
+                document.getElementById('start-btn').textContent = '已连接';
+                document.getElementById('restart-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = false;
+            }, 1000);
+        });
+
+        document.getElementById('call-btn').addEventListener('click', () => {
+            startCall();
+        });
+
+        document.getElementById('cinema-btn').addEventListener('click', () => {
+            enterCinemaMode();
+        });
+
+        document.getElementById('exit-cinema-btn').addEventListener('click', () => {
+            exitCinemaMode();
+        });
+
+        document.getElementById('expand-btn').addEventListener('click', () => {
+            isControlsExpanded = !isControlsExpanded;
+            document.getElementById('function-buttons').classList.toggle('show', isControlsExpanded);
+            document.getElementById('expand-btn').classList.toggle('expanded', isControlsExpanded);
+            document.getElementById('expand-btn').textContent = isControlsExpanded ? '✕' : '☰';
+        });
+
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            log('重新连接...');
+            const tid = targetID;
+
+            cleanup();
+            pc = createPeerConnection();
+            targetID = tid;
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    accountID: accountID,
+                    targetID: targetID,
+                    requestType: 2,
+                    state: 200
+                }));
+            }
+        });
+
+        document.getElementById('stop-btn').addEventListener('click', () => {
+            if (targetID) {
+                ws.send(JSON.stringify({
+                    accountID: accountID,
+                    targetID: targetID,
+                    requestType: 3
+                }));
+            }
+
+            cleanup();
+
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('start-btn').textContent = '连接服务器';
+            document.getElementById('restart-btn').disabled = true;
+            document.getElementById('stop-btn').disabled = true;
+
+            log('已断开所有连接');
+        });
+
+        document.getElementById('mouse-mode-btn').addEventListener('click', () => {
+            isDragMode = !isDragMode;
+            document.getElementById('mouse-mode-btn').textContent = isDragMode ? '🖱️' : '👆';
+            document.getElementById('mouse-mode-btn').classList.toggle('active', isDragMode);
+            log((isDragMode ? '拖动' : '移动') + '模式');
+        });
+
+        document.getElementById('click-mode-btn').addEventListener('click', () => {
+            isRightClick = !isRightClick;
+            document.getElementById('click-mode-btn').textContent = isRightClick ? '👉' : '👆';
+            document.getElementById('click-mode-btn').classList.toggle('active', isRightClick);
+            log((isRightClick ? '右键' : '左键') + '模式');
+        });
+
+        document.getElementById('scroll-mode-btn').addEventListener('click', () => {
+            isScrollInverted = !isScrollInverted;
+            document.getElementById('scroll-mode-btn').textContent = isScrollInverted ? '📜' : '📋';
+            document.getElementById('scroll-mode-btn').classList.toggle('active', isScrollInverted);
+            log((isScrollInverted ? '反向' : '正向') + '滚动');
+        });
+
+        document.getElementById('keyboard-btn').addEventListener('click', () => {
+            toggleVirtualKeyboard();
+        });
+
+        document.getElementById('audio-toggle-btn').addEventListener('click', () => {
+            isAudioMuted = !isAudioMuted;
+            if (audioElement) {
+                audioElement.muted = isAudioMuted;
+            }
+            document.getElementById('audio-toggle-btn').textContent = isAudioMuted ? '🔇' : '🔊';
+            log((isAudioMuted ? '静音' : '音频') + '已开启');
+        });
+
+        document.getElementById('fullscreen-btn').addEventListener('click', () => {
+            toggleFullscreen();
+        });
+
+        document.getElementById('volume-slider').addEventListener('input', (e) => {
+            if (audioElement) {
+                audioElement.volume = e.target.value / 100;
+            }
+            document.getElementById('volume-value').textContent = e.target.value + '%';
+        });
+
+        window.addEventListener('resize', () => {
+            if (mainGL) {
+                const canvas = document.getElementById('main-canvas');
+                canvas.width = canvas.clientWidth * scale;
+                canvas.height = canvas.clientHeight * scale;
+                mainGL.gl.viewport(0, 0, canvas.width, canvas.height);
+            }
+
+            if (cinemaGL && isCinemaMode) {
+                const canvas = document.getElementById('cinema-canvas');
+                const w = window.innerWidth * scale;
+                const h = window.innerHeight * scale;
+                canvas.width = w;
+                canvas.height = h;
+                cinemaGL.gl.viewport(0, 0, w, h);
+            }
+        });
+
+        log('系统已就绪');
+    });
+
+    let lastTouchEnd = 0;
+    document.addEventListener('touchend', (e) => {
+        const now = Date.now();
+        if (now - lastTouchEnd <= 300) {
+            e.preventDefault();
+        }
+        lastTouchEnd = now;
+    }, false);
+
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+</script>
+</body>
+</html>
