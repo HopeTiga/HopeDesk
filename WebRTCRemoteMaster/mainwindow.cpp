@@ -739,15 +739,16 @@ void MainWindow::onFullScreen()
 void MainWindow::onAbout()
 {
     QMessageBox::about(this, "关于",
-                       "<h3>WebRTC视频客户端</h3>"
+                       "<h3>WebRTC-Native-Manager</h3>"
                        "<p>版本 1.0</p>"
-                       "<p>基于libWebRTC和Qt开发的WebRTC视频通信客户端</p>"
+                       "<p>基于WebRTC-Native和Qt开发的WebRTC远程桌面客户端</p>"
                        "<p>支持多账号管理和点对点视频传输</p>"
                        "<br>"
                        "<p>使用的技术：</p>"
                        "<ul>"
-                       "<li>libWebRTC - WebRTC通信</li>"
+                       "<li>WebRTC-Native - WebRTC通信</li>"
                        "<li>Qt6 - 用户界面</li>"
+                       "<li>Boost IO操作</li>"
                        "</ul>");
 }
 

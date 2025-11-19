@@ -6,10 +6,10 @@ int main(int argc, char *argv[])
 {
 
     QApplication app(argc, argv);
-    app.setApplicationName("WebRTC远程桌面");
+    app.setApplicationName("WebRTC-Native-Manager");
     app.setApplicationVersion("1.0");
-    app.setOrganizationName("WebRTCClient");
-    app.setOrganizationDomain("webrtcclient.local");
+    app.setOrganizationName("WebRTC-Native-Manager");
+    app.setOrganizationDomain("WebRTC-Native-Manager.local");
 
     ConfigManager::Instance().Load();
 
