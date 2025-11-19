@@ -1,6 +1,6 @@
 # WebRTC 远程桌面操控系统
 
-基于 `LibWebRTC`、`Boost`、`Qt` 和 `Interception` 实现的高性能 P2P 远程桌面控制方案
+基于 `WebRTC-Native`、`Boost`、`Qt` 和 `Interception` 实现的高性能 P2P 远程桌面控制方案
 
 ## 核心架构
 
@@ -211,19 +211,19 @@ Channel A        Channel A Manager      Global Router        Channel B Manager  
 ```
 
 ### 2. 被控端 (视频源)
-- **技术栈**: Qt + LibWebRTC + DXGI + Interception + Windows API
+- **技术栈**: Qt + WebRTC-Native + DXGI + Interception + Windows API
 - **功能**:
   - **屏幕捕获**: DXGI 实现高性能屏幕采集，支持 UAC 安全桌面
-  - **视频编码**: LibWebRTC 内置 AV1 编解码器（默认）
+  - **视频编码**: WebRTC-Native 内置 AV1 编解码器（默认）
   - **网络传输**: WebRTC P2P 连接与 RTP 视频流传输
   - **输入处理**: Interception 驱动级键鼠操作，提升响应速度
   - **状态同步**: Windows Hooks 捕获本地鼠标状态变化并同步
   - **连接管理**: ICE 连接建立、维护与异常恢复
 
 ### 3. 操控端 (控制客户端)
-- **技术栈**: Qt + LibWebRTC + Interceptiont
+- **技术栈**: Qt + WebRTC-Native + Interceptiont
 - **功能**:
-  - **视频渲染**: LibWebRTC 视频解码 + QRHI 显示
+  - **视频渲染**: WebRTC-Native 视频解码 + QRHI 显示
   - **输入采集**: Interception 捕获键鼠事件
   - **指令传输**: DataChannel 异步发送控制指令 (sendAsync)
   - **状态同步**: 接收并应用远程鼠标状态变化
@@ -289,7 +289,7 @@ Channel A        Channel A Manager      Global Router        Channel B Manager  
 - **📊 智能适配**: 基于网络状况的自适应码率控制
 - **🔄 高可靠性**: 完整的 WebRTC 协议栈与异常恢复机制
 - **⚡ 高性能**: Boost 协程异步处理 + 生产者消费者模式
-- **🌍 真正 P2P**: 基于 LibWebRTC 的点对点通信，最小化服务器依赖
+- **🌍 真正 P2P**: 基于 WebRTC-Native 的点对点通信，最小化服务器依赖
 
 ## 平台支持
 
