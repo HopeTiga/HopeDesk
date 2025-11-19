@@ -52,12 +52,6 @@
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/json.hpp>
 
-#include <winrt/base.h>
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.UI.Input.Preview.Injection.h>
-#include <winrt/Windows.System.h>
-
 // Project includes
 #include "concurrentqueue.h"
 #include "ScreenCapture.h"
@@ -811,8 +805,6 @@ namespace hope {
             moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
 
             std::unique_ptr<WinLogon> winLogon;
-
-            winrt::Windows::UI::Input::Preview::Injection::InputInjector inputInjector;
 
             std::unique_ptr<KeyMouseSimulator> keyMouseSim;
 

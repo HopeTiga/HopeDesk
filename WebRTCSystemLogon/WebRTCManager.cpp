@@ -8,6 +8,7 @@
 #include <boost/random/uniform_int_distribution.hpp>
 #include <api/video/i420_buffer.h>
 #include "WebRTCVideoEncoderFactory.h"
+#include "ConfigManager.h"
 
 
 namespace hope {
@@ -319,7 +320,6 @@ namespace hope {
             keyMouseSim(nullptr),
             codec(codec),
             rtpEncodingParameters(rtpEncodingParameters),
-            inputInjector(nullptr),
             cursorHooks(nullptr) {
 
             Logger::getInstance()->info("WebRTCManager starting on port 19998");
@@ -358,12 +358,6 @@ namespace hope {
 
                 if (!keyMouseSim->Initialize()) {
                     Logger::getInstance()->error("KeyMouseSimulator initialization failed");
-                }
-
-                inputInjector = winrt::Windows::UI::Input::Preview::Injection::InputInjector::TryCreate();
-
-                if (!inputInjector) {
-                    Logger::getInstance()->warning("InputInjector creation failed, using KeyMouseSimulator");
                 }
 
         }
@@ -534,8 +528,15 @@ namespace hope {
 
                                 int64_t responseState = json["state"].as_int64();
 
-                                if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
-                                    if (responseState == 200) {
+                                if (WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER)
+                                {
+
+                                    ConfigManager::Instance().Load(json["webrtcManagerPath"].as_string().c_str() + std::string("/config.ini"));
+
+                                }
+
+                                else if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
+                                     if (responseState == 200) {
                                         if (json.contains("webRTCRemoteState")) {
                                             WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
@@ -838,17 +839,17 @@ namespace hope {
 
             webrtc::PeerConnectionInterface::IceServer stunServer;
 
-            stunServer.uri = "stun:121.5.37.53:3478";
+            stunServer.uri = ConfigManager::Instance().GetString("Stun.Host");
 
             config.servers.push_back(stunServer);
 
             webrtc::PeerConnectionInterface::IceServer turnServer;
 
-            turnServer.uri = "turn:121.5.37.53:3478";
+            turnServer.uri = ConfigManager::Instance().GetString("Turn.Host");
 
-            turnServer.username = "HopeTiga";
+            turnServer.username = ConfigManager::Instance().GetString("Turn.Username");
 
-            turnServer.password = "dy913140924";
+            turnServer.password = ConfigManager::Instance().GetString("Turn.Password");
 
             config.servers.emplace_back(turnServer);
 
