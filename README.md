@@ -294,5 +294,5 @@ Channel A        Channel A Manager      Global Router        Channel B Manager  
 ## 平台支持
 
 - **当前支持**: Windows (完整功能)
-- **部分支持**: 移动端 H5 (鼠标操作完整，键盘功能开发中)
+- **部分支持**: 移动端 H5 (键鼠操作完整)
 - **计划支持**: Linux、macOS (后续版本)
