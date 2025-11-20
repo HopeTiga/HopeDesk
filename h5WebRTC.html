@@ -341,10 +341,14 @@
         }
 
         .function-buttons {
+            position: absolute;          /* 脱离文档流 */
+            bottom: 100%;                /* 收起来时整个飘到屏幕外 */
+            left: 0;
+            margin-bottom: 12px;         /* 与展开按钮的间距 */
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
-            max-width: 220px;
+            width: 220px;
             opacity: 0;
             transform: translateY(20px);
             pointer-events: none;
@@ -1527,17 +1531,17 @@
         const expandBtn = document.getElementById('expand-btn');
 
         if (isControlsExpanded) {
+            functionButtons.style.display = 'flex';   // 让 DOM 回来
             functionButtons.classList.add('show');
             expandBtn.classList.add('expanded');
             expandBtn.textContent = '✕';
             log('功能按钮已展开');
-
         } else {
             functionButtons.classList.remove('show');
+            functionButtons.style.display = 'none';   // 真正撤掉，事件穿透
             expandBtn.classList.remove('expanded');
             expandBtn.textContent = '☰';
             log('功能按钮已收起');
-
         }
     }
 
