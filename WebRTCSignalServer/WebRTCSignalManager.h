@@ -6,13 +6,14 @@
 
 #include <boost/asio.hpp>
 
-#include <tbb/concurrent_unordered_map.h>
 #include <tbb/concurrent_lru_cache.h>
 
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalSocket.h"
 #include "WebRTCLogicSystem.h"
 #include "WebRTCMysqlManager.h"
+
+#include "WebRTCHashMap.h"
 
 
 namespace hope {
@@ -36,7 +37,7 @@ namespace hope {
 
 			void removeConnection(const std::string& accountID);
 
-			tbb::concurrent_unordered_map<std::string, int>& getActorSocketMappingIndex();
+			hope::utils::WebRTCHashMap<std::string, int>& getActorSocketMappingIndex();
 
 			std::shared_ptr<WebRTCLogicSystem> getWebRTCLogicSystem();
 
@@ -46,13 +47,13 @@ namespace hope {
 
 			int channelIndex;
 
-			tbb::concurrent_unordered_map<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSignalSocketMap;
+			hope::utils::WebRTCHashMap<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSignalSocketMap;
 
 			WebRTCSignalServer* webrtcSignalServer;
 
 			size_t hashSize = std::thread::hardware_concurrency() ;
 
-			tbb::concurrent_unordered_map<std::string, int> actorSocketMappingIndex;
+			hope::utils::WebRTCHashMap<std::string, int> actorSocketMappingIndex;
 
 			tbb::concurrent_lru_cache<std::string, int> localRouteCache;
 

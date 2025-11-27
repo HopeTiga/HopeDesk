@@ -65,7 +65,7 @@ namespace hope {
                 }
                 webrtcSignalSocket = it->second;
 
-                webrtcSignalSocketMap.unsafe_erase(it);
+                webrtcSignalSocketMap.erase(it);
 
             }
 
@@ -83,7 +83,7 @@ namespace hope {
 
             webrtcSignalServer->postAsyncTask(mapChannelIndex, [self = shared_from_this(), accountID](std::shared_ptr<WebRTCSignalManager> manager) -> boost::asio::awaitable<void> {
 
-                manager->getActorSocketMappingIndex().unsafe_erase(accountID);
+                manager->getActorSocketMappingIndex().erase(accountID);
 
                 co_return;
 
@@ -92,7 +92,7 @@ namespace hope {
 
         }
 
-        tbb::concurrent_unordered_map<std::string, int>& WebRTCSignalManager::getActorSocketMappingIndex()
+        hope::utils::WebRTCHashMap<std::string, int>& WebRTCSignalManager::getActorSocketMappingIndex()
         {
             return actorSocketMappingIndex;
         }
