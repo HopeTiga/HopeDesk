@@ -664,12 +664,12 @@ namespace hope {
                 }
             }
             else {
-                // 禁用脏矩形时，始终复制完整帧
+                // 禁用脏矩形时，始终完整帧
                 d3dContext->CopyResource(sharedTexture.Get(), acquiredTexture.Get());
                 needsFullFrame = true;  // 标记已处理完整帧
             }
 
-            // 立即处理帧内容 - 在释放前完成所有必要的复制
+            // 立即处理帧内容 - 在释放前完成所有必要的
             bool result = processFrame(sharedTexture.Get());
 
             // frameReleaser析构时会自动释放帧

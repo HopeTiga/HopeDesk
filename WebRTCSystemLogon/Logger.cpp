@@ -13,7 +13,6 @@ Logger::Logger() : minLevel(LogLevels::INFO) {
     // 设置日志文件路径为可执行文件目录
     logFilePath = (exePath / "system.log").string();
 
-    logFilePath = "E:\\cppPro\\WebRTCSystemLogon-version\\x64\\Release\\system.log";
     // 确保目录存在
     std::filesystem::create_directories(exePath);
 
