@@ -14,7 +14,7 @@ namespace hope{
 
 namespace rtc{
 
-class WebRTCRemoteClient;
+class WebRTCManager;
 class VideoWidget;
 
 class WindowsHook : public QObject
@@ -27,7 +27,7 @@ public:
 
     // 设置目标窗口和客户端
     void setTargetWidget(VideoWidget* widget);
-    void setRemoteClient(WebRTCRemoteClient* client);
+    void setManager(WebRTCManager* manager);
 
     // 启动/停止Hook
     bool startHook();
@@ -72,7 +72,7 @@ private:
     HWND targetHwnd;
 
     // 远程客户端
-    WebRTCRemoteClient* remoteClient;
+    WebRTCManager* manager;
 
     // 屏幕尺寸
     std::atomic<int> screenWidth;

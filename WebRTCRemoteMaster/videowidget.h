@@ -23,7 +23,7 @@ namespace hope{
 
 namespace rtc{
 
-class WebRTCRemoteClient;
+class WebRTCManager;
 struct VideoFrame;
 
 class VideoWidget : public QRhiWidget
@@ -42,7 +42,7 @@ public:
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
 
-    void setWebRTCRemoteClient(WebRTCRemoteClient* webRTCRemoteClient);
+    void setWebRTCManager(WebRTCManager* manager);
 
 protected:
     void initialize(QRhiCommandBuffer* cb) override;
@@ -79,7 +79,7 @@ private:
     void savePipelineCache();
 
 private:
-    WebRTCRemoteClient* webRTCRemoteClient;
+    WebRTCManager* manager;
     QRhi* rhi = nullptr;
     Logger* logger;
 

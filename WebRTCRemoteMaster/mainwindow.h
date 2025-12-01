@@ -16,7 +16,7 @@ namespace hope{
     namespace rtc{
 
     class VideoWidget;
-    class WebRTCRemoteClient;
+    class WebRTCManager;
 
     class MainWindow : public QMainWindow
     {
@@ -48,7 +48,7 @@ namespace hope{
 
         // WebRTC客户端事件
         void onConnectionStateChanged(bool connected);
-        void onClientError(const QString& error);
+        void onManagerError(const QString& error);
 
         // 菜单操作
         void onAbout();
@@ -108,7 +108,7 @@ namespace hope{
 
         // 主要组件
         VideoWidget* videoWidget;
-        WebRTCRemoteClient* webRTCRemoteClient;
+        WebRTCManager* manager;
 
         // 设置
         QSettings* settings;

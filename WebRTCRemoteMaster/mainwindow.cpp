@@ -1,7 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "VideoWidget.h"
-#include "webrtcremoteclient.h"
+#include "WebRTCManager.h"
 #include <QApplication>
 #include <QCloseEvent>
 #include <QSplitter>
@@ -27,7 +27,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , videoWidget(nullptr)
-    , webRTCRemoteClient(nullptr)
+    , manager(nullptr)
     , settings(nullptr)
     , isConnected(false)
     , isFullScreen(false)
@@ -55,7 +55,7 @@ MainWindow::MainWindow(QWidget* parent)
     background->setGeometry(0, 0, width(), height());
     background->lower(); // 放到最底层
     // 初始化设置
-    settings = new QSettings("WebRTCClient", "Settings", this);
+    settings = new QSettings("WebRTCmanager", "Settings", this);
 
     // 初始化远程连接超时定时器
     remoteConnectionTimer = new QTimer(this);
@@ -81,7 +81,7 @@ MainWindow::MainWindow(QWidget* parent)
     loadSettings();
 
     // 创建WebRTC客户端
-    webRTCRemoteClient = new WebRTCRemoteClient(WebRTCRemoteState::nullRemote);
+    manager = new WebRTCManager(WebRTCRemoteState::nullRemote);
 
     // 设置WebRTC回调
     setupWebRTCCallbacks();
@@ -105,8 +105,8 @@ MainWindow::~MainWindow()
         delete videoWidget;
     }
 
-    if (webRTCRemoteClient) {
-        delete webRTCRemoteClient;
+    if (manager) {
+        delete manager;
     }
 
     delete ui;
@@ -114,11 +114,11 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupWebRTCCallbacks()
 {
-    webRTCRemoteClient->followRemoteHandle = ([this]() {
+    manager->followRemoteHandle = ([this]() {
         QMetaObject::invokeMethod(this, "onRemoteControlStarted", Qt::QueuedConnection);
     });
 
-    webRTCRemoteClient->remoteSuccessFulHandle = [this]() {
+    manager->remoteSuccessFulHandle = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             if (remoteConnectionTimer->isActive()) {
                 remoteConnectionTimer->stop();
@@ -146,7 +146,7 @@ void MainWindow::setupWebRTCCallbacks()
         }, Qt::QueuedConnection);
     };
 
-    webRTCRemoteClient->remoteFailedHandle = [this]() {
+    manager->remoteFailedHandle = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             if (remoteConnectionTimer->isActive()) {
                 remoteConnectionTimer->stop();
@@ -164,11 +164,11 @@ void MainWindow::setupWebRTCCallbacks()
         }, Qt::QueuedConnection);
     };
 
-    webRTCRemoteClient->disConnectRemoteHandle = ([this]() {
+    manager->disConnectRemoteHandle = ([this]() {
         QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer", Qt::QueuedConnection);
     });
 
-    webRTCRemoteClient->webSocketDisConnect = [this](std::exception e) {
+    manager->webSocketDisConnect = [this](std::exception e) {
         QMetaObject::invokeMethod(this, [this, e]() {
             this->isConnected = false;
             this->updateConnectionState(false);
@@ -194,9 +194,9 @@ void MainWindow::setupWebRTCCallbacks()
                         this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
                         statusBar()->showMessage("正在重连...");
 
-                        this->webRTCRemoteClient->setAccountID(currentAccount.toStdString());
+                        this->manager->setAccountID(currentAccount.toStdString());
                         QString url = QString("%1:%2").arg(serverAddress).arg(port);
-                        this->webRTCRemoteClient->connect(url.toStdString());
+                        this->manager->connect(url.toStdString());
                     } else {
                         this->ui->connectionStatusLabel->setText("连接断开（配置不完整）");
                         this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
@@ -210,7 +210,7 @@ void MainWindow::setupWebRTCCallbacks()
         }, Qt::QueuedConnection);
     };
 
-    webRTCRemoteClient->webSocketConnectedCallback = [this](bool success) {
+    manager->webSocketConnectedCallback = [this](bool success) {
         QMetaObject::invokeMethod(this, [this, success]() {
             if (success) {
                 this->onConnectionStateChanged(true);
@@ -414,9 +414,9 @@ void MainWindow::createVideoWidget()
         videoWidget->move(x, y);
     }
 
-    videoWidget->setWebRTCRemoteClient(webRTCRemoteClient);
+    videoWidget->setWebRTCManager(manager);
 
-    webRTCRemoteClient->setVideoFrameCallback([this](std::shared_ptr<VideoFrame> frame) {
+    manager->setVideoFrameCallback([this](std::shared_ptr<VideoFrame> frame) {
         if (videoWidget) {
             videoWidget->displayFrame(frame);
         }
@@ -456,7 +456,7 @@ void MainWindow::onConnectClicked()
         return;
     }
 
-    webRTCRemoteClient->setAccountID(currentAccount.toStdString());
+    manager->setAccountID(currentAccount.toStdString());
 
     ui->connectButton->setEnabled(false);
     ui->connectButton->setText("连接中...");
@@ -466,7 +466,7 @@ void MainWindow::onConnectClicked()
     QString url = QString("%1:%2").arg(serverAddress).arg(port);
 
     QTimer::singleShot(0, [this, url]() {
-        this->webRTCRemoteClient->connect(url.toStdString());
+        this->manager->connect(url.toStdString());
     });
 }
 
@@ -480,7 +480,7 @@ void MainWindow::onDisconnectClicked()
         remoteConnectionTimer->stop();
     }
 
-    webRTCRemoteClient->disConnect();
+    manager->disConnect();
     onConnectionStateChanged(false);
 
     if (videoWidget) {
@@ -522,7 +522,7 @@ void MainWindow::onTargetSelectionChanged()
     QString targetId = currentItem->text();
     ui->remoteStatusLabel->setText(QString("已选择: %1").arg(targetId));
     ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
-    webRTCRemoteClient->setTargetID(targetId.toStdString());
+    manager->setTargetID(targetId.toStdString());
     ui->sendRequestButton->setEnabled(true);
 }
 
@@ -539,7 +539,7 @@ void MainWindow::onSendRequestClicked()
 
     ui->sendRequestButton->setEnabled(false);
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    webRTCRemoteClient->sendRequestToTarget();
+    manager->sendRequestToTarget();
 
     statusBar()->showMessage("正在建立远程连接...");
 }
@@ -554,8 +554,8 @@ void MainWindow::onDisconnectRemoteControl()
 
     if (isBeingControlled) {
         qDebug() << "User (controlled side) initiated disconnect";
-        if (webRTCRemoteClient) {
-            webRTCRemoteClient->disConnectRemote();
+        if (manager) {
+            manager->disConnectRemote();
         }
         ui->remoteStatusLabel->setText("已主动断开被控制");
         ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("success"));
@@ -563,8 +563,8 @@ void MainWindow::onDisconnectRemoteControl()
         ui->sendRequestButton->setEnabled(ui->deviceListWidget->currentItem() != nullptr);
     } else {
         qDebug() << "User (controller side) initiated disconnect";
-        if (webRTCRemoteClient) {
-            webRTCRemoteClient->disConnectRemote();
+        if (manager) {
+            manager->disConnectRemote();
         }
         ui->remoteStatusLabel->setText("已主动断开远程操控");
         ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
@@ -892,7 +892,7 @@ void MainWindow::updateStatus()
     }
 }
 
-void MainWindow::onClientError(const QString& error)
+void MainWindow::onManagerError(const QString& error)
 {
     lastError = error;
     statusBar()->showMessage(QString("错误: %1").arg(error));

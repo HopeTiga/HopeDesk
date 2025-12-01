@@ -1,6 +1,6 @@
 #include "windowshook.h"
 #include "videowidget.h"
-#include "webrtcremoteclient.h"
+#include "webrtcmanager.h"
 #include <QWidget>
 #include <QApplication>
 #include <cstring>
@@ -19,7 +19,7 @@ WindowsHook::WindowsHook(QObject* parent)
     , mouseHook(nullptr)
     , targetWidget(nullptr)
     , targetHwnd(nullptr)
-    , remoteClient(nullptr)
+    , manager(nullptr)
     , running(false)
 {
     sInstance = this;
@@ -39,9 +39,9 @@ void WindowsHook::setTargetWidget(VideoWidget* widget)
     }
 }
 
-void WindowsHook::setRemoteClient(WebRTCRemoteClient* client)
+void WindowsHook::setManager(WebRTCManager* manager)
 {
-    remoteClient = client;
+    this->manager = manager;
 }
 
 void WindowsHook::setVideoSize(int width, int height)
@@ -140,7 +140,7 @@ bool WindowsHook::isInTargetWindow() const
 
 void WindowsHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)
 {
-    if (!remoteClient) {
+    if (!manager) {
         return;
     }
 
@@ -158,12 +158,12 @@ void WindowsHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)
 
     KeyButton * keyButton = new KeyButton{type,windowsVK,modifiers};
 
-    remoteClient->writerRemote(reinterpret_cast<unsigned char *>(keyButton), sizeof(KeyButton));
+    manager->writerRemote(reinterpret_cast<unsigned char *>(keyButton), sizeof(KeyButton));
 }
 
 void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
 {
-    if (!remoteClient) {
+    if (!manager) {
         return;
     }
 
@@ -187,13 +187,13 @@ void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
 
     MouseButton * mouseBtn = new MouseButton{type,button,normalizedX,normalizedY};
 
-    remoteClient->writerRemote(reinterpret_cast<unsigned char * >(mouseBtn), sizeof(MouseButton));
+    manager->writerRemote(reinterpret_cast<unsigned char * >(mouseBtn), sizeof(MouseButton));
 }
 
 // 修改 sendMouseMoveEvent 函数
 void WindowsHook::sendMouseMoveEvent(int x, int y)
 {
-    if (!remoteClient) {
+    if (!manager) {
         return;
     }
 
@@ -216,12 +216,12 @@ void WindowsHook::sendMouseMoveEvent(int x, int y)
 
     MouseMove * mouseMove = new MouseMove{0,normalizedX,normalizedY};
 
-    remoteClient->writerRemote(reinterpret_cast<unsigned char *>(mouseMove), sizeof(MouseMove));
+    manager->writerRemote(reinterpret_cast<unsigned char *>(mouseMove), sizeof(MouseMove));
 }
 
 void WindowsHook::sendWheelEvent(int delta)
 {
-    if (!remoteClient) {
+    if (!manager) {
         return;
     }
 
@@ -237,7 +237,7 @@ void WindowsHook::sendWheelEvent(int delta)
 
     MouseWheel * mouseWheel = new MouseWheel{5,delta};
 
-    remoteClient->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
+    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
 }
 
 char WindowsHook::getCurrentModifiers()

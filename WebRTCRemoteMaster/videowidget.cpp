@@ -1,5 +1,5 @@
 #include "videowidget.h"
-#include "webrtcremoteclient.h"
+#include "webrtcmanager.h"
 #include "Logger.h"
 #include <QVBoxLayout>
 #include <QFile>
@@ -14,7 +14,7 @@ namespace hope{
 namespace rtc{
 VideoWidget::VideoWidget(QWidget* parent)
     : QRhiWidget(parent)
-    , webRTCRemoteClient(nullptr)
+    , manager(nullptr)
     , rhi(nullptr)
     , videoWidth(640)
     , videoHeight(480)
@@ -659,14 +659,14 @@ void VideoWidget::updateFPS()
     }
 }
 
-void VideoWidget::setWebRTCRemoteClient(WebRTCRemoteClient* client)
+void VideoWidget::setWebRTCManager(WebRTCManager * manager)
 {
     logger->info("设置WebRTC远程客户端");
-    webRTCRemoteClient = client;
+    this->manager = manager;
 
     interceptionHook = std::make_unique<InterceptionHook>();
     interceptionHook->setTargetWidget(this);
-    interceptionHook->setRemoteClient(webRTCRemoteClient);
+    interceptionHook->setManager(manager);
     interceptionHook->setVideoSize(width(), height());
     interceptionHook->startCapture();
 }
