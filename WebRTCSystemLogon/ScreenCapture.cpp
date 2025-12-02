@@ -664,12 +664,12 @@ namespace hope {
                 }
             }
             else {
-                // 禁用脏矩形时，始终完整帧
+                // 禁用脏矩形时，始终复制完整帧
                 d3dContext->CopyResource(sharedTexture.Get(), acquiredTexture.Get());
                 needsFullFrame = true;  // 标记已处理完整帧
             }
 
-            // 立即处理帧内容 - 在释放前完成所有必要的
+            // 立即处理帧内容 - 在释放前完成所有必要的复制
             bool result = processFrame(sharedTexture.Get());
 
             // frameReleaser析构时会自动释放帧
@@ -898,11 +898,6 @@ namespace hope {
             }
 
             return merged;
-        }
-
-        void ScreenCapture::ProcessOnGPU(ID3D11Texture2D* sourceTexture) {
-            if (!gpuEncoderCallback || !sourceTexture) return;
-            gpuEncoderCallback(sourceTexture);
         }
 
         bool ScreenCapture::convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std::vector<uint8_t>& yuvBuffer) {
@@ -1276,9 +1271,6 @@ namespace hope {
             for (int i = 0; i < NUM_BUFFERS; i++) {
                 stagingTextures[i].Reset();
             }
-
-            gpuEncoderTexture.Reset();
-            gpuEncoderUAV.Reset();
 
             dxgiOutput5.Reset();
             dxgiOutput1.Reset();

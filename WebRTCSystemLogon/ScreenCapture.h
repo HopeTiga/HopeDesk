@@ -1,4 +1,3 @@
-// ScreenCapture.h (完整改动后代码)
 #pragma once
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -37,7 +36,6 @@ namespace hope {
     namespace rtc {
         struct DirtyRegionTracker;
         struct GPUTextureRing;
-        class MouseCursor;  // Forward declaration
 
         struct CapturedFrame {
             std::vector<uint8_t> bgraData;
@@ -59,7 +57,6 @@ namespace hope {
         public:
             using FrameCallback = std::function<void(const uint8_t* data, size_t size, int width, int height)>;
             using GPUEncoderCallback = std::function<void(ID3D11Texture2D* texture)>;
-
 
             struct CaptureConfig {
                 int width = 0;
@@ -97,7 +94,6 @@ namespace hope {
             void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
             std::vector<RECT> MergeDirtyRects(RECT* rects, UINT count);
 
-            void ProcessOnGPU(ID3D11Texture2D* sourceTexture);
             bool convertBGRAToYUV420_GPU(ID3D11Texture2D* sourceTexture, std::vector<uint8_t>& yuvBuffer);
 
             void encodeFrame(std::shared_ptr<CapturedFrame> frame);
@@ -129,9 +125,6 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
             Microsoft::WRL::ComPtr<ID3D11Buffer> stagingBuffer;
 
-            Microsoft::WRL::ComPtr<ID3D11Texture2D> gpuEncoderTexture;
-            Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> gpuEncoderUAV;
-
             static constexpr int NUM_BUFFERS = 5;
             Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[NUM_BUFFERS];
             int currentTexture = 0;
@@ -143,7 +136,6 @@ namespace hope {
             std::thread encoderThread;
             std::atomic<bool> capturing{ false };
             std::atomic<bool> encoderRunning{ false };
-            std::atomic<bool> hasAcquiredFrame{ false };
 
             boost::asio::io_context encoderContext;
             boost::asio::experimental::concurrent_channel
@@ -158,25 +150,20 @@ namespace hope {
             std::unique_ptr<WinLogon> winLogonSwitcher;
 
             std::atomic<bool> isOnWinLogonDesktop{ false };
-
             std::atomic<bool> desktopSwitchInProgress{ false };
 
             CaptureConfig config;
 
             FrameCallback frameCallback;
-
             GPUEncoderCallback gpuEncoderCallback;
 
             bool useAdvancedFeatures = false;
-
             std::vector<uint8_t> yuvBuffer;
 
             int invalidCallCount = 0;
-
             int invalidCallDxgi = 0;
 
             HANDLE sharedHandle = nullptr;
         };
     }
-
 }
