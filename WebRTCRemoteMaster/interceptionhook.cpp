@@ -256,7 +256,7 @@ void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
     int x = clientPt.x;
     int y = clientPt.y;
 
-    if ((x != lastMouseX.load() || y != lastMouseY.load()) && mouseMoveNums.fetch_add(1) % 2 ==0) {
+    if ((x != lastMouseX.load() || y != lastMouseY.load()) && mouseMoveNums.fetch_add(1) % 3 ==0) {
         sendMouseMoveEvent(x, y);
         lastMouseX = x;
         lastMouseY = y;
