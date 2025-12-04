@@ -1,29 +1,30 @@
 # WebRTC 远程桌面操控系统
 
-基于 `WebRTC-Native`、`Boost`、`Qt` 和 `Interception` 实现的高性能 P2P 远程桌面控制方案
+基于 `WebRTC-Native`、`Boost`、`MsQuic` 和 `Interception` 实现的高性能 P2P 远程桌面控制方案
 
 ## 核心架构
 
-### 1. 信令服务器
-- **技术栈**: 基于boost::asio和boost::beast实现的C++20 协程WebSocketServer
-- **IO模型**: 基于Proactor
-- **编程模型**: Actor并发计算模型 所有的线程拥有的内存独立，其他线程无法直接访问 必须通过boost::asio::io_context异步访问,天生线程安全
+### 1. 信令服务器 (基于 MsQuic)
+- **技术栈**: 基于 `boost::asio` 和 `MsQuic` 实现的 C++20 协程 QuicServer
+- **IO模型**: Proactor 模式 + 多通道 Actor 并发模型
+- **传输协议**: QUIC，提供更低的连接建立延迟和更好的多路复用
 - **功能**: 信令数据交换，客户端注册和设备发现
-  - 异步 TCP/WebSocket 监听
+  - 异步 QUIC 连接监听
   - 客户端注册与设备发现
   - SDP 和 ICE 候选信息交换
-# WebRTCSignalServer 架构详解
+
+# WebRTCSignalServer 架构详解 (MsQuic 版本)
 
 ## 整体架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           WebRTCSignalServer                            │
+│                           WebRTCSignalServer (MsQuic)                   │
 │                                                                         │
 │  ┌─────────────────┐    ┌──────────────────┐    ┌──────────────────┐  │
 │  │   Client        │    │   Main Server     │    │   Load Balancer   │  │
 │  │                 │    │                  │    │                   │  │
-│  │  WebSocket      │◄──►│  Acceptor        │───►│  Channel Router   │  │
+│  │  MsQuic         │◄──►│  QUIC Listener   │───►│  Channel Router   │  │
 │  │   Connection    │    │  (Port: 8088)    │    │   Hash(accountID) │  │
 │  └─────────────────┘    └─────────┬────────┘    └─────────┬────────┘  │
 │                                    │                       │           │
@@ -42,13 +43,13 @@
                ┌─────────────────────┼─────────────────────────┼─────────────────────┐
                │                     │                         │                     │
          ┌─────┴─────┐         ┌─────┴─────┐             ┌─────┴─────┐         ┌─────┴─────┐
-         │  Socket   │         │  Logic    │             │  Socket   │         │  Logic    │
-         │  Manager  │         │  System   │             │  Manager   │         │  System   │
+         │ MsQuic    │         │  Logic    │             │ MsQuic    │         │  Logic    │
+         │  Socket   │         │  System   │             │  Socket   │         │  System   │
          └─────┬─────┘         └─────┬─────┘             └─────┬─────┘         └─────┬─────┘
                │                     │                         │                     │
          ┌─────┴─────┐         ┌─────┴─────┐             ┌─────┴─────┐         ┌─────┴─────┐
-         │ Message   │         │  Business │             │ Message   │         │  Business │
-         │  Queue    │         │  Handler  │             │  Queue    │         │  Handler  │
+         │ Stream    │         │  Business │             │ Stream    │         │  Business │
+         │  Handler  │         │  Handler  │             │  Handler  │         │  Handler  │
          └─────┬─────┘         └─────┬─────┘             └─────┬─────┘         └─────┬─────┘
                │                     │                         │                     │
          ┌─────┴─────────────────────┴─────┐             ┌─────┴─────────────────────┴─────┐
@@ -64,8 +65,8 @@
 ```
 ┌─────────────────────────────────────────┐
 │          接入层 (Access Layer)           │
-│   - WebSocket连接管理                   │
-│   - 协议解析/封装                       │
+│   - MsQuic 连接管理                     │
+│   - QUIC 流多路复用                     │
 │   - 负载均衡分发                        │
 └─────────────────────────────────────────┘
                      │
@@ -88,13 +89,13 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                             WebRTCSignalServer                               │
+│                             WebRTCSignalServer (MsQuic)                      │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │                         Main IO Context (主线程)                     │  │
 │  │                                                                        │  │
 │  │  ┌──────────────┐    ┌─────────────────┐    ┌─────────────────────┐   │  │
-│  │  │ TCP Acceptor │ ──│→ Load Balancer │──│→ Channel Managers      │   │  │
+│  │  │ QUIC Listener│ ──│→ Load Balancer │──│→ Channel Managers      │   │  │
 │  │  │   (端口监听)  │    │  (轮询/哈希)     │    │ (通道管理器数组)        │   │  │
 │  │  └──────────────┘    └─────────────────┘    └─────────────────────┘   │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
@@ -111,7 +112,7 @@
 │  │  │ └─────────┘ │  │ └─────────┘ │       │ └─────────┘ │                │  │
 │  │  │             │  │             │       │             │                │  │
 │  │  │ ┌─────────────────────────────────────┐                             │  │
-│  │  │ │      WebRTCSignalManager (独立实例)   │                             │  │
+│  │  │ │      MsquicManager (独立实例)        │                             │  │
 │  │  │ │                                         │                             │  │
 │  │  │ │  ┌─────────────┐  ┌─────────────┐     │                             │  │
 │  │  │ │  │ SocketMap   │  │  LocalRoute │     │                             │  │
@@ -119,7 +120,7 @@
 │  │  │ │  │ ┌─────────┐ │  │   (LRU)     │     │                             │  │
 │  │  │ │  │ │ conn1   │ │  └─────────────┘     │                             │  │
 │  │  │ │  │ │ conn2   │ │                     │                             │  │
-│  │  │ │  │ └─────────┘ │  ┌─────────────┐     │                             │  │
+│  │  │ │  │ └─────────┐ │  ┌─────────────┐     │                             │  │
 │  │  │ │  └─────────────┘  │ MySQL       │     │                             │  │
 │  │  │ │                   │ Connection  │     │                             │  │
 │  │  │ │                   │   (独立)     │     │                             │  │
@@ -147,35 +148,36 @@
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
 ## 数据流架构
 
-### 1. 客户端连接流程
+### 1. 客户端连接流程 (MsQuic)
 
 ```
-Client          WebRTCSignalServer       WebRTCSignalManager      WebRTCLogicSystem
+Client          MsquicServer           MsquicManager          MsquicLogicSystem
   |                    |                         |                       |
-  | --- TCP Connect -->|                         |                       |
+  | --- QUIC Connect -->|                         |                       |
   |                    |                         |                       |
   |                    | -- Accept Connection -> |                       |
   |                    |                         |                       |
   |                    | <- Create Socket ----- |                       |
   |                    |                         |                       |
-  | <-- WebSocket Handshake --> |                 |                       |
+  | <-- Stream Setup --> |                       |                       |
   |                    |                         |                       |
   |                    | -- Start Coroutines --> |                       |
   |                    |                         |                       |
 ```
 
-### 2. 消息处理流程
+### 2. 消息处理流程 (MsQuic Stream)
 
 ```
-Client          WebRTCSignalSocket       WebRTCSignalManager      WebRTCLogicSystem
+Client          MsquicSocket           MsquicManager          MsquicLogicSystem
   |                    |                         |                       |
   | -- JSON Message -->|                         |                       |
   |                    |                         |                       |
   |                    | -- Parse Message -----> |                       |
   |                    |                         |                       |
-  |                    |                         | -- Create SignalData ->|
+  |                    |                         | -- Create MsquicData ->|
   |                    |                         |                       |
   |                    |                         | -- Post Task --------> |
   |                    |                         |                       |
@@ -221,16 +223,16 @@ Channel A        Channel A Manager      Global Router        Channel B Manager  
   - **连接管理**: ICE 连接建立、维护与异常恢复
 
 ### 3. 操控端 (控制客户端)
-- **技术栈**: Qt + WebRTC-Native + Interceptiont
+- **技术栈**: Qt + WebRTC-Native + Interception + MsquicSocketClient
 - **功能**:
   - **视频渲染**: WebRTC-Native 视频解码 + QRHI 显示
   - **输入采集**: Interception 捕获键鼠事件
   - **指令传输**: DataChannel 异步发送控制指令 (sendAsync)
   - **状态同步**: 接收并应用远程鼠标状态变化
-  - **连接管理**: 信令交互与 P2P 连接维护
+  - **连接管理**: MsQuic 信令交互与 P2P 连接维护
 
 ### 4. 移动端支持
-- **技术栈**: H5 WebRTC
+- **技术栈**: H5 WebRTC + MsQuic (未来计划)
 - **功能**:
   - 手机通过 H5 页面实现 PC 远程操控
   - 鼠标操作完全支持
@@ -268,6 +270,7 @@ Channel A        Channel A Manager      Global Router        Channel B Manager  
 - [x] ICE 候选交换与最优路径选择
 - [x] STUN/TURN 服务器支持
 - [x] 网络质量自适应调整
+- [x] **MsQuic 信令传输**：更快的连接建立和更好的多路复用
 
 ### 🔄 连接管理
 - [x] 智能断线重连机制
@@ -275,24 +278,44 @@ Channel A        Channel A Manager      Global Router        Channel B Manager  
 - [x] 异常网络中断恢复
 - [x] 进程异常退出自动处理
 - [x] ICE 连接状态实时监控
+- [x] **MsQuic 0-RTT 连接**：快速重连支持
 
 ### 📱 跨平台支持
 - [x] Windows 完整支持 (当前版本)
 - [x] H5 移动端操控支持
 - [ ] Linux/macOS 版本 (规划中)
 
-## 技术优势
+## 技术优势 (MsQuic 版本)
 
-- **🚀 超低延迟**: Interception 驱动 + AV1 编码 + UDP P2P 直连
+- **🚀 超低延迟**: Interception 驱动 + AV1 编码 + UDP P2P 直连 + **MsQuic 0-RTT**
 - **🎮 游戏级响应**: 驱动级键鼠操作，支持实时游戏操控
 - **🔐 系统级访问**: 完整的 UAC 安全桌面支持
 - **📊 智能适配**: 基于网络状况的自适应码率控制
 - **🔄 高可靠性**: 完整的 WebRTC 协议栈与异常恢复机制
-- **⚡ 高性能**: Boost 协程异步处理 + 生产者消费者模式
+- **⚡ 高性能**: Boost 协程异步处理 + 生产者消费者模式 + **MsQuic 多路复用**
 - **🌍 真正 P2P**: 基于 WebRTC-Native 的点对点通信，最小化服务器依赖
+- **🔗 快速连接**: MsQuic 提供更快的握手和连接建立速度
+
+## MsQuic 特有优势
+
+1. **更快的连接建立**: 0-RTT 和 1-RTT 握手
+2. **更好的多路复用**: 单个连接上多流并行传输
+3. **改进的拥塞控制**: 更智能的网络适应能力
+4. **前向纠错**: 更好的丢包恢复能力
+5. **连接迁移**: 网络切换时保持连接
 
 ## 平台支持
 
-- **当前支持**: Windows (完整功能)
+- **当前支持**: Windows (完整功能 + MsQuic)
 - **部分支持**: 移动端 H5 (键鼠操作完整)
-- **计划支持**: Linux、macOS (后续版本)
+- **计划支持**: Linux、macOS (后续版本，MsQuic 跨平台)
+
+## 协议栈对比
+
+| 特性 | 原 WebSocket 版本 | 新 MsQuic 版本 |
+|------|------------------|----------------|
+| 连接建立时间 | 3-RTT (TCP+TLS+WS) | 0-RTT/1-RTT |
+| 多路复用 | 需要多个 TCP 连接 | 单连接多流 |
+| 头部压缩 | 无 | QPACK 头部压缩 |
+| 传输效率 | 较低 | 更高 |
+| 移动网络适应性 | 一般 | 优秀 |
