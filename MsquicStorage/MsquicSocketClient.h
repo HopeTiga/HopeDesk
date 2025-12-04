@@ -24,10 +24,10 @@ namespace hope {
             ~MsquicSocketClient();
 
             // 初始化客户端
-            bool initialize(const std::string& alpn = "quic");
+            bool initialize( const std::string& alpn = "quic");
 
             // 连接到服务器
-            bool connect(std::string serverAddress, uint64_t serverPort);
+            bool connect(std::string serverAddress,uint64_t serverPort);
 
             // 发送数据
             bool writeAsync(unsigned char* data, size_t size);

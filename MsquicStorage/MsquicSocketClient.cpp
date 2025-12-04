@@ -20,7 +20,7 @@ namespace hope {
             clear();
         }
 
-        bool MsquicSocketClient::initialize(const std::string& alpn) {
+        bool MsquicSocketClient::initialize( const std::string& alpn) {
             if (MsQuic == nullptr) {
                 return false;
             }
@@ -60,7 +60,7 @@ namespace hope {
         bool MsquicSocketClient::connect(std::string serverAddress, uint64_t serverPort) {
             // 如果已有连接，先完全清理
             if (connection != nullptr) {
-                Logger::getInstance()->info("重新连接前清理现有连接");
+                Logger::getInstance()->info("reclear msquic connection");
 
                 // 立即标记断开，防止新操作
                 connected.store(false);
@@ -68,18 +68,18 @@ namespace hope {
                 // 清理流
                 if (stream) {
                     MsQuic->StreamShutdown(stream,
-                        QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                        QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                        QUIC_STATUS_ABORTED);
+                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                                               QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                                           QUIC_STATUS_ABORTED);
                     MsQuic->StreamClose(stream);
                     stream = nullptr;
                 }
 
                 if (remoteStream) {
                     MsQuic->StreamShutdown(remoteStream,
-                        QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                        QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                        QUIC_STATUS_ABORTED);
+                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                                               QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                                           QUIC_STATUS_ABORTED);
                     MsQuic->StreamClose(remoteStream);
                     remoteStream = nullptr;
                 }
@@ -89,7 +89,7 @@ namespace hope {
                     connection,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
                     QUIC_STATUS_ABORTED
-                );
+                    );
                 MsQuic->ConnectionClose(connection);
                 connection = nullptr;
 
@@ -108,7 +108,7 @@ namespace hope {
                 &connection);
 
             if (QUIC_FAILED(status)) {
-                Logger::getInstance()->error("ConnectionOpen 失败: " + status);
+                Logger::getInstance()->error("ConnectionOpen failed: " + status);
                 return false;
             }
 
@@ -121,7 +121,7 @@ namespace hope {
                 serverPort);
 
             if (QUIC_FAILED(status)) {
-                Logger::getInstance()->error("ConnectionStart 失败: " + status);
+                Logger::getInstance()->error("ConnectionStart failed: " + status);
                 MsQuic->ConnectionClose(connection);
                 connection = nullptr;
                 return false;
@@ -130,7 +130,7 @@ namespace hope {
             // 创建流
             stream = createStream();
             if (stream == nullptr) {
-                Logger::getInstance()->error("创建流失败");
+                Logger::getInstance()->error("create MsquicStream failed");
                 MsQuic->ConnectionClose(connection);
                 connection = nullptr;
                 return false;
@@ -195,7 +195,7 @@ namespace hope {
             int64_t bodyLength = static_cast<int64_t>(body.size());
             size_t totalSize = sizeof(int64_t) + bodyLength;
 
-            unsigned char* buffer = new unsigned char[totalSize];
+            unsigned char * buffer = new unsigned char[totalSize];
 
             // 写入length
             *reinterpret_cast<int64_t*>(buffer) = bodyLength;
@@ -216,39 +216,34 @@ namespace hope {
             // 立即标记逻辑断开，阻止新的写入
             connected.store(false);
 
-            Logger::getInstance()->info("开始执行物理断开流程");
-
             // 1. 关闭流
             if (stream) {
                 // 先优雅关闭，再关闭
                 MsQuic->StreamShutdown(stream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL,
-                    0);
+                                       QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL,
+                                       0);
                 MsQuic->StreamClose(stream);
                 stream = nullptr;
             }
 
             if (remoteStream) {
                 MsQuic->StreamShutdown(remoteStream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL,
-                    0);
+                                       QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL,
+                                       0);
                 MsQuic->StreamClose(remoteStream);
                 remoteStream = nullptr;
             }
 
             // 2. 优雅关闭连接
             if (connection) {
-                Logger::getInstance()->info("优雅关闭连接");
 
                 // 使用异步关闭，等待 SHUTDOWN_COMPLETE 回调
                 MsQuic->ConnectionShutdown(
                     connection,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
                     QUIC_STATUS_SUCCESS
-                );
+                    );
 
-                // 注意：这里不设置 connection = nullptr
-                // 等待回调中清理
             }
         }
 
@@ -285,7 +280,6 @@ namespace hope {
             constexpr size_t headerSize = sizeof(int64_t);
 
             while (true) {
-
                 // 1. 检查头部
                 if (receivedBuffer.size() < headerSize) return;
 
@@ -335,18 +329,18 @@ namespace hope {
             if (stream) {
                 // 使用中止标志立即关闭
                 MsQuic->StreamShutdown(stream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                    QUIC_STATUS_ABORTED);
+                                       QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                                       QUIC_STATUS_ABORTED);
                 MsQuic->StreamClose(stream);
                 stream = nullptr;
             }
 
             if (remoteStream) {
                 MsQuic->StreamShutdown(remoteStream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                    QUIC_STATUS_ABORTED);
+                                       QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                                       QUIC_STATUS_ABORTED);
                 MsQuic->StreamClose(remoteStream);
                 remoteStream = nullptr;
             }
@@ -358,7 +352,7 @@ namespace hope {
                     connection,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
                     QUIC_STATUS_ABORTED
-                );
+                    );
 
                 // 给少量时间让内部清理
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
