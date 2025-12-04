@@ -115,12 +115,14 @@ MainWindow::~MainWindow()
 void MainWindow::setupWebRTCCallbacks()
 {
     manager->followRemoteHandle = ([this]() {
+        // 放到UI线程执行
         QMetaObject::invokeMethod(this, "onRemoteControlStarted", Qt::QueuedConnection);
     });
 
     manager->remoteSuccessFulHandle = [this]() {
+        // 放到UI线程执行
         QMetaObject::invokeMethod(this, [this]() {
-            if (remoteConnectionTimer->isActive()) {
+            if (remoteConnectionTimer && remoteConnectionTimer->isActive()) {
                 remoteConnectionTimer->stop();
             }
 
@@ -128,9 +130,11 @@ void MainWindow::setupWebRTCCallbacks()
                 createVideoWidget();
             }
 
-            videoWidget->showMaximized();
-            videoWidget->raise();
-            videoWidget->activateWindow();
+            if (videoWidget) {
+                videoWidget->showMaximized();
+                videoWidget->raise();
+                videoWidget->activateWindow();
+            }
 
             ui->showVideoButton->setEnabled(true);
             ui->hideVideoButton->setEnabled(true);
@@ -142,13 +146,16 @@ void MainWindow::setupWebRTCCallbacks()
             ui->remoteStatusLabel->setText(QString("已成功连接到 %1").arg(targetId));
             ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("success"));
 
-            statusBar()->showMessage("远程连接已建立");
+            if (statusBar()) {
+                statusBar()->showMessage("远程连接已建立");
+            }
         }, Qt::QueuedConnection);
     };
 
     manager->remoteFailedHandle = [this]() {
+        // 放到UI线程执行
         QMetaObject::invokeMethod(this, [this]() {
-            if (remoteConnectionTimer->isActive()) {
+            if (remoteConnectionTimer && remoteConnectionTimer->isActive()) {
                 remoteConnectionTimer->stop();
             }
 
@@ -159,17 +166,22 @@ void MainWindow::setupWebRTCCallbacks()
             ui->remoteStatusLabel->setText(QString("无法连接到 %1：对方可能不在线或拒绝了连接").arg(targetId));
             ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
 
-            statusBar()->showMessage("远程连接失败");
+            if (statusBar()) {
+                statusBar()->showMessage("远程连接失败");
+            }
+
             showErrorMessage("连接失败", QString("无法连接到 %1\n对方可能不在线或拒绝了连接请求").arg(targetId));
         }, Qt::QueuedConnection);
     };
 
     manager->disConnectRemoteHandle = ([this]() {
+        // 放到UI线程执行
         QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer", Qt::QueuedConnection);
     });
 
-    manager->webSocketDisConnect = [this](std::exception e) {
-        QMetaObject::invokeMethod(this, [this, e]() {
+    manager->msquicSocketDisConnect = [this]() {
+        // 放到UI线程执行
+        QMetaObject::invokeMethod(this, [this]() {
             this->isConnected = false;
             this->updateConnectionState(false);
             this->reConnectNums++;
@@ -180,10 +192,12 @@ void MainWindow::setupWebRTCCallbacks()
             this->ui->connectionStatusLabel->setText(QString("连接断开，将在30秒后进行第%1次重连...").arg(this->reConnectNums));
             this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
 
-            statusBar()->showMessage(QString("将在30秒后进行第%1次重连").arg(this->reConnectNums));
+            if (statusBar()) {
+                statusBar()->showMessage(QString("将在30秒后进行第%1次重连").arg(this->reConnectNums));
+            }
 
             const int reconnectDelayMs = 30000;
-            QTimer::singleShot(reconnectDelayMs, [this]() {
+            QTimer::singleShot(reconnectDelayMs, this, [this]() {
                 if (!this->isConnected) {
                     QString serverAddress = this->ui->serverAddressEdit->text().trimmed();
                     int port = this->ui->portEdit->text().toInt();
@@ -192,15 +206,19 @@ void MainWindow::setupWebRTCCallbacks()
                     if (!serverAddress.isEmpty() && !currentAccount.isEmpty() && currentAccount != "请添加账号") {
                         this->ui->connectionStatusLabel->setText(QString("正在进行第%1次重连...").arg(this->reConnectNums));
                         this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
-                        statusBar()->showMessage("正在重连...");
+                        if (statusBar()) {
+                            statusBar()->showMessage("正在重连...");
+                        }
 
-                        this->manager->setAccountID(currentAccount.toStdString());
+                        this->manager->setAccountId(currentAccount.toStdString());
                         QString url = QString("%1:%2").arg(serverAddress).arg(port);
                         this->manager->connect(url.toStdString());
                     } else {
                         this->ui->connectionStatusLabel->setText("连接断开（配置不完整）");
                         this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
-                        statusBar()->showMessage("连接已断开");
+                        if (statusBar()) {
+                            statusBar()->showMessage("连接已断开");
+                        }
                         this->ui->connectButton->setEnabled(true);
                         this->ui->connectButton->setText("连接服务器");
                         this->reConnectNums = 0;
@@ -210,7 +228,8 @@ void MainWindow::setupWebRTCCallbacks()
         }, Qt::QueuedConnection);
     };
 
-    manager->webSocketConnectedCallback = [this](bool success) {
+    manager->msquicSocketConnectedHandle = [this](bool success) {
+        // 放到UI线程执行
         QMetaObject::invokeMethod(this, [this, success]() {
             if (success) {
                 this->onConnectionStateChanged(true);
@@ -218,13 +237,13 @@ void MainWindow::setupWebRTCCallbacks()
             } else {
                 this->ui->connectButton->setEnabled(true);
                 this->ui->connectButton->setText("连接服务器");
-                this->ui->connectionStatusLabel->setText("连接失败");
+                this->ui->connectionStatusLabel->setText("连接异常");
                 this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
-                showErrorMessage("连接错误", "无法连接到服务器");
             }
         }, Qt::QueuedConnection);
     };
 }
+
 
 void MainWindow::loadConfigFile()
 {
@@ -456,7 +475,7 @@ void MainWindow::onConnectClicked()
         return;
     }
 
-    manager->setAccountID(currentAccount.toStdString());
+    manager->setAccountId(currentAccount.toStdString());
 
     ui->connectButton->setEnabled(false);
     ui->connectButton->setText("连接中...");
@@ -481,12 +500,15 @@ void MainWindow::onDisconnectClicked()
     }
 
     manager->disConnect();
+
     onConnectionStateChanged(false);
 
     if (videoWidget) {
+
         videoWidget->close();
         delete videoWidget;
         videoWidget = nullptr;
+
     }
 
     ui->showVideoButton->setEnabled(false);
@@ -522,7 +544,7 @@ void MainWindow::onTargetSelectionChanged()
     QString targetId = currentItem->text();
     ui->remoteStatusLabel->setText(QString("已选择: %1").arg(targetId));
     ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
-    manager->setTargetID(targetId.toStdString());
+    manager->setTargetId(targetId.toStdString());
     ui->sendRequestButton->setEnabled(true);
 }
 
