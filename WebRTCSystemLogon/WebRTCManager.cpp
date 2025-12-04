@@ -82,8 +82,8 @@ namespace hope {
         void WebRTCManager::sendSignalingMessage(const boost::json::object& message) {
             boost::json::object fullMsg;
             fullMsg["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
-            fullMsg["accountID"] = accountID;
-            fullMsg["targetID"] = targetID;
+            fullMsg["accountId"] = accountId;
+            fullMsg["targetId"] = targetId;
             fullMsg["state"] = 200;
 
             for (auto& [key, value] : message) {
@@ -232,6 +232,8 @@ namespace hope {
 
                         std::string bodyStr(bodyBuffer.get(), bodySize);
 
+                        Logger::getInstance()->info(bodyStr);
+
                         // 解析JSON
                         try {
                             boost::json::object json = boost::json::parse(bodyStr).as_object();
@@ -275,12 +277,12 @@ namespace hope {
                                                         continue;
                                                     }
 
-                                                    if (json.contains("accountID")) {
-                                                        targetID = std::string(json["accountID"].as_string().c_str());
+                                                    if (json.contains("accountId")) {
+                                                        targetId = std::string(json["accountId"].as_string().c_str());
                                                     }
 
-                                                    if (json.contains("targetID")) {
-                                                        accountID = std::string(json["targetID"].as_string().c_str());
+                                                    if (json.contains("targetId")) {
+                                                        accountId = std::string(json["targetId"].as_string().c_str());
                                                     }
 
                                                     if (!isProcessingOffer.exchange(true)) {

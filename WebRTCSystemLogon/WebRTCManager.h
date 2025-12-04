@@ -176,9 +176,9 @@ namespace hope {
 
         private:
 
-            std::string accountID;
+            std::string accountId;
 
-            std::string targetID;
+            std::string targetId;
 
             WebRTCVideoCodec codec;
 
