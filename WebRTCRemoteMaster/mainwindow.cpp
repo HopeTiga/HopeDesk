@@ -179,66 +179,71 @@ void MainWindow::setupWebRTCCallbacks()
         QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer", Qt::QueuedConnection);
     });
 
-    manager->msquicSocketDisConnect = [this]() {
-        // 放到UI线程执行
-        QMetaObject::invokeMethod(this, [this]() {
-            this->isConnected = false;
-            this->updateConnectionState(false);
-            this->reConnectNums++;
-
-            qDebug() << QString("连接断开，将进行第%1次重连...").arg(this->reConnectNums);
-            Logger::getInstance()->info("webSocketDisConnect: " + std::to_string(this->reConnectNums));
-
-            this->ui->connectionStatusLabel->setText(QString("连接断开，将在30秒后进行第%1次重连...").arg(this->reConnectNums));
-            this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
-
-            if (statusBar()) {
-                statusBar()->showMessage(QString("将在30秒后进行第%1次重连").arg(this->reConnectNums));
-            }
-
-            const int reconnectDelayMs = 30000;
-            QTimer::singleShot(reconnectDelayMs, this, [this]() {
-                if (!this->isConnected) {
-                    QString serverAddress = this->ui->serverAddressEdit->text().trimmed();
-                    int port = this->ui->portEdit->text().toInt();
-                    QString currentAccount = this->ui->accountComboBox->currentText();
-
-                    if (!serverAddress.isEmpty() && !currentAccount.isEmpty() && currentAccount != "请添加账号") {
-                        this->ui->connectionStatusLabel->setText(QString("正在进行第%1次重连...").arg(this->reConnectNums));
-                        this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
-                        if (statusBar()) {
-                            statusBar()->showMessage("正在重连...");
-                        }
-
-                        this->manager->setAccountId(currentAccount.toStdString());
-                        QString url = QString("%1:%2").arg(serverAddress).arg(port);
-                        this->manager->connect(url.toStdString());
-                    } else {
-                        this->ui->connectionStatusLabel->setText("连接断开（配置不完整）");
-                        this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
-                        if (statusBar()) {
-                            statusBar()->showMessage("连接已断开");
-                        }
-                        this->ui->connectButton->setEnabled(true);
-                        this->ui->connectButton->setText("连接服务器");
-                        this->reConnectNums = 0;
-                    }
-                }
-            });
-        }, Qt::QueuedConnection);
-    };
-
     manager->msquicSocketConnectedHandle = [this](bool success) {
-        // 放到UI线程执行
         QMetaObject::invokeMethod(this, [this, success]() {
+            static bool hasEverConnected = false;
+
             if (success) {
+                hasEverConnected = true;
                 this->onConnectionStateChanged(true);
                 this->reConnectNums = 0;
+                Logger::getInstance()->info("MsquicServer Connected successfully.");
             } else {
-                this->ui->connectButton->setEnabled(true);
-                this->ui->connectButton->setText("连接服务器");
-                this->ui->connectionStatusLabel->setText("连接异常");
-                this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+                if (!hasEverConnected) {
+                    this->ui->connectButton->setEnabled(true);
+                    this->ui->connectButton->setText("连接服务器");
+                    this->ui->connectionStatusLabel->setText("连接异常");
+                    this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+                    Logger::getInstance()->info("Initial connection failed.");
+                } else {
+                    this->isConnected = false;
+                    this->updateConnectionState(false);
+                    this->reConnectNums++;
+
+                    Logger::getInstance()->info("Connection lost, attempting reconnect #" + std::to_string(this->reConnectNums));
+
+                    this->ui->connectionStatusLabel->setText(
+                        QString("连接断开，将在15秒后进行第%1次重连...").arg(this->reConnectNums));
+                    this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
+
+                    if (statusBar()) {
+                        statusBar()->showMessage(QString("将在15秒后进行第%1次重连").arg(this->reConnectNums));
+                    }
+
+                    const int reconnectDelayMs = 15000;
+                    QTimer::singleShot(reconnectDelayMs, this, [this]() {
+                        if (!this->isConnected) {
+                            QString serverAddress = this->ui->serverAddressEdit->text().trimmed();
+                            int port = this->ui->portEdit->text().toInt();
+                            QString currentAccount = this->ui->accountComboBox->currentText();
+
+                            if (!serverAddress.isEmpty() && !currentAccount.isEmpty() && currentAccount != "请添加账号") {
+                                this->ui->connectionStatusLabel->setText(
+                                    QString("正在进行第%1次重连...").arg(this->reConnectNums));
+                                this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
+                                if (statusBar()) {
+                                    statusBar()->showMessage("正在重连...");
+                                }
+
+                                Logger::getInstance()->info("Retrying connect... #" + std::to_string(this->reConnectNums));
+
+                                this->manager->setAccountId(currentAccount.toStdString());
+                                QString url = QString("%1:%2").arg(serverAddress).arg(port);
+                                this->manager->connect(url.toStdString());
+                            } else {
+                                this->ui->connectionStatusLabel->setText("连接断开（配置不完整）");
+                                this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+                                if (statusBar()) {
+                                    statusBar()->showMessage("连接已断开");
+                                }
+                                this->ui->connectButton->setEnabled(true);
+                                this->ui->connectButton->setText("连接服务器");
+                                this->reConnectNums = 0;
+                                Logger::getInstance()->info("Config incomplete, stop retry.");
+                            }
+                        }
+                    });
+                }
             }
         }, Qt::QueuedConnection);
     };
