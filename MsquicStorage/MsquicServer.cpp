@@ -50,7 +50,6 @@ namespace hope {
                 configuration = nullptr;
             }
             if (registration != nullptr) {
-                delete registration;
                 registration = nullptr;
             }
             initialized = false;
