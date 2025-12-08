@@ -243,28 +243,22 @@ namespace hope {
                     QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
                     QUIC_STATUS_SUCCESS
                     );
+                MsQuic->ConnectionClose(connection);
+                connection = nullptr;
 
             }
         }
 
-        void MsquicSocketClient::setMessageHandle(std::function<void(boost::json::object&)> handle) {
-            messageHandle = std::move(handle);
+        void MsquicSocketClient::setOnDataReceivedHandle(std::function<void(boost::json::object&)> handle) {
+            onDataReceivedHandle = std::move(handle);
         }
 
-        void MsquicSocketClient::setConnectionHandle(std::function<void(bool)> handle) {
-            connectionHandle = std::move(handle);
+        void MsquicSocketClient::setOnConnectionHandle(std::function<void(bool)> handle) {
+            onConnectionHandle = std::move(handle);
         }
 
         bool MsquicSocketClient::isConnected() const {
             return connected.load();
-        }
-
-        std::string MsquicSocketClient::getAccountId() const {
-            return accountId;
-        }
-
-        void MsquicSocketClient::setAccountId(const std::string& accountId) {
-            this->accountId = accountId;
         }
 
         void MsquicSocketClient::handleReceive(QUIC_STREAM_EVENT* event) {
@@ -308,8 +302,8 @@ namespace hope {
                     boost::json::object json = boost::json::parse(
                         std::string(payload.begin(), payload.end())).as_object();
 
-                    if (messageHandle) {
-                        messageHandle(json);
+                    if (onDataReceivedHandle) {
+                        onDataReceivedHandle(json);
                     }
 
                 }
@@ -324,6 +318,12 @@ namespace hope {
             connected.store(false);
 
             receivedBuffer.clear();
+
+            if (registration) {
+                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+                //delete registration;
+                registration = nullptr;
+            }
 
             // 清理流
             if (stream) {
@@ -354,11 +354,6 @@ namespace hope {
                     QUIC_STATUS_ABORTED
                     );
 
-                // 给少量时间让内部清理
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-                // 强制关闭
-                MsQuic->ConnectionClose(connection);
                 connection = nullptr;
             }
 
@@ -368,10 +363,7 @@ namespace hope {
                 configuration = nullptr;
             }
 
-            if (registration) {
-                delete registration;
-                registration = nullptr;
-            }
+
         }
 
         // 静态连接回调函数
@@ -383,8 +375,8 @@ namespace hope {
 
             switch (event->Type) {
             case QUIC_CONNECTION_EVENT_CONNECTED:
-                if (client->connectionHandle) {
-                    client->connectionHandle(true);
+                if (client->onConnectionHandle) {
+                    client->onConnectionHandle(true);
                 }
                 break;
 
@@ -392,8 +384,8 @@ namespace hope {
                 Logger::getInstance()->info("QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE");
 
                 client->connected.store(false);
-                if (client->connectionHandle) {
-                    client->connectionHandle(false);
+                if (client->onConnectionHandle) {
+                    client->onConnectionHandle(false);
                 }
                 break;
             case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
