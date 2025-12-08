@@ -20,7 +20,7 @@ int main() {
 
     boost::asio::io_context ioContext;
 
-    size_t port = ConfigManager::Instance().GetInt("MsquicServer.port");
+    size_t port = ConfigManager::Instance().GetInt("MsquicStorage.port");
 
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
