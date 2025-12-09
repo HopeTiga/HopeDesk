@@ -13,7 +13,7 @@
 
 namespace hope {
 
-	namespace rtc {
+    namespace rtc {
 
 
         WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
@@ -232,8 +232,6 @@ namespace hope {
 
                         std::string bodyStr(bodyBuffer.get(), bodySize);
 
-                        Logger::getInstance()->info(bodyStr);
-
                         // 解析JSON
                         try {
                             boost::json::object json = boost::json::parse(bodyStr).as_object();
@@ -255,7 +253,7 @@ namespace hope {
                                 }
 
                                 else if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
-                                     if (responseState == 200) {
+                                    if (responseState == 200) {
                                         if (json.contains("webRTCRemoteState")) {
                                             WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
@@ -264,7 +262,7 @@ namespace hope {
                                                     state = WebRTCRemoteState::followerRemote;
 
                                                     if (json.contains("codec")) {
-                                                        codec =  static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
+                                                        codec = static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
                                                     }
 
                                                     if (!initializePeerConnection()) {
@@ -603,7 +601,7 @@ namespace hope {
 
                 }
 
-				videoTrack->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
+                videoTrack->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
 
                 std::vector<webrtc::RtpEncodingParameters> encodings;
 
@@ -999,23 +997,41 @@ namespace hope {
             }
 
             if (ioContextWorkPtr) {
+
                 ioContextWorkPtr.reset();
+
             }
 
+            ioContext.stop();
+
             if (ioContextThread.joinable()) {
+
                 ioContextThread.join();
+
             }
 
             if (networkThread) {
-                networkThread->Stop();
+
+                networkThread->Quit();
+
+                networkThread.reset();
+
             }
 
             if (workerThread) {
-                workerThread->Stop();
+
+                workerThread->Quit();
+
+                workerThread.reset();
+
             }
 
             if (signalingThread) {
-                signalingThread->Stop();
+
+                signalingThread->Quit();
+
+                signalingThread.reset();
+
             }
 
             if (cursorHooks) {
@@ -1025,6 +1041,6 @@ namespace hope {
 
             webrtc::CleanupSSL();
         }
-	}
+    }
 
 }
