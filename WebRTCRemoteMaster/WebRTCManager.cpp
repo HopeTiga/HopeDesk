@@ -86,7 +86,7 @@ void WebRTCManager::connect(std::string ip)
         port = ip.substr(colonPos + 1);
     }
 
-    msquicSocketClient->setConnectionHandle([this](bool isSuccess){
+    msquicSocketClient->setOnConnectionHandle([this](bool isSuccess){
 
         if(isSuccess){
 
@@ -112,7 +112,7 @@ void WebRTCManager::connect(std::string ip)
 
     });
 
-    msquicSocketClient->setMessageHandle([this](boost::json::object & json){
+    msquicSocketClient->setOnDataReceivedHandle([this](boost::json::object & json){
 
         dataStr = boost::json::serialize(json);
 
@@ -296,13 +296,47 @@ WebRTCManager::~WebRTCManager()
 
     }
 
-    networkThread.reset();
+    if (ioContextWorkPtr) {
 
-    workerThread.reset();
+        ioContextWorkPtr.reset();
 
-    signalingThread.reset();
+    }
+
+    ioContext.stop();
+
+    if(ioContextThread.joinable()){
+
+        ioContextThread.join();
+
+    }
+
+    if(networkThread){
+
+        networkThread->Quit();
+
+        networkThread.reset();
+
+    }
+
+    if(workerThread){
+
+        workerThread->Quit();
+
+        workerThread.reset();
+
+    }
+
+    if(signalingThread){
+
+        signalingThread->Quit();
+
+        signalingThread.reset();
+
+    }
 
     peerConnectionFactory.release();
+
+    webrtc::CleanupSSL();
 
 }
 
