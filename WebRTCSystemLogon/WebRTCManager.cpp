@@ -43,7 +43,7 @@ namespace hope {
 
                 auto address = boost::asio::ip::make_address("127.0.0.1", ec);
                 if (ec) {
-                    Logger::getInstance()->error("Failed to parse address 127.0.0.1: " + ec.message());
+                    LOG_ERROR("Failed to parse address 127.0.0.1: %s" , ec.message());
                     co_return;
                 }
 
@@ -56,7 +56,7 @@ namespace hope {
                     boost::asio::use_awaitable
                 );
 
-                Logger::getInstance()->info("TCP connection accepted");
+                LOG_INFO("TCP connection accepted");
 
                 socketEventLoop();
 
@@ -67,14 +67,14 @@ namespace hope {
                         }
                     }
                     catch (const std::exception& e) {
-                        Logger::getInstance()->error("TCP acceptor error: " + std::string(e.what()));
+                        LOG_ERROR("TCP acceptor error: %s" , e.what());
                     }
                     });
 
                 keyMouseSim = std::make_unique<KeyMouseSimulator>();
 
                 if (!keyMouseSim->Initialize()) {
-                    Logger::getInstance()->error("KeyMouseSimulator initialization failed");
+                    LOG_ERROR("KeyMouseSimulator initialization failed");
                 }
 
         }
@@ -98,7 +98,7 @@ namespace hope {
 
         void WebRTCManager::processOffer(const std::string& sdp) {
             if (sdp.empty()) {
-                Logger::getInstance()->error("Received empty SDP offer");
+                LOG_ERROR("Received empty SDP offer");
                 isInit = false;
                 return;
             }
@@ -116,14 +116,14 @@ namespace hope {
                 peerConnection->CreateAnswer(createAnswerObserver.get(), options);
             }
             else {
-                Logger::getInstance()->error("Failed to parse offer: " + error.description);
+                LOG_ERROR("Failed to parse offer: %s" , error.description);
                 isInit = false;
             }
         }
 
         void WebRTCManager::processAnswer(const std::string& sdp) {
             if (sdp.empty()) {
-                Logger::getInstance()->error("Received empty SDP answer");
+                LOG_ERROR("Received empty SDP answer");
                 isInit = false;
                 return;
             }
@@ -137,7 +137,7 @@ namespace hope {
                     SetRemoteDescriptionObserver::Create().get(), desc.release());
             }
             else {
-                Logger::getInstance()->error("Failed to parse answer: " + error.description);
+                LOG_ERROR("Failed to parse answer: %s" , error.description.c_str());
                 isInit = false;
             }
         }
@@ -156,7 +156,7 @@ namespace hope {
                 peerConnection->AddIceCandidate(iceCandidate.release());
             }
             else {
-                Logger::getInstance()->error("Failed to parse ICE candidate: " + error.description);
+                LOG_ERROR("Failed to parse ICE candidate: %s" , error.description.c_str());
             }
         }
 
@@ -187,7 +187,7 @@ namespace hope {
                                 headerRead += n;
                             }
                             catch (const boost::system::system_error& e) {
-                                Logger::getInstance()->error("Socket read error: " + std::string(e.what()));
+                                LOG_ERROR("Socket read error: %s" , e.what());
                                 co_return;
                             }
                         }
@@ -197,7 +197,7 @@ namespace hope {
                         int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
                         if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
-                            Logger::getInstance()->error("Invalid body length: " + std::to_string(bodyLength));
+                            LOG_ERROR("Invalid body length: %d" ,bodyLength);
                             co_return;
                         }
 
@@ -205,7 +205,7 @@ namespace hope {
 
                         std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]);
                         if (!bodyBuffer) {
-                            Logger::getInstance()->error("Failed to allocate buffer");
+                            LOG_ERROR("Failed to allocate buffer");
                             co_return;
                         }
                         std::memset(bodyBuffer.get(), 0, bodySize + 1);
@@ -225,7 +225,7 @@ namespace hope {
                                 bodyRead += n;
                             }
                             catch (const boost::system::system_error& e) {
-                                Logger::getInstance()->error("Socket read error: " + std::string(e.what()));
+                                LOG_ERROR("Socket read error: %s" , e.what());
                                 co_return;
                             }
                         }
@@ -266,12 +266,12 @@ namespace hope {
                                                     }
 
                                                     if (!initializePeerConnection()) {
-                                                        Logger::getInstance()->error("Failed to initialize peer connection");
+                                                        LOG_ERROR("Failed to initialize peer connection");
                                                         continue;
                                                     }
 
                                                     if (!initializeScreenCapture()) {
-                                                        Logger::getInstance()->error("Failed to initialize screen capture");
+                                                        LOG_ERROR("Failed to initialize screen capture");
                                                         continue;
                                                     }
 
@@ -322,12 +322,12 @@ namespace hope {
                             }
                         }
                         catch (const std::exception& e) {
-                            Logger::getInstance()->error("JSON parse error: " + std::string(e.what()));
+                            LOG_ERROR("JSON parse error: %s" , e.what());
                         }
                     }
                 }
                 catch (const std::exception& e) {
-                    Logger::getInstance()->error("Reader coroutine error: " + std::string(e.what()));
+                    LOG_ERROR("Reader coroutine error: %s" , e.what());
                 }
 
                 co_return;
@@ -339,7 +339,7 @@ namespace hope {
                         }
                     }
                     catch (const std::exception& e) {
-                        Logger::getInstance()->error("Reader coroutine exception: " + std::string(e.what()));
+                        LOG_ERROR("Reader coroutine exception: %s",e.what());
                     }
                     });
 
@@ -360,7 +360,7 @@ namespace hope {
                                 }
                                 catch (const boost::system::system_error& e) {
 
-                                    Logger::getInstance()->error("Socket write error: " + std::string(e.what()));
+                                    LOG_ERROR("Socket write error: %s" ,e.what());
 
                                     break;
 
@@ -394,7 +394,7 @@ namespace hope {
                     }
                     catch (const std::exception& e) {
 
-                        Logger::getInstance()->error("Writer coroutine error: " + std::string(e.what()));
+                        LOG_ERROR("Writer coroutine error: %s",e.what());
 
                     }
 
@@ -412,7 +412,7 @@ namespace hope {
                         }
                         catch (const std::exception& e) {
 
-                            Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
+                            LOG_ERROR("Writer coroutine exception: %s" , e.what());
 
                         }
                         });
@@ -451,7 +451,7 @@ namespace hope {
 
                 if (!networkThread) {
 
-                    Logger::getInstance()->error("Failed to create network thread");
+                    LOG_ERROR("Failed to create network thread");
 
                     return false;
 
@@ -460,7 +460,7 @@ namespace hope {
 
                 if (!networkThread->Start()) {
 
-                    Logger::getInstance()->error("Failed to start network thread");
+                    LOG_ERROR("Failed to start network thread");
 
                     return false;
 
@@ -470,7 +470,7 @@ namespace hope {
 
                 if (!workerThread) {
 
-                    Logger::getInstance()->error("Failed to create worker thread");
+                    LOG_ERROR("Failed to create worker thread");
 
                     return false;
                 }
@@ -478,7 +478,7 @@ namespace hope {
 
                 if (!workerThread->Start()) {
 
-                    Logger::getInstance()->error("Failed to start worker thread");
+                    LOG_ERROR("Failed to start worker thread");
 
                     return false;
                 }
@@ -487,7 +487,7 @@ namespace hope {
 
                 if (!signalingThread) {
 
-                    Logger::getInstance()->error("Failed to create signaling thread");
+                    LOG_ERROR("Failed to create signaling thread");
 
                     return false;
 
@@ -496,7 +496,7 @@ namespace hope {
 
                 if (!signalingThread->Start()) {
 
-                    Logger::getInstance()->error("Failed to start signaling thread");
+                    LOG_ERROR("Failed to start signaling thread");
 
                     return false;
 
@@ -529,7 +529,7 @@ namespace hope {
 
                 if (!peerConnectionFactory) {
 
-                    Logger::getInstance()->error("Failed to create PeerConnectionFactory");
+                    LOG_ERROR("Failed to create PeerConnectionFactory");
 
                     return false;
 
@@ -578,7 +578,7 @@ namespace hope {
 
             if (!pcResult.ok()) {
 
-                Logger::getInstance()->error("Failed to create PeerConnection: " + std::string(pcResult.error().message()));
+                LOG_ERROR("Failed to create PeerConnection: %s" , pcResult.error().message());
 
                 return false;
 
@@ -595,7 +595,7 @@ namespace hope {
 
                 if (!videoTrack) {
 
-                    Logger::getInstance()->error("Failed to create video track");
+                    LOG_ERROR("Failed to create video track");
 
                     return false;
 
@@ -613,7 +613,7 @@ namespace hope {
 
                 if (!addTrackResult.ok()) {
 
-                    Logger::getInstance()->error("Failed to add video track: " + std::string(addTrackResult.error().message()));
+                    LOG_ERROR("Failed to add video track: %s" , addTrackResult.error().message());
 
                     return false;
 
@@ -632,7 +632,7 @@ namespace hope {
 
                         if (senderCapabilities.codecs.empty()) {
 
-                            Logger::getInstance()->warning("No video codecs available from factory");
+                            LOG_WARNING("No video codecs available from factory");
 
                             continue;
 
@@ -656,7 +656,7 @@ namespace hope {
 
                         }
 
-                        Logger::getInstance()->info("Attempting to prioritize codec: " + priorityCodec);
+                        LOG_INFO("Attempting to prioritize codec: %s" , priorityCodec.c_str());
 
                         // 首先添加优先编解码器
                         bool foundPriorityCodec = false;
@@ -669,7 +669,7 @@ namespace hope {
 
                                 foundPriorityCodec = true;
 
-                                Logger::getInstance()->info("Found and prioritized codec: " + codec.name);
+                                LOG_INFO("Found and prioritized codec: %s" , codec.name.c_str());
 
                                 break;
                             }
@@ -677,7 +677,7 @@ namespace hope {
 
                         if (!foundPriorityCodec) {
 
-                            Logger::getInstance()->warning("Priority codec " + priorityCodec + " not found in available codecs");
+                            LOG_WARNING("Priority codec %s not found in available codecs", priorityCodec.c_str());
 
                         }
 
@@ -688,7 +688,7 @@ namespace hope {
 
                                 preferredCodecs.push_back(codec);
 
-                                Logger::getInstance()->info("Added additional codec: " + codec.name);
+                                LOG_INFO("Added additional codec: %s" , codec.name.c_str());
 
                             }
                         }
@@ -696,7 +696,7 @@ namespace hope {
                         // 验证是否有编解码器可设置
                         if (preferredCodecs.empty()) {
 
-                            Logger::getInstance()->error("No valid codecs to set as preferences");
+                            LOG_ERROR("No valid codecs to set as preferences");
 
                             continue;
 
@@ -707,14 +707,12 @@ namespace hope {
 
                         if (result.ok()) {
 
-                            Logger::getInstance()->info("Successfully set codec preferences with " +
-                                std::to_string(preferredCodecs.size()) + " codecs");
+                            LOG_INFO("Successfully set codec preferences with %d codecs", preferredCodecs.size());
 
                         }
                         else {
 
-                            Logger::getInstance()->error("Failed to set codec preferences: " +
-                                std::string(result.message()));
+                            LOG_ERROR("Failed to set codec preferences: %s", result.message());
 
                         }
                     }
@@ -736,7 +734,7 @@ namespace hope {
                 auto setParamsResult = videoSender->SetParameters(parameters);
 
                 if (!setParamsResult.ok()) {
-                    Logger::getInstance()->error("Failed to set RTP parameters: " + std::string(setParamsResult.message()));
+                    LOG_ERROR("Failed to set RTP parameters: %s" ,setParamsResult.message());
                     return false;
                 }
             }
@@ -747,7 +745,7 @@ namespace hope {
 
             dataChannel = peerConnection->CreateDataChannel("dataChannel", dataChannelConfig.get());
             if (!dataChannel) {
-                Logger::getInstance()->error("Failed to create data channel");
+                LOG_ERROR("Failed to create data channel");
                 return false;
             }
 
@@ -801,12 +799,12 @@ namespace hope {
                 });
 
             if (!screenCapture->initialize()) {
-                Logger::getInstance()->error("Failed to initialize screen capture");
+                LOG_ERROR("Failed to initialize screen capture");
                 return false;
             }
 
             if (!screenCapture->startCapture()) {
-                Logger::getInstance()->error("Failed to start screen capture");
+                LOG_ERROR("Failed to start screen capture");
                 return false;
             }
 

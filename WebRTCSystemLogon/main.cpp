@@ -26,7 +26,7 @@
 // 项目头文件
 #include "WinLogon.h"
 #include "SessionHelper.h"
-#include "Logger.h"
+#include "Utils.h"
 #include "WebRTCManager.h"
 
 #define SERVICE_NAME "WebRTCSystemLogon"
@@ -73,14 +73,11 @@ bool IsRunningAsSystem() {
     DWORD size = sizeof(username) / sizeof(username[0]);
     if (GetUserNameW(username, &size)) {
         DWORD sessionId = GetCurrentSessionId();
-        Logger::getInstance()->info(
-            std::string("Current user: ") + WstringToString(username) +
-            " | SessionID: " + std::to_string(sessionId) +
-            " | Process Type: " + GetProcessTypeString()
-        );
+        LOG_INFO("Current user: %s | SessionID: %d | Process Type: %s",
+            WstringToString(username).c_str(), sessionId, GetProcessTypeString().c_str());
         return wcscmp(username, L"SYSTEM") == 0;
     }
-    Logger::getInstance()->error("Failed to get username");
+    LOG_ERROR("Failed to get username");
     return false;
 }
 
@@ -94,43 +91,32 @@ bool IsRespawnedProcess(int argc, char* argv[]) {
 }
 
 void RunSystemLoop() {
-
-    Logger* logger = Logger::getInstance();
-
     DWORD sessionId = GetCurrentSessionId();
-
     std::string processType = GetProcessTypeString();
 
     std::unique_ptr<hope::rtc::WebRTCManager> webrtcManager = std::make_unique<hope::rtc::WebRTCManager>();
 
     boost::asio::io_context ioContext;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> ioContextWorkPtr =
+        std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
+    LOG_INFO("RunSystemLoop start");
 
-    logger->info("RunSystemLoop start");
-
-    webrtcManager->stopProcessCallBack = [&ioContext, &logger, sessionId, &webrtcManager]()mutable {
-        logger->info("[SUBPROCESS] SessionID: " + std::to_string(sessionId) +
-            " - Stopping WebRTC Remote and exiting...");
+    webrtcManager->stopProcessCallBack = [&ioContext, sessionId, &webrtcManager]() mutable {
+        LOG_INFO("[SUBPROCESS] SessionID: %d - Stopping WebRTC Remote and exiting...", sessionId);
         ioContext.stop();
-
         };
 
     ioContext.run();
-
 }
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
-    Logger* logger = Logger::getInstance();
-    logger->setLogLevels(LogLevels::INFO);
-
     DWORD sessionId = GetCurrentSessionId();
-    logger->info("[MAINPROCESS] Service starting | SessionID: " + std::to_string(sessionId));
+    LOG_INFO("[MAINPROCESS] Service starting | SessionID: %d", sessionId);
 
     statusHandle = RegisterServiceCtrlHandlerA(SERVICE_NAME, ServiceCtrlHandler);
     if (!statusHandle) {
-        logger->error("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-            " - Failed to register service control handler");
+        LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to register service control handler", sessionId);
         return;
     }
 
@@ -140,8 +126,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     stopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!stopEvent) {
-        logger->error("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-            " - Failed to create stop event");
+        LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to create stop event", sessionId);
         return;
     }
 
@@ -149,12 +134,10 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
     serviceStatus.dwCurrentState = SERVICE_RUNNING;
     SetServiceStatus(statusHandle, &serviceStatus);
 
-    logger->info("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-        " - Service started successfully");
+    LOG_INFO("[MAINPROCESS] SessionID: %d - Service started successfully", sessionId);
 
     if (!IsRunningAsSystem()) {
-        logger->error("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-            " - This service must be run as 'NT AUTHORITY\\SYSTEM'");
+        LOG_ERROR("[MAINPROCESS] SessionID: %d - This service must be run as 'NT AUTHORITY\\SYSTEM'", sessionId);
         serviceStatus.dwCurrentState = SERVICE_STOPPED;
         SetServiceStatus(statusHandle, &serviceStatus);
         return;
@@ -163,23 +146,19 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
     HANDLE process = nullptr;
 
     if (!hope::rtc::SessionHelper::CheckActiveTerminalSession()) {
-        logger->info("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-            " - Service running in Session 0, respawning in active session...");
+        LOG_INFO("[MAINPROCESS] SessionID: %d - Service running in Session 0, respawning in active session...", sessionId);
 
         try {
             process = hope::rtc::SessionHelper::CreateSystemProcessInUserSession(L"--respawned");
-            logger->info("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-                " - Respawned process in active session");
+            LOG_INFO("[MAINPROCESS] SessionID: %d - Respawned process in active session", sessionId);
             WaitForSingleObject(stopEvent, INFINITE);
         }
         catch (const std::exception& e) {
-            logger->error("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-                " - Failed to respawn: " + e.what());
+            LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to respawn: %s", sessionId, e.what());
         }
     }
     else {
-        logger->warning("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-            " - Service unexpectedly in active session");
+        LOG_WARNING("[MAINPROCESS] SessionID: %d - Service unexpectedly in active session", sessionId);
     }
 
     CloseHandle(stopEvent);
@@ -190,13 +169,13 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
         DWORD exitCode;
         if (GetExitCodeProcess(process, &exitCode)) {
             if (exitCode == STILL_ACTIVE) {
-                Logger::getInstance()->info("ProcessManager: Child process still running, forcing termination");
+                LOG_INFO("ProcessManager: Child process still running, forcing termination");
 
                 if (!TerminateProcess(process, 1)) {
-                    Logger::getInstance()->error("ProcessManager: Force termination failed");
+                    LOG_ERROR("ProcessManager: Force termination failed");
                 }
                 else {
-                    Logger::getInstance()->info("ProcessManager: Child process has been force terminated");
+                    LOG_INFO("ProcessManager: Child process has been force terminated");
                 }
             }
         }
@@ -204,24 +183,18 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
         CloseHandle(process);
     }
 
-    logger->info("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-        " - Service stopped successfully");
+    LOG_INFO("[MAINPROCESS] SessionID: %d - Service stopped successfully", sessionId);
 }
 
 int main(int argc, char* argv[]) {
-    Logger* logger = Logger::getInstance();
-    logger->setLogLevels(LogLevels::INFO);
-
     DWORD sessionId = GetCurrentSessionId();
 
     if (IsRespawnedProcess(argc, argv)) {
         isRespawnedProcess = true;
-        logger->info("[SUBPROCESS] Running as respawned process with DXGI | SessionID: " +
-            std::to_string(sessionId));
+        LOG_INFO("[SUBPROCESS] Running as respawned process with DXGI | SessionID: %d", sessionId);
 
         if (!IsRunningAsSystem()) {
-            logger->error("[SUBPROCESS] SessionID: " + std::to_string(sessionId) +
-                " - Respawned process must run as SYSTEM");
+            LOG_ERROR("[SUBPROCESS] SessionID: %d - Respawned process must run as SYSTEM", sessionId);
             return 1;
         }
 
@@ -229,8 +202,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    logger->info("[MAINPROCESS] Starting service dispatcher with DXGI support | SessionID: " +
-        std::to_string(sessionId));
+    LOG_INFO("[MAINPROCESS] Starting service dispatcher with DXGI support | SessionID: %d", sessionId);
 
     SERVICE_TABLE_ENTRYW serviceTable[] = {
         { (LPWSTR)SERVICE_NAME, ServiceMain },
@@ -240,18 +212,15 @@ int main(int argc, char* argv[]) {
     if (!StartServiceCtrlDispatcherW(serviceTable)) {
         DWORD error = GetLastError();
         if (error == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
-            logger->info("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-                " - Running in interactive mode with DXGI (not as service)");
+            LOG_INFO("[MAINPROCESS] SessionID: %d - Running in interactive mode with DXGI (not as service)", sessionId);
 
             if (!IsRunningAsSystem()) {
-                logger->error("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-                    " - Must run as SYSTEM user");
+                LOG_ERROR("[MAINPROCESS] SessionID: %d - Must run as SYSTEM user", sessionId);
                 return 1;
             }
         }
         else {
-            logger->error("[MAINPROCESS] SessionID: " + std::to_string(sessionId) +
-                " - Failed to start service dispatcher: " + std::to_string(error));
+            LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to start service dispatcher: %d", sessionId, error);
             return 1;
         }
     }

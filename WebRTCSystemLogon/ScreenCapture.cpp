@@ -4,7 +4,7 @@
 #include <thread>
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
-#include "Logger.h"
+#include "Utils.h"
 #include "Utils.h"
 
 namespace hope {
@@ -116,42 +116,42 @@ namespace hope {
         }
 
         bool ScreenCapture::initialize() {
-            Logger::getInstance()->info("=== Starting DXGI ScreenCapture initialization ===");
+            LOG_INFO("=== Starting DXGI ScreenCapture initialization ===");
 
             if (!frameCallback && !gpuEncoderCallback) {
-                Logger::getInstance()->warning("No callback set! Call setFrameCallback() or setGPUEncoderCallback()!");
+                LOG_WARNING("No callback set! Call setFrameCallback() or setGPUEncoderCallback()!");
             }
 
             try {
                 if (!initializeDXGI()) {
-                    Logger::getInstance()->error("Failed to initialize DXGI");
+                    LOG_ERROR("Failed to initialize DXGI");
                     winLogonSwitcher->SwitchToWinLogonDesktop();
                     desktopSwitchInProgress = true;
                     if (!initializeDXGI()) {
-                        Logger::getInstance()->error("Failed to initialize DXGI on WinLogon desktop");
+                        LOG_ERROR("Failed to initialize DXGI on WinLogon desktop");
                         return false;
                     }
                 }
-                Logger::getInstance()->info("DXGI initialized successfully");
+                LOG_INFO("DXGI initialized successfully");
 
                 if (!initializeGPUConverter()) {
-                    Logger::getInstance()->warning("GPU YUV converter initialization failed, will use CPU");
+                    LOG_WARNING("GPU YUV converter initialization failed, will use CPU");
                 }
 
                 const int yuvSize = config.width * config.height * 3 / 2;
                 yuvBuffer.resize(yuvSize);
-                Logger::getInstance()->info("YUV buffer allocated: " + std::to_string(yuvSize) + " bytes");
+                LOG_INFO("YUV buffer allocated: %d bytes", yuvSize);
 
                 initializeFramePool(20);
 
-                Logger::getInstance()->info("Frame rate set to " + std::to_string(config.fps) + " fps");
-                Logger::getInstance()->info("Dirty Rectangles: " + std::string(config.enableDirtyRects ? "Enabled" : "Disabled"));
+                LOG_INFO("Frame rate set to %d fps", config.fps);
+                LOG_INFO("Dirty Rectangles: %s" , config.enableDirtyRects ? "Enabled" : "Disabled");
 
-                Logger::getInstance()->info("=== DXGI ScreenCapture initialization completed ===");
+                LOG_INFO("=== DXGI ScreenCapture initialization completed ===");
                 return true;
             }
             catch (const std::exception& ex) {
-                Logger::getInstance()->error("Exception during initialization: " + std::string(ex.what()));
+                LOG_ERROR("Exception during initialization: %s" , ex.what());
                 return false;
             }
         }
@@ -161,7 +161,7 @@ namespace hope {
                 auto frame = std::make_shared<CapturedFrame>(config.width, config.height, config.width * 4);
                 framePool.enqueue(frame);
             }
-            Logger::getInstance()->info("Frame pool initialized with " + std::to_string(poolSize) + " frames");
+            LOG_INFO("Frame pool initialized with %d frames", poolSize);
         }
 
         std::shared_ptr<CapturedFrame> ScreenCapture::getFrameFromPool() {
@@ -209,8 +209,7 @@ namespace hope {
             );
 
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to create D3D11 device: 0x" +
-                    std::to_string(static_cast<unsigned int>(hr)));
+                LOG_ERROR("Failed to create D3D11 device: 0x%08X",hr);
                 return false;
             }
 
@@ -219,37 +218,37 @@ namespace hope {
                 hr = d3dContext.As(&d3dContext1);
                 useAdvancedFeatures = SUCCEEDED(hr);
                 if (useAdvancedFeatures) {
-                    Logger::getInstance()->debug("D3D11.1 features available");
+                    LOG_DEBUG("D3D11.1 features available");
                 }
             }
 
             hr = d3dDevice.As(&dxgiDevice);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to get DXGI device");
+                LOG_ERROR("Failed to get DXGI device");
                 return false;
             }
 
             hr = dxgiDevice->GetAdapter(&dxgiAdapter);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to get DXGI adapter");
+                LOG_ERROR("Failed to get DXGI adapter");
                 return false;
             }
 
             hr = dxgiAdapter->EnumOutputs(0, &dxgiOutput);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to enumerate outputs");
+                LOG_ERROR("Failed to enumerate outputs");
                 return false;
             }
 
             hr = dxgiOutput.As(&dxgiOutput1);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to get IDXGIOutput1");
+                LOG_ERROR("Failed to get IDXGIOutput1");
                 return false;
             }
 
             hr = dxgiOutput.As(&dxgiOutput5);
             if (SUCCEEDED(hr)) {
-                Logger::getInstance()->debug("DXGI 1.5 features available");
+                LOG_DEBUG("DXGI 1.5 features available");
             }
 
             static bool init = false;
@@ -257,13 +256,13 @@ namespace hope {
 
             if (FAILED(hr)) {
                 if (hr == DXGI_ERROR_NOT_CURRENTLY_AVAILABLE) {
-                    Logger::getInstance()->error("Desktop duplication not available (may be in use by another process)");
+                    LOG_ERROR("Desktop duplication not available (may be in use by another process)");
                 }
                 else if (hr == E_ACCESSDENIED) {
                     if (init == true) return false;
                     init = true;
 
-                    Logger::getInstance()->error("Access denied for desktop duplication");
+                    LOG_ERROR("Access denied for desktop duplication");
 
                     if (!desktopSwitchInProgress) {
                         this->releaseResourceDXGI();
@@ -281,8 +280,7 @@ namespace hope {
                     }
                 }
                 else {
-                    Logger::getInstance()->error("Failed to duplicate output: 0x" +
-                        std::to_string(static_cast<unsigned int>(hr)));
+                    LOG_ERROR("Failed to duplicate output:  0x%08X",hr);
                 }
                 return false;
             }
@@ -295,11 +293,10 @@ namespace hope {
             config.width = duplDesc.ModeDesc.Width;
             config.height = duplDesc.ModeDesc.Height;
 
-            Logger::getInstance()->info("Desktop dimensions: " + std::to_string(config.width) +
-                "x" + std::to_string(config.height));
+            LOG_INFO("Desktop dimensions: %d x %d", config.width,config.height);
 
             if (!gpuRing->Initialize(d3dDevice.Get(), d3dContext.Get(), config.width, config.height)) {
-                Logger::getInstance()->error("Failed to initialize GPU ring buffer");
+                LOG_ERROR("Failed to initialize GPU ring buffer");
                 return false;
             }
 
@@ -317,7 +314,7 @@ namespace hope {
 
             hr = d3dDevice->CreateTexture2D(&sharedDesc, nullptr, &sharedTexture);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to create shared texture");
+                LOG_ERROR("Failed to create shared texture");
                 return false;
             }
 
@@ -325,15 +322,15 @@ namespace hope {
             Microsoft::WRL::ComPtr<IDXGIResource> dxgiRes;
             hr = sharedTexture.As(&dxgiRes);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to get IDXGIResource");
+                LOG_ERROR("Failed to get IDXGIResource");
                 return false;
             }
             hr = dxgiRes->GetSharedHandle(&sharedHandle);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to get shared handle");
+                LOG_ERROR("Failed to get shared handle");
                 return false;
             }
-            Logger::getInstance()->info("GPU zero-copy shared handle ready");
+            LOG_INFO("GPU zero-copy shared handle ready");
 
             // 创建staging textures
             D3D11_TEXTURE2D_DESC desc = {};
@@ -349,7 +346,7 @@ namespace hope {
             for (int i = 0; i < NUM_BUFFERS; i++) {
                 hr = d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTextures[i]);
                 if (FAILED(hr)) {
-                    Logger::getInstance()->error("Failed to create staging texture " + std::to_string(i));
+                    LOG_ERROR("Failed to create staging texture %d",i);
                     return false;
                 }
             }
@@ -440,8 +437,7 @@ namespace hope {
 
             if (FAILED(hr)) {
                 if (errorBlob) {
-                    Logger::getInstance()->error("Shader compilation error: " +
-                        std::string((char*)errorBlob->GetBufferPointer()));
+                    LOG_ERROR("Shader compilation error: %s",(char*)errorBlob->GetBufferPointer());
                 }
                 return false;
             }
@@ -454,7 +450,7 @@ namespace hope {
             );
 
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to create compute shader");
+                LOG_ERROR("Failed to create compute shader");
                 return false;
             }
 
@@ -474,7 +470,7 @@ namespace hope {
 
             hr = d3dDevice->CreateBuffer(&bufferDesc, &initData, &yuvOutputBuffer);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to create output buffer");
+                LOG_ERROR("Failed to create output buffer");
                 return false;
             }
 
@@ -486,7 +482,7 @@ namespace hope {
 
             hr = d3dDevice->CreateUnorderedAccessView(yuvOutputBuffer.Get(), &uavDesc, &yuvUAV);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to create UAV");
+                LOG_ERROR("Failed to create UAV");
                 return false;
             }
 
@@ -497,7 +493,7 @@ namespace hope {
 
             hr = d3dDevice->CreateBuffer(&bufferDesc, nullptr, &stagingBuffer);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to create staging buffer");
+                LOG_ERROR("Failed to create staging buffer");
                 return false;
             }
 
@@ -506,7 +502,7 @@ namespace hope {
 
         bool ScreenCapture::startCapture() {
             if (capturing.load()) {
-                Logger::getInstance()->warning("Capture already started");
+                LOG_WARNING("Capture already started");
                 return true;
             }
 
@@ -516,7 +512,7 @@ namespace hope {
             encoderContext.restart();
 
             encoderThread = std::thread([this]() {
-                Logger::getInstance()->info("Encoder thread started");
+                LOG_INFO("Encoder thread started");
 
                 try {
                     boost::asio::co_spawn(encoderContext, [this]() -> boost::asio::awaitable<void> {
@@ -527,7 +523,7 @@ namespace hope {
 
                                 if (ec) {
                                     if (ec == boost::asio::error::operation_aborted) {
-                                        Logger::getInstance()->info("Encoder channel closed, stopping");
+                                        LOG_INFO("Encoder channel closed, stopping");
                                         break;
                                     }
                                 }
@@ -544,32 +540,31 @@ namespace hope {
 
                             }
                             catch (const std::exception& e) {
-                                Logger::getInstance()->error("Error in encoder coroutine: " + std::string(e.what()));
+                                LOG_ERROR("Error in encoder coroutine: %s" ,e.what());
                             }
                         }
                         co_return;
                         }, boost::asio::detached);
 
-                    size_t handlers = encoderContext.run();
-                    Logger::getInstance()->info("io_context.run() returned after processing " +
-                        std::to_string(handlers) + " handlers");
+                    size_t handlers = encoderContext.run();            
+                    LOG_INFO("io_context.run() returned after processing %d handlers", handlers);
                 }
                 catch (const std::exception& e) {
-                    Logger::getInstance()->error("Fatal error in encoder thread: " + std::string(e.what()));
+                    LOG_ERROR("Fatal error in encoder thread: %s" ,e.what());
                 }
 
-                Logger::getInstance()->info("Encoder thread ending");
+                LOG_INFO("Encoder thread ending");
                 });
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             captureThread = std::thread([this]() {
-                Logger::getInstance()->info("Capture thread starting");
+                LOG_INFO("Capture thread starting");
                 captureThreadFunc();
-                Logger::getInstance()->info("Capture thread ending");
+                LOG_INFO("Capture thread ending");
                 });
 
-            Logger::getInstance()->info("Capture started successfully");
+            LOG_INFO("Capture started successfully");
             return true;
         }
 
@@ -643,7 +638,7 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> acquiredTexture;
             hr = desktopResource.As(&acquiredTexture);
             if (FAILED(hr)) {
-                Logger::getInstance()->error("Failed to get texture from desktop resource");
+                LOG_ERROR("Failed to get texture from desktop resource");
                 return false;
             }
 
@@ -983,7 +978,7 @@ namespace hope {
 
         void ScreenCapture::encodeFrame(std::shared_ptr<CapturedFrame> frame) {
             if (!frame) {
-                Logger::getInstance()->error("encodeFrame: frame is null");
+                LOG_ERROR("encodeFrame: frame is null");
                 return;
             }
 
@@ -995,7 +990,7 @@ namespace hope {
             }
             else {
                 if (!convertBGRAToYUV420(frame->bgraData.data(), frame->stride, yuvBuffer)) {
-                    Logger::getInstance()->error("Failed to convert BGRA to YUV420");
+                    LOG_ERROR("Failed to convert BGRA to YUV420");
                     return;
                 }
 
@@ -1184,7 +1179,7 @@ namespace hope {
 
         void ScreenCapture::handleCaptureError(HRESULT hr) {
             if (hr == DXGI_ERROR_ACCESS_LOST) {
-                Logger::getInstance()->warning("Access lost, reinitializing...");
+                LOG_WARNING("Access lost, reinitializing...");
                 invalidCallCount++;
 
                 if (!desktopSwitchInProgress && invalidCallCount == 2) {
@@ -1227,11 +1222,11 @@ namespace hope {
 
         void ScreenCapture::stopCapture() {
             if (!capturing.load()) {
-                Logger::getInstance()->info("Capture not running, nothing to stop");
+                LOG_INFO("Capture not running, nothing to stop");
                 return;
             }
 
-            Logger::getInstance()->info("Stopping capture...");
+            LOG_INFO("Stopping capture...");
 
             capturing = false;
             encoderRunning = false;
@@ -1255,10 +1250,10 @@ namespace hope {
             }
 
             if (remainingFrames > 0) {
-                Logger::getInstance()->info("Cleared " + std::to_string(remainingFrames) + " remaining frames from queue");
+                LOG_INFO("Cleared %d remaining frames from queue", remainingFrames);
             }
 
-            Logger::getInstance()->info("Capture stopped successfully");
+            LOG_INFO("Capture stopped successfully");
         }
 
         void ScreenCapture::releaseResources() {
@@ -1309,7 +1304,7 @@ namespace hope {
             }
             sharedTexture.Reset();
 
-            Logger::getInstance()->info("Resources released");
+            LOG_INFO("Resources released");
         }
 
         void ScreenCapture::releaseResourceDXGI() {

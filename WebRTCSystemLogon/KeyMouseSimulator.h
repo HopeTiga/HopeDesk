@@ -4,7 +4,7 @@
 #include <memory>
 #include <vector>
 #include <atomic>
-#include "Logger.h"
+#include "Utils.h"
 
 namespace hope {
 	namespace rtc {
@@ -14,7 +14,6 @@ namespace hope {
             InterceptionContext interceptionContext;
             InterceptionDevice interceptionKeyboard;
             InterceptionDevice interceptionMouse;
-            Logger* logger;
             std::atomic<bool> isInitialized;
             std::atomic<bool> isDestroying;
 

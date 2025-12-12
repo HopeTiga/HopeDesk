@@ -1,6 +1,6 @@
 #include "CursorHooks.h"
 #include <iostream>
-#include "Logger.h"
+#include "Utils.h"
 #include "Utils.h"
 
 
@@ -60,12 +60,12 @@ namespace hope {
             mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
 
             if (!mouseHook) {
-                Logger::getInstance()->error("Failed to install mouse hook, error code: " + std::to_string(GetLastError()));
+                LOG_ERROR("Failed to install mouse hook, error code: %s" , std::to_string(GetLastError()).c_str());
                 isRunning = false;
                 return;
             }
 
-            Logger::getInstance()->info("mouseHooks Installed");
+            LOG_INFO("mouseHooks Installed");
 
             // Message loop (required, otherwise hook won't work)
             MSG msg;
@@ -78,7 +78,7 @@ namespace hope {
             if (mouseHook) {
                 UnhookWindowsHookEx(mouseHook);
                 mouseHook = nullptr;
-                Logger::getInstance()->info("mouseHooks Uninstalled");
+                LOG_INFO("mouseHooks Uninstalled");
             }
         }
 
@@ -110,7 +110,7 @@ namespace hope {
 
             lastCursor = currentCursor;
 
-            Logger::getInstance()->debug("Detected new cursor: " + std::to_string(reinterpret_cast<uintptr_t>(currentCursor)));
+            LOG_DEBUG("Detected new cursor: %s" , std::to_string(reinterpret_cast<uintptr_t>(currentCursor)).c_str());
 
 #pragma pack(push,1)
             struct Cursors {
@@ -159,8 +159,7 @@ namespace hope {
                                 height = bm.bmHeight / 2;
                             }
 
-                            Logger::getInstance()->debug("Cursor hotspot: (" + std::to_string(hotX) + ", " + std::to_string(hotY) + ")");
-                            Logger::getInstance()->debug("Cursor size: " + std::to_string(width) + "x" + std::to_string(height));
+                            LOG_DEBUG("Cursor hotspot: ( %d , %d)", hotX,hotY);
 
                             // Clean up ICONINFO resources
                             if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
@@ -200,7 +199,7 @@ namespace hope {
 
                 // Bounds check
                 if (index >= cursorHotPos.size() || index >= cursorSizes.size()) {
-                    Logger::getInstance()->error("Invalid cursor cache index: " + std::to_string(index));
+                    LOG_ERROR("Invalid cursor cache index: %d" , index);
                     return;
                 }
 
@@ -245,7 +244,7 @@ namespace hope {
             }
 
             if (!GetIconInfo(hCursor, &iconInfo)) {
-                Logger::getInstance()->error("GetIconInfo failed, error code: " + std::to_string(GetLastError()));
+                LOG_ERROR("GetIconInfo failed, error code: %s" , std::to_string(GetLastError()).c_str());
                 return;
             }
 
@@ -264,11 +263,11 @@ namespace hope {
             height = hasColor ? bmColor.bmHeight : bmMask.bmHeight / 2;
 
             if (width <= 0 || height <= 0) {
-                Logger::getInstance()->warning("Invalid cursor size: " + std::to_string(width) + "x" + std::to_string(height));
+                LOG_WARNING("Invalid cursor size: %dx%d", width, height); // 使用 %d 占位符
                 goto cleanup;
             }
 
-            Logger::getInstance()->debug("Cursor size: " + std::to_string(width) + "x" + std::to_string(height));
+            LOG_DEBUG("Cursor size: %dx%d", width, height);
 
             // Calculate required memory size
             size = width * height * bytesPerPixel;
@@ -291,10 +290,10 @@ namespace hope {
                 if (hasColor) {
                     // Color cursor - Get original colors directly
                     if (GetDIBits(hdcMem, iconInfo.hbmColor, 0, height, data, &bmi, DIB_RGB_COLORS)) {
-                        Logger::getInstance()->debug("Successfully got color cursor data (preserving original colors)");
+                        LOG_DEBUG("Successfully got color cursor data (preserving original colors)");
                     }
                     else {
-                        Logger::getInstance()->error("GetDIBits failed, error code: " + std::to_string(GetLastError()));
+                        LOG_ERROR("GetDIBits failed, error code: %s" , std::to_string(GetLastError()).c_str());
                         delete[] data;
                         data = nullptr;
                         size = 0;
@@ -342,7 +341,7 @@ namespace hope {
                                 }
                             }
                         }
-                        Logger::getInstance()->debug("Successfully got monochrome cursor data (preserving original black and white)");
+                        LOG_DEBUG("Successfully got monochrome cursor data (preserving original black and white)");
 
                         // ====== Add black border ======
                         // Create temporary buffer to store original data
@@ -388,7 +387,7 @@ namespace hope {
                             }
                         }
                         delete[] tempData;
-                        Logger::getInstance()->debug("Black border added (RGB)");
+                        LOG_DEBUG("Black border added (RGB)");
                     }
                     else {
                         delete[] data;

@@ -2,40 +2,40 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
-#include "Logger.h"
+#include "Utils.h"
 
 namespace hope {
-	
-	namespace rtc {
+
+    namespace rtc {
 
         // Check if the current process is in the active terminal session
         bool SessionHelper::CheckActiveTerminalSession() {
-            Logger::getInstance()->info("CheckActiveTerminalSession: Starting to check current process session");
+            LOG_INFO("CheckActiveTerminalSession: Starting to check current process session");
 
             DWORD currentSessionId = 0;
             DWORD processId = GetCurrentProcessId();
 
-            Logger::getInstance()->debug("CheckActiveTerminalSession: Current process ID = " + std::to_string(processId));
+            LOG_DEBUG("CheckActiveTerminalSession: Current process ID = %d", processId);
 
             if (!ProcessIdToSessionId(processId, &currentSessionId)) {
-                Logger::getInstance()->error("CheckActiveTerminalSession: ProcessIdToSessionId failed");
+                LOG_ERROR("CheckActiveTerminalSession: ProcessIdToSessionId failed");
                 throw WinApiException("ProcessIdToSessionId");
             }
 
-            Logger::getInstance()->debug("CheckActiveTerminalSession: Current session ID = " + std::to_string(currentSessionId));
+            LOG_DEBUG("CheckActiveTerminalSession: Current session ID = %d", currentSessionId);
 
             DWORD activeSessionId = GetActiveTerminalSessionId();
-            Logger::getInstance()->debug("CheckActiveTerminalSession: Active session ID = " + std::to_string(activeSessionId));
+            LOG_DEBUG("CheckActiveTerminalSession: Active session ID = %d", activeSessionId);
 
             bool result = currentSessionId == activeSessionId;
-            Logger::getInstance()->info("CheckActiveTerminalSession: Result = " + std::string(result ? "true" : "false"));
+            LOG_INFO("CheckActiveTerminalSession: Result = %s", result ? "true" : "false");
 
             return result;
         }
 
         // Create a System-level process in the user session, supporting WGC
         HANDLE SessionHelper::CreateSystemProcessInUserSession(const std::wstring& args) {
-            Logger::getInstance()->info("CreateSystemProcessInUserSession: Starting to create System-level process, args length=" + std::to_string(args.length()));
+            LOG_INFO("CreateSystemProcessInUserSession: Starting to create System-level process, args length=%zu", args.length());
 
             HANDLE systemToken = nullptr;
             HANDLE duplicatedToken = nullptr;
@@ -43,72 +43,72 @@ namespace hope {
 
             try {
                 // Step 1: Get System Token
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Attempting to get System Token");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Attempting to get System Token");
                 systemToken = GetSystemToken();
 
                 if (!systemToken) {
-                    Logger::getInstance()->error("CreateSystemProcessInUserSession: Failed to get System Token");
+                    LOG_ERROR("CreateSystemProcessInUserSession: Failed to get System Token");
                     throw std::runtime_error("Failed to get System Token");
                 }
-                Logger::getInstance()->info("CreateSystemProcessInUserSession: Successfully got System Token");
+                LOG_INFO("CreateSystemProcessInUserSession: Successfully got System Token");
 
                 // Step 2: Get active user session ID
                 DWORD sessionId = GetActiveTerminalSessionId();
-                Logger::getInstance()->info("CreateSystemProcessInUserSession: Target session ID = " + std::to_string(sessionId));
+                LOG_INFO("CreateSystemProcessInUserSession: Target session ID = %d", sessionId);
 
                 // Step 3: Duplicate Token and set session ID
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Duplicating System Token");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Duplicating System Token");
                 if (!DuplicateTokenEx(systemToken, MAXIMUM_ALLOWED, nullptr,
                     SecurityIdentification, TokenPrimary, &duplicatedToken)) {
-                    Logger::getInstance()->error("CreateSystemProcessInUserSession: DuplicateTokenEx failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: DuplicateTokenEx failed");
                     throw WinApiException("DuplicateTokenEx");
                 }
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: DuplicateTokenEx succeeded");
+                LOG_DEBUG("CreateSystemProcessInUserSession: DuplicateTokenEx succeeded");
 
                 // Set Token session information
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Setting Token session information");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Setting Token session information");
                 if (!SetTokenInformation(duplicatedToken, TokenSessionId, &sessionId, sizeof(sessionId))) {
-                    Logger::getInstance()->error("CreateSystemProcessInUserSession: SetTokenInformation failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: SetTokenInformation failed");
                     throw WinApiException("SetTokenInformation");
                 }
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: SetTokenInformation succeeded");
+                LOG_DEBUG("CreateSystemProcessInUserSession: SetTokenInformation succeeded");
 
                 // Step 4: Enable all privileges for System Token (including those required for WGC)
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Enabling Token privileges");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Enabling Token privileges");
                 EnableTokenPrivileges(duplicatedToken);
 
                 // Step 5: Create environment block
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Creating environment block");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Creating environment block");
                 if (!CreateEnvironmentBlock(&pEnv, duplicatedToken, TRUE)) {
-                    Logger::getInstance()->warning("CreateSystemProcessInUserSession: CreateEnvironmentBlock failed, continuing");
+                    LOG_WARNING("CreateSystemProcessInUserSession: CreateEnvironmentBlock failed, continuing");
                     pEnv = nullptr;
                 }
                 else {
-                    Logger::getInstance()->debug("CreateSystemProcessInUserSession: CreateEnvironmentBlock succeeded");
+                    LOG_DEBUG("CreateSystemProcessInUserSession: CreateEnvironmentBlock succeeded");
                 }
 
                 // Step 6: Get current process executable path
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Getting current executable path");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Getting current executable path");
                 wchar_t exePath[MAX_PATH];
                 if (GetModuleFileName(nullptr, exePath, MAX_PATH) == 0) {
-                    Logger::getInstance()->error("CreateSystemProcessInUserSession: GetModuleFileName failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: GetModuleFileName failed");
                     throw WinApiException("GetModuleFileName");
                 }
 
                 std::wstring exePathStr(exePath);
                 std::string exePathMB(exePathStr.begin(), exePathStr.end());
-                Logger::getInstance()->info("CreateSystemProcessInUserSession: Executable path = " + exePathMB);
+                LOG_INFO("CreateSystemProcessInUserSession: Executable path = %s", exePathMB.c_str());
 
                 // Step 7: Build command line
                 std::wstring commandLine = std::wstring(exePath);
                 if (!args.empty()) {
                     commandLine += L" " + args;
                     std::string argsMB(args.begin(), args.end());
-                    Logger::getInstance()->info("CreateSystemProcessInUserSession: Command line arguments = " + argsMB);
+                    LOG_INFO("CreateSystemProcessInUserSession: Command line arguments = %s", argsMB.c_str());
                 }
 
                 // Step 8: Set startup information, specify desktop as user desktop
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Initializing STARTUPINFO");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Initializing STARTUPINFO");
                 STARTUPINFOW startupInfo = { 0 };
                 startupInfo.cb = sizeof(startupInfo);
                 // Important: Specify user desktop to access graphical interface and WGC
@@ -125,10 +125,10 @@ namespace hope {
                 creationFlags = CREATE_NO_WINDOW;  // Do not create new window
                 if (pEnv) {
                     creationFlags |= CREATE_UNICODE_ENVIRONMENT;
-                    Logger::getInstance()->debug("CreateSystemProcessInUserSession: Using Unicode environment flag");
+                    LOG_DEBUG("CreateSystemProcessInUserSession: Using Unicode environment flag");
                 }
 
-                Logger::getInstance()->info("CreateSystemProcessInUserSession: Calling CreateProcessAsUserW, creation flags=" + std::to_string(creationFlags));
+                LOG_INFO("CreateSystemProcessInUserSession: Calling CreateProcessAsUserW, creation flags=%d", creationFlags);
 
                 // Step 9: Create process
                 if (!CreateProcessAsUserW(
@@ -143,26 +143,26 @@ namespace hope {
                     nullptr,
                     &startupInfo,
                     &processInformation)) {
-                    Logger::getInstance()->error("CreateSystemProcessInUserSession: CreateProcessAsUserW failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: CreateProcessAsUserW failed");
                     throw WinApiException("CreateProcessAsUserW");
                 }
 
-                Logger::getInstance()->info("CreateSystemProcessInUserSession: CreateProcessAsUserW succeeded, new process ID=" + std::to_string(processInformation.dwProcessId));
+                LOG_INFO("CreateSystemProcessInUserSession: CreateProcessAsUserW succeeded, new process ID=%d", processInformation.dwProcessId);
 
                 // Verify new process privilege level
                 VerifyProcessPrivileges(processInformation.dwProcessId);
 
                 // Close process and thread handles
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Closing process and thread handles");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Closing process and thread handles");
                 HANDLE hProcess = processInformation.hProcess;
                 CloseHandle(processInformation.hThread);
 
-                Logger::getInstance()->info("CreateSystemProcessInUserSession: Successfully completed");
+                LOG_INFO("CreateSystemProcessInUserSession: Successfully completed");
 
                 return hProcess;
             }
             catch (const std::exception& e) {
-                Logger::getInstance()->error("CreateSystemProcessInUserSession: Caught exception - " + std::string(e.what()));
+                LOG_ERROR("CreateSystemProcessInUserSession: Caught exception - %s", e.what());
                 // Clean up resources
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (duplicatedToken) CloseHandle(duplicatedToken);
@@ -170,7 +170,7 @@ namespace hope {
                 throw;
             }
             catch (...) {
-                Logger::getInstance()->error("CreateSystemProcessInUserSession: Caught unknown exception");
+                LOG_ERROR("CreateSystemProcessInUserSession: Caught unknown exception");
                 // Clean up resources
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (duplicatedToken) CloseHandle(duplicatedToken);
@@ -180,15 +180,15 @@ namespace hope {
 
             // Clean up resources
             if (pEnv) {
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Destroying environment block");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Destroying environment block");
                 DestroyEnvironmentBlock(pEnv);
             }
             if (duplicatedToken) {
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Closing duplicatedToken handle");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Closing duplicatedToken handle");
                 CloseHandle(duplicatedToken);
             }
             if (systemToken) {
-                Logger::getInstance()->debug("CreateSystemProcessInUserSession: Closing systemToken handle");
+                LOG_DEBUG("CreateSystemProcessInUserSession: Closing systemToken handle");
                 CloseHandle(systemToken);
             }
 
@@ -197,7 +197,7 @@ namespace hope {
 
         // Get System Token
         HANDLE SessionHelper::GetSystemToken() {
-            Logger::getInstance()->info("GetSystemToken: Starting to get System Token");
+            LOG_INFO("GetSystemToken: Starting to get System Token");
 
             HANDLE processHandle = nullptr;
             HANDLE tokenHandle = nullptr;
@@ -206,7 +206,7 @@ namespace hope {
                 // Method 1: Try to get from current process (if current process has system privileges)
                 if (OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &tokenHandle)) {
                     if (IsSystemToken(tokenHandle)) {
-                        Logger::getInstance()->info("GetSystemToken: Current process already has System privileges");
+                        LOG_INFO("GetSystemToken: Current process already has System privileges");
                         return tokenHandle;
                     }
                     CloseHandle(tokenHandle);
@@ -214,36 +214,36 @@ namespace hope {
                 }
 
                 // Method 2: Try to get Token from System process
-                Logger::getInstance()->debug("GetSystemToken: Attempting to get Token from System process");
+                LOG_DEBUG("GetSystemToken: Attempting to get Token from System process");
 
                 // Find System process (usually ID 4)
                 DWORD systemProcessId = FindSystemProcessId();
                 if (systemProcessId == 0) {
-                    Logger::getInstance()->error("GetSystemToken: Failed to find System process");
+                    LOG_ERROR("GetSystemToken: Failed to find System process");
                     throw std::runtime_error("Cannot find System process");
                 }
 
-                Logger::getInstance()->debug("GetSystemToken: System process ID = " + std::to_string(systemProcessId));
+                LOG_DEBUG("GetSystemToken: System process ID = %d", systemProcessId);
 
                 // Open System process
                 processHandle = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, systemProcessId);
                 if (!processHandle) {
-                    Logger::getInstance()->error("GetSystemToken: Failed to open System process");
+                    LOG_ERROR("GetSystemToken: Failed to open System process");
                     throw WinApiException("OpenProcess");
                 }
 
                 // Get System process Token
                 if (!OpenProcessToken(processHandle, TOKEN_DUPLICATE | TOKEN_QUERY, &tokenHandle)) {
-                    Logger::getInstance()->error("GetSystemToken: Failed to get System process Token");
+                    LOG_ERROR("GetSystemToken: Failed to get System process Token");
                     throw WinApiException("OpenProcessToken");
                 }
 
-                Logger::getInstance()->info("GetSystemToken: Successfully got System Token");
+                LOG_INFO("GetSystemToken: Successfully got System Token");
                 CloseHandle(processHandle);
                 return tokenHandle;
             }
             catch (const std::exception& e) {
-                Logger::getInstance()->error("GetSystemToken: Exception - " + std::string(e.what()));
+                LOG_ERROR("GetSystemToken: Exception - %s", e.what());
                 if (processHandle) CloseHandle(processHandle);
                 if (tokenHandle) CloseHandle(tokenHandle);
                 throw;
@@ -252,7 +252,7 @@ namespace hope {
 
         // Find System process ID
         DWORD SessionHelper::FindSystemProcessId() {
-            Logger::getInstance()->debug("FindSystemProcessId: Starting to find System process");
+            LOG_DEBUG("FindSystemProcessId: Starting to find System process");
 
             // System process is usually ID 4, but check other possible system processes
             std::vector<DWORD> candidateIds = { 4, 0 }; // System process is usually ID 4
@@ -265,7 +265,7 @@ namespace hope {
                     HANDLE hToken = nullptr;
                     if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
                         if (IsSystemToken(hToken)) {
-                            Logger::getInstance()->info("FindSystemProcessId: Found System process, ID = " + std::to_string(pid));
+                            LOG_INFO("FindSystemProcessId: Found System process, ID = %d", pid);
                             CloseHandle(hToken);
                             CloseHandle(hProcess);
                             return pid;
@@ -276,7 +276,7 @@ namespace hope {
                 }
             }
 
-            Logger::getInstance()->warning("FindSystemProcessId: System process not found");
+            LOG_WARNING("FindSystemProcessId: System process not found");
             return 0;
         }
 
@@ -320,7 +320,7 @@ namespace hope {
 
         // Enable all necessary privileges for Token (including those required for WGC)
         void SessionHelper::EnableTokenPrivileges(HANDLE token) {
-            Logger::getInstance()->debug("EnableTokenPrivileges: Starting to enable Token privileges");
+            LOG_DEBUG("EnableTokenPrivileges: Starting to enable Token privileges");
 
             // Privileges required for WGC and graphical access
             std::vector<std::wstring> privileges = {
@@ -356,7 +356,7 @@ namespace hope {
                 EnablePrivilege(token, privilege);
             }
 
-            Logger::getInstance()->info("EnableTokenPrivileges: Privileges enabled successfully");
+            LOG_INFO("EnableTokenPrivileges: Privileges enabled successfully");
         }
 
         // Enable a single privilege
@@ -365,8 +365,8 @@ namespace hope {
             LUID luid;
 
             if (!LookupPrivilegeValue(nullptr, privilegeName.c_str(), &luid)) {
-                Logger::getInstance()->debug("EnablePrivilege: LookupPrivilegeValue failed - " +
-                    std::string(privilegeName.begin(), privilegeName.end()));
+                LOG_DEBUG("EnablePrivilege: LookupPrivilegeValue failed - %s",
+                    std::string(privilegeName.begin(), privilegeName.end()).c_str());
                 return false;
             }
 
@@ -375,39 +375,39 @@ namespace hope {
             tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
             if (!AdjustTokenPrivileges(token, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), nullptr, nullptr)) {
-                Logger::getInstance()->debug("EnablePrivilege: AdjustTokenPrivileges failed - " +
-                    std::string(privilegeName.begin(), privilegeName.end()));
+                LOG_DEBUG("EnablePrivilege: AdjustTokenPrivileges failed - %s",
+                    std::string(privilegeName.begin(), privilegeName.end()).c_str());
                 return false;
             }
 
             if (GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
-                Logger::getInstance()->debug("EnablePrivilege: Privilege not assigned - " +
-                    std::string(privilegeName.begin(), privilegeName.end()));
+                LOG_DEBUG("EnablePrivilege: Privilege not assigned - %s",
+                    std::string(privilegeName.begin(), privilegeName.end()).c_str());
                 return false;
             }
 
-            Logger::getInstance()->debug("EnablePrivilege: Successfully enabled privilege - " +
-                std::string(privilegeName.begin(), privilegeName.end()));
+            LOG_DEBUG("EnablePrivilege: Successfully enabled privilege - %s",
+                std::string(privilegeName.begin(), privilegeName.end()).c_str());
             return true;
         }
 
         // Verify process privilege level
         void SessionHelper::VerifyProcessPrivileges(DWORD processId) {
-            Logger::getInstance()->debug("VerifyProcessPrivileges: Verifying process privileges, PID = " + std::to_string(processId));
+            LOG_DEBUG("VerifyProcessPrivileges: Verifying process privileges, PID = %d", processId);
 
             HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, processId);
             if (!hProcess) {
-                Logger::getInstance()->warning("VerifyProcessPrivileges: Failed to open process");
+                LOG_WARNING("VerifyProcessPrivileges: Failed to open process");
                 return;
             }
 
             HANDLE hToken = nullptr;
             if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
                 if (IsSystemToken(hToken)) {
-                    Logger::getInstance()->info("VerifyProcessPrivileges: Confirmed process has System privileges");
+                    LOG_INFO("VerifyProcessPrivileges: Confirmed process has System privileges");
                 }
                 else {
-                    Logger::getInstance()->warning("VerifyProcessPrivileges: Process does not have System privileges");
+                    LOG_WARNING("VerifyProcessPrivileges: Process does not have System privileges");
                 }
                 CloseHandle(hToken);
             }
@@ -416,82 +416,82 @@ namespace hope {
         }
 
         void  SessionHelper::RespawnInActiveTerminalSessionWithArgs(const std::wstring& args) {
-            Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: Starting to respawn process, args length=" + std::to_string(args.length()));
+            LOG_INFO("RespawnInActiveTerminalSessionWithArgs: Starting to respawn process, args length=%zu", args.length());
 
             HANDLE token = nullptr;
             HANDLE newToken = nullptr;
             LPVOID pEnv = nullptr;
 
             try {
-                Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Getting active terminal session ID");
+                LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Getting active terminal session ID");
                 DWORD sessionId = GetActiveTerminalSessionId();
-                Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: Target session ID = " + std::to_string(sessionId));
+                LOG_INFO("RespawnInActiveTerminalSessionWithArgs: Target session ID = %d", sessionId);
 
                 // Get the user token for the active session
-                Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Attempting to get user token");
+                LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Attempting to get user token");
                 if (!WTSQueryUserToken(sessionId, &token)) {
-                    Logger::getInstance()->warning("RespawnInActiveTerminalSessionWithArgs: WTSQueryUserToken failed, falling back to current process token");
+                    LOG_WARNING("RespawnInActiveTerminalSessionWithArgs: WTSQueryUserToken failed, falling back to current process token");
 
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Opening current process token");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Opening current process token");
                     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &token)) {
-                        Logger::getInstance()->error("RespawnInActiveTerminalSessionWithArgs: OpenProcessToken failed");
+                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: OpenProcessToken failed");
                         throw WinApiException("OpenProcessToken");
                     }
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: OpenProcessToken succeeded");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: OpenProcessToken succeeded");
 
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Duplicating token");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Duplicating token");
                     if (!DuplicateTokenEx(token, MAXIMUM_ALLOWED, nullptr,
                         SecurityIdentification,
                         TokenPrimary, &newToken)) {
-                        Logger::getInstance()->error("RespawnInActiveTerminalSessionWithArgs: DuplicateTokenEx failed");
+                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: DuplicateTokenEx failed");
                         throw WinApiException("DuplicateTokenEx");
                     }
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: DuplicateTokenEx succeeded");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: DuplicateTokenEx succeeded");
 
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Setting token session information");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Setting token session information");
                     if (!SetTokenInformation(newToken, TokenSessionId,
                         &sessionId, sizeof(sessionId))) {
-                        Logger::getInstance()->error("RespawnInActiveTerminalSessionWithArgs: SetTokenInformation failed");
+                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: SetTokenInformation failed");
                         throw WinApiException("SetTokenInformation");
                     }
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: SetTokenInformation succeeded");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: SetTokenInformation succeeded");
                 }
                 else {
-                    Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: WTSQueryUserToken succeeded, using user token directly");
+                    LOG_INFO("RespawnInActiveTerminalSessionWithArgs: WTSQueryUserToken succeeded, using user token directly");
                     newToken = token;
                     token = nullptr;  // Prevent double-close
                 }
 
                 // Create environment block for the user context
-                Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Creating environment block");
+                LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Creating environment block");
                 if (!CreateEnvironmentBlock(&pEnv, newToken, TRUE)) {
-                    Logger::getInstance()->warning("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock failed, continuing");
+                    LOG_WARNING("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock failed, continuing");
                 }
                 else {
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock succeeded");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock succeeded");
                 }
 
                 // Get current process executable path
-                Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Getting current executable path");
+                LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Getting current executable path");
                 wchar_t exePath[MAX_PATH];
                 if (GetModuleFileName(nullptr, exePath, MAX_PATH) == 0) {
-                    Logger::getInstance()->error("RespawnInActiveTerminalSessionWithArgs: GetModuleFileName failed");
+                    LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: GetModuleFileName failed");
                     throw WinApiException("GetModuleFileName");
                 }
 
                 std::wstring exePathStr(exePath);
                 std::string exePathMB(exePathStr.begin(), exePathStr.end());
-                Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: Executable path = " + exePathMB);
+                LOG_INFO("RespawnInActiveTerminalSessionWithArgs: Executable path = %s", exePathMB.c_str());
 
                 // Build command line with arguments
                 std::wstring commandLine = std::wstring(exePath);
                 if (!args.empty()) {
                     commandLine += L" " + args;
                     std::string argsMB(args.begin(), args.end());
-                    Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: Command line arguments = " + argsMB);
+                    LOG_INFO("RespawnInActiveTerminalSessionWithArgs: Command line arguments = %s", argsMB.c_str());
                 }
 
-                Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Initializing STARTUPINFO");
+                LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Initializing STARTUPINFO");
                 STARTUPINFOW startupInfo = { 0 };
                 startupInfo.cb = sizeof(startupInfo);
                 startupInfo.lpDesktop = const_cast<LPWSTR>(L"winsta0\\default");
@@ -499,7 +499,7 @@ namespace hope {
                 PROCESS_INFORMATION processInformation = { 0 };
 
                 // Create mutable copy of command line
-                Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Preparing command line arguments");
+                LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Preparing command line arguments");
                 std::vector<wchar_t> cmdLine(commandLine.begin(), commandLine.end());
                 cmdLine.push_back(0);
 
@@ -508,10 +508,10 @@ namespace hope {
                 creationFlags = CREATE_NO_WINDOW;  // Do not create new window
                 if (pEnv) {
                     creationFlags |= CREATE_UNICODE_ENVIRONMENT;
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Using Unicode environment flag");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Using Unicode environment flag");
                 }
 
-                Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: Calling CreateProcessAsUserW, creation flags=" + std::to_string(creationFlags));
+                LOG_INFO("RespawnInActiveTerminalSessionWithArgs: Calling CreateProcessAsUserW, creation flags=%d", creationFlags);
                 if (!CreateProcessAsUserW(
                     newToken,
                     nullptr,
@@ -524,14 +524,14 @@ namespace hope {
                     nullptr,
                     &startupInfo,
                     &processInformation)) {
-                    Logger::getInstance()->error("RespawnInActiveTerminalSessionWithArgs: CreateProcessAsUserW failed");
+                    LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: CreateProcessAsUserW failed");
                     throw WinApiException("CreateProcessAsUserW");
                 }
 
-                Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: CreateProcessAsUserW succeeded, new process ID=" + std::to_string(processInformation.dwProcessId));
+                LOG_INFO("RespawnInActiveTerminalSessionWithArgs: CreateProcessAsUserW succeeded, new process ID=%d", processInformation.dwProcessId);
 
                 // Close process and thread handles
-                Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Closing process and thread handles");
+                LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Closing process and thread handles");
 
                 CloseHandle(processInformation.hProcess);
 
@@ -539,31 +539,31 @@ namespace hope {
 
                 // Clean up environment block
                 if (pEnv) {
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Destroying environment block");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Destroying environment block");
                     DestroyEnvironmentBlock(pEnv);
                 }
 
-                Logger::getInstance()->info("RespawnInActiveTerminalSessionWithArgs: Successfully completed");
+                LOG_INFO("RespawnInActiveTerminalSessionWithArgs: Successfully completed");
             }
             catch (const std::exception& e) {
-                Logger::getInstance()->error("RespawnInActiveTerminalSessionWithArgs: Caught exception - " + std::string(e.what()));
+                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught exception - %s", e.what());
 
                 if (pEnv) {
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Exception handling - Destroying environment block");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Exception handling - Destroying environment block");
                     DestroyEnvironmentBlock(pEnv);
                 }
                 if (token != nullptr) {
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Exception handling - Closing token handle");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Exception handling - Closing token handle");
                     CloseHandle(token);
                 }
                 if (newToken != nullptr && newToken != token) {
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSessionWithArgs: Exception handling - Closing newToken handle");
+                    LOG_DEBUG("RespawnInActiveTerminalSessionWithArgs: Exception handling - Closing newToken handle");
                     CloseHandle(newToken);
                 }
                 throw;
             }
             catch (...) {
-                Logger::getInstance()->error("RespawnInActiveTerminalSessionWithArgs: Caught unknown exception");
+                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught unknown exception");
 
                 if (pEnv) {
                     DestroyEnvironmentBlock(pEnv);
@@ -581,53 +581,53 @@ namespace hope {
 
         // Respawn the current application in the active terminal session (no arguments)
         void SessionHelper::RespawnInActiveTerminalSession() {
-            Logger::getInstance()->info("RespawnInActiveTerminalSession: Starting to respawn process (no arguments)");
+            LOG_INFO("RespawnInActiveTerminalSession: Starting to respawn process (no arguments)");
 
             HANDLE token = nullptr;
             HANDLE newToken = nullptr;
 
             try {
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: Getting active terminal session ID");
+                LOG_DEBUG("RespawnInActiveTerminalSession: Getting active terminal session ID");
                 DWORD sessionId = GetActiveTerminalSessionId();
-                Logger::getInstance()->info("RespawnInActiveTerminalSession: Target session ID = " + std::to_string(sessionId));
+                LOG_INFO("RespawnInActiveTerminalSession: Target session ID = %d", sessionId);
 
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: Opening current process token");
+                LOG_DEBUG("RespawnInActiveTerminalSession: Opening current process token");
                 if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &token)) {
-                    Logger::getInstance()->error("RespawnInActiveTerminalSession: OpenProcessToken failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: OpenProcessToken failed");
                     throw WinApiException("OpenProcessToken");
                 }
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: OpenProcessToken succeeded");
+                LOG_DEBUG("RespawnInActiveTerminalSession: OpenProcessToken succeeded");
 
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: Duplicating token");
+                LOG_DEBUG("RespawnInActiveTerminalSession: Duplicating token");
                 if (!DuplicateTokenEx(token, MAXIMUM_ALLOWED, nullptr,
                     SecurityIdentification,
                     TokenPrimary, &newToken)) {
-                    Logger::getInstance()->error("RespawnInActiveTerminalSession: DuplicateTokenEx failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: DuplicateTokenEx failed");
                     throw WinApiException("DuplicateTokenEx");
                 }
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: DuplicateTokenEx succeeded");
+                LOG_DEBUG("RespawnInActiveTerminalSession: DuplicateTokenEx succeeded");
 
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: Setting token session information");
+                LOG_DEBUG("RespawnInActiveTerminalSession: Setting token session information");
                 if (!SetTokenInformation(newToken, TokenSessionId,
                     &sessionId, sizeof(sessionId))) {
-                    Logger::getInstance()->error("RespawnInActiveTerminalSession: SetTokenInformation failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: SetTokenInformation failed");
                     throw WinApiException("SetTokenInformation");
                 }
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: SetTokenInformation succeeded");
+                LOG_DEBUG("RespawnInActiveTerminalSession: SetTokenInformation succeeded");
 
                 // Get current process executable path
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: Getting current executable path");
+                LOG_DEBUG("RespawnInActiveTerminalSession: Getting current executable path");
                 wchar_t exePath[MAX_PATH];
                 if (GetModuleFileName(nullptr, exePath, MAX_PATH) == 0) {
-                    Logger::getInstance()->error("RespawnInActiveTerminalSession: GetModuleFileName failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: GetModuleFileName failed");
                     throw WinApiException("GetModuleFileName");
                 }
 
                 std::wstring exePathStr(exePath);
                 std::string exePathMB(exePathStr.begin(), exePathStr.end());
-                Logger::getInstance()->info("RespawnInActiveTerminalSession: Executable path = " + exePathMB);
+                LOG_INFO("RespawnInActiveTerminalSession: Executable path = %s", exePathMB.c_str());
 
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: Initializing STARTUPINFO");
+                LOG_DEBUG("RespawnInActiveTerminalSession: Initializing STARTUPINFO");
                 STARTUPINFOW startupInfo = { 0 };
                 startupInfo.cb = sizeof(startupInfo);
 
@@ -637,7 +637,7 @@ namespace hope {
 
                 PROCESS_INFORMATION processInformation = { 0 };
 
-                Logger::getInstance()->info("RespawnInActiveTerminalSession: Calling CreateProcessAsUserW");
+                LOG_INFO("RespawnInActiveTerminalSession: Calling CreateProcessAsUserW");
                 if (!CreateProcessAsUserW(
                     newToken,
                     exePath,
@@ -650,34 +650,34 @@ namespace hope {
                     nullptr,
                     &startupInfo,
                     &processInformation)) {
-                    Logger::getInstance()->error("RespawnInActiveTerminalSession: CreateProcessAsUserW failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: CreateProcessAsUserW failed");
                     throw WinApiException("CreateProcessAsUserW");
                 }
 
-                Logger::getInstance()->info("RespawnInActiveTerminalSession: CreateProcessAsUserW succeeded, new process ID=" + std::to_string(processInformation.dwProcessId));
+                LOG_INFO("RespawnInActiveTerminalSession: CreateProcessAsUserW succeeded, new process ID=%d", processInformation.dwProcessId);
 
                 // Close process and thread handles
-                Logger::getInstance()->debug("RespawnInActiveTerminalSession: Closing process and thread handles");
+                LOG_DEBUG("RespawnInActiveTerminalSession: Closing process and thread handles");
                 CloseHandle(processInformation.hProcess);
                 CloseHandle(processInformation.hThread);
 
-                Logger::getInstance()->info("RespawnInActiveTerminalSession: Successfully completed");
+                LOG_INFO("RespawnInActiveTerminalSession: Successfully completed");
             }
             catch (const std::exception& e) {
-                Logger::getInstance()->error("RespawnInActiveTerminalSession: Caught exception - " + std::string(e.what()));
+                LOG_ERROR("RespawnInActiveTerminalSession: Caught exception - %s", e.what());
 
                 if (token != nullptr) {
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSession: Exception handling - Closing token handle");
+                    LOG_DEBUG("RespawnInActiveTerminalSession: Exception handling - Closing token handle");
                     CloseHandle(token);
                 }
                 if (newToken != nullptr) {
-                    Logger::getInstance()->debug("RespawnInActiveTerminalSession: Exception handling - Closing newToken handle");
+                    LOG_DEBUG("RespawnInActiveTerminalSession: Exception handling - Closing newToken handle");
                     CloseHandle(newToken);
                 }
                 throw;
             }
             catch (...) {
-                Logger::getInstance()->error("RespawnInActiveTerminalSession: Caught unknown exception");
+                LOG_ERROR("RespawnInActiveTerminalSession: Caught unknown exception");
 
                 if (token != nullptr) {
                     CloseHandle(token);
@@ -691,19 +691,19 @@ namespace hope {
 
         // Get active terminal session ID
         DWORD SessionHelper::GetActiveTerminalSessionId() {
-            Logger::getInstance()->info("GetActiveTerminalSessionId: Starting to get active terminal session ID");
+            LOG_INFO("GetActiveTerminalSessionId: Starting to get active terminal session ID");
 
             PWTS_SESSION_INFO pSessionArray = nullptr;
             DWORD sessionCount = 0;
 
             try {
-                Logger::getInstance()->debug("GetActiveTerminalSessionId: Calling WTSEnumerateSessions");
+                LOG_DEBUG("GetActiveTerminalSessionId: Calling WTSEnumerateSessions");
                 if (!WTSEnumerateSessions(nullptr, 0, 1, &pSessionArray, &sessionCount)) {
-                    Logger::getInstance()->error("GetActiveTerminalSessionId: WTSEnumerateSessions failed");
+                    LOG_ERROR("GetActiveTerminalSessionId: WTSEnumerateSessions failed");
                     throw WinApiException("WTSEnumerateSessions");
                 }
 
-                Logger::getInstance()->info("GetActiveTerminalSessionId: Found " + std::to_string(sessionCount) + " sessions");
+                LOG_INFO("GetActiveTerminalSessionId: Found %d sessions", sessionCount);
 
                 DWORD activeSessionId = 0;
                 bool sessionFound = false;
@@ -712,14 +712,13 @@ namespace hope {
                 for (DWORD i = 0; i < sessionCount; i++) {
                     WTS_SESSION_INFO session = pSessionArray[i];
 
-                    Logger::getInstance()->debug("GetActiveTerminalSessionId: Session " + std::to_string(i) +
-                        " - ID=" + std::to_string(session.SessionId) +
-                        ", State=" + std::to_string(session.State));
+                    LOG_DEBUG("GetActiveTerminalSessionId: Session %d - ID=%d, State=%d",
+                        i, session.SessionId, session.State);
 
                     if (session.State == WTSActive) {
                         activeSessionId = session.SessionId;
                         sessionFound = true;
-                        Logger::getInstance()->info("GetActiveTerminalSessionId: Found active session ID = " + std::to_string(activeSessionId));
+                        LOG_INFO("GetActiveTerminalSessionId: Found active session ID = %d", activeSessionId);
                         break;
                     }
                 }
@@ -727,15 +726,15 @@ namespace hope {
                 WTSFreeMemory(pSessionArray);
 
                 if (!sessionFound) {
-                    Logger::getInstance()->error("GetActiveTerminalSessionId: No active terminal session found");
+                    LOG_ERROR("GetActiveTerminalSessionId: No active terminal session found");
                     throw std::runtime_error("Could not find active terminal session.");
                 }
 
-                Logger::getInstance()->info("GetActiveTerminalSessionId: Successfully returning session ID = " + std::to_string(activeSessionId));
+                LOG_INFO("GetActiveTerminalSessionId: Successfully returning session ID = %d", activeSessionId);
                 return activeSessionId;
             }
             catch (const std::exception& e) {
-                Logger::getInstance()->error("GetActiveTerminalSessionId: Caught exception - " + std::string(e.what()));
+                LOG_ERROR("GetActiveTerminalSessionId: Caught exception - %s", e.what());
                 if (pSessionArray != nullptr) {
                     WTSFreeMemory(pSessionArray);
                 }
@@ -746,7 +745,7 @@ namespace hope {
         // Get string representation of the last error
         std::string SessionHelper::WinApiException::GetLastErrorAsString() {
             DWORD errorCode = GetLastError();
-            Logger::getInstance()->debug("WinApiException::GetLastErrorAsString: Error code = " + std::to_string(errorCode));
+            LOG_DEBUG("WinApiException::GetLastErrorAsString: Error code = %d", errorCode);
 
             if (errorCode == 0) {
                 return "No error";
@@ -764,12 +763,12 @@ namespace hope {
             );
 
             std::string message(messageBuffer, size);
-            Logger::getInstance()->debug("WinApiException::GetLastErrorAsString: Error message = " + message);
+            LOG_DEBUG("WinApiException::GetLastErrorAsString: Error message = %s", message.c_str());
 
             LocalFree(messageBuffer);
             return message;
         }
 
-	}
+    }
 
 }

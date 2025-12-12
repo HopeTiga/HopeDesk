@@ -2,7 +2,7 @@
 
 #include "WebRTCManager.h"
 
-#include "Logger.h"
+#include "Utils.h"
 
 namespace hope {
 
@@ -19,14 +19,14 @@ namespace hope {
 		
 			if (buffer.size() == 0) {
 			
-				Logger::getInstance()->error("DataChannelObserverImpl::OnMessag webrtc::DataBuffer size : 0");
+				LOG_ERROR("DataChannelObserverImpl::OnMessag webrtc::DataBuffer size : 0");
 
 				return;
 			}
 
 			if (buffer.size() > 1024 * 1024) {
 			
-				Logger::getInstance()->error("DataChannelObserverImpl::OnMessag webrtc::DataBuffer Exceeds the size limit");
+				LOG_ERROR("DataChannelObserverImpl::OnMessag webrtc::DataBuffer Exceeds the size limit");
 
 				return;
 			

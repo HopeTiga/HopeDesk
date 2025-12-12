@@ -2,7 +2,7 @@
 
 #include "WebRTCManager.h"
 
-#include "Logger.h"
+#include "Utils.h"
 
 namespace hope {
 
@@ -11,7 +11,7 @@ namespace hope {
         // CreateOfferObserverImpl实现
         void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
             if (!desc) {
-                Logger::getInstance()->error("CreateOffer success callback received null description");
+                LOG_ERROR("CreateOffer success callback received null description");
                 manager->isProcessingOffer = false;
                 return;
             }
@@ -34,7 +34,7 @@ namespace hope {
                     std::string modifiedLine = extmapLine + ";min=0;max=0";
                     sdp.replace(lineStart, lineEnd - lineStart, modifiedLine);
 
-                    Logger::getInstance()->info("Added playout delay optimization: min=0;max=0");
+                    LOG_INFO("Added playout delay optimization: min=0;max=0");
                 }
             }
 
@@ -44,12 +44,12 @@ namespace hope {
                 webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error);
 
             if (modifiedDesc) {
-                Logger::getInstance()->info("Set modified SDP with playout delay optimization");
+                LOG_INFO("Set modified SDP with playout delay optimization");
                 peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(),
                     modifiedDesc.release());
             }
             else {
-                Logger::getInstance()->error("Failed to parse modified SDP: " + error.description);
+                LOG_ERROR("Failed to parse modified SDP: %s", error.description.c_str());
                 // 如果修改失败，使用原始描述
                 peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(), desc);
             }
@@ -62,14 +62,14 @@ namespace hope {
         }
 
         void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
-            Logger::getInstance()->error("CreateOffer failed: " + std::string(error.message()));
+            LOG_ERROR("CreateOffer failed: %s" , error.message());
             manager->isProcessingOffer = false;
         }
 
         // CreateAnswerObserverImpl实现
         void CreateAnswerObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
             if (!desc) {
-                Logger::getInstance()->error("CreateAnswer success callback received null description");
+                LOG_ERROR("CreateAnswer success callback received null description");
                 return;
             }
 
@@ -77,7 +77,7 @@ namespace hope {
 
             std::string sdp;
             if (!desc->ToString(&sdp)) {
-                Logger::getInstance()->error("Failed to convert answer to string");
+                LOG_ERROR("Failed to convert answer to string");
                 return;
             }
 
@@ -89,7 +89,7 @@ namespace hope {
         }
 
         void CreateAnswerObserverImpl::OnFailure(webrtc::RTCError error) {
-            Logger::getInstance()->error("CreateAnswer failed: " + std::string(error.message()));
+            LOG_ERROR("CreateAnswer failed: %s", error.message());
         }
 
 	}

@@ -12,69 +12,67 @@ namespace hope {
             cacheInitialized(false) {
 
             try {
-                logger = Logger::getInstance();
-                logger->info("KeyMouseSimulator constructor started");
+                LOG_INFO("KeyMouseSimulator constructor started");
 
                 // 初始化缓存数组
                 memset(scanCodeCache, 0, sizeof(scanCodeCache));
                 InitializeCache();
 
-                logger->info("KeyMouseSimulator constructor completed");
+                LOG_INFO("KeyMouseSimulator constructor completed");
             }
             catch (...) {
-                logger = nullptr;
+                // logger 不再需要设置为 nullptr
             }
         }
 
         KeyMouseSimulator::~KeyMouseSimulator() {
             isDestroying = true;
             if (interceptionContext) {
-                logger->info("Destroying Interception context...");
+                LOG_INFO("Destroying Interception context...");
                 try {
                     interception_destroy_context(interceptionContext);
                     interceptionContext = nullptr;
-                    logger->info("Context destroyed successfully");
+                    LOG_INFO("Context destroyed successfully");
                 }
                 catch (...) {
-                    logger->error("Exception during context destruction");
+                    LOG_ERROR("Exception during context destruction");
                     interceptionContext = nullptr;
                 }
             }
         }
 
         bool KeyMouseSimulator::Initialize() {
-            logger->info("Initialize() called - entering function");
-            logger->info("Creating Interception context...");
+            LOG_INFO("Initialize() called - entering function");
+            LOG_INFO("Creating Interception context...");
 
-            logger->info("About to call interception_create_context()...");
+            LOG_INFO("About to call interception_create_context()...");
             interceptionContext = interception_create_context();
-            logger->info("interception_create_context() returned");
+            LOG_INFO("interception_create_context() returned");
 
             if (!interceptionContext) {
-                logger->error("Failed to create Interception context");
-                logger->error("Please ensure:");
-                logger->error("1. Running with administrator privileges");
-                logger->error("2. Interception driver is installed");
-                logger->error("3. Driver service is running");
+                LOG_ERROR("Failed to create Interception context");
+                LOG_ERROR("Please ensure:");
+                LOG_ERROR("1. Running with administrator privileges");
+                LOG_ERROR("2. Interception driver is installed");
+                LOG_ERROR("3. Driver service is running");
                 return false;
             }
 
-            logger->info("Context created successfully");
+            LOG_INFO("Context created successfully");
 
             interceptionKeyboard = INTERCEPTION_KEYBOARD(0);
             interceptionMouse = INTERCEPTION_MOUSE(0);
 
-            logger->info("Device ID - Keyboard: " + std::to_string(interceptionKeyboard) +
-                ", Mouse: " + std::to_string(interceptionMouse));
+            LOG_INFO("Device ID - Keyboard: %d, Mouse: %d", interceptionKeyboard, interceptionMouse);
 
             isInitialized = true;
-            logger->info("Initialization completed successfully");
+            LOG_INFO("Initialization completed successfully");
             return true;
         }
 
         bool KeyMouseSimulator::SendKey(WORD scanCode, bool down, bool extended) {
             if (!interceptionContext || isDestroying) {
-                logger->error("Invalid context or destroying");
+                LOG_ERROR("Invalid context or destroying");
                 return false;
             }
 
@@ -94,24 +92,23 @@ namespace hope {
                     reinterpret_cast<InterceptionStroke*>(&keystroke), 1);
 
                 if (result != 1) {
-                    logger->error("Failed to send keyboard event, return value: " + std::to_string(result));
+                    LOG_ERROR("Failed to send keyboard event, return value: %d", result);
                     return false;
                 }
 
-                logger->debug("Keyboard event sent - Scancode: " + std::to_string(scanCode) +
-                    ", State: " + (down ? "Down" : "Up") +
-                    ", Extended: " + (extended ? "Yes" : "No"));
+                LOG_DEBUG("Keyboard event sent - Scancode: %d, State: %s, Extended: %s",
+                    scanCode, down ? "Down" : "Up", extended ? "Yes" : "No");
                 return true;
             }
             catch (...) {
-                logger->error("Exception occurred while sending keyboard event");
+                LOG_ERROR("Exception occurred while sending keyboard event");
                 return false;
             }
         }
 
         bool KeyMouseSimulator::MouseMove(int x, int y, bool absolute) {
             if (!interceptionContext || isDestroying) {
-                logger->error("Invalid context or destroying");
+                LOG_ERROR("Invalid context or destroying");
                 return false;
             }
 
@@ -142,14 +139,14 @@ namespace hope {
                     reinterpret_cast<InterceptionStroke*>(&mousestroke), 1);
 
                 if (result != 1) {
-                    logger->error("Failed to send mouse movement, return value: " + std::to_string(result));
+                    LOG_ERROR("Failed to send mouse movement, return value: %d", result);
                     return false;
                 }
 
                 return true;
             }
             catch (...) {
-                logger->error("Exception during mouse movement");
+                LOG_ERROR("Exception during mouse movement");
                 return false;
             }
         }
@@ -233,7 +230,7 @@ namespace hope {
 
         bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
             if (vkCode > 0xFE) {
-                logger->error("无效的VK码: " + std::to_string(vkCode));
+                LOG_ERROR("无效的VK码: %d", vkCode);
                 return false;
             }
 
@@ -246,7 +243,7 @@ namespace hope {
             // 统一处理所有按键
             WORD scanCode = GetCachedScanCode(vkCode);
             if (scanCode == 0) {
-                logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+                LOG_ERROR("MapVirtualKey失败，VK: %d", vkCode);
                 return false;
             }
 
@@ -256,7 +253,7 @@ namespace hope {
 
         bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
             if (vkCode > 0xFE) {
-                logger->error("无效的VK码: " + std::to_string(vkCode));
+                LOG_ERROR("无效的VK码: %d", vkCode);
                 return false;
             }
 
@@ -269,7 +266,7 @@ namespace hope {
             // 统一处理所有按键
             WORD scanCode = GetCachedScanCode(vkCode);
             if (scanCode == 0) {
-                logger->error("MapVirtualKey失败，VK: " + std::to_string(vkCode));
+                LOG_ERROR("MapVirtualKey失败，VK: %d", vkCode);
                 return false;
             }
 
@@ -329,7 +326,7 @@ namespace hope {
 
         void KeyMouseSimulator::ForceStop() {
             isDestroying = true;
-            logger->info("Force stopping simulator...");
+            LOG_INFO("Force stopping simulator...");
         }
 
         bool KeyMouseSimulator::IsExtendedKey(WORD scanCode) {
@@ -357,4 +354,3 @@ namespace hope {
         }
     }
 }
-
