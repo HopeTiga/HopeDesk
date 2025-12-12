@@ -17,6 +17,10 @@ int main() {
     SetConsoleCP(CP_UTF8);
 #endif
 
+    initLogger();
+
+    setConsoleOutputLevels(0, 1, 1, 0);
+
     ConfigManager::Instance().Load("config.ini", ConfigManager::Format::Ini);
 
     boost::asio::io_context ioContext;

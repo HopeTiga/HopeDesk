@@ -10,7 +10,6 @@
 #include "AsioProactors.h"
 #include "ConfigManager.h"
 
-#include "Logger.h"
 #include "Utils.h"
 
 namespace hope {
