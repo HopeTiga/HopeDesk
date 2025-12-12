@@ -71,7 +71,7 @@ namespace hope {
                 );
 
                 if (result != 0) {
-                    Logger::getInstance()->error("AudioHandle failed with result: " + std::to_string(result));
+                    LOG_ERROR("AudioHandle failed with result: %d", result);
                 }
             }
         }
@@ -99,7 +99,7 @@ namespace hope {
             );
 
             if (result != 0) {
-                Logger::getInstance()->error("AudioCallback failed");
+                LOG_ERROR("AudioCallback failed");
             }
         }
 

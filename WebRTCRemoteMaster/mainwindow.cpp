@@ -187,20 +187,20 @@ void MainWindow::setupWebRTCCallbacks()
                 hasEverConnected = true;
                 this->onConnectionStateChanged(true);
                 this->reConnectNums = 0;
-                Logger::getInstance()->info("MsquicServer Connected successfully.");
+                LOG_INFO("MsquicServer Connected successfully.");
             } else {
                 if (!hasEverConnected) {
                     this->ui->connectButton->setEnabled(true);
                     this->ui->connectButton->setText("连接服务器");
                     this->ui->connectionStatusLabel->setText("连接异常");
                     this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
-                    Logger::getInstance()->info("Initial connection failed.");
+                    LOG_INFO("Initial connection failed.");
                 } else {
                     this->isConnected = false;
                     this->updateConnectionState(false);
                     this->reConnectNums++;
 
-                    Logger::getInstance()->info("Connection lost, attempting reconnect #" + std::to_string(this->reConnectNums));
+                    LOG_INFO("Connection lost, attempting reconnect #%d" ,this->reConnectNums);
 
                     this->ui->connectionStatusLabel->setText(
                         QString("连接断开，将在15秒后进行第%1次重连...").arg(this->reConnectNums));
@@ -225,7 +225,7 @@ void MainWindow::setupWebRTCCallbacks()
                                     statusBar()->showMessage("正在重连...");
                                 }
 
-                                Logger::getInstance()->info("Retrying connect... #" + std::to_string(this->reConnectNums));
+                                LOG_INFO("Retrying connect... #%d" ,this->reConnectNums);
 
                                 this->manager->setAccountId(currentAccount.toStdString());
                                 QString url = QString("%1:%2").arg(serverAddress).arg(port);
@@ -239,7 +239,7 @@ void MainWindow::setupWebRTCCallbacks()
                                 this->ui->connectButton->setEnabled(true);
                                 this->ui->connectButton->setText("连接服务器");
                                 this->reConnectNums = 0;
-                                Logger::getInstance()->info("Config incomplete, stop retry.");
+                                LOG_INFO("Config incomplete, stop retry.");
                             }
                         }
                     });

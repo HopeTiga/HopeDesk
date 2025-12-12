@@ -1,7 +1,7 @@
 #include "interceptionhook.h"
 #include "videowidget.h"
 #include "webrtcmanager.h"
-#include "Logger.h"
+#include "Utils.h"
 #include <QWidget>
 #include <QApplication>
 
@@ -23,10 +23,9 @@ InterceptionHook::InterceptionHook(QObject* parent)
     , lastMouseY(0)
     , numLockState(false)
 {
-    logger = Logger::getInstance();
-    logger->info("InterceptionHook constructor");
+    LOG_INFO("InterceptionHook constructor");
 
-    // 获取屏幕尺寸
+    // Get screen dimensions
     screenWidth = GetSystemMetrics(SM_CXSCREEN);
     screenHeight = GetSystemMetrics(SM_CYSCREEN);
 }
@@ -34,7 +33,7 @@ InterceptionHook::InterceptionHook(QObject* parent)
 InterceptionHook::~InterceptionHook()
 {
     stopCapture();
-    logger->info("InterceptionHook destroyed");
+    LOG_INFO("InterceptionHook destroyed");
 }
 
 void InterceptionHook::setTargetWidget(VideoWidget* widget)
@@ -42,14 +41,14 @@ void InterceptionHook::setTargetWidget(VideoWidget* widget)
     targetWidget = widget;
     if (widget) {
         targetHwnd = reinterpret_cast<HWND>(widget->winId());
-        logger->info("Target widget set, HWND: " + std::to_string(reinterpret_cast<uintptr_t>(targetHwnd)));
+        LOG_INFO("Target widget set, HWND: %p", targetHwnd);
     }
 }
 
 void InterceptionHook::setManager(WebRTCManager* manager)
 {
     this->manager = manager;
-    logger->info("Remote client set");
+    LOG_INFO("Remote client set");
 }
 
 void InterceptionHook::setVideoSize(int width, int height)
@@ -60,40 +59,40 @@ void InterceptionHook::setVideoSize(int width, int height)
 bool InterceptionHook::startCapture()
 {
     if (running) {
-        logger->warning("Capture already running");
+        LOG_WARNING("Capture already running");
         return true;
     }
 
-    logger->info("Starting Interception capture...");
+    LOG_INFO("Starting Interception capture...");
 
-    // 创建 Interception 上下文
+    // Create Interception context
     context = interception_create_context();
     if (!context) {
-        logger->error("Failed to create Interception context");
-        logger->error("Please ensure:");
-        logger->error("1. Running with administrator privileges");
-        logger->error("2. Interception driver is installed");
-        logger->error("3. Driver service is running");
+        LOG_ERROR("Failed to create Interception context");
+        LOG_ERROR("Please ensure:");
+        LOG_ERROR("1. Running with administrator privileges");
+        LOG_ERROR("2. Interception driver is installed");
+        LOG_ERROR("3. Driver service is running");
         return false;
     }
 
-    logger->info("Interception context created successfully");
+    LOG_INFO("Interception context created successfully");
 
-    // 设置设备 ID
+    // Set device IDs
     keyboard = INTERCEPTION_KEYBOARD(0);
     mouse = INTERCEPTION_MOUSE(0);
 
-    // 设置过滤器：捕获所有键盘和鼠标设备
+    // Set filters: capture all keyboard and mouse devices
     interception_set_filter(context, interception_is_keyboard, INTERCEPTION_FILTER_KEY_ALL);
     interception_set_filter(context, interception_is_mouse, INTERCEPTION_FILTER_MOUSE_ALL);
 
     initialized = true;
     running = true;
 
-    // 启动捕获线程
+    // Start capture thread
     captureThread = std::thread(&InterceptionHook::captureThreadFunc, this);
 
-    logger->info("Capture thread started");
+    LOG_INFO("Capture thread started");
     return true;
 }
 
@@ -103,22 +102,22 @@ void InterceptionHook::stopCapture()
         return;
     }
 
-    logger->info("Stopping capture...");
+    LOG_INFO("Stopping capture...");
     running = false;
 
-    // 等待线程结束
+    // Wait for thread to finish
     if (captureThread.joinable()) {
         captureThread.join();
     }
 
-    // 销毁上下文
+    // Destroy context
     if (context) {
         interception_destroy_context(context);
         context = nullptr;
     }
 
     initialized = false;
-    logger->info("Capture stopped");
+    LOG_INFO("Capture stopped");
 }
 
 bool InterceptionHook::isInTargetWindow() const
@@ -127,20 +126,20 @@ bool InterceptionHook::isInTargetWindow() const
         return false;
     }
 
-    // 获取鼠标位置
+    // Get mouse position
     POINT cursorPos;
     GetCursorPos(&cursorPos);
 
-    // 获取鼠标所在的窗口
+    // Get window under cursor
     HWND hwndUnderCursor = WindowFromPoint(cursorPos);
 
-    // 检查是否是目标窗口或其子窗口
+    // Check if it's target window or its child
     return (hwndUnderCursor == targetHwnd || IsChild(targetHwnd, hwndUnderCursor));
 }
 
 void InterceptionHook::captureThreadFunc()
 {
-    logger->info("Capture thread started");
+    LOG_INFO("Capture thread started");
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
     InterceptionDevice device;
@@ -155,11 +154,11 @@ void InterceptionHook::captureThreadFunc()
         if (interception_is_keyboard(device)) {
             InterceptionKeyStroke* keystroke = reinterpret_cast<InterceptionKeyStroke*>(&stroke);
 
-            // 全局监听NumLock按键
+            // Global NumLock key monitoring
             bool isPress = !(keystroke->state & INTERCEPTION_KEY_UP);
             if (keystroke->code == 0x45 && isPress) {
                 numLockState = !numLockState.load();
-                logger->info("NumLock toggled to: " + std::string(numLockState ? "ON" : "OFF"));
+                LOG_INFO("NumLock toggled to: %s", numLockState ? "ON" : "OFF");
             }
 
             HWND foregroundWnd = GetForegroundWindow();
@@ -178,7 +177,7 @@ void InterceptionHook::captureThreadFunc()
         interception_send(context, device, &stroke, 1);
     }
 
-    logger->info("Capture thread exiting");
+    LOG_INFO("Capture thread exiting");
 }
 
 void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
@@ -187,18 +186,18 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 
     if(keystroke.code==42 && (keystroke.state==2 || keystroke.state==3)) return;
 
-    // 使用系统 API 转换（大部分按键都能正确处理）
+    // Use system API for conversion (handles most keys correctly)
     DWORD vkCode = MapVirtualKey(keystroke.code, MAPVK_VSC_TO_VK_EX);
 
 
-    // 只处理特殊情况：小键盘区域需要根据 NumLock 状态区分
+    // Handle special case: numpad keys need to be distinguished based on NumLock state
     if (!(keystroke.state & INTERCEPTION_KEY_E0) &&
         ((keystroke.code >= 0x47 && keystroke.code <= 0x53) || keystroke.code == 0x52)) {
 
         bool numLockOn = isNumLockOn();
 
         if (!numLockOn) {
-            // NumLock OFF: 发送主键盘数字字符
+            // NumLock OFF: Send main keyboard numeric characters
             switch (keystroke.code) {
             case 0x52: vkCode = 0x30; break;  // '0'
             case 0x4F: vkCode = 0x31; break;  // '1'
@@ -225,27 +224,27 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 
 void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
 {
-    // 获取当前鼠标位置
+    // Get current mouse position
     POINT cursorPos;
     GetCursorPos(&cursorPos);
 
-    // 转换为窗口客户区坐标
+    // Convert to window client area coordinates
     POINT clientPt = cursorPos;
     if (targetHwnd) {
         ScreenToClient(targetHwnd, &clientPt);
 
-        // 获取窗口客户区大小
+        // Get window client area size
         RECT clientRect;
         GetClientRect(targetHwnd, &clientRect);
         int windowWidth = clientRect.right - clientRect.left;
         int windowHeight = clientRect.bottom - clientRect.top;
 
-        // 将窗口坐标映射到屏幕坐标系（保持相对位置）
+        // Map window coordinates to screen coordinate system (maintain relative position)
         if (windowWidth > 0 && windowHeight > 0) {
             clientPt.x = (clientPt.x * screenWidth) / windowWidth;
             clientPt.y = (clientPt.y * screenHeight) / windowHeight;
 
-            // 边界检查
+            // Boundary check
             if (clientPt.x < 0) clientPt.x = 0;
             if (clientPt.x >= screenWidth) clientPt.x = screenWidth - 1;
             if (clientPt.y < 0) clientPt.y = 0;
@@ -262,7 +261,7 @@ void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
         lastMouseY = y;
     }
 
-    // 处理鼠标按键
+    // Process mouse buttons
     if (mousestroke.state & INTERCEPTION_MOUSE_LEFT_BUTTON_DOWN) {
         sendMouseEvent(1, 0, x, y);
     }
@@ -282,7 +281,7 @@ void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
         sendMouseEvent(2, 2, x, y);
     }
 
-    // 处理滚轮
+    // Process wheel
     if (mousestroke.state & INTERCEPTION_MOUSE_WHEEL) {
         sendWheelEvent(mousestroke.rolling);
     }
@@ -328,7 +327,7 @@ void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
         return;
     }
 
-    // 将坐标归一化到 0-65535 范围
+    // Normalize coordinates to 0-65535 range
     int normalizedX = (x << 16) / screenWidth;
     int normalizedY = (y << 16) / screenHeight;
 
@@ -351,7 +350,7 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
         return;
     }
 
-    // 将坐标归一化到 0-65535 范围
+    // Normalize coordinates to 0-65535 range
     int normalizedX = (x << 16) / screenWidth;
     int normalizedY = (y << 16) / screenHeight;
 

@@ -10,8 +10,6 @@
 #include <thread>
 #include <memory>
 
-class Logger;
-
 namespace hope{
 
 namespace rtc{
@@ -84,9 +82,6 @@ private:
     std::thread captureThread;
     std::atomic<bool> running;
     std::atomic<bool> initialized;
-
-    // 日志
-    Logger* logger;
 
     // 上次鼠标位置（用于优化）
     std::atomic<int> lastMouseX;

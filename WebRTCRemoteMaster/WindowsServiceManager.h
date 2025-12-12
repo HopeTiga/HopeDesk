@@ -2,7 +2,7 @@
 #include <tlhelp32.h>  // 添加进程枚举所需头文件
 #include <string>
 #include <iostream>
-#include "Logger.h"  // 添加Logger头文件
+#include "Utils.h"  // 添加Logger头文件
 
 namespace hope{
 
@@ -15,7 +15,7 @@ public:
     static bool registerService(const std::string& serviceName, const std::string& exePath) {
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
         if (!serviceControlManager) {
-            Logger::getInstance()->error("Failed to open service control manager: " + std::to_string(GetLastError()));
+            LOG_ERROR("Failed to open service control manager: %d", GetLastError());
             return false;
         }
 
@@ -39,7 +39,7 @@ public:
         if (!serviceHandle) {
             DWORD errorCode = GetLastError();
             if (errorCode == ERROR_SERVICE_EXISTS) {
-                Logger::getInstance()->info("Service already exists: " + serviceName);
+                LOG_INFO("Service already exists: %s", serviceName.c_str());
                 // 尝试打开现有服务并修改配置
                 serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_ALL_ACCESS);
                 if (serviceHandle) {
@@ -54,11 +54,11 @@ public:
                 }
             }
             else {
-                Logger::getInstance()->error("Failed to create service: " + std::to_string(errorCode));
+                LOG_ERROR("Failed to create service: %d", errorCode);
             }
         }
         else {
-            Logger::getInstance()->info("Service registered successfully: " + serviceName);
+            LOG_INFO("Service registered successfully: %s", serviceName.c_str());
 
             // 设置服务描述
             SERVICE_DESCRIPTION desc;
@@ -91,7 +91,7 @@ public:
     static bool serviceExists(const std::string& serviceName) {
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_CONNECT);
         if (!serviceControlManager) {
-            Logger::getInstance()->error("Failed to open service control manager: " + std::to_string(GetLastError()));
+            LOG_ERROR("Failed to open service control manager: %d", GetLastError());
             return false;
         }
 
@@ -99,14 +99,14 @@ public:
         bool exists = (serviceHandle != nullptr);
 
         if (exists) {
-            Logger::getInstance()->info("Service exists: " + serviceName);
+            LOG_INFO("Service exists: %s", serviceName.c_str());
             CloseServiceHandle(serviceHandle);
         } else {
             DWORD errorCode = GetLastError();
             if (errorCode == ERROR_SERVICE_DOES_NOT_EXIST) {
-                Logger::getInstance()->info("Service does not exist: " + serviceName);
+                LOG_INFO("Service does not exist: %s", serviceName.c_str());
             } else {
-                Logger::getInstance()->error("Failed to query service: " + serviceName + ", Error: " + std::to_string(errorCode));
+                LOG_ERROR("Failed to query service: %s, Error: %d", serviceName.c_str(), errorCode);
             }
         }
 
@@ -118,29 +118,29 @@ public:
     static bool startService(const std::string& serviceName) {
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
         if (!serviceControlManager) {
-            Logger::getInstance()->error("Failed to open service control manager: " + std::to_string(GetLastError()));
+            LOG_ERROR("Failed to open service control manager: %d", GetLastError());
             return false;
         }
 
         SC_HANDLE serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_ALL_ACCESS);
         if (!serviceHandle) {
-            Logger::getInstance()->error("Failed to open service: " + serviceName + ", Error: " + std::to_string(GetLastError()));
+            LOG_ERROR("Failed to open service: %s, Error: %d", serviceName.c_str(), GetLastError());
             CloseServiceHandle(serviceControlManager);
             return false;
         }
 
         bool isSuccess = StartServiceA(serviceHandle, 0, nullptr);
         if (isSuccess) {
-            Logger::getInstance()->info("Service started successfully: " + serviceName);
+            LOG_INFO("Service started successfully: %s", serviceName.c_str());
         }
         else {
             DWORD errorCode = GetLastError();
             if (errorCode == ERROR_SERVICE_ALREADY_RUNNING) {
-                Logger::getInstance()->info("Service is already running: " + serviceName);
+                LOG_INFO("Service is already running: %s", serviceName.c_str());
                 isSuccess = true;
             }
             else {
-                Logger::getInstance()->error("Failed to start service: " + serviceName + ", Error: " + std::to_string(errorCode));
+                LOG_ERROR("Failed to start service: %s, Error: %d", serviceName.c_str(), errorCode);
             }
         }
 
@@ -151,12 +151,12 @@ public:
 
     // 停止服务 - 强制杀死所有同名进程
     static bool stopService(const std::string& serviceName) {
-        Logger::getInstance()->info("Force killing all processes with name: " + serviceName);
+        LOG_INFO("Force killing all processes with name: %s", serviceName.c_str());
 
         // 获取进程快照
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE) {
-            Logger::getInstance()->error("Failed to create process snapshot: " + std::to_string(GetLastError()));
+            LOG_ERROR("Failed to create process snapshot: %d", GetLastError());
             return false;
         }
 
@@ -187,19 +187,14 @@ public:
                     if (processHandle) {
                         // 强制终止进程
                         if (TerminateProcess(processHandle, 0)) {
-                            Logger::getInstance()->info("Successfully killed process: " + std::string(processNameBuffer) +
-                                                        " (PID: " + std::to_string(processEntry.th32ProcessID) + ")");
+                            LOG_INFO("Successfully killed process: %s (PID: %d)", processNameBuffer, processEntry.th32ProcessID);
                             killedCount++;
                         } else {
-                            Logger::getInstance()->error("Failed to terminate process PID " +
-                                                         std::to_string(processEntry.th32ProcessID) +
-                                                         ": " + std::to_string(GetLastError()));
+                            LOG_ERROR("Failed to terminate process PID %d: %d", processEntry.th32ProcessID, GetLastError());
                         }
                         CloseHandle(processHandle);
                     } else {
-                        Logger::getInstance()->error("Failed to open process PID " +
-                                                     std::to_string(processEntry.th32ProcessID) +
-                                                     ": " + std::to_string(GetLastError()));
+                        LOG_ERROR("Failed to open process PID %d: %d", processEntry.th32ProcessID, GetLastError());
                     }
                 }
             } while (Process32NextW(snapshot, &processEntry));  // 使用宽字符版本
@@ -208,10 +203,10 @@ public:
         CloseHandle(snapshot);
 
         if (killedCount > 0) {
-            Logger::getInstance()->info("Total processes killed: " + std::to_string(killedCount));
+            LOG_INFO("Total processes killed: %d", killedCount);
             return true;
         } else {
-            Logger::getInstance()->info("No processes found with name: " + serviceName);
+            LOG_INFO("No processes found with name: %s", serviceName.c_str());
             return true; // 没有找到进程也算成功
         }
     }
@@ -223,23 +218,23 @@ public:
 
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
         if (!serviceControlManager) {
-            Logger::getInstance()->error("Failed to open service control manager: " + std::to_string(GetLastError()));
+            LOG_ERROR("Failed to open service control manager: %d", GetLastError());
             return false;
         }
 
         SC_HANDLE serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_ALL_ACCESS);
         if (!serviceHandle) {
-            Logger::getInstance()->info("Service not found: " + serviceName);
+            LOG_INFO("Service not found: %s", serviceName.c_str());
             CloseServiceHandle(serviceControlManager);
             return true; // 服务不存在也算成功
         }
 
         bool isSuccess = ::DeleteService(serviceHandle);
         if (isSuccess) {
-            Logger::getInstance()->info("Service deleted successfully: " + serviceName);
+            LOG_INFO("Service deleted successfully: %s", serviceName.c_str());
         }
         else {
-            Logger::getInstance()->error("Failed to delete service: " + serviceName + ", Error: " + std::to_string(GetLastError()));
+            LOG_ERROR("Failed to delete service: %s, Error: %d", serviceName.c_str(), GetLastError());
         }
 
         CloseServiceHandle(serviceHandle);
@@ -248,7 +243,5 @@ public:
     }
 };
 
-
 }
-
 }

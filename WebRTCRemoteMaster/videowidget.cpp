@@ -1,6 +1,5 @@
 #include "videowidget.h"
 #include "webrtcmanager.h"
-#include "Logger.h"
 #include <QVBoxLayout>
 #include <QFile>
 #include <QCursor>
@@ -8,6 +7,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <algorithm>
+#include "Utils.h"
 
 namespace hope{
 
@@ -29,8 +29,7 @@ VideoWidget::VideoWidget(QWidget* parent)
     , sidebarVisible(false)
     ,interceptionHook(nullptr)
 {
-    logger = Logger::getInstance();
-    logger->info("VideoWidget初始化开始");
+    LOG_INFO("VideoWidget init");
 
     QIcon windowIcon(":/logo/res/hope.png");
     if (!windowIcon.isNull()) {
@@ -43,16 +42,16 @@ VideoWidget::VideoWidget(QWidget* parent)
     setMouseTracking(true);
     setAttribute(Qt::WA_AcceptTouchEvents);
 
-    // 初始化FPS计时器
+    // Initialize FPS timer
     fpsTimer.start();
     QTimer* fpsUpdateTimer = new QTimer(this);
     connect(fpsUpdateTimer, &QTimer::timeout, this, &VideoWidget::updateFPS);
     fpsUpdateTimer->start(1000);
 
-    // 初始化时间戳
+    // Initialize timestamp
     lastUpdateTime = std::chrono::steady_clock::now();
 
-    // 初始化uniform缓存
+    // Initialize uniform cache
     for (auto& uniformData : lastUniformData) {
         uniformData.mvp.setToIdentity();
         uniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
@@ -61,39 +60,39 @@ VideoWidget::VideoWidget(QWidget* parent)
     initializeControls();
     loadPipelineCache();
 
-    logger->info("VideoWidget初始化完成");
+    LOG_INFO("VideoWidget init finished");
 }
 
 VideoWidget::~VideoWidget()
 {
-    logger->info("VideoWidget析构");
+    LOG_INFO("VideoWidget destruction");
     savePipelineCache();
 }
 
 void VideoWidget::initialize(QRhiCommandBuffer* cb)
 {
     if (!QRhiWidget::rhi()) {
-        logger->error("RHI未初始化");
+        LOG_ERROR("RHI not initialized");
         return;
     }
 
     if (rhi != QRhiWidget::rhi()) {
-        logger->info("RHI实例改变，重新创建资源");
+        LOG_INFO("RHI instance changed, recreating resources");
         releaseResources();
         rhi = QRhiWidget::rhi();
         resourcesInitialized = false;
     }
 
     if (!resourcesInitialized) {
-        logger->info("开始初始化视频渲染资源");
+        LOG_INFO("Starting video rendering resource initialization");
 
         if (!initializeResources(cb)) {
-            logger->error("初始化资源失败");
+            LOG_ERROR("Resource initialization failed");
             return;
         }
 
         resourcesInitialized = true;
-        logger->info("视频渲染资源初始化完成");
+        LOG_INFO("Video rendering resource initialization completed");
     }
 }
 
@@ -108,7 +107,7 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
     if (cb && rhi) {
         QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
 
-        // 上传顶点数据
+        // Upload vertex data
         static const float vertexData[] = {
             -1.0f,  1.0f,  0.0f, 0.0f,
             -1.0f, -1.0f,  0.0f, 1.0f,
@@ -119,7 +118,7 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
         };
         batch->uploadStaticBuffer(vertexBuffer.get(), vertexData);
 
-        // 初始化uniform buffers
+        // Initialize uniform buffers
         UniformData uniformData;
         uniformData.mvp.setToIdentity();
         uniformData.params = QVector4D(
@@ -139,7 +138,7 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 
     bool success = (pipeline != nullptr);
     if (!success) {
-        logger->error("initializeResources失败");
+        LOG_ERROR("initializeResources failed");
     }
     return success;
 }
@@ -147,7 +146,7 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 void VideoWidget::createBuffers()
 {
     if (!rhi) {
-        logger->error("createBuffers: RHI为空");
+        LOG_ERROR("createBuffers: RHI is null");
         return;
     }
 
@@ -158,7 +157,7 @@ void VideoWidget::createBuffers()
         ));
 
     if (!vertexBuffer || !vertexBuffer->create()) {
-        logger->error("顶点缓冲创建失败");
+        LOG_ERROR("Vertex buffer creation failed");
         return;
     }
 
@@ -170,7 +169,7 @@ void VideoWidget::createBuffers()
             ));
 
         if (!uniformBuffers[i] || !uniformBuffers[i]->create()) {
-            logger->error(std::string("uniform缓冲") + std::to_string(i) + "创建失败");
+            LOG_ERROR("Uniform buffer %d creation failed", i);
             return;
         }
     }
@@ -179,31 +178,31 @@ void VideoWidget::createBuffers()
 void VideoWidget::createTextures()
 {
     if (!rhi) {
-        logger->error("createTextures: RHI为空");
+        LOG_ERROR("createTextures: RHI is null");
         return;
     }
 
-    // 使用固定的最大尺寸，避免频繁重建纹理
+    // Use fixed maximum size to avoid frequent texture reconstruction
     QSize initialSize(MAX_TEXTURE_WIDTH, MAX_TEXTURE_HEIGHT);
 
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        // 🔧 关键修改：添加 UsedAsTransferSource 标志，创建 Dynamic 纹理
+        // Key modification: Added UsedAsTransferSource flag, create Dynamic texture
         videoTextures[i].reset(rhi->newTexture(
             QRhiTexture::RGBA8,
             initialSize,
             1,
-            QRhiTexture::UsedAsTransferSource  // 启用动态上传优化
+            QRhiTexture::UsedAsTransferSource  // Enable dynamic upload optimization
             ));
 
         if (!videoTextures[i]) {
-            logger->error(std::string("创建视频纹理对象") + std::to_string(i) + "失败");
+            LOG_ERROR("Failed to create video texture object %d", i);
             return;
         }
 
         if (!videoTextures[i]->create()) {
-            logger->warning(std::string("创建视频纹理") + std::to_string(i) + "失败，尝试创建备用纹理");
+            LOG_WARNING("Failed to create video texture %d, trying to create fallback texture", i);
 
-            // 备用纹理也使用 Dynamic 标志
+            // Fallback texture also uses Dynamic flag
             videoTextures[i].reset(rhi->newTexture(
                 QRhiTexture::RGBA8,
                 QSize(1280, 720),
@@ -212,21 +211,19 @@ void VideoWidget::createTextures()
                 ));
 
             if (!videoTextures[i] || !videoTextures[i]->create()) {
-                logger->error(std::string("创建备用纹理") + std::to_string(i) + "也失败了");
+                LOG_ERROR("Failed to create fallback texture %d", i);
                 return;
             }
         }
     }
 
-    logger->info(std::string("Dynamic纹理创建完成，尺寸: ") +
-                 std::to_string(initialSize.width()) + "x" +
-                 std::to_string(initialSize.height()));
+    LOG_INFO("Dynamic texture creation completed, size: %dx%d", initialSize.width(), initialSize.height());
 }
 
 void VideoWidget::createSampler()
 {
     if (!rhi) {
-        logger->error("createSampler: RHI为空");
+        LOG_ERROR("createSampler: RHI is null");
         return;
     }
 
@@ -239,7 +236,7 @@ void VideoWidget::createSampler()
         ));
 
     if (!sampler || !sampler->create()) {
-        logger->error("采样器创建失败");
+        LOG_ERROR("Sampler creation failed");
         return;
     }
 }
@@ -247,18 +244,18 @@ void VideoWidget::createSampler()
 void VideoWidget::createShaderResourceBindings()
 {
     if (!rhi) {
-        logger->error("createShaderResourceBindings: RHI为空");
+        LOG_ERROR("createShaderResourceBindings: RHI is null");
         return;
     }
 
     if (!uniformBuffers[0] || !videoTextures[0] || !sampler) {
-        logger->error("依赖资源未准备好");
+        LOG_ERROR("Dependent resources not ready");
         return;
     }
 
     srb.reset(rhi->newShaderResourceBindings());
     if (!srb) {
-        logger->error("创建SRB对象失败");
+        LOG_ERROR("Failed to create SRB object");
         return;
     }
 
@@ -277,7 +274,7 @@ void VideoWidget::createShaderResourceBindings()
     });
 
     if (!srb->create()) {
-        logger->error("主着色器资源绑定create()失败");
+        LOG_ERROR("Main shader resource binding create() failed");
         srb.reset();
         return;
     }
@@ -285,7 +282,7 @@ void VideoWidget::createShaderResourceBindings()
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
         perFrameSrb[i].reset(rhi->newShaderResourceBindings());
         if (!perFrameSrb[i]) {
-            logger->error(std::string("创建帧") + std::to_string(i) + "的SRB对象失败");
+            LOG_ERROR("Failed to create frame %d SRB object", i);
             continue;
         }
 
@@ -304,7 +301,7 @@ void VideoWidget::createShaderResourceBindings()
         });
 
         if (!perFrameSrb[i]->create()) {
-            logger->error(std::string("帧") + std::to_string(i) + "的着色器资源绑定create()失败");
+            LOG_ERROR("Frame %d shader resource binding create() failed", i);
             perFrameSrb[i].reset();
         }
     }
@@ -313,18 +310,18 @@ void VideoWidget::createShaderResourceBindings()
 void VideoWidget::createPipeline()
 {
     if (!rhi) {
-        logger->error("createPipeline: RHI为空");
+        LOG_ERROR("createPipeline: RHI is null");
         return;
     }
 
     if (!srb) {
-        logger->error("无法创建管线：着色器资源绑定未准备好");
+        LOG_ERROR("Cannot create pipeline: shader resource binding not ready");
         return;
     }
 
     pipeline.reset(rhi->newGraphicsPipeline());
     if (!pipeline) {
-        logger->error("创建pipeline对象失败");
+        LOG_ERROR("Failed to create pipeline object");
         return;
     }
 
@@ -332,10 +329,9 @@ void VideoWidget::createPipeline()
     QShader fragShader = getShader(":/shaders/res/video.frag.qsb");
 
     if (!vertShader.isValid() || !fragShader.isValid()) {
-        logger->error(std::string("着色器无效 - vertex: ") +
-                      (vertShader.isValid() ? "有效" : "无效") +
-                      ", fragment: " +
-                      (fragShader.isValid() ? "有效" : "无效"));
+        LOG_ERROR("Shader invalid - vertex: %s, fragment: %s",
+                 vertShader.isValid() ? "valid" : "invalid",
+                 fragShader.isValid() ? "valid" : "invalid");
         pipeline.reset();
         return;
     }
@@ -362,7 +358,7 @@ void VideoWidget::createPipeline()
     pipeline->setCullMode(QRhiGraphicsPipeline::None);
 
     if (!pipeline->create()) {
-        logger->error("渲染管线create()失败");
+        LOG_ERROR("Render pipeline create() failed");
         pipeline.reset();
         return;
     }
@@ -374,16 +370,16 @@ bool VideoWidget::needsTextureResize(int width, int height, int slot)
 
     QSize currentSize = videoTextures[slot]->pixelSize();
 
-    // 优化：只有尺寸变化超过阈值才重建
+    // Optimization: Only rebuild when size change exceeds threshold
     int widthDiff = std::abs(currentSize.width() - width);
     int heightDiff = std::abs(currentSize.height() - height);
 
-    // 如果新尺寸超过当前纹理大小，需要重建
+    // If new size exceeds current texture size, need to rebuild
     if (width > currentSize.width() || height > currentSize.height()) {
         return true;
     }
 
-    // 如果新尺寸远小于当前纹理（节省显存），也考虑重建
+    // If new size is much smaller than current texture (save video memory), also consider rebuilding
     if (widthDiff > MIN_TEXTURE_RESIZE_THRESHOLD * 2 &&
         heightDiff > MIN_TEXTURE_RESIZE_THRESHOLD * 2) {
         return true;
@@ -394,16 +390,16 @@ bool VideoWidget::needsTextureResize(int width, int height, int slot)
 
 void VideoWidget::resizeTextureIfNeeded(int slot, const QSize& newSize)
 {
-    // 🔧 重建纹理时使用 Dynamic 标志
+    // Rebuild texture with Dynamic flag
     videoTextures[slot].reset(rhi->newTexture(
         QRhiTexture::RGBA8,
         newSize,
         1,
-        QRhiTexture::UsedAsTransferSource  // Dynamic 纹理
+        QRhiTexture::UsedAsTransferSource  // Dynamic texture
         ));
 
     if (videoTextures[slot] && videoTextures[slot]->create()) {
-        // 重建着色器资源绑定
+        // Rebuild shader resource binding
         perFrameSrb[slot].reset(rhi->newShaderResourceBindings());
         perFrameSrb[slot]->setBindings({
             QRhiShaderResourceBinding::uniformBuffer(
@@ -420,11 +416,9 @@ void VideoWidget::resizeTextureIfNeeded(int slot, const QSize& newSize)
         });
         perFrameSrb[slot]->create();
 
-        logger->info(std::string("Dynamic纹理重建完成，槽位: ") + std::to_string(slot) +
-                     ", 尺寸: " + std::to_string(newSize.width()) + "x" +
-                     std::to_string(newSize.height()));
+        LOG_INFO("Dynamic texture rebuilt, slot: %d, size: %dx%d", slot, newSize.width(), newSize.height());
     } else {
-        logger->error("重建Dynamic纹理失败");
+        LOG_ERROR("Failed to rebuild dynamic texture");
     }
 }
 
@@ -440,7 +434,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
     QRhiResourceUpdateBatch* batch = nullptr;
     int frameToRender = -1;
 
-    // 查找最新的可用帧
+    // Find the latest available frame
     {
         for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
             int slotIndex = (currentFrameSlot.load(std::memory_order_acquire) - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
@@ -456,7 +450,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         FrameBuffer& frame = frameBuffers[frameToRender];
 
         if (frame.needsUpdate && frame.ready && frame.data) {
-            // 检查是否需要重建纹理
+            // Check if texture needs to be rebuilt
             if (needsTextureResize(frame.width, frame.height, frameToRender)) {
                 QSize newSize(
                     std::min(frame.width, MAX_TEXTURE_WIDTH),
@@ -468,8 +462,8 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
             if (videoTextures[frameToRender]) {
                 size_t rgbaSize = frame.width * frame.height * 4;
 
-                // 🔧 优化：对于 Dynamic 纹理，这个上传会更高效
-                // QRhi 内部会使用 staging buffer 或 mapped memory
+                // Optimization: For Dynamic textures, this upload is more efficient
+                // QRhi internally uses staging buffer or mapped memory
                 QRhiTextureSubresourceUploadDescription subresDesc(
                     frame.data.get(),
                     rgbaSize
@@ -487,7 +481,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
             }
         }
 
-        // 更新 uniform buffer（仅在数据变化时）
+        // Update uniform buffer (only when data changes)
         if (frameToRender >= 0 && videoTextures[frameToRender]) {
             UniformData uniformData;
             uniformData.mvp.setToIdentity();
@@ -526,17 +520,17 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
         return;
     }
 
-    // 优化：帧率限制，避免过度刷新
+    // Optimization: Frame rate limiting to avoid excessive refresh
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdateTime);
 
     if (elapsed.count() < MIN_FRAME_INTERVAL_MS) {
-        return; // 跳过这一帧
+        return; // Skip this frame
     }
 
     int nextSlot = (currentFrameSlot.load(std::memory_order_relaxed) + 1) % FRAME_BUFFER_COUNT;
 
-    // 优化：准备临时数据，减少锁持有时间
+    // Optimization: Prepare temporary data to reduce lock holding time
     FrameBuffer tempBuffer;
     tempBuffer.data = frame->data;
     tempBuffer.width = frame->width;
@@ -556,7 +550,7 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 
 void VideoWidget::clearDisplay()
 {
-    logger->info("清除显示");
+    LOG_INFO("Clearing display");
     hasVideo = false;
 
     {
@@ -573,7 +567,7 @@ void VideoWidget::clearDisplay()
 
 void VideoWidget::releaseResources()
 {
-    logger->info("释放渲染资源");
+    LOG_INFO("Releasing rendering resources");
 
     pipeline.reset();
     srb.reset();
@@ -598,10 +592,10 @@ QShader VideoWidget::getShader(const QString& name)
         if (shader.isValid()) {
             return shader;
         } else {
-            logger->error(std::string("着色器无效：") + name.toStdString());
+            LOG_ERROR("Shader invalid: %s", name.toStdString().c_str());
         }
     } else {
-        logger->error(std::string("无法打开着色器文件：") + name.toStdString());
+        LOG_ERROR("Cannot open shader file: %s", name.toStdString().c_str());
     }
 
     return QShader();
@@ -609,7 +603,7 @@ QShader VideoWidget::getShader(const QString& name)
 
 void VideoWidget::loadPipelineCache()
 {
-    // 优化：加载pipeline cache以加速启动
+    // Optimization: Load pipeline cache to speed up startup
     QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
     QDir().mkpath(cacheDir);
     QString cachePath = cacheDir + "/pipeline.cache";
@@ -618,9 +612,8 @@ void VideoWidget::loadPipelineCache()
     if (cacheFile.open(QIODevice::ReadOnly)) {
         QByteArray cacheData = cacheFile.readAll();
         if (!cacheData.isEmpty()) {
-            logger->info(std::string("加载pipeline cache，大小: ") +
-                         std::to_string(cacheData.size()) + " bytes");
-            // 注意：实际使用时需要在RHI初始化后调用
+            LOG_INFO("Loading pipeline cache, size: %zu bytes", cacheData.size());
+            // Note: Actually need to call after RHI initialization
             // rhi->setPipelineCacheData(cacheData);
         }
         cacheFile.close();
@@ -631,7 +624,7 @@ void VideoWidget::savePipelineCache()
 {
     if (!rhi) return;
 
-    // 优化：保存pipeline cache以加速下次启动
+    // Optimization: Save pipeline cache to speed up next startup
     QByteArray cacheData = rhi->pipelineCacheData();
     if (cacheData.isEmpty()) return;
 
@@ -643,8 +636,7 @@ void VideoWidget::savePipelineCache()
     if (cacheFile.open(QIODevice::WriteOnly)) {
         cacheFile.write(cacheData);
         cacheFile.close();
-        logger->info(std::string("保存pipeline cache，大小: ") +
-                     std::to_string(cacheData.size()) + " bytes");
+        LOG_INFO("Saving pipeline cache, size: %zu bytes", cacheData.size());
     }
 }
 
@@ -661,7 +653,7 @@ void VideoWidget::updateFPS()
 
 void VideoWidget::setWebRTCManager(WebRTCManager * manager)
 {
-    logger->info("设置WebRTC远程客户端");
+    LOG_INFO("Setting WebRTC remote client");
     this->manager = manager;
 
     interceptionHook = std::make_unique<InterceptionHook>();
@@ -795,7 +787,7 @@ void VideoWidget::enterFullScreen()
     setWindowState(Qt::WindowFullScreen);
 
     updateControlsPosition();
-    logger->info("进入全屏模式");
+    LOG_INFO("Entering full screen mode");
 }
 
 void VideoWidget::exitFullScreen()
@@ -813,7 +805,7 @@ void VideoWidget::exitFullScreen()
     sidebarVisible = true;
 
     updateControlsPosition();
-    logger->info("退出全屏模式");
+    LOG_INFO("Exiting full screen mode");
 }
 
 void VideoWidget::onFullScreenClicked()

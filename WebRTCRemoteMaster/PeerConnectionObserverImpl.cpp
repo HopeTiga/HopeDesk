@@ -4,7 +4,7 @@
 
 #include "WebRTCManager.h"
 
-#include "Logger.h"
+#include "Utils.h"
 
 namespace hope {
 
@@ -13,7 +13,7 @@ namespace hope {
     void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
         switch (newState) {
         case webrtc::PeerConnectionInterface::kStable:
-            Logger::getInstance()->info("Signaling state: kStable");
+            LOG_INFO("Signaling state: kStable");
             break;
         case webrtc::PeerConnectionInterface::kHaveLocalOffer:
             break;
@@ -24,7 +24,7 @@ namespace hope {
         case webrtc::PeerConnectionInterface::kHaveRemotePrAnswer:
             break;
         case webrtc::PeerConnectionInterface::kClosed:
-            Logger::getInstance()->info("Signaling state: kClosed");
+            LOG_INFO("Signaling state: kClosed");
             break;
         default:
             break;
@@ -32,7 +32,7 @@ namespace hope {
     }
 
     void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
-        Logger::getInstance()->info("Data channel received: " + dataChannel->label());
+        LOG_INFO("Data channel received: %s" ,dataChannel->label().c_str());
 
         manager->dataChannel = dataChannel;
         manager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>(manager);
@@ -42,7 +42,7 @@ namespace hope {
     void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState newState) {
         switch (newState) {
         case webrtc::PeerConnectionInterface::kIceGatheringComplete:
-            Logger::getInstance()->info("ICE gathering complete");
+            LOG_INFO("ICE gathering complete");
             break;
         default:
             break;
@@ -51,13 +51,13 @@ namespace hope {
 
     void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
         if (!candidate) {
-            Logger::getInstance()->error("OnIceCandidate called with null candidate");
+            LOG_ERROR("OnIceCandidate called with null candidate");
             return;
         }
 
         std::string sdp;
         if (!candidate->ToString(&sdp)) {
-            Logger::getInstance()->error("Failed to convert ICE candidate to string");
+            LOG_ERROR("Failed to convert ICE candidate to string");
             return;
         }
 
@@ -73,17 +73,17 @@ namespace hope {
     void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
         switch (newState) {
         case webrtc::PeerConnectionInterface::kIceConnectionConnected:
-            Logger::getInstance()->info("WebRTC connection established");
+            LOG_INFO("WebRTC connection established");
 
             break;
         case webrtc::PeerConnectionInterface::kIceConnectionFailed:
-            Logger::getInstance()->error("ICE connection failed");
+            LOG_ERROR("ICE connection failed");
             break;
         case webrtc::PeerConnectionInterface::kIceConnectionDisconnected:
-            Logger::getInstance()->warning("ICE connection disconnected");
+            LOG_WARNING("ICE connection disconnected");
             break;
         case webrtc::PeerConnectionInterface::kIceConnectionClosed:
-            Logger::getInstance()->info("ICE connection closed");
+            LOG_INFO("ICE connection closed");
             break;
         default:
             break;
@@ -94,7 +94,7 @@ namespace hope {
         switch (newState) {
         case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:{
 
-            Logger::getInstance()->info("Peer connection established");
+            LOG_INFO("Peer connection established");
 
             manager->isRemote = true;
 
@@ -112,7 +112,7 @@ namespace hope {
 
             manager->disConnectHandle();
 
-            Logger::getInstance()->warning("Peer connection disconnected");
+            LOG_WARNING("Peer connection disconnected");
 
             break;
         }
@@ -120,12 +120,12 @@ namespace hope {
 
             manager->disConnectHandle();
 
-            Logger::getInstance()->error("Peer connection failed");
+            LOG_ERROR("Peer connection failed");
 
             break;
         case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
 
-            Logger::getInstance()->info("Peer connection closed");
+            LOG_INFO("Peer connection closed");
             break;
         default:
             break;
@@ -138,7 +138,7 @@ namespace hope {
         auto track = receiver->track();
 
         if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
-            Logger::getInstance()->info("Video track received");
+            LOG_INFO("Video track received");
             receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
             manager->isReceive = true;
             manager->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(

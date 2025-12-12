@@ -41,7 +41,6 @@ SOURCES += \
     AudioDeviceModuleImpl.cpp \
     CreateDescriptionObserverImpl.cpp \
     DataChannelObserverImpl.cpp \
-    Logger.cpp \
     MsQuicApi.cpp \
     MsquicSocketClient.cpp \
     PeerConnectionObserverImpl.cpp \
@@ -62,7 +61,6 @@ HEADERS += \
     ConfigManager.h \
     CreateDescriptionObserverImpl.h \
     DataChannelObserverImpl.h \
-    Logger.h \
     MsQuicApi.h \
     MsquicSocketClient.h \
     PeerConnectionObserverImpl.h \

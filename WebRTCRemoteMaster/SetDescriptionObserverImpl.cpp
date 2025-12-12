@@ -1,5 +1,5 @@
 #include "SetDescriptionObserverImpl.h"
-#include "Logger.h"
+#include "Utils.h"
 
 namespace hope {
 
@@ -10,7 +10,7 @@ namespace hope {
 		}
 
 		void SetLocalDescriptionObserver::OnFailure(webrtc::RTCError error) {
-			Logger::getInstance()->error("SetLocalDescription failed: " + std::string(error.message()));
+            LOG_ERROR("SetLocalDescription failed: %s" , error.message());
 		}
 
 		// SetRemoteDescriptionObserver实现
@@ -18,7 +18,7 @@ namespace hope {
 		}
 
 		void SetRemoteDescriptionObserver::OnFailure(webrtc::RTCError error) {
-			Logger::getInstance()->error("SetRemoteDescription failed: " + std::string(error.message()));
+            LOG_ERROR("SetRemoteDescription failed: %s" , error.message());
 		}
 
 	}

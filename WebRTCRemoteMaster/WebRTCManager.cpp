@@ -7,7 +7,7 @@
 #include <boost/random/uniform_int_distribution.hpp>
 #include <immintrin.h>
 #include "ConfigManager.h"
-#include "Logger.h"
+#include "Utils.h"
 
 namespace hope{
 
@@ -44,7 +44,7 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
 
             tcpSocket = std::move(socket);
 
-            Logger::getInstance()->info("tcpSocket Accept Successful!");
+            LOG_INFO("tcpSocket Accept Successful!");
 
             socketRuns = true;
 
@@ -165,7 +165,7 @@ void WebRTCManager::connect(std::string ip)
 
                                 if (WindowsServiceManager::startService(systemService)) {
 
-                                    Logger::getInstance()->info("WindowsServiceManager::startService Successful!");
+                                    LOG_INFO("WindowsServiceManager::startService Successful!");
 
                                     return;
                                 }
@@ -191,7 +191,7 @@ void WebRTCManager::connect(std::string ip)
                                 std::string sdp(json["sdp"].as_string().c_str());
 
                                 if(!peerConnection) {
-                                    Logger::getInstance()->error("PeerConnection is null, cannot process offer");
+                                    LOG_ERROR("PeerConnection is null, cannot process offer");
                                     return;
                                 }
 
@@ -201,7 +201,7 @@ void WebRTCManager::connect(std::string ip)
                                     webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
 
                                 if(!remoteDesc) {
-                                    Logger::getInstance()->error("Failed to parse offer SDP: " + error.description);
+                                    LOG_ERROR("Failed to parse offer SDP: %s" ,error.description.c_str());
                                     return;
                                 }
 
@@ -229,16 +229,16 @@ void WebRTCManager::connect(std::string ip)
                                     webrtc::CreateIceCandidate(mid, mlineIndex, candidateStr, &error));
 
                                 if(!candidate) {
-                                    Logger::getInstance()->error("Failed to parse ICE candidate: " + error.description);
+                                    LOG_ERROR("Failed to parse ICE candidate: %s" , error.description.c_str());
                                     return;
                                 }
 
                                 bool success = peerConnection->AddIceCandidate(candidate.get());
                                 if(!success) {
-                                    Logger::getInstance()->error("Failed to add ICE candidate");
+                                    LOG_ERROR("Failed to add ICE candidate");
                                 }
                             } else {
-                                Logger::getInstance()->error("PeerConnection is null, cannot add ICE candidate");
+                                LOG_ERROR("PeerConnection is null, cannot add ICE candidate");
                             }
                         }
                     }
@@ -352,34 +352,34 @@ bool WebRTCManager::initializePeerConnection()
     if (!peerConnectionFactory) {
         networkThread = webrtc::Thread::CreateWithSocketServer();
         if (!networkThread) {
-            Logger::getInstance()->error("Failed to create network thread");
+            LOG_ERROR("Failed to create network thread");
             return false;
         }
         networkThread->SetName("network_thread", nullptr);
         if (!networkThread->Start()) {
-            Logger::getInstance()->error("Failed to start network thread");
+            LOG_ERROR("Failed to start network thread");
             return false;
         }
 
         workerThread = webrtc::Thread::Create();
         if (!workerThread) {
-            Logger::getInstance()->error("Failed to create worker thread");
+            LOG_ERROR("Failed to create worker thread");
             return false;
         }
         workerThread->SetName("worker_thread", nullptr);
         if (!workerThread->Start()) {
-            Logger::getInstance()->error("Failed to start worker thread");
+            LOG_ERROR("Failed to start worker thread");
             return false;
         }
 
         signalingThread = webrtc::Thread::Create();
         if (!signalingThread) {
-            Logger::getInstance()->error("Failed to create signaling thread");
+            LOG_ERROR("Failed to create signaling thread");
             return false;
         }
         signalingThread->SetName("signaling_thread", nullptr);
         if (!signalingThread->Start()) {
-            Logger::getInstance()->error("Failed to start signaling thread");
+            LOG_ERROR("Failed to start signaling thread");
             return false;
         }
 
@@ -399,7 +399,7 @@ bool WebRTCManager::initializePeerConnection()
             );
 
         if (!peerConnectionFactory) {
-            Logger::getInstance()->error("Failed to create PeerConnectionFactory");
+            LOG_ERROR("Failed to create PeerConnectionFactory");
             return false;
         }
     }
@@ -439,7 +439,7 @@ bool WebRTCManager::initializePeerConnection()
 
     auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
     if (!pcResult.ok()) {
-        Logger::getInstance()->error("Failed to create PeerConnection: " + std::string(pcResult.error().message()));
+        LOG_ERROR("Failed to create PeerConnection: %s" ,pcResult.error().message());
         return false;
     }
 
@@ -640,11 +640,11 @@ void WebRTCManager::wrtierCoroutineAsync()
                         if (e.code() == boost::asio::error::broken_pipe ||
                             e.code() == boost::asio::error::connection_reset ||
                             e.code() == boost::asio::error::connection_aborted) {
-                            Logger::getInstance()->error("Connection lost, exiting writer coroutine");
+                            LOG_ERROR("Connection lost, exiting writer coroutine");
                             co_return;
                         }
                     } catch (const std::exception& e) {
-                        Logger::getInstance()->error("Unexpected error sending data: " + std::string(e.what()));
+                        LOG_ERROR("Unexpected error sending data: %s" , e.what());
                     }
                 }
 
@@ -673,9 +673,9 @@ void WebRTCManager::wrtierCoroutineAsync()
 
             }
         } catch (const std::exception& e) {
-            Logger::getInstance()->error("Writer coroutine unhandled exception: " + std::string(e.what()));
+            LOG_ERROR("Writer coroutine unhandled exception: %s",e.what());
         } catch (...) {
-            Logger::getInstance()->error("Writer coroutine unknown exception");
+            LOG_ERROR("Writer coroutine unknown exception");
         }
         co_return;
     }, [this](std::exception_ptr p) {
@@ -684,7 +684,7 @@ void WebRTCManager::wrtierCoroutineAsync()
                                       std::rethrow_exception(p);
                                   }
                               } catch (const std::exception& e) {
-                                  Logger::getInstance()->error("Writer coroutine exception: " + std::string(e.what()));
+                                  LOG_ERROR("Writer coroutine exception: %s",e.what());
                               }
                           });
 }
@@ -717,7 +717,7 @@ void WebRTCManager::receiveCoroutineAysnc()
             int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
             if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) { // 限制最大10MB
-                Logger::getInstance()->error("Invalid body length: " + std::to_string(bodyLength));
+                LOG_ERROR("Invalid body length: %d" ,bodyLength);
                 co_return;
             }
 
@@ -726,7 +726,7 @@ void WebRTCManager::receiveCoroutineAysnc()
             // 使用智能指针管理内存
             std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]); // +1 for null terminator
             if (!bodyBuffer) {
-                Logger::getInstance()->error("Failed to allocate memory for body buffer");
+                LOG_ERROR("Failed to allocate memory for body buffer");
                 co_return;
             }
             std::memset(bodyBuffer.get(), 0, bodySize + 1);
@@ -778,7 +778,7 @@ void WebRTCManager::receiveCoroutineAysnc()
                               }
                               catch (const std::exception& e) {
                                   handleAsioException();
-                                  Logger::getInstance()->error("Reader coroutine handler exception: " + std::string(e.what()));
+                                  LOG_ERROR("Reader coroutine handler exception: %s", e.what());
                               }
                           });
 }
@@ -786,7 +786,7 @@ void WebRTCManager::receiveCoroutineAysnc()
 void WebRTCManager::sendSignalingMessage(boost::json::object& msg) {
 
     if (!msquicSocketClient || !msquicSocketClient->isConnected()) {
-        Logger::getInstance()->error("Cannot send signaling message - WebSocket not connected");
+        LOG_ERROR("Cannot send signaling message - WebSocket not connected");
         return;
     }
 
@@ -802,7 +802,7 @@ void WebRTCManager::sendSignalingMessage(boost::json::object& msg) {
     try {
         msquicSocketClient->writeJsonAsync(msg);
     } catch (const std::exception& e) {
-        Logger::getInstance()->error("Failed to send signaling message: " + std::string(e.what()));
+        LOG_ERROR("Failed to send signaling message: %s",e.what());
     }
 }
 

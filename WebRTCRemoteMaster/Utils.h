@@ -1,7 +1,7 @@
 #pragma once
 #ifndef UTILS_H
 #define UTILS_H
-#include <windows.h>
+
 #include <stdio.h>
 #include <time.h>
 #include <stdarg.h>
@@ -9,6 +9,18 @@
 #include <immintrin.h>
 #include <cstring>
 #include <cstdint>
+#include <string>
+#include <mutex>
+#ifdef _WIN32
+#include <windows.h>  // 包含 windows.h 以获取 HCURSOR 的正确定义
+#include <direct.h>
+#define mkdirs(dir) _mkdir(dir)
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+// 非 Windows 平台，使用 void* 或特定类型替代 HCURSOR
+typedef void* HCURSOR;
+#endif
 
 #ifdef _MSC_VER
 #include <intrin.h>  // MSVC 需要这个
@@ -17,39 +29,51 @@
 #include <cpuid.h>   // GCC/Clang 需要这个
 #endif
 
-// 日志级别枚举
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// 日志级别
 typedef enum {
-    LOG_INFO,
-    LOG_WARNING,
-    LOG_ERROR,
-    LOG_DEBUG
+    LOG_LEVEL_DEBUG,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_WARNING,
+    LOG_LEVEL_ERROR
 } LogLevel;
 
-// 日志的宏定义
-#define LOG_INFO(fmt, ...)    log_message(LOG_INFO, fmt, ##__VA_ARGS__)
-#define LOG_WARNING(fmt, ...) log_message(LOG_WARNING, fmt, ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...)   log_message(LOG_ERROR, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG(fmt, ...)   log_message(LOG_DEBUG, fmt, ##__VA_ARGS__)
+// 初始化函数
+void initLogger();
+void closeLogger();
+void enableFileLogging(int enable);
+void setLogDirectory(const char* dir);
 
-// 无颜色版本的宏
-#define LOG_INFO_PLAIN(fmt, ...)    log_message_plain(LOG_INFO, fmt, ##__VA_ARGS__)
-#define LOG_WARNING_PLAIN(fmt, ...) log_message_plain(LOG_WARNING, fmt, ##__VA_ARGS__)
-#define LOG_ERROR_PLAIN(fmt, ...)   log_message_plain(LOG_ERROR, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG_PLAIN(fmt, ...)   log_message_plain(LOG_DEBUG, fmt, ##__VA_ARGS__)
+// 核心日志函数
+void logMessage(LogLevel level, const char* format, ...);
+void logMessagePlain(LogLevel level, const char* format, ...);
+void logToFileOnly(LogLevel level, const char* format, ...);
 
-// ANSI颜色代码
-#define COLOR_RESET   "\033[0m"
-#define COLOR_RED     "\033[91m"
-#define COLOR_GREEN   "\033[92m"
-#define COLOR_YELLOW  "\033[93m"
-#define COLOR_BLUE    "\033[94m"
+// 辅助函数
+void getTimestamp(char* buffer, size_t size);
+void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
 
-// 函数声明
-void get_timestamp(char* buffer, size_t size);
-void get_level_info(LogLevel level, const char** level_str, const char** color);
-void log_message(LogLevel level, const char* format, ...);
-void log_message_plain(LogLevel level, const char* format, ...);
+void setConsoleOutputLevels(int debug, int info, int warning, int error);
 
+// 便捷宏定义
+#define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+#define LOG_WARNING(fmt, ...) logMessage(LOG_LEVEL_WARNING, fmt, ##__VA_ARGS__)
+#define LOG_ERROR(fmt, ...)   logMessage(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG(fmt, ...)   logMessage(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+
+#define LOG_INFO_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+#define LOG_WARNING_PLAIN(fmt, ...) logMessagePlain(LOG_LEVEL_WARNING, fmt, ##__VA_ARGS__)
+#define LOG_ERROR_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+
+#ifdef __cplusplus
+}
+#endif
+
+// 函数声明 - 使用系统定义的 HCURSOR
 HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX = 0, int hotY = 0);
 
 inline bool hasAVX2() {

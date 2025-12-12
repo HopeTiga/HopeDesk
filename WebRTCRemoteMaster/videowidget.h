@@ -16,7 +16,7 @@
 #include "windows.h"
 
 #include "windowshook.h"
-#include "Logger.h"
+#include "Utils.h"
 #include "interceptionhook.h"
 
 namespace hope{
@@ -81,7 +81,6 @@ private:
 private:
     WebRTCManager* manager;
     QRhi* rhi = nullptr;
-    Logger* logger;
 
     // 共享资源（所有帧共用）
     std::unique_ptr<QRhiGraphicsPipeline> pipeline;
