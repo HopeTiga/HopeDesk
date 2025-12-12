@@ -35,6 +35,16 @@ int main() {
 
     if (!msquicServer.initialize()){
     
+        LOG_ERROR("hope::quic::MsquicServer::initialize Failed");
+
+        return -1;
+
+    }
+
+    if (!msquicServer.RunEventLoop()) {
+    
+        LOG_ERROR("hope::quic::MsquicServer::RunEventLoop Failed");
+
         return -1;
 
     }
