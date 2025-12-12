@@ -243,7 +243,7 @@ namespace hope {
                     QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
                     QUIC_STATUS_SUCCESS
                     );
-                MsQuic->ConnectionClose(connection);
+
                 connection = nullptr;
 
             }
