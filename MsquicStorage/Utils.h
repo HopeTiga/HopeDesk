@@ -17,6 +17,9 @@
 #include <unistd.h>
 #endif
 
+#include "MsquicSocketInterface.h"
+#include "MsquicSocket.h"
+#include "WebRTCSignalSocket.h"
 
 constexpr std::chrono::seconds PING_INTERVAL = std::chrono::seconds(30);
 
@@ -100,25 +103,43 @@ static boost::json::object makeCleanCopy(const boost::json::object& src) {
 
 namespace {
     // 辅助函数：构建消息头 + 消息体（只有length作为消息头）
-    std::pair<unsigned char *, size_t> buildMessage(const std::string& body) {
-        int64_t bodyLength = static_cast<int64_t>(body.size());
-        size_t totalSize = sizeof(int64_t) + bodyLength;
+    std::pair<unsigned char*, size_t> buildData(const std::string& body, hope::quic::MsquicSocketInterface* msquicSocketInterface) {
 
-        unsigned char* buffer = new unsigned char[totalSize];
+        if (dynamic_cast<hope::quic::WebRTCSignalSocket*>(msquicSocketInterface)) {
 
-        // 写入 length (int64_t)
-        *reinterpret_cast<int64_t*>(buffer) = bodyLength;
+            size_t totalSize = body.size();
 
-        // 写入 body
-        memcpy(buffer + sizeof(int64_t), body.data(), bodyLength);
+            unsigned char* buffer = new unsigned char[totalSize];
+            // 写入 body
+            memcpy(buffer, body.data(), totalSize);
 
-        return { std::move(buffer), totalSize };
+            return { std::move(buffer), body.size() };
+        }
+        else {
+
+            int64_t bodyLength = static_cast<int64_t>(body.size());
+            size_t totalSize = sizeof(int64_t) + bodyLength;
+
+            unsigned char* buffer = new unsigned char[totalSize];
+
+            // 写入 length (int64_t)
+            *reinterpret_cast<int64_t*>(buffer) = bodyLength;
+
+            // 写入 body
+            memcpy(buffer + sizeof(int64_t), body.data(), bodyLength);
+
+            return { std::move(buffer), totalSize };
+
+        }
+
     }
 
     // 重载版本，直接使用 json
-    std::pair<unsigned char * , size_t> buildMessage(const boost::json::object& jsonObj) {
+    std::pair<unsigned char*, size_t> buildMessage(const boost::json::object& jsonObj, hope::quic::MsquicSocketInterface* msquicSocketInterface) {
+
         std::string body = boost::json::serialize(jsonObj);
-        return buildMessage(body);
+
+        return buildData(body, msquicSocketInterface);
     }
 }
 

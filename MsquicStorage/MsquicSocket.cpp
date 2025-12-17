@@ -395,6 +395,12 @@ namespace hope {
             return this->ioContext;
         }
 
+        SocketType MsquicSocket::getType() {
+
+            return SocketType::MsquicSocket;
+
+        }
+
 
         // Stream callback
         QUIC_STATUS QUIC_API MsquicSocketHandle(
