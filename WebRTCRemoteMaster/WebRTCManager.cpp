@@ -444,6 +444,22 @@ bool WebRTCManager::initializePeerConnection()
     }
 
     peerConnection = pcResult.MoveValue();
+
+    auto transceivers = peerConnection->GetTransceivers();
+
+    for (auto& transceiver : transceivers) {
+
+        if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
+            // 从工厂获取发送器能力，而不是空的偏好设置
+            webrtc::RtpCapabilities senderCapabilities = peerConnectionFactory->GetRtpSenderCapabilities(
+                webrtc::MediaType::MEDIA_TYPE_VIDEO);
+
+            senderCapabilities.fec.clear();
+
+            senderCapabilities.fec.push_back(webrtc::FecMechanism::FLEXFEC);
+        }
+    }
+
     return true;
 }
 
