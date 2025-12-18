@@ -22,6 +22,7 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
     , ioContextWorkPtr(nullptr)
     , writerChannel(ioContext)
     , msquicSocketClient(nullptr)
+    , steadyTimer(ioContext)
 {
 
     ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
@@ -166,6 +167,23 @@ void WebRTCManager::connect(std::string ip)
                                 if (WindowsServiceManager::startService(systemService)) {
 
                                     LOG_INFO("WindowsServiceManager::startService Successful!");
+
+                                    boost::asio::co_spawn(ioContext,[this]()->boost::asio::awaitable<void>{
+
+                                        steadyTimer.expires_after(std::chrono::seconds(10));;
+
+                                        co_await steadyTimer.async_wait(boost::asio::use_awaitable);
+
+                                        if (!isRemote) {
+
+                                            releaseSource();
+
+                                            initializePeerConnection();
+
+                                        }
+
+
+                                    },boost::asio::detached);
 
                                     return;
                                 }

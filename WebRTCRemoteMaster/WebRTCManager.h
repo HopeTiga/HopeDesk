@@ -268,6 +268,8 @@ private:
 
     std::thread ioContextThread;
 
+    boost::asio::steady_timer steadyTimer;
+
     boost::asio::ip::tcp::acceptor accept;
 
     std::queue<std::vector<std::byte>> remoteBinaryQueue;
