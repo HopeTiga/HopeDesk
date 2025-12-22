@@ -246,9 +246,7 @@ namespace hope {
             }
 
             if (registration != nullptr) {
-                // RegistrationClose 应该在所有子对象(Conns/Config)关闭后调用
-                // 你的 MsQuicRegistration 包装类析构函数里应该调用了 RegistrationClose
-                delete registration;
+                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
                 registration = nullptr;
             }
 

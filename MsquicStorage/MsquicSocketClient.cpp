@@ -486,6 +486,8 @@ namespace hope {
                     QUIC_STATUS_ABORTED
                     );
 
+                MsQuic->ConnectionClose(connection);
+
                 connection = nullptr;
             }
 

@@ -68,6 +68,11 @@ namespace hope {
             }
 
             if (connection) {
+                MsQuic->ConnectionShutdown(
+                    connection,
+                    QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
+                    QUIC_STATUS_ABORTED
+                );
                 MsQuic->ConnectionClose(connection);
                 connection = nullptr;
             }
