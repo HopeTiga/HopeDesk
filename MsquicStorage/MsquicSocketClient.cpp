@@ -446,6 +446,10 @@ namespace hope {
         }
 
         void MsquicSocketClient::clear() {
+
+            onConnectionHandle = nullptr;
+
+            onDataReceivedHandle = nullptr;
             // 先标记断开，防止新操作
             connected.store(false);
 
