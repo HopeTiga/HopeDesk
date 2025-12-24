@@ -43,7 +43,7 @@ namespace hope {
 
                 auto address = boost::asio::ip::make_address("127.0.0.1", ec);
                 if (ec) {
-                    LOG_ERROR("Failed to parse address 127.0.0.1: %s" , ec.message());
+                    LOG_ERROR("Failed to parse address 127.0.0.1: %s", ec.message());
                     co_return;
                 }
 
@@ -67,7 +67,7 @@ namespace hope {
                         }
                     }
                     catch (const std::exception& e) {
-                        LOG_ERROR("TCP acceptor error: %s" , e.what());
+                        LOG_ERROR("TCP acceptor error: %s", e.what());
                     }
                     });
 
@@ -116,7 +116,7 @@ namespace hope {
                 peerConnection->CreateAnswer(createAnswerObserver.get(), options);
             }
             else {
-                LOG_ERROR("Failed to parse offer: %s" , error.description);
+                LOG_ERROR("Failed to parse offer: %s", error.description);
                 isInit = false;
             }
         }
@@ -137,7 +137,7 @@ namespace hope {
                     SetRemoteDescriptionObserver::Create().get(), desc.release());
             }
             else {
-                LOG_ERROR("Failed to parse answer: %s" , error.description.c_str());
+                LOG_ERROR("Failed to parse answer: %s", error.description.c_str());
                 isInit = false;
             }
         }
@@ -156,7 +156,7 @@ namespace hope {
                 peerConnection->AddIceCandidate(iceCandidate.release());
             }
             else {
-                LOG_ERROR("Failed to parse ICE candidate: %s" , error.description.c_str());
+                LOG_ERROR("Failed to parse ICE candidate: %s", error.description.c_str());
             }
         }
 
@@ -187,7 +187,7 @@ namespace hope {
                                 headerRead += n;
                             }
                             catch (const boost::system::system_error& e) {
-                                LOG_ERROR("Socket read error: %s" , e.what());
+                                LOG_ERROR("Socket read error: %s", e.what());
                                 co_return;
                             }
                         }
@@ -197,7 +197,7 @@ namespace hope {
                         int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
                         if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
-                            LOG_ERROR("Invalid body length: %d" ,bodyLength);
+                            LOG_ERROR("Invalid body length: %d", bodyLength);
                             co_return;
                         }
 
@@ -225,7 +225,7 @@ namespace hope {
                                 bodyRead += n;
                             }
                             catch (const boost::system::system_error& e) {
-                                LOG_ERROR("Socket read error: %s" , e.what());
+                                LOG_ERROR("Socket read error: %s", e.what());
                                 co_return;
                             }
                         }
@@ -322,12 +322,12 @@ namespace hope {
                             }
                         }
                         catch (const std::exception& e) {
-                            LOG_ERROR("JSON parse error: %s" , e.what());
+                            LOG_ERROR("JSON parse error: %s", e.what());
                         }
                     }
                 }
                 catch (const std::exception& e) {
-                    LOG_ERROR("Reader coroutine error: %s" , e.what());
+                    LOG_ERROR("Reader coroutine error: %s", e.what());
                 }
 
                 co_return;
@@ -339,7 +339,7 @@ namespace hope {
                         }
                     }
                     catch (const std::exception& e) {
-                        LOG_ERROR("Reader coroutine exception: %s",e.what());
+                        LOG_ERROR("Reader coroutine exception: %s", e.what());
                     }
                     });
 
@@ -360,7 +360,7 @@ namespace hope {
                                 }
                                 catch (const boost::system::system_error& e) {
 
-                                    LOG_ERROR("Socket write error: %s" ,e.what());
+                                    LOG_ERROR("Socket write error: %s", e.what());
 
                                     break;
 
@@ -394,7 +394,7 @@ namespace hope {
                     }
                     catch (const std::exception& e) {
 
-                        LOG_ERROR("Writer coroutine error: %s",e.what());
+                        LOG_ERROR("Writer coroutine error: %s", e.what());
 
                     }
 
@@ -412,7 +412,7 @@ namespace hope {
                         }
                         catch (const std::exception& e) {
 
-                            LOG_ERROR("Writer coroutine exception: %s" , e.what());
+                            LOG_ERROR("Writer coroutine exception: %s", e.what());
 
                         }
                         });
@@ -578,7 +578,7 @@ namespace hope {
 
             if (!pcResult.ok()) {
 
-                LOG_ERROR("Failed to create PeerConnection: %s" , pcResult.error().message());
+                LOG_ERROR("Failed to create PeerConnection: %s", pcResult.error().message());
 
                 return false;
 
@@ -613,7 +613,7 @@ namespace hope {
 
                 if (!addTrackResult.ok()) {
 
-                    LOG_ERROR("Failed to add video track: %s" , addTrackResult.error().message());
+                    LOG_ERROR("Failed to add video track: %s", addTrackResult.error().message());
 
                     return false;
 
@@ -658,7 +658,7 @@ namespace hope {
 
                         }
 
-                        LOG_INFO("Attempting to prioritize codec: %s" , priorityCodec.c_str());
+                        LOG_INFO("Attempting to prioritize codec: %s", priorityCodec.c_str());
 
                         // 首先添加优先编解码器
                         bool foundPriorityCodec = false;
@@ -671,7 +671,7 @@ namespace hope {
 
                                 foundPriorityCodec = true;
 
-                                LOG_INFO("Found and prioritized codec: %s" , codec.name.c_str());
+                                LOG_INFO("Found and prioritized codec: %s", codec.name.c_str());
 
                                 break;
                             }
@@ -690,7 +690,7 @@ namespace hope {
 
                                 preferredCodecs.push_back(codec);
 
-                                LOG_INFO("Added additional codec: %s" , codec.name.c_str());
+                                LOG_INFO("Added additional codec: %s", codec.name.c_str());
 
                             }
                         }
@@ -736,7 +736,7 @@ namespace hope {
                 auto setParamsResult = videoSender->SetParameters(parameters);
 
                 if (!setParamsResult.ok()) {
-                    LOG_ERROR("Failed to set RTP parameters: %s" ,setParamsResult.message());
+                    LOG_ERROR("Failed to set RTP parameters: %s", setParamsResult.message());
                     return false;
                 }
             }
@@ -853,18 +853,11 @@ namespace hope {
 
             switch (eventType) {
             case 0: { // Mouse move
-                if (size < sizeof(short) + 2 * sizeof(int)) {
-                    return;
-                }
+                if (size < sizeof(short) + 2 * sizeof(uint16_t)) return;
 
-                const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short));
-
-                // 使用位运算替代除法：归一化坐标 * 屏幕尺寸 >> 16
-                // 65535 ≈ 2^16，所以右移16位等价于除以65536（误差可忽略）
-                int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
-                int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
-
-                keyMouseSim->MouseMove(posX, posY, true);
+                const uint16_t* xy = reinterpret_cast<const uint16_t*>(data + sizeof(short));
+                // xy[0/1] 已经是 0-65535 固定点，直接转发
+                keyMouseSim->MouseMove(xy[0], xy[1], true);
                 break;
             }
 

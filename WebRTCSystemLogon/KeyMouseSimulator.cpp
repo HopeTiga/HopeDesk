@@ -96,8 +96,7 @@ namespace hope {
                     return false;
                 }
 
-                LOG_DEBUG("Keyboard event sent - Scancode: %d, State: %s, Extended: %s",
-                    scanCode, down ? "Down" : "Up", extended ? "Yes" : "No");
+
                 return true;
             }
             catch (...) {
