@@ -236,17 +236,17 @@ void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
         // Get window client area size
         RECT clientRect;
         GetClientRect(targetHwnd, &clientRect);
-        int windowWidth = clientRect.right - clientRect.left;
+        int windowWidth  = clientRect.right - clientRect.left;
         int windowHeight = clientRect.bottom - clientRect.top;
 
         // Map window coordinates to screen coordinate system (maintain relative position)
         if (windowWidth > 0 && windowHeight > 0) {
-            clientPt.x = (clientPt.x * screenWidth) / windowWidth;
+            clientPt.x = (clientPt.x * screenWidth)  / windowWidth;
             clientPt.y = (clientPt.y * screenHeight) / windowHeight;
 
             // Boundary check
             if (clientPt.x < 0) clientPt.x = 0;
-            if (clientPt.x >= screenWidth) clientPt.x = screenWidth - 1;
+            if (clientPt.x >= screenWidth)  clientPt.x = screenWidth  - 1;
             if (clientPt.y < 0) clientPt.y = 0;
             if (clientPt.y >= screenHeight) clientPt.y = screenHeight - 1;
         }
@@ -255,7 +255,11 @@ void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
     int x = clientPt.x;
     int y = clientPt.y;
 
-    if ((x != lastMouseX.load() || y != lastMouseY.load()) && mouseMoveNums.fetch_add(1) % 3 ==0) {
+    // ===== 1+2 合并：取消计数器节流，改用 3 像素距离阈值 =====
+    constexpr int kMoveThreshold2 = 2 * 2;          // 平方距离，省 sqrt
+    int dx = x - lastMouseX.load();
+    int dy = y - lastMouseY.load();
+    if (dx * dx + dy * dy >= kMoveThreshold2) {
         sendMouseMoveEvent(x, y);
         lastMouseX = x;
         lastMouseY = y;
@@ -346,24 +350,23 @@ void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
 
 void InterceptionHook::sendMouseMoveEvent(int x, int y)
 {
-    if (!manager) {
-        return;
-    }
-
-    // Normalize coordinates to 0-65535 range
-    int normalizedX = (x << 16) / screenWidth;
-    int normalizedY = (y << 16) / screenHeight;
+    if (!manager) return;
 
 #pragma pack(push,1)
-    struct MouseMove {
-        short type;
-        int x;
-        int y;
+    struct MouseMove              // 6 字节
+    {
+        short  type;              // 0
+        uint16_t x;               // 屏幕绝对像素
+        uint16_t y;
     };
 #pragma pack(pop)
 
-    MouseMove* mouseMove = new MouseMove{0, normalizedX, normalizedY};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseMove), sizeof(MouseMove));
+    // 边界保护
+    uint16_t ux = static_cast<uint16_t>(std::clamp(x, 0, screenWidth));
+    uint16_t uy = static_cast<uint16_t>(std::clamp(y, 0, screenHeight));
+
+    MouseMove* pkt = new MouseMove{0, ux, uy};
+    manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
 }
 
 void InterceptionHook::sendWheelEvent(int delta)
