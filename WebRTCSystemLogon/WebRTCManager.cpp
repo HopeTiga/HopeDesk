@@ -861,25 +861,24 @@ namespace hope {
                 break;
             }
 
-            case 1: // Mouse button down
+            case 1:  // Mouse button down
             case 2: { // Mouse button up
-                if (size < sizeof(short) * 2 + 2 * sizeof(int)) {
-                    return;
-                }
+                constexpr std::size_t kMinSize = sizeof(short) * 2 + 2 * sizeof(int);
+                if (size < kMinSize) return;
 
-                const short mouseType = *reinterpret_cast<const short*>(data + sizeof(short));
-                const int* coordPtr = reinterpret_cast<const int*>(data + sizeof(short) * 2);
+                // 一次取完所有数据
+                const auto* p = reinterpret_cast<const int16_t*>(data);
+                const int16_t  mouseType = p[1];               // 2 字节
+                const int32_t* coordPtr = reinterpret_cast<const int32_t*>(p + 2); // 8 字节
 
-                // 同样使用位运算
-                int posX = (static_cast<int64_t>(coordPtr[0]) * screenWidth) >> 16;
-                int posY = (static_cast<int64_t>(coordPtr[1]) * screenHeight) >> 16;
+                // 0-65535 固定点 → 屏幕坐标，一次 64-bit 乘
+                const uint32_t scaleX = (static_cast<uint64_t>(coordPtr[0]) * screenWidth) >> 16;
+                const uint32_t scaleY = (static_cast<uint64_t>(coordPtr[1]) * screenHeight) >> 16;
 
-                if (eventType == 1) {
-                    keyMouseSim->MouseButtonDown(mouseType, posX, posY);
-                }
-                else {
+                if (eventType == 1)
+                    keyMouseSim->MouseButtonDown(mouseType, scaleX, scaleY);
+                else
                     keyMouseSim->MouseButtonUp(mouseType);
-                }
                 break;
             }
 
