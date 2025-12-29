@@ -37,8 +37,8 @@ namespace hope {
             void OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) override;
 
             void OnIceCandidateError(const std::string& address, int port, const std::string& url,
-                int errorCode, const std::string& errorText) override {
-            }
+                int errorCode, const std::string& errorText) override;
+
             void OnIceCandidateRemoved(const webrtc::IceCandidate* candidate) override {}
 
             void OnIceCandidatesRemoved(const std::vector<webrtc::Candidate>& candidates) override {}
