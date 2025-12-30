@@ -513,7 +513,7 @@ namespace hope {
 
                 audioDeviceModuleImpl = AudioDeviceModuleImpl::Create();
 
-                std::string trials_config = "WebRTC-Pacer-BurstyPacing/burst:500ms/";
+                std::string trials_config = "WebRTC-Video-Pacing/Disabled/";
 
                 std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(trials_config);
 
