@@ -403,7 +403,7 @@ bool WebRTCManager::initializePeerConnection()
         }
 
 
-        std::string trials_config = "WebRTC-Pacer-BurstyPacing/burst:1000ms/";
+        std::string trials_config = "WebRTC-Pacer-BurstyPacing/burst:500ms/";
 
         std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(trials_config);
 
