@@ -402,11 +402,6 @@ bool WebRTCManager::initializePeerConnection()
             return false;
         }
 
-
-        std::string trials_config = "WebRTC-Pacer-BurstyPacing/burst:500ms/";
-
-        std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(trials_config);
-
         peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
             networkThread.get(),
             workerThread.get(),
@@ -419,7 +414,7 @@ bool WebRTCManager::initializePeerConnection()
             nullptr,
             nullptr,
             nullptr,
-            std::move(fieldTrials)
+            nullptr
             );
 
         if (!peerConnectionFactory) {
