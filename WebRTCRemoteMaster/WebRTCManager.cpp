@@ -5,6 +5,7 @@
 #include <boost/random/random_device.hpp>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
+#include <api/field_trials.h>
 #include <immintrin.h>
 #include "ConfigManager.h"
 #include "Utils.h"
@@ -401,6 +402,11 @@ bool WebRTCManager::initializePeerConnection()
             return false;
         }
 
+
+        std::string trials_config = "WebRTC-Pacer-BurstyPacing/burst:1000ms/";
+
+        std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(trials_config);
+
         peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
             networkThread.get(),
             workerThread.get(),
@@ -413,7 +419,7 @@ bool WebRTCManager::initializePeerConnection()
             nullptr,
             nullptr,
             nullptr,
-            nullptr
+            std::move(fieldTrials)
             );
 
         if (!peerConnectionFactory) {
