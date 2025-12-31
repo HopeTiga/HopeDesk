@@ -514,10 +514,12 @@ namespace hope {
                 audioDeviceModuleImpl = AudioDeviceModuleImpl::Create();
 
                 const char* field_trials =
-                    "WebRTC-Pacer-DrainQueue/Enabled/"
-                    "WebRTC-ZeroPlayoutDelay/Enabled/"
-                    "WebRTC-Video-Pacing/Enabled/"
-                    "WebRTC-CongestionWindow/Enabled/";
+                    "WebRTC-Video-Pacing/Disabled/"
+                    "WebRTC-CongestionWindow/Enabled/"
+                    "WebRTC-Pacer-PadInSilence/Enabled/"
+                    "WebRTC-SendNackDelayMs/Enabled/"
+                    "WebRTC-Bwe-ProbingConfiguration/Enabled/"
+                    "WebRTC-LossBasedBweV2/Enabled/";
 
                 std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
 
