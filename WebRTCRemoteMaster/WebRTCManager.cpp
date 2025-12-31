@@ -402,6 +402,12 @@ bool WebRTCManager::initializePeerConnection()
             return false;
         }
 
+        const char* field_trials =
+            "WebRTC-Video-JitterBufferDelay/Enabled/"
+            "WebRTC-ZeroPlayoutDelay/Enabled/";
+
+        std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
+
         peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
             networkThread.get(),
             workerThread.get(),
@@ -414,7 +420,7 @@ bool WebRTCManager::initializePeerConnection()
             nullptr,
             nullptr,
             nullptr,
-            nullptr
+            std::move(fieldTrials)
             );
 
         if (!peerConnectionFactory) {
