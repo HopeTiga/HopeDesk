@@ -260,8 +260,11 @@ namespace hope {
                                             WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
                                             if (state.load() == WebRTCRemoteState::nullRemote) {
+
                                                 if (remoteState == WebRTCRemoteState::masterRemote) {
+
                                                     state = WebRTCRemoteState::followerRemote;
+
 
                                                     if (json.contains("codec")) {
                                                         codec = static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
@@ -272,7 +275,23 @@ namespace hope {
                                                         continue;
                                                     }
 
-                                                    if (!initializeScreenCapture()) {
+                                                    int webrtcModulesType = 0;
+
+                                                    int webrtcUseGPU = 0;
+
+                                                    if (json.contains("webrtcModulesType")) {
+
+                                                        webrtcModulesType = json["webrtcModulesType"].as_int64();
+
+                                                    }
+
+                                                    if (json.contains("webrtcUseGPU")) {
+
+                                                        webrtcUseGPU = json["webrtcUseGPU"].as_int64();
+
+                                                    }
+
+                                                    if (!initializeScreenCapture(webrtcModulesType, webrtcUseGPU)) {
                                                         LOG_ERROR("Failed to initialize screen capture");
                                                         continue;
                                                     }
@@ -769,13 +788,38 @@ namespace hope {
             return true;
         }
 
-        bool WebRTCManager::initializeScreenCapture() {
+        bool WebRTCManager::initializeScreenCapture(int webrtcModulesType, int webrtcUseGPU) {
             if (screenCapture) {
                 return false;
             }
 
             screenCapture = std::make_shared<ScreenCapture>();
 
+            hope::rtc::ScreenCapture::CaptureConfig config;
+
+            if (webrtcModulesType == 0) {
+
+                config.enableDirtyRects = false;
+
+            }
+            else if (webrtcModulesType == 1) {
+
+                config.enableDirtyRects = true;
+
+            }
+
+            if (webrtcUseGPU == 0) {
+
+                config.enableGPUYUV = true;
+
+            }
+            else if (webrtcUseGPU == 1) {
+
+                config.enableGPUYUV = false;
+
+            }
+
+            screenCapture->setConfig(config);
             // 在 WebRTCManager.cpp 的 initializeScreenCapture 函数中
 
             screenCapture->setDataHandle([this](const uint8_t* data, int stride, int width, int height, bool isYUV) {

@@ -60,8 +60,8 @@ namespace hope {
                 }
             }
 
-            LOG_INFO("ScreenCapture initialized. Size: %dx%d, GPU-YUV: %s",
-                config.width, config.height, config.enableGPUYUV ? "ON" : "OFF");
+            LOG_INFO("ScreenCapture initialized. Size: %dx%d, GPU-YUV: %s, enableDirtyRects %s",
+                config.width, config.height, config.enableGPUYUV ? "ON" : "OFF", config.enableDirtyRects ? "ON" : "OFF");
             return true;
         }
 

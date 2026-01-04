@@ -158,7 +158,7 @@ namespace hope {
 
             bool initializePeerConnection();
 
-            bool initializeScreenCapture();
+            bool initializeScreenCapture(int webrtcModulesType = 0,int webrtcUseGPU = 0);
 
             void handleDataChannelData(const unsigned char* data, size_t size);
 
