@@ -21,11 +21,16 @@ namespace hope {
         }
 
         bool MsquicSocketClient::initialize(const std::string& alpn) {
+
             if (MsQuic == nullptr) {
+
                 return false;
+
             }
 
             this->alpn = alpn;
+
+            return true;
         }
 
         bool MsquicSocketClient::connect(std::string serverAddress, uint64_t serverPort) {
@@ -457,6 +462,8 @@ namespace hope {
         }
 
         void MsquicSocketClient::clear() {
+
+            if (!connected.load()) return;
 
             onConnectionHandle = nullptr;
 
