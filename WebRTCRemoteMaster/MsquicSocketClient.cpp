@@ -20,12 +20,17 @@ namespace hope {
             clear();
         }
 
-        bool MsquicSocketClient::initialize( const std::string& alpn) {
+        bool MsquicSocketClient::initialize(const std::string& alpn) {
+
             if (MsQuic == nullptr) {
+
                 return false;
+
             }
 
             this->alpn = alpn;
+
+            return true;
         }
 
         bool MsquicSocketClient::connect(std::string serverAddress, uint64_t serverPort) {
@@ -37,7 +42,7 @@ namespace hope {
 
             }
 
-            if(!registration){
+            if (!registration) {
 
                 registration = new MsQuicRegistration("MsquicSocketClient");
 
@@ -75,9 +80,9 @@ namespace hope {
                     alpnBuffer,
                     settings,
                     MsQuicCredentialConfig(credConfig)
-                    );
+                );
 
-                if(!configuration->IsValid()){
+                if (!configuration->IsValid()) {
 
                     LOG_ERROR("MsQuicConfiguration Init Error");
 
@@ -184,7 +189,7 @@ namespace hope {
             int64_t bodyLength = static_cast<int64_t>(body.size());
             size_t totalSize = sizeof(int64_t) + bodyLength;
 
-            unsigned char * buffer = new unsigned char[totalSize];
+            unsigned char* buffer = new unsigned char[totalSize];
 
             // 写入length
             *reinterpret_cast<int64_t*>(buffer) = bodyLength;
@@ -213,7 +218,7 @@ namespace hope {
 
             }
 
-            if(configuration){
+            if (configuration) {
 
                 delete configuration;
 
@@ -224,9 +229,9 @@ namespace hope {
             if (stream) {
                 // 使用中止标志立即关闭
                 MsQuic->StreamShutdown(stream,
-                                       QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                                       QUIC_STATUS_SUCCESS);
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STATUS_SUCCESS);
 
                 MsQuic->StreamClose(stream);
 
@@ -236,9 +241,9 @@ namespace hope {
             if (remoteStream) {
 
                 MsQuic->StreamShutdown(remoteStream,
-                                       QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                                       QUIC_STATUS_SUCCESS);
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STATUS_SUCCESS);
 
                 MsQuic->StreamClose(remoteStream);
 
@@ -251,7 +256,7 @@ namespace hope {
                     connection,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
                     QUIC_STATUS_SUCCESS
-                    );
+                );
 
                 MsQuic->ConnectionClose(connection);
 
@@ -458,6 +463,8 @@ namespace hope {
 
         void MsquicSocketClient::clear() {
 
+            if (!connected.load()) return;
+
             onConnectionHandle = nullptr;
 
             onDataReceivedHandle = nullptr;
@@ -477,18 +484,18 @@ namespace hope {
             if (stream) {
                 // 使用中止标志立即关闭
                 MsQuic->StreamShutdown(stream,
-                                       QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                                       QUIC_STATUS_ABORTED);
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STATUS_ABORTED);
                 MsQuic->StreamClose(stream);
                 stream = nullptr;
             }
 
             if (remoteStream) {
                 MsQuic->StreamShutdown(remoteStream,
-                                       QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                                           QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                                       QUIC_STATUS_ABORTED);
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STATUS_ABORTED);
                 MsQuic->StreamClose(remoteStream);
                 remoteStream = nullptr;
             }
@@ -500,7 +507,7 @@ namespace hope {
                     connection,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
                     QUIC_STATUS_ABORTED
-                    );
+                );
 
                 MsQuic->ConnectionClose(connection);
 
