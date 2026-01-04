@@ -145,7 +145,7 @@ public:
     WebRTCManager& operator=(const WebRTCManager&) = delete;
 
 public:
-    void sendRequestToTarget();
+    void sendRequestToTarget(int webrtcModulesType = 0,int webrtcUseGPU = 0);
 
     void connect(std::string ip);
 
@@ -297,6 +297,7 @@ private:
     std::vector<std::vector<unsigned char>> cursorArray ;
 
     std::string dataStr;
+
 };
 
 

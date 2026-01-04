@@ -229,7 +229,7 @@ void MainWindow::setupWebRTCCallbacks()
 
                                 this->manager->setAccountId(currentAccount.toStdString());
                                 QString url = QString("%1:%2").arg(serverAddress).arg(port);
-                                this->manager->connect(url.toStdString());
+
                             } else {
                                 this->ui->connectionStatusLabel->setText("连接断开（配置不完整）");
                                 this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
@@ -566,7 +566,7 @@ void MainWindow::onSendRequestClicked()
 
     ui->sendRequestButton->setEnabled(false);
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    manager->sendRequestToTarget();
+    manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcUseGPU);
 
     statusBar()->showMessage("正在建立远程连接...");
 }
@@ -1039,6 +1039,28 @@ void MainWindow::onRemoveAccountClicked()
         updateTargetList();
     }
 }
+
+void MainWindow::on_modeComboBox_currentIndexChanged(int index)
+{
+    this->webrtcModulesType = index;
+}
+
+void MainWindow::on_gpuCheckBox_clicked(bool checked)
+{
+    if(checked){
+
+        this->webrtcUseGPU = 0;
+
+    }
+
+    if(!checked){
+
+        this->webrtcUseGPU = 1;
+
+    }
+}
+
+
 
 
     }

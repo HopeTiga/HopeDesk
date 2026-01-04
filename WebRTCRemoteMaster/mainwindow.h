@@ -73,6 +73,10 @@ namespace hope{
         void onDeviceItemClicked(QListWidgetItem* item);
 
 
+        void on_modeComboBox_currentIndexChanged(int index);
+
+        void on_gpuCheckBox_clicked(bool checked);
+
     private:
         // UI初始化
         void setupConnections();
@@ -131,6 +135,10 @@ namespace hope{
         static const int REMOTE_CONNECTION_TIMEOUT = 15000;
 
         QLabel* background;
+
+        int webrtcModulesType = 0;
+
+        int webrtcUseGPU = 0;
     };
 
     }

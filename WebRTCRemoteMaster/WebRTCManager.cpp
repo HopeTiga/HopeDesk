@@ -934,7 +934,7 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
-void WebRTCManager::sendRequestToTarget()
+void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseGPU)
 {
     if (targetId.empty()) {
         LOG_ERROR("Target ID not set");
@@ -960,6 +960,9 @@ void WebRTCManager::sendRequestToTarget()
         message["targetId"] = targetId;
         message["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
         message["webRTCRemoteState"] = static_cast<int64_t>(WebRTCRemoteState::masterRemote);
+        message["webrtcModulesType"] = webrtcModulesType;
+        message["webrtcUseGPU"] = webrtcUseGPU;
+
 
         msquicSocketClient->writeJsonAsync(message);
 
