@@ -28,7 +28,7 @@ namespace hope {
             struct CaptureConfig {
                 int width = 0;
                 int height = 0;
-                int fps = 60;
+                int fps = 120;
                 bool enableDirtyRects = true;
                 bool enableGPUYUV = true; // 开关：是否启用 GPU 转换
             };
