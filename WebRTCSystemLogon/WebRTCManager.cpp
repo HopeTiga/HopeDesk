@@ -27,6 +27,7 @@ namespace hope {
             keyMouseSim(nullptr),
             codec(codec),
             rtpEncodingParameters(rtpEncodingParameters),
+            bufferPool(false, 100),
             cursorHooks(nullptr) {
 
             ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
@@ -775,40 +776,65 @@ namespace hope {
 
             screenCapture = std::make_shared<ScreenCapture>();
 
-            screenCapture->setFrameCallback([this](const uint8_t* data, size_t size, int width, int height) {
+            // 在 WebRTCManager.cpp 的 initializeScreenCapture 函数中
 
-                if (!videoTrackSourceImpl || !data || size == 0) {
-                    return;
-                }
+            screenCapture->setDataHandle([this](const uint8_t* data, int stride, int width, int height, bool isYUV) {
 
-                size_t expectedSize = width * height * 3 / 2;
-                if (size != expectedSize) {
-                    return;
-                }
+                if (!videoTrackSourceImpl || !data) return;
 
                 webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer =
-                    webrtc::I420Buffer::Create(width, height);
+                    bufferPool.CreateI420Buffer(width, height);
 
-                if (!i420Buffer) {
-                    return;
+                if (!i420Buffer) return;
+
+                uint8_t* dstY = i420Buffer->MutableDataY();
+                int dstStrideY = i420Buffer->StrideY();
+                uint8_t* dstU = i420Buffer->MutableDataU();
+                int dstStrideU = i420Buffer->StrideU();
+                uint8_t* dstV = i420Buffer->MutableDataV();
+                int dstStrideV = i420Buffer->StrideV();
+
+                if (isYUV) {
+
+                    const int ySize = width * height;
+                    const int uvSize = ((width + 1) / 2) * ((height + 1) / 2);
+
+                    const uint8_t* srcY = data;
+                    const uint8_t* srcU = data + ySize;
+                    const uint8_t* srcV = data + ySize + uvSize;
+
+                    const int srcStrideY = stride; // 传入的 stride 即为 width
+                    const int srcStrideU = (stride + 1) / 2;
+                    const int srcStrideV = (stride + 1) / 2;
+
+                    libyuv::I420Copy(
+                        srcY, srcStrideY,
+                        srcU, srcStrideU,
+                        srcV, srcStrideV,
+                        dstY, dstStrideY,
+                        dstU, dstStrideU,
+                        dstV, dstStrideV,
+                        width, height
+                    );
                 }
+                else {
 
-                const int ySize = width * height;
-                const int uvWidth = (width + 1) / 2;
-                const int uvHeight = (height + 1) / 2;
-                const int uvSize = uvWidth * uvHeight;
-
-                fastCopy(i420Buffer->MutableDataY(), data, ySize);
-                fastCopy(i420Buffer->MutableDataU(), data + ySize, uvSize);
-                fastCopy(i420Buffer->MutableDataV(), data + ySize + uvSize, uvSize);
+                    libyuv::ARGBToI420(
+                        data, stride,       // 源数据和源 Stride (RowPitch)
+                        dstY, dstStrideY,   // 目标 Y
+                        dstU, dstStrideU,   // 目标 U
+                        dstV, dstStrideV,   // 目标 V
+                        width, height
+                    );
+                }
 
                 webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
                     .set_video_frame_buffer(i420Buffer)
+                    .set_rotation(webrtc::kVideoRotation_0)
                     .set_timestamp_us(webrtc::TimeMicros())
                     .build();
 
                 videoTrackSourceImpl->PushFrame(frame);
-
                 });
 
             if (!screenCapture->initialize()) {

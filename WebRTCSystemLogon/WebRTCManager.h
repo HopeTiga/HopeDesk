@@ -30,6 +30,8 @@
 #include <pc/video_track_source.h>
 #include <api/enable_media_with_defaults.h>
 #include <media/base/adapted_video_track_source.h>
+#include <common_video/include/video_frame_buffer_pool.h> 
+#include <third_party/libyuv/include/libyuv.h>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -54,8 +56,8 @@
 
 namespace hope {
 
-	namespace rtc {
-	
+    namespace rtc {
+
         enum class WebRTCRemoteState {
             nullRemote = 0,
             masterRemote = 1,
@@ -118,7 +120,7 @@ namespace hope {
 
             size_t size;
         };
-       
+
         class WebRTCManager {
 
             friend class PeerConnectionObserverImpl;
@@ -214,6 +216,8 @@ namespace hope {
 
             webrtc::scoped_refptr<AudioDeviceModuleImpl> audioDeviceModuleImpl;
 
+            webrtc::VideoFrameBufferPool bufferPool;
+
             std::atomic<bool> isInit{ false };
 
             std::atomic<WebRTCRemoteState> state;
@@ -244,6 +248,6 @@ namespace hope {
 
         };
 
-	}
+    }
 
 }
