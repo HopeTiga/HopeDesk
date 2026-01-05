@@ -566,7 +566,7 @@ void MainWindow::onSendRequestClicked()
 
     ui->sendRequestButton->setEnabled(false);
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcUseGPU);
+    manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcUseGPU,this->videoCodec);
 
     statusBar()->showMessage("正在建立远程连接...");
 }
@@ -1059,6 +1059,12 @@ void MainWindow::on_gpuCheckBox_clicked(bool checked)
 
     }
 }
+
+void MainWindow::on_codecComboBox_currentIndexChanged(int index)
+{
+    this->videoCodec = index;
+}
+
 
 
 

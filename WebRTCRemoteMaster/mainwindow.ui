@@ -814,6 +814,91 @@ QComboBox::down-arrow {
             </spacer>
            </item>
            <item>
+            <widget class="QLabel" name="codecLabel">
+             <property name="styleSheet">
+              <string notr="true">font-size: 13px; color: #4A5568;</string>
+             </property>
+             <property name="text">
+              <string>视频编码:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="codecComboBox">
+             <property name="styleSheet">
+              <string notr="true">QComboBox {
+    background-color: rgba(255,255,255,0.85);
+    border: 1px solid #E2E8F0;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: #2D3748;
+}
+QComboBox:focus {
+    border-color: #4299E1;
+}
+QComboBox:hover {
+    border-color: #CBD5E0;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+QComboBox::down-arrow {
+    width: 12px;
+    height: 12px;
+    border: none;
+    image: none;
+    background: transparent;
+}</string>
+             </property>
+             <property name="currentIndex">
+              <number>4</number>
+             </property>
+             <item>
+              <property name="text">
+               <string>VP8</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>VP9</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>H.264</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>H.265</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>AV1</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_gap_2">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeType">
+              <enum>QSizePolicy::Policy::Fixed</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>15</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
             <widget class="QCheckBox" name="gpuCheckBox">
              <property name="styleSheet">
               <string notr="true">QCheckBox {

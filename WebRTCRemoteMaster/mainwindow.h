@@ -77,6 +77,8 @@ namespace hope{
 
         void on_gpuCheckBox_clicked(bool checked);
 
+        void on_codecComboBox_currentIndexChanged(int index);
+
     private:
         // UI初始化
         void setupConnections();
@@ -139,6 +141,8 @@ namespace hope{
         int webrtcModulesType = 0;
 
         int webrtcUseGPU = 0;
+
+        int videoCodec = 4;
     };
 
     }
