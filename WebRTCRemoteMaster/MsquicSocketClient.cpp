@@ -286,8 +286,21 @@ namespace hope {
                 const auto& buf = rev->Buffers[0];
 
                 if (buf.Length >= sizeof(int64_t)) {
+
                     int64_t bodyLen = *reinterpret_cast<const int64_t*>(buf.Buffer);
+
                     int64_t totalLen = sizeof(int64_t) + bodyLen;
+
+                    constexpr int64_t MAX_PACKET_SIZE = 10 * 1024 * 1024; // 10MB
+
+                    if (bodyLen < 0 || bodyLen > MAX_PACKET_SIZE) {
+
+                        LOG_ERROR("Parsed packet length invalid: %lld. Disconnecting.", bodyLen);
+
+                        clear();
+
+                        return;
+                    }
 
                     if (buf.Length >= totalLen) {
                         // 零拷贝直接解析
@@ -431,6 +444,17 @@ namespace hope {
                 // 2. 预读长度（不删除数据）
                 int64_t len = *reinterpret_cast<const int64_t*>(receivedBuffer.data());
 
+                 constexpr int64_t MAX_PACKET_SIZE = 10 * 1024 * 1024; // 10MB
+
+                if (len < 0 || len > MAX_PACKET_SIZE) {
+
+                    LOG_ERROR("Parsed packet length invalid: %lld. Disconnecting.", len);
+
+                    clear();
+
+                    return;
+                }
+
                 // 3. 检查完整包 (Header + Body)
                 // 注意：你的 writeJsonAsync 逻辑是 Header(8字节) + Body(len字节)
                 // 所以总长度应该是 headerSize + len
@@ -465,6 +489,8 @@ namespace hope {
 
             if (!connected.load()) return;
 
+            if (isClear.exchange(true)) return;
+
             onConnectionHandle = nullptr;
 
             onDataReceivedHandle = nullptr;
@@ -485,7 +511,8 @@ namespace hope {
                 // 使用中止标志立即关闭
                 MsQuic->StreamShutdown(stream,
                     QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE |
+                    QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE,
                     QUIC_STATUS_ABORTED);
                 MsQuic->StreamClose(stream);
                 stream = nullptr;
@@ -494,7 +521,8 @@ namespace hope {
             if (remoteStream) {
                 MsQuic->StreamShutdown(remoteStream,
                     QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE |
+                    QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE,
                     QUIC_STATUS_ABORTED);
                 MsQuic->StreamClose(remoteStream);
                 remoteStream = nullptr;
@@ -577,9 +605,19 @@ namespace hope {
 
             case QUIC_STREAM_EVENT_SEND_COMPLETE:
                 if (event->SEND_COMPLETE.ClientContext) {
+
                     QUIC_BUFFER* buffer = static_cast<QUIC_BUFFER*>(event->SEND_COMPLETE.ClientContext);
-                    delete[] buffer->Buffer;
+
+                    if (buffer->Buffer) {
+
+                        delete[] buffer->Buffer;
+
+                    }
+
                     delete buffer;
+
+                    buffer = nullptr;
+
                 }
                 break;
 
