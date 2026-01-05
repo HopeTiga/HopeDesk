@@ -69,6 +69,8 @@ namespace hope {
                 // 3. 执行 WebSocket 服务端握手 (async_accept)
                 co_await webSocket.async_accept(req, boost::asio::use_awaitable);
 
+                webSocket.read_message_max(1024 * 1024 * 5);
+
                 setTcpKeepAlive(webSocket.next_layer());
 
                 boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
@@ -170,7 +172,11 @@ namespace hope {
 
                 });
 
-            boost::asio::co_spawn(ioContext, writerCoroutine(),boost::asio::detached);
+            boost::asio::co_spawn(ioContext,
+                [self = shared_from_this()]() -> boost::asio::awaitable<void> {
+                    co_await self->writerCoroutine();
+                },
+                boost::asio::detached);
 
             webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                 boost::beast::role_type::server));
@@ -261,7 +267,9 @@ namespace hope {
 
                     LOG_ERROR("hope::socket::WebRTCSignalSocket reviceCoroutine  Pase Json Error: %s", e.what());
 
-                    continue;
+                    clear();
+
+                    co_return;
                 }
 
                 std::shared_ptr< hope::quic::MsquicData > data = std::make_shared < hope::quic::MsquicData > (std::move(json), shared_from_this(), msquicManager);

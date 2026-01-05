@@ -41,8 +41,6 @@ namespace hope {
 
 			boost::asio::io_context& getIoCompletionPorts();
 
-			void shutDown();
-
 			void clear();
 
 			SocketType getType();

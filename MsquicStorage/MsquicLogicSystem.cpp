@@ -55,48 +55,21 @@ namespace hope {
 
             if (this->msquicHandlers.find(type) != this->msquicHandlers.end()) {
 
-                std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr <hope::quic::MsquicData> , std::shared_ptr<hope::mysql::MsquicMysqlManager>)>> pairs = this->msquicHandlers[type];
+                std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>, std::shared_ptr<hope::mysql::MsquicMysqlManager>)> func = this->msquicHandlers[type];
 
-                if (pairs.first) {
+                std::shared_ptr<hope::mysql::MsquicMysqlManager> manager = hope::mysql::MsquicMysqlManagerPools::getInstance()->getTransactionMysqlManager();
 
-                    std::shared_ptr<hope::mysql::MsquicMysqlManager> manager = hope::mysql::MsquicMysqlManagerPools::getInstance()->getTransactionMysqlManager();
-
-                    if (manager) {
-
-                        boost::asio::co_spawn(ioContext, [this, type, pairs, manager, data]() mutable -> boost::asio::awaitable<void> {
-
-                            try {
-                                co_await pairs.second(data, manager);
-                            }
-                            catch (...) {
-                                hope::mysql::MsquicMysqlManagerPools::getInstance()->returnTransactionMysqlManager(std::move(manager));
-                                throw;
-                            }
-
+                if (manager) {
+                    boost::asio::co_spawn(ioContext, [this, type, func, manager, data]() mutable -> boost::asio::awaitable<void> {
+                        try {
+                            co_await func(data, manager);
+                        }
+                        catch (...) {
                             hope::mysql::MsquicMysqlManagerPools::getInstance()->returnTransactionMysqlManager(std::move(manager));
-                            },
-                            [this, type](std::exception_ptr ptr) {
-                                if (ptr) {
-                                    try {
-                                        std::rethrow_exception(ptr);
-                                    }
-                                    catch (const std::exception& e) {
-                                        LOG_ERROR("MsquicLogicSystem boost::asio::co_spawn Task: %d Exception: %s", type, e.what());
-                                    }
-                                }
-                            });
+                            throw;
+                        }
 
-                    }
-                    else {
-                        postTaskAsync(data); // 暂不加重试，保持原样
-                    }
-
-                }
-                else {
-                    std::shared_ptr<hope::mysql::MsquicMysqlManager> manager = hope::mysql::MsquicMysqlManagerPools::getInstance()->getMysqlManager();
-
-                    boost::asio::co_spawn(ioContext, [this, type, pairs, manager, data]() -> boost::asio::awaitable<void> {
-                        co_await pairs.second(data, manager);
+                        hope::mysql::MsquicMysqlManagerPools::getInstance()->returnTransactionMysqlManager(std::move(manager));
                         },
                         [this, type](std::exception_ptr ptr) {
                             if (ptr) {
@@ -107,6 +80,20 @@ namespace hope {
                                     LOG_ERROR("MsquicLogicSystem boost::asio::co_spawn Task: %d Exception: %s", type, e.what());
                                 }
                             }
+                        });
+                }
+                else {
+
+                    auto timer = std::make_shared<boost::asio::steady_timer>(ioContext);
+
+                    timer->expires_after(std::chrono::milliseconds(20));
+
+                    timer->async_wait([this, data, timer](const boost::system::error_code& ec) {
+                        if (!ec) {
+
+                            this->postTaskAsync(data);
+                        }
+
                         });
                 }
 
@@ -293,21 +280,21 @@ namespace hope {
                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                 };
 
-            msquicHandlers[0] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>, std::shared_ptr<hope::mysql::MsquicMysqlManager>)>>(false, [self](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
+            msquicHandlers[0] = [self](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
 
                 boost::json::object& message = data->json;
 
-                hope::quic::MsquicSocket *  msquicSocket = nullptr;
+                hope::quic::MsquicSocket* msquicSocket = nullptr;
 
-                hope::quic::WebRTCSignalSocket * webrtcSignalSocket = nullptr;
+                hope::quic::WebRTCSignalSocket* webrtcSignalSocket = nullptr;
 
                 if (data->msquicSocketInterface->getType() == hope::quic::SocketType::MsquicSocket) {
-                
+
                     msquicSocket = static_cast<hope::quic::MsquicSocket*>(data->msquicSocketInterface.get());
 
                 }
                 else if (data->msquicSocketInterface->getType() == hope::quic::SocketType::WebSocket) {
-                
+
                     webrtcSignalSocket = static_cast<hope::quic::WebRTCSignalSocket*>(data->msquicSocketInterface.get());
 
                 }
@@ -358,7 +345,7 @@ namespace hope {
                         auto [buffer, size] = buildMessage(response, webrtcSignalSocket);
 
                         webrtcSignalSocket->writeAsync(buffer, size);
-                        
+
                         co_return;
                     }
 
@@ -372,7 +359,7 @@ namespace hope {
 
                 }
                 else {
-                
+
                     LOG_ERROR("Unknow SocketType:%d", static_cast<int>(data->msquicSocketInterface->getType()));
 
                 }
@@ -394,24 +381,25 @@ namespace hope {
                     });
 
                 LOG_INFO("User Register Successful : %s (channelIndex: %d)", accountId.c_str(), data->msquicManager->channelIndex);
-                });
+                };
 
             // 其他 handler 保持原来的转发逻辑，因为它们调用 forwardHandler
-            msquicHandlers[1] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>, std::shared_ptr<hope::mysql::MsquicMysqlManager>)>>(false, [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
+            msquicHandlers[1] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(data), mysqlManager, "REQUEST");
-                });
+                };
 
-            msquicHandlers[2] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>, std::shared_ptr<hope::mysql::MsquicMysqlManager>)>>(false, [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
+
+            msquicHandlers[2] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(data), mysqlManager, "RESTART");
-                });
+                };
 
-            msquicHandlers[3] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>, std::shared_ptr<hope::mysql::MsquicMysqlManager>)>>(false, [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
+            msquicHandlers[3] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(data), mysqlManager, "STOPREMOTE");
-                });
+                };
 
-            msquicHandlers[4] = std::pair<bool, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>, std::shared_ptr<hope::mysql::MsquicMysqlManager>)>>(false, [self](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
-               
-                
+            msquicHandlers[4] = [self](std::shared_ptr<hope::quic::MsquicData> data, std::shared_ptr<hope::mysql::MsquicMysqlManager> mysqlManager)->boost::asio::awaitable<void> {
+
+
                 hope::quic::MsquicSocket* msquicSocket = nullptr;
 
                 hope::quic::WebRTCSignalSocket* webrtcSignalSocket = nullptr;
@@ -454,7 +442,7 @@ namespace hope {
 
                 co_return;
 
-                });
+                };
         }
 
     }

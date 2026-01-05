@@ -8,19 +8,8 @@ namespace hope {
 	
 		MsquicMysqlManagerPools::MsquicMysqlManagerPools(size_t size):size(size) {
 		
-			for(int i = 0; i < size ; i++){
-			
-				mysqlManagers.emplace_back(std::make_shared<MsquicMysqlManager>(hope::iocp::AsioProactors::getInstance()->getIoCompletePorts().second));
 
-				mysqlManagers[i]->initConnection(ConfigManager::Instance().GetString("Mysql.ip")
-					, ConfigManager::Instance().GetInt("Mysql.port")
-					, ConfigManager::Instance().GetString("Mysql.username")
-					, ConfigManager::Instance().GetString("Mysql.password")
-					, ConfigManager::Instance().GetString("Mysql.database"));
-
-			}
-
-			for (int i = 0; i < size / 2; i++) {
+			for (int i = 0; i < size; i++) {
 
 				std::shared_ptr<MsquicMysqlManager> msquicMysqlManger =  std::make_shared<MsquicMysqlManager>(hope::iocp::AsioProactors::getInstance()->getIoCompletePorts().second);
 
@@ -38,8 +27,6 @@ namespace hope {
 
 		MsquicMysqlManagerPools::~MsquicMysqlManagerPools() {
 
-			mysqlManagers.clear();
-
 			std::shared_ptr<MsquicMysqlManager> transactionMysqlManager;
 
 			while (transactionMysqlManagers.try_dequeue(transactionMysqlManager)) {
@@ -47,14 +34,6 @@ namespace hope {
 				transactionMysqlManager.reset();
 
 			}
-
-		}
-
-		std::shared_ptr<MsquicMysqlManager> MsquicMysqlManagerPools::getMysqlManager()
-		{
-			size_t index = loadBalancing.fetch_add(1) % size;
-
-			return mysqlManagers[index];
 
 		}
 

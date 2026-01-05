@@ -22,8 +22,6 @@ namespace hope {
 				return instance;
 			}
 
-			std::shared_ptr<MsquicMysqlManager> getMysqlManager();
-
 			std::shared_ptr<MsquicMysqlManager> getTransactionMysqlManager();
 
 			void returnTransactionMysqlManager(std::shared_ptr<MsquicMysqlManager> mysqlManager);
@@ -38,9 +36,6 @@ namespace hope {
 
 			moodycamel::ConcurrentQueue<std::shared_ptr<MsquicMysqlManager>> transactionMysqlManagers { 1 };
 
-			std::vector<std::shared_ptr<MsquicMysqlManager>> mysqlManagers;
-
-			std::atomic<size_t> loadBalancing{ 0 };
 
 		};
 

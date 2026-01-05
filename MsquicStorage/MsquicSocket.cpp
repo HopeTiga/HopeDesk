@@ -27,35 +27,12 @@ namespace hope {
 
         }
 
-        void MsquicSocket::shutDown() {
-        
-            this->isShutDown.store(true);
-
-        }
-
         void MsquicSocket::clear()
         {
 
+            if (isShutDown.exchange(true)) return;
+
             receivedBuffer.clear();
-
-            if (isShutDown) {
-
-                if (stream) {
-
-                    stream = nullptr;
-                }
-
-                if (remoteStream) {
-        
-                    remoteStream = nullptr;
-                }
-
-                if (connection) {
-       
-                    connection = nullptr;
-                }
-
-            }
 
             if (stream) {
                 MsQuic->StreamClose(stream);

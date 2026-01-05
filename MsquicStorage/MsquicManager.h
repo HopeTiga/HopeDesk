@@ -8,6 +8,7 @@
 
 #include "MsquicLogicSystem.h"
 #include "MsquicHashMap.h"
+#include "MsquicHashSet.h"
 
 namespace hope {
 
@@ -30,6 +31,8 @@ namespace hope {
 
 			void removeConnection(std::string accountId);
 
+			void finalizeConnection(std::shared_ptr<MsquicSocketInterface> socket);
+
 		private:
 
 			boost::asio::io_context& ioContext;
@@ -41,6 +44,8 @@ namespace hope {
 			std::shared_ptr<hope::handle::MsquicLogicSystem> logicSystem;
 
 			hope::utils::MsquicHashMap<std::string,std::shared_ptr<MsquicSocketInterface>> msquicSocketInterfaceMap;
+
+			hope::utils::MsquicHashSet<std::shared_ptr<MsquicSocketInterface>> closingSockets;
 
 			size_t hashSize = std::thread::hardware_concurrency();
 

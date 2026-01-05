@@ -91,6 +91,8 @@ namespace hope {
             std::function<void(boost::json::object&)> onDataReceivedHandle;
 
             std::function<void(bool)> onConnectionHandle;
+
+            std::atomic<bool> isClear{ false };
         };
 
         // 声明静态回调函数

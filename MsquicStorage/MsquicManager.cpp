@@ -51,6 +51,14 @@ namespace hope {
 				return;
 			}
 
+			if (it->second) {
+
+				closingSockets.insert(it->second);
+
+			}
+
+			
+
 			msquicSocketInterfaceMap.erase(it);
 
             int mapChannelIndex = hasher(accountId) % hashSize;
@@ -65,6 +73,13 @@ namespace hope {
 
                 });
 
+		}
+
+		void MsquicManager::finalizeConnection(std::shared_ptr<MsquicSocketInterface> socket)
+		{
+			closingSockets.erase(socket);
+
+			LOG_INFO("MsquicSocket Finalized And Destroyed.");
 		}
 
 	}
