@@ -799,12 +799,12 @@ namespace hope {
 
             if (webrtcModulesType == 0) {
 
-                config.enableDirtyRects = true;
+                config.enableDirtyRects = false;
 
             }
             else if (webrtcModulesType == 1) {
 
-                config.enableDirtyRects = false;
+                config.enableDirtyRects = true;
 
             }
 
