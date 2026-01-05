@@ -9,95 +9,95 @@
 #include <boost/json.hpp>
 
 namespace hope {
-namespace quic {
+    namespace quic {
 
-class MsquicSocketClient : public std::enable_shared_from_this<MsquicSocketClient> {
+        class MsquicSocketClient : public std::enable_shared_from_this<MsquicSocketClient> {
 
-    friend QUIC_STATUS QUIC_API MsquicClientConnectionHandle(HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event);
-    friend QUIC_STATUS QUIC_API MsquicClientStreamHandle(HQUIC stream, void* context, QUIC_STREAM_EVENT* event);
+            friend QUIC_STATUS QUIC_API MsquicClientConnectionHandle(HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event);
+            friend QUIC_STATUS QUIC_API MsquicClientStreamHandle(HQUIC stream, void* context, QUIC_STREAM_EVENT* event);
 
-public:
-    // 构造函数
-    MsquicSocketClient(boost::asio::io_context& ioContext);
+        public:
+            // 构造函数
+            MsquicSocketClient(boost::asio::io_context& ioContext);
 
-    // 析构函数
-    ~MsquicSocketClient();
+            // 析构函数
+            ~MsquicSocketClient();
 
-    // 初始化客户端
-    bool initialize( const std::string& alpn = "quic");
+            // 初始化客户端
+            bool initialize( const std::string& alpn = "quic");
 
-    // 连接到服务器
-    bool connect(std::string serverAddress,uint64_t serverPort);
+            // 连接到服务器
+            bool connect(std::string serverAddress,uint64_t serverPort);
 
-    // 发送数据
-    bool writeAsync(unsigned char* data, size_t size);
+            // 发送数据
+            bool writeAsync(unsigned char* data, size_t size);
 
-    // 发送JSON数据
-    bool writeJsonAsync(const boost::json::object& json);
+            // 发送JSON数据
+            bool writeJsonAsync(const boost::json::object& json);
 
-    // 断开连接
-    void disconnect();
+            // 断开连接
+            void disconnect();
 
-    // 设置消息处理函数
-    void setOnDataReceivedHandle(std::function<void(boost::json::object&)> handle);
+            // 设置消息处理函数
+            void setOnDataReceivedHandle(std::function<void(boost::json::object&)> handle);
 
-    // 设置连接状态处理函数
-    void setOnConnectionHandle(std::function<void(bool)> handle);
+            // 设置连接状态处理函数
+            void setOnConnectionHandle(std::function<void(bool)> handle);
 
-    // 是否已连接
-    bool isConnected() const;
+            // 是否已连接
+            bool isConnected() const;
 
-private:
-    // 创建流
-    HQUIC createStream();
+        private:
+            // 创建流
+            HQUIC createStream();
 
-    // 处理接收数据
-    void handleReceive(QUIC_STREAM_EVENT* event);
+            // 处理接收数据
+            void handleReceive(QUIC_STREAM_EVENT* event);
 
-    // 尝试解析消息
-    void tryParse();
+            // 尝试解析消息
+            void tryParse();
 
-    // 清理资源
-    void clear();
+            // 清理资源
+            void clear();
 
-private:
+        private:
 
-    boost::asio::io_context& ioContext;
+            boost::asio::io_context& ioContext;
 
-    HQUIC connection;
+            HQUIC connection;
 
-    HQUIC stream;
+            HQUIC stream;
 
-    HQUIC remoteStream;
+            HQUIC remoteStream;
 
-    MsQuicRegistration* registration;
+            MsQuicRegistration* registration;
 
-    MsQuicConfiguration* configuration;
+            MsQuicConfiguration* configuration;
 
-    std::string serverAddress;
+            std::string serverAddress;
 
-    uint16_t serverPort;
+            uint16_t serverPort;
 
-    std::string alpn;
+            std::string alpn;
 
-    std::vector<uint8_t> receivedBuffer;
+            std::vector<uint8_t> receivedBuffer;
 
-    int64_t payloadLen;
+            int64_t payloadLen;
 
-    std::string accountId;
+            std::string accountId;
 
-    std::atomic<bool> connected;
+            std::atomic<bool> connected;
 
-    std::function<void(boost::json::object&)> onDataReceivedHandle;
+            std::function<void(boost::json::object&)> onDataReceivedHandle;
 
-    std::function<void(bool)> onConnectionHandle;
+            std::function<void(bool)> onConnectionHandle;
 
-    std::atomic<bool> isClear{ false };
-};
+            std::atomic<bool> isClear{ false };
+        };
 
-// 声明静态回调函数
-QUIC_STATUS QUIC_API MsquicClientConnectionHandle(HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event);
-QUIC_STATUS QUIC_API MsquicClientStreamHandle(HQUIC stream, void* context, QUIC_STREAM_EVENT* event);
+        // 声明静态回调函数
+        QUIC_STATUS QUIC_API MsquicClientConnectionHandle(HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event);
+        QUIC_STATUS QUIC_API MsquicClientStreamHandle(HQUIC stream, void* context, QUIC_STREAM_EVENT* event);
 
-} // namespace quic
+    } // namespace quic
 } // namespace hope
