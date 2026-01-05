@@ -230,6 +230,8 @@ void MainWindow::setupWebRTCCallbacks()
                                 this->manager->setAccountId(currentAccount.toStdString());
                                 QString url = QString("%1:%2").arg(serverAddress).arg(port);
 
+                                this->manager->connect(QString("%1:%2").arg(serverAddress).arg(port).toStdString());
+
                             } else {
                                 this->ui->connectionStatusLabel->setText("连接断开（配置不完整）");
                                 this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
