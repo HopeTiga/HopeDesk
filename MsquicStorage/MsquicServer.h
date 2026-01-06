@@ -87,6 +87,8 @@ namespace hope {
 
 			std::atomic<bool> iocpRunEvent{ false };
 
+			std::atomic<bool> shuttingDown{ false };
+
 		};
 
 

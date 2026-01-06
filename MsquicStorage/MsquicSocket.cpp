@@ -13,7 +13,13 @@ namespace hope {
 
     namespace quic {
 
-        MsquicSocket::MsquicSocket(HQUIC connection, MsquicManager* msquicManager, boost::asio::io_context& ioContext) :connection(connection), msquicManager(msquicManager), ioContext(ioContext), registrationTimer(ioContext)
+        MsquicSocket::MsquicSocket(HQUIC connection, MsquicManager* msquicManager, boost::asio::io_context& ioContext) 
+            :connection(connection)
+            , msquicManager(msquicManager)
+            , ioContext(ioContext)
+            , registrationTimer(ioContext)
+            , stream(nullptr)
+            , remoteStream(nullptr)
         {
       
         }
@@ -35,11 +41,19 @@ namespace hope {
             receivedBuffer.clear();
 
             if (stream) {
+                MsQuic->StreamShutdown(stream,
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STATUS_SUCCESS);
                 MsQuic->StreamClose(stream);
                 stream = nullptr;
             }
 
             if (remoteStream) {
+                MsQuic->StreamShutdown(remoteStream,
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+                    QUIC_STATUS_SUCCESS);
                 MsQuic->StreamClose(remoteStream);
                 remoteStream = nullptr;
             }
@@ -60,6 +74,8 @@ namespace hope {
         {
            stream = createStream();
 
+           if (!stream) clear();
+
            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
             
                 co_await self->registrationTimeout();
@@ -70,6 +86,17 @@ namespace hope {
 
         void MsquicSocket::writeAsync(unsigned char* data, size_t size)
         {
+
+            if (!stream || isShutDown.load()) {
+
+                LOG_WARNING("MsquicSocket::writeAsync failed: Stream is null or closed.");
+
+                if (data) {
+                    delete[] data;
+                }
+                return;
+            }
+
             QUIC_BUFFER* buffer = new QUIC_BUFFER;
 
             buffer->Buffer = data;
@@ -89,8 +116,6 @@ namespace hope {
                 delete[] buffer->Buffer;
 
                 delete buffer;
-
-                MsQuic->StreamClose(stream);
 
                 return;
             }

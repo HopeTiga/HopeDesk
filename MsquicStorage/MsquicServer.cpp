@@ -224,7 +224,7 @@ namespace hope {
         void MsquicServer::shutDown()
         {
             // 防止重复调用
-            if (!initialized) return;
+            if (shuttingDown.exchange(true)) return;
 
             LOG_INFO("MsquicServer shutting down...");
 
