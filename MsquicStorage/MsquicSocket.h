@@ -89,6 +89,8 @@ namespace hope {
 
 			std::atomic<bool> isShutDown{ false };
 
+			std::shared_ptr<MsquicSocket> keepAliveSelf;
+
 		};
 
 		QUIC_STATUS QUIC_API MsquicSocketHandle(HQUIC stream,void* context,QUIC_STREAM_EVENT* event);

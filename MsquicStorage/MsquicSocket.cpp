@@ -20,6 +20,7 @@ namespace hope {
             , registrationTimer(ioContext)
             , stream(nullptr)
             , remoteStream(nullptr)
+            , keepAliveSelf(nullptr)
         {
       
         }
@@ -68,6 +69,8 @@ namespace hope {
            stream = createStream();
 
            if (!stream) clear();
+
+		   keepAliveSelf = shared_from_this();
 
            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
             
@@ -469,13 +472,15 @@ namespace hope {
 
         void MsquicSocket::tryRelease()
         {
-            if (this->connection == nullptr && this->stream == nullptr && this->remoteStream == nullptr) {
-            
-				boost::asio::post(ioContext, [self = shared_from_this()]() {
-                
+            if (this->connection == nullptr && this->stream == nullptr && this->remoteStream == nullptr && keepAliveSelf) {
+
+                boost::asio::post(ioContext, [self = shared_from_this()]() {
+
                     self->msquicManager->removeConnection(self->accountId);
 
-					});
+                    self->keepAliveSelf = nullptr;
+
+                    });
 
             }
 
