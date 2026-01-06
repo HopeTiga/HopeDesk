@@ -9,6 +9,7 @@ namespace hope {
             : ioContext(ioContext)
             , connection(nullptr)
             , stream(nullptr)
+			, remoteStream(nullptr)
             , registration(nullptr)
             , configuration(nullptr)
             , serverPort(0)
