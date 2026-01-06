@@ -40,7 +40,6 @@ namespace hope {
 
             receivedBuffer.clear();
 
-
             if (stream) {
                 MsQuic->StreamShutdown(stream,
                     QUIC_STREAM_SHUTDOWN_FLAG_ABORT | QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE,
@@ -472,7 +471,11 @@ namespace hope {
         {
             if (this->connection == nullptr && this->stream == nullptr && this->remoteStream == nullptr) {
             
-				msquicManager->removeConnection(this->accountId);
+				boost::asio::post(ioContext, [self = shared_from_this()]() {
+                
+                    self->msquicManager->removeConnection(self->accountId);
+
+					});
 
             }
 
