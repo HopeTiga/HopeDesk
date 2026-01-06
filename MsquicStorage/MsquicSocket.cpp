@@ -35,37 +35,31 @@ namespace hope {
 
         void MsquicSocket::clear()
         {
-
+     
             if (isShutDown.exchange(true)) return;
 
             receivedBuffer.clear();
 
+
             if (stream) {
                 MsQuic->StreamShutdown(stream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                    QUIC_STATUS_SUCCESS);
-                MsQuic->StreamClose(stream);
-                stream = nullptr;
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT | QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE,
+                    0);
             }
 
             if (remoteStream) {
                 MsQuic->StreamShutdown(remoteStream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                    QUIC_STATUS_SUCCESS);
-                MsQuic->StreamClose(remoteStream);
-                remoteStream = nullptr;
+                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT | QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE,
+                    0);
             }
 
+         
             if (connection) {
                 MsQuic->ConnectionShutdown(
                     connection,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
                     QUIC_STATUS_ABORTED
                 );
-                MsQuic->ConnectionClose(connection);
-                connection = nullptr;
             }
 
         }
@@ -462,6 +456,28 @@ namespace hope {
 
         }
 
+        HQUIC MsquicSocket::getConnection() {
+        
+			return this->connection;
+
+        }
+
+        void MsquicSocket::setConnection(HQUIC conn) {
+        
+			this->connection = conn;
+
+        }
+
+        void MsquicSocket::tryRelease()
+        {
+            if (this->connection == nullptr && this->stream == nullptr && this->remoteStream == nullptr) {
+            
+				msquicManager->removeConnection(this->accountId);
+
+            }
+
+        }
+
 
         // Stream callback
         QUIC_STATUS QUIC_API MsquicSocketHandle(
@@ -530,6 +546,26 @@ namespace hope {
     
 
             case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE: {
+             
+                MsQuic->StreamClose(stream);
+
+                if (msquicSocket) {
+
+                    if (msquicSocket->stream == stream) {
+
+                        msquicSocket->stream = nullptr;
+
+                    }
+                    if (msquicSocket->remoteStream == stream) {
+
+                        msquicSocket->remoteStream = nullptr;
+
+                    }
+
+                    msquicSocket->tryRelease();
+
+                }
+
                 break;
             }
             case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:

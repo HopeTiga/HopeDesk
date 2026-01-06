@@ -45,6 +45,12 @@ namespace hope {
 
 			SocketType getType();
 
+			HQUIC getConnection();
+
+			void setConnection(HQUIC conn);
+
+			void tryRelease();
+
 		private:
 
 			HQUIC createStream();

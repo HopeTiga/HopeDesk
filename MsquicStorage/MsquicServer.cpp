@@ -498,18 +498,15 @@ namespace hope {
             switch (event->Type) {
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
             {
+                MsQuic->ConnectionClose(connection);
+
                 if (msquicSocket) {
 
                     auto self = msquicSocket->shared_from_this();
 
-                    boost::asio::co_spawn(msquicSocket->getIoCompletionPorts(),
-                        [manager = msquicSocket->getMsquicManager()->shared_from_this(), self]() -> boost::asio::awaitable<void> {
+                    self->setConnection(nullptr);
 
-                            manager->finalizeConnection(self);
-
-                            co_return;
-
-                        }, boost::asio::detached);
+                    self->tryRelease();
                 }
      
                 break;
