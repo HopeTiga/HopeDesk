@@ -181,6 +181,8 @@ void WebRTCManager::connect(std::string ip)
 
                                             initializePeerConnection();
 
+                                            state = WebRTCRemoteState::nullRemote;
+
                                         }
 
 
