@@ -57,8 +57,8 @@ namespace hope {
             if (connection) {
                 MsQuic->ConnectionShutdown(
                     connection,
-                    QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
-                    QUIC_STATUS_ABORTED
+                    QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                    0
                 );
             }
 
@@ -123,25 +123,17 @@ namespace hope {
         {
             auto* rev = &event->RECEIVE;
 
-            // =========================================================
-            // 关键修复：检查是否有积压数据
-            // 如果 receivedBuffer 不为空，说明处于粘包中间状态，
-            // 必须强制进入 Fallback 逻辑进行拼接，绝不能尝试零拷贝读取头部。
-            // =========================================================
             bool hasPendingData = !receivedBuffer.empty();
 
             if (!hasPendingData) {
 
-                // --- 优化路径：只有在没有积压数据时才尝试 ---
-
-                // 1. 单一缓冲区优化
                 if (rev->BufferCount == 1) {
                     const auto& buf = rev->Buffers[0];
 
                     if (buf.Length >= sizeof(int64_t)) {
 
                         int64_t bodyLen = 0;
-                        // 使用 memcpy 防止内存未对齐崩溃
+      
                         std::memcpy(&bodyLen, buf.Buffer, sizeof(int64_t));
 
                         int64_t totalLen = sizeof(int64_t) + bodyLen;
@@ -149,9 +141,11 @@ namespace hope {
 
                         // 校验长度
                         if (bodyLen < 0 || bodyLen > MAX_PACKET_SIZE) {
+
                             LOG_ERROR("Parsed packet length invalid (FastPath): %lld. Disconnecting.", bodyLen);
-                            // 这里根据你的逻辑决定是否断开连接，通常应该断开
-                            // close(); 
+
+                            clear();
+
                             return;
                         }
 
