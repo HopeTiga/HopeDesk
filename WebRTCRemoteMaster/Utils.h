@@ -46,6 +46,7 @@ void initLogger();
 void closeLogger();
 void enableFileLogging(int enable);
 void setLogDirectory(const char* dir);
+void setConsoleOutputLevels(int debug, int info, int warning, int error);
 
 // 核心日志函数
 void logMessage(LogLevel level, const char* format, ...);
@@ -55,8 +56,6 @@ void logToFileOnly(LogLevel level, const char* format, ...);
 // 辅助函数
 void getTimestamp(char* buffer, size_t size);
 void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
-
-void setConsoleOutputLevels(int debug, int info, int warning, int error);
 
 // 便捷宏定义
 #define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
