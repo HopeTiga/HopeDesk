@@ -12,11 +12,14 @@
 #include <string>
 #include <mutex>
 #ifdef _WIN32
+#include <windows.h>  // 包含 windows.h 以获取 HCURSOR 的正确定义
 #include <direct.h>
-#define mkdir(dir) _mkdir(dir)
+#define mkdirs(dir) _mkdir(dir)
 #else
 #include <sys/stat.h>
 #include <unistd.h>
+// 非 Windows 平台，使用 void* 或特定类型替代 HCURSOR
+typedef void* HCURSOR;
 #endif
 
 #ifdef _MSC_VER
@@ -30,32 +33,31 @@
 extern "C" {
 #endif
 
-    // 日志级别
-    typedef enum {
-        LOG_LEVEL_DEBUG,
-        LOG_LEVEL_INFO,
-        LOG_LEVEL_WARNING,
-        LOG_LEVEL_ERROR
-    } LogLevel;
+// 日志级别
+typedef enum {
+    LOG_LEVEL_DEBUG,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_WARNING,
+    LOG_LEVEL_ERROR
+} LogLevel;
 
-    // 初始化函数
-    void initLogger();
-    void closeLogger();
-    void enableFileLogging(int enable);
-    void setLogDirectory(const char* dir);
+// 初始化函数
+void initLogger();
+void closeLogger();
+void enableFileLogging(int enable);
+void setLogDirectory(const char* dir);
+void setConsoleOutputLevels(int debug, int info, int warning, int error);
 
-    // 核心日志函数
-    void logMessage(LogLevel level, const char* format, ...);
-    void logMessagePlain(LogLevel level, const char* format, ...);
-    void logToFileOnly(LogLevel level, const char* format, ...);
+// 核心日志函数
+void logMessage(LogLevel level, const char* format, ...);
+void logMessagePlain(LogLevel level, const char* format, ...);
+void logToFileOnly(LogLevel level, const char* format, ...);
 
-    // 辅助函数
-    void getTimestamp(char* buffer, size_t size);
-    void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
+// 辅助函数
+void getTimestamp(char* buffer, size_t size);
+void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
 
-    void setConsoleOutputLevels(int debug, int info, int warning, int error);
-
-    // 便捷宏定义
+// 便捷宏定义
 #define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
 #define LOG_WARNING(fmt, ...) logMessage(LOG_LEVEL_WARNING, fmt, ##__VA_ARGS__)
 #define LOG_ERROR(fmt, ...)   logMessage(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
@@ -69,6 +71,9 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+// 函数声明 - 使用系统定义的 HCURSOR
+HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX = 0, int hotY = 0);
 
 inline bool hasAVX2() {
     static bool checked = false;
