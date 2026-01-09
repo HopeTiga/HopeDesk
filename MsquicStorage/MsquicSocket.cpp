@@ -9,6 +9,10 @@
 #include <boost/json.hpp>
 #include <boost/asio/co_spawn.hpp>
 
+#include <boost/uuid/uuid.hpp>            // uuid 类  
+#include <boost/uuid/uuid_generators.hpp> // 生成器  
+#include <boost/uuid/uuid_io.hpp>  
+
 namespace hope {
 
     namespace quic {
@@ -22,7 +26,9 @@ namespace hope {
             , remoteStream(nullptr)
             , keepAliveSelf(nullptr)
         {
-      
+            boost::uuids::random_generator gen;
+
+            sessionId = boost::uuids::to_string(gen());
         }
 
         MsquicSocket::~MsquicSocket()
@@ -33,6 +39,11 @@ namespace hope {
             clear();
 
         }
+
+        std::string MsquicSocket::getSessionId()
+        {
+            return sessionId;
+		}
 
         void MsquicSocket::clear()
         {
@@ -470,7 +481,7 @@ namespace hope {
 
                 boost::asio::post(ioContext, [self = shared_from_this()]() {
 
-                    self->msquicManager->removeConnection(self->accountId);
+                    self->msquicManager->removeConnection(self->accountId,self->sessionId);
 
                     self->keepAliveSelf = nullptr;
 

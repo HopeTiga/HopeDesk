@@ -416,15 +416,22 @@ namespace hope {
                 }
 
                 std::string accountId;
+                
+                std::string sessionId;
+                  
 
                 if (msquicSocket) {
 
                     accountId = msquicSocket->getAccountId();
 
+					sessionId = msquicSocket->getSessionId();
+
                 }
                 else if (webrtcSignalSocket) {
 
                     accountId = webrtcSignalSocket->getAccountId();
+
+                    sessionId = webrtcSignalSocket->getSessionId();
 
                 }
                 else {
@@ -436,7 +443,7 @@ namespace hope {
 
                 if (!accountId.empty()) {
 
-                    data->msquicManager->removeConnection(accountId);
+                    data->msquicManager->removeConnection(accountId, sessionId);
 
                 }
 

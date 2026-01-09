@@ -369,9 +369,9 @@ namespace hope {
 
                     co_await accept.async_accept(webrtcSignalSocket->getWebSocket().next_layer(), boost::asio::use_awaitable);
 
-                    webrtcSignalSocket->setOnDisConnectHandle([sharedManager = manager->shared_from_this()](std::string accountId) {
+                    webrtcSignalSocket->setOnDisConnectHandle([sharedManager = manager->shared_from_this()](std::string accountId,std::string sessionId) {
 
-                        sharedManager->removeConnection(accountId);
+                        sharedManager->removeConnection(accountId,sessionId);
 
                         });
 

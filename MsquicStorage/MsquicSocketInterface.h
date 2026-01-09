@@ -28,6 +28,8 @@ namespace hope {
 
 			virtual SocketType getType() = 0;
 
+			virtual std::string getSessionId() = 0;
+
 		};
 
 

@@ -52,9 +52,11 @@ namespace hope {
 
 			std::string getGameType();
 
+			std::string getSessionId() override;
+
 		public:
 
-			void setOnDisConnectHandle(std::function<void(std::string)> handle);
+			void setOnDisConnectHandle(std::function<void(std::string,std::string)> handle);
 
 		private:
 
@@ -98,9 +100,11 @@ namespace hope {
 
 			std::atomic<bool> isDeleted{ false };
 
+			std::string sessionId;
+
 		private:
 
-			std::function<void(std::string)> onDisConnectHandle;
+			std::function<void(std::string, std::string)> onDisConnectHandle;
 		};
 
 	}

@@ -37,35 +37,49 @@ namespace hope {
 			return logicSystem;
 		}
 
-		void MsquicManager::removeConnection(std::string accountId)
-		{
+        void MsquicManager::removeConnection(std::string accountId, std::string sessionId)
+        {
+            LOG_INFO("Remove MsquicSocket Request: Account=%s, SessionId=%s", accountId.c_str(), sessionId.c_str());
 
-            LOG_INFO("Remove MsquicSocket: %s", accountId.c_str());
+            auto it = msquicSocketInterfaceMap.find(accountId);
 
-			auto it = msquicSocketInterfaceMap.find(accountId);
+            if (it == msquicSocketInterfaceMap.end()) {
+                LOG_WARNING("Connection already removed or not found: %s", accountId.c_str());
+                return;
+            }
 
-			if (it == msquicSocketInterfaceMap.end()) {
 
-				LOG_WARNING("Connection already removed: %s", accountId.c_str());
+            std::shared_ptr<MsquicSocketInterface> currentSocket = it->second;
 
-				return;
-			}
+            if (currentSocket->getSessionId() != sessionId) {
+                LOG_WARNING("Race Condition Detected! Ignore remove request. "
+                    "Account: %s, RequestSessionId: %s, CurrentMapSessionId: %s",
+                    accountId.c_str(), sessionId.c_str(), currentSocket->getSessionId().c_str());
+                return;
+            }
 
-			msquicSocketInterfaceMap.erase(it);
+            msquicSocketInterfaceMap.erase(it);
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            LOG_INFO("Start Async Post Task: %d", mapChannelIndex);
+            int myChannelIndex = this->channelIndex;
 
-            msquicServer->postTaskAsync(mapChannelIndex, [self = shared_from_this(), accountId](std::shared_ptr<MsquicManager> manager) -> boost::asio::awaitable<void> {
+            msquicServer->postTaskAsync(mapChannelIndex, [accountId, myChannelIndex](std::shared_ptr<MsquicManager> manager) -> boost::asio::awaitable<void> {
 
-                manager->actorSocketMappingIndex.erase(accountId);
-
+                auto itIndex = manager->actorSocketMappingIndex.find(accountId);
+                if (itIndex != manager->actorSocketMappingIndex.end()) {
+                    if (itIndex->second == myChannelIndex) {
+                        manager->actorSocketMappingIndex.erase(itIndex);
+                        LOG_INFO("Global Index Removed: %s", accountId.c_str());
+                    }
+                    else {
+                        LOG_WARNING("Global Index Mismatch (Race Condition), skip remove. Account: %s, Index points to: %d, Request from: %d",
+                            accountId.c_str(), itIndex->second, myChannelIndex);
+                    }
+                }
                 co_return;
-
                 });
-
-		}
+        }
 
 	}
 

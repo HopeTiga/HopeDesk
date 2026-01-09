@@ -2,6 +2,10 @@
 #include "MsquicManager.h"
 #include "MsquicData.h"
 
+#include <boost/uuid/uuid.hpp>           // uuid 类  
+#include <boost/uuid/uuid_generators.hpp> // 生成器  
+#include <boost/uuid/uuid_io.hpp>  
+
 #include "Utils.h"
 
 namespace hope {
@@ -16,6 +20,11 @@ namespace hope {
             , webSocket(ioContext)
             , channelIndex(channelIndex)
             , msquicManager(msquicManager) {
+
+            boost::uuids::random_generator gen;
+
+            sessionId = boost::uuids::to_string(gen());
+
         }
 
         WebRTCSignalSocket::~WebRTCSignalSocket() {
@@ -44,6 +53,11 @@ namespace hope {
             return webSocket;
 
         }
+
+        std::string WebRTCSignalSocket::getSessionId()
+        {
+            return sessionId;
+		}
 
         boost::asio::awaitable<void> WebRTCSignalSocket::handShake() {
             // 假设 webSocket.next_layer() 已经通过 acceptor.async_accept 连接成功
@@ -162,7 +176,7 @@ namespace hope {
 
                         if (self->isRegistered && self->onDisConnectHandle) {
 
-                            self->onDisConnectHandle(self->accountId);
+                            self->onDisConnectHandle(self->accountId,self->sessionId);
 
                         }
                         LOG_ERROR("WebRTCSignalSocket error: %s", e.what());
@@ -340,7 +354,7 @@ namespace hope {
 
         }
 
-        void WebRTCSignalSocket::setOnDisConnectHandle(std::function<void(std::string)> handle)
+        void WebRTCSignalSocket::setOnDisConnectHandle(std::function<void(std::string,std::string)> handle)
         {
             this->onDisConnectHandle = handle;
         }

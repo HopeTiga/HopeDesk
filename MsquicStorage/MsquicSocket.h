@@ -51,6 +51,8 @@ namespace hope {
 
 			void tryRelease();
 
+			std::string getSessionId() override;
+
 		private:
 
 			HQUIC createStream();
@@ -90,6 +92,8 @@ namespace hope {
 			std::atomic<bool> isShutDown{ false };
 
 			std::shared_ptr<MsquicSocket> keepAliveSelf;
+
+			std::string sessionId;
 
 		};
 

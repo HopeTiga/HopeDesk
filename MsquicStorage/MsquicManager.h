@@ -29,7 +29,7 @@ namespace hope {
 
 			std::shared_ptr<hope::handle::MsquicLogicSystem> getMsquicLogicSystem();
 
-			void removeConnection(std::string accountId);
+			void removeConnection(std::string accountId,std::string sessionId);
 
 		private:
 
