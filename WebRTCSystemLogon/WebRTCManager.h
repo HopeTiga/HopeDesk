@@ -49,6 +49,7 @@
 // Project includes
 #include "concurrentqueue.h"
 #include "ScreenCapture.h"
+#include "HAudioCatch.h"
 #include "WinLogon.h"
 #include "KeyMouseSimulator.h"
 #include "CursorHooks.h"
@@ -158,7 +159,9 @@ namespace hope {
 
             bool initializePeerConnection();
 
-            bool initializeScreenCapture(int webrtcModulesType = 0,int webrtcUseGPU = 0);
+            bool initializeScreenCapture(int webrtcModulesType = 0, int webrtcUseGPU = 0);
+
+            bool initializeHAudioCatch();
 
             void handleDataChannelData(const unsigned char* data, size_t size);
 
@@ -204,6 +207,8 @@ namespace hope {
 
             webrtc::scoped_refptr<webrtc::AudioTrackInterface> audioTrack;
 
+            webrtc::scoped_refptr<webrtc::RtpSenderInterface> audioSender;
+
             std::unique_ptr<PeerConnectionObserverImpl> peerConnectionObserver;
 
             std::unique_ptr<DataChannelObserverImpl> dataChannelObserver;
@@ -226,6 +231,8 @@ namespace hope {
 
             std::shared_ptr<ScreenCapture> screenCapture;
 
+            std::shared_ptr<HAudioCatch> hAudioCatch;
+
             std::atomic<bool> socketRuns{ false };
 
             boost::asio::io_context ioContext;
@@ -245,6 +252,8 @@ namespace hope {
             std::unique_ptr<KeyMouseSimulator> keyMouseSim;
 
             std::unique_ptr<CursorHooks> cursorHooks;
+
+            int webrtcAudioEnable = 0;
 
         };
 
