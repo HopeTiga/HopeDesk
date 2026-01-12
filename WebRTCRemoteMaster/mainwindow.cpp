@@ -568,7 +568,7 @@ void MainWindow::onSendRequestClicked()
 
     ui->sendRequestButton->setEnabled(false);
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcUseGPU,this->videoCodec);
+    manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcUseGPU,this->videoCodec,this->webrtcAudioEnable);
 
     statusBar()->showMessage("正在建立远程连接...");
 }
@@ -1066,6 +1066,12 @@ void MainWindow::on_codecComboBox_currentIndexChanged(int index)
 {
     this->videoCodec = index;
 }
+
+void MainWindow::on_audioCheckBox_clicked(bool checked)
+{
+    webrtcAudioEnable = checked ? 1 : 0;
+}
+
 
 
 

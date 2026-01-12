@@ -169,7 +169,7 @@ void WebRTCManager::connect(std::string ip)
 
                                     LOG_INFO("WindowsServiceManager::startService Successful!");
 
-                                    boost::asio::co_spawn(ioContext,[this]()->boost::asio::awaitable<void>{
+                                    boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
 
                                         steadyTimer.expires_after(std::chrono::seconds(10));;
 
@@ -181,7 +181,11 @@ void WebRTCManager::connect(std::string ip)
 
                                             initializePeerConnection();
 
-                                            state = WebRTCRemoteState::nullRemote;
+                                            this->state = WebRTCRemoteState::nullRemote;
+
+                                            isRemote = false;
+
+                                            LOG_INFO("WebRTCManager ReInit");
 
                                         }
 
@@ -889,15 +893,17 @@ void WebRTCManager::releaseSource()
 
     videoSender = nullptr;
 
-    dataChannel = nullptr;
-
     videoTrack = nullptr;
+
+    audioTrack = nullptr;
+
+    audioSender = nullptr;
+
+    dataChannel = nullptr;
 
     peerConnection = nullptr;
 
     isInit = false;
-
-    isReceive = false;
 
     if(channel.is_open()){
 
@@ -936,7 +942,7 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
-void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseGPU,int videoCodec)
+void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseGPU,int videoCodec,int webrtcAudioEnable)
 {
     if (targetId.empty()) {
         LOG_ERROR("Target ID not set");
@@ -965,6 +971,7 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseGPU,i
         message["webrtcModulesType"] = webrtcModulesType;
         message["webrtcUseGPU"] = webrtcUseGPU;
         message["codec"] = videoCodec;
+        message["webrtcAudioEnable"] = webrtcAudioEnable;
 
 
         msquicSocketClient->writeJsonAsync(message);

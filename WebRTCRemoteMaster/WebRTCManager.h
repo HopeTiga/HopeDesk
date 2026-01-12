@@ -145,7 +145,7 @@ public:
     WebRTCManager& operator=(const WebRTCManager&) = delete;
 
 public:
-    void sendRequestToTarget(int webrtcModulesType = 0,int webrtcUseGPU = 0,int videoCodec = 4);
+    void sendRequestToTarget(int webrtcModulesType = 0,int webrtcUseGPU = 0,int videoCodec = 4,int webrtcAudioEnable = 0);
 
     void connect(std::string ip);
 
@@ -215,6 +215,10 @@ private:
 
     webrtc::scoped_refptr<webrtc::RtpSenderInterface> videoSender;
 
+    webrtc::scoped_refptr<webrtc::AudioTrackInterface> audioTrack;
+
+    webrtc::scoped_refptr<webrtc::RtpSenderInterface> audioSender;
+
     std::unique_ptr<PeerConnectionObserverImpl> peerConnectionObserver;
 
     std::unique_ptr<DataChannelObserverImpl> dataChannelObserver;
@@ -275,8 +279,6 @@ private:
     std::queue<std::vector<std::byte>> remoteBinaryQueue;
 
     std::function<void(std::shared_ptr<VideoFrame>)> videoFrameCallback;
-
-    std::atomic<bool> isReceive {false};
 
     std::queue<std::vector<std::byte>> trackFrameQueues;
 

@@ -140,13 +140,21 @@ namespace hope {
         if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
             LOG_INFO("Video track received");
             receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
-            manager->isReceive = true;
             manager->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
                 static_cast<webrtc::VideoTrackInterface*>(track.release())
                 );
             manager->videoSinkImpl = std::make_unique<VideoTrackSinkImpl>(manager);
             manager->videoTrack->AddOrUpdateSink(manager->videoSinkImpl.get(), webrtc::VideoSinkWants());
-            manager->isReceive = true;
+            return;
+        }
+
+        if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
+            LOG_INFO("Video track received");
+            receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
+            manager->audioTrack = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
+                static_cast<webrtc::AudioTrackInterface*>(track.release())
+                );
+            return;
         }
     }
 

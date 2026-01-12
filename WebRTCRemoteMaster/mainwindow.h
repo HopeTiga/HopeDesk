@@ -79,6 +79,8 @@ namespace hope{
 
         void on_codecComboBox_currentIndexChanged(int index);
 
+        void on_audioCheckBox_clicked(bool checked);
+
     private:
         // UI初始化
         void setupConnections();
@@ -143,6 +145,8 @@ namespace hope{
         int webrtcUseGPU = 0;
 
         int videoCodec = 4;
+
+        int webrtcAudioEnable;
     };
 
     }
