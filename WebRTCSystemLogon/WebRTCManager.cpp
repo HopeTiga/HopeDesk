@@ -1186,8 +1186,19 @@ namespace hope {
             }
 
             if (cursorHooks) {
+
                 cursorHooks->stopHooks();
+
                 cursorHooks.reset();
+
+            }
+
+            if (hAudioCatch) {
+            
+                hAudioCatch->stopEventLoop();
+
+				hAudioCatch.reset();
+
             }
 
             webrtc::CleanupSSL();

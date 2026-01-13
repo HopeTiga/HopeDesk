@@ -12,7 +12,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalDependencies>webrtc.lib;interception.lib;libtcmalloc_minimal.lib;ws2_32.lib;mswsock.lib;wtsapi32.lib;d3d11.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;windowscodecs.lib;gdiplus.lib;dwmapi.lib;windowsapp.lib;runtimeobject.lib;userenv.lib;Wtsapi32.lib;Advapi32.lib;winmm.lib;msdmo.lib;dmoguids.lib;wmcodecdspuuid.lib;strmiids.lib;mfuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>webrtc.lib;interception.lib;libtcmalloc_minimal.lib;ws2_32.lib;mswsock.lib;wtsapi32.lib;d3d11.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;windowscodecs.lib;gdiplus.lib;dwmapi.lib;windowsapp.lib;runtimeobject.lib;userenv.lib;Wtsapi32.lib;Advapi32.lib;winmm.lib;msdmo.lib;dmoguids.lib;wmcodecdspuuid.lib;strmiids.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ForceSymbolReferences>
       </ForceSymbolReferences>
     </Link>
