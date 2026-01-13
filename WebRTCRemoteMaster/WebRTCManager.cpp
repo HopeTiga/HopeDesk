@@ -185,7 +185,7 @@ void WebRTCManager::connect(std::string ip)
 
                                             isRemote = false;
 
-                                            LOG_INFO("WebRTCManager ReInit");
+                                            LOG_INFO("WebRTCManager Offer ReInit");
 
                                         }
 
@@ -237,9 +237,34 @@ void WebRTCManager::connect(std::string ip)
 
                                 // 创建并发送answer
                                 webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+
                                 createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
+
                                 peerConnection->CreateAnswer(createAnswerObserver.get(), options);
+
                                 isInit = true;
+
+                                boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
+
+                                    steadyTimer.expires_after(std::chrono::seconds(10));;
+
+                                    co_await steadyTimer.async_wait(boost::asio::use_awaitable);
+
+                                    if (!isRemote) {
+
+                                        releaseSource();
+
+                                        initializePeerConnection();
+
+                                        this->state = WebRTCRemoteState::nullRemote;
+
+                                        isRemote = false;
+
+                                        LOG_INFO("WebRTCManager Answer ReInit");
+
+                                    }
+                                },boost::asio::detached);
+
 
                             }
 
