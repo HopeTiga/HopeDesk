@@ -691,55 +691,46 @@ namespace hope {
 
         // Get active terminal session ID
         DWORD SessionHelper::GetActiveTerminalSessionId() {
-            LOG_INFO("GetActiveTerminalSessionId: Starting to get active terminal session ID");
+            LOG_INFO("GetActiveTerminalSessionId: Starting to get usable interactive session");
 
             PWTS_SESSION_INFO pSessionArray = nullptr;
             DWORD sessionCount = 0;
 
-            try {
-                LOG_DEBUG("GetActiveTerminalSessionId: Calling WTSEnumerateSessions");
-                if (!WTSEnumerateSessions(nullptr, 0, 1, &pSessionArray, &sessionCount)) {
-                    LOG_ERROR("GetActiveTerminalSessionId: WTSEnumerateSessions failed");
-                    throw WinApiException("WTSEnumerateSessions");
-                }
-
-                LOG_INFO("GetActiveTerminalSessionId: Found %d sessions", sessionCount);
-
-                DWORD activeSessionId = 0;
-                bool sessionFound = false;
-
-                // Iterate through all sessions
-                for (DWORD i = 0; i < sessionCount; i++) {
-                    WTS_SESSION_INFO session = pSessionArray[i];
-
-                    LOG_DEBUG("GetActiveTerminalSessionId: Session %d - ID=%d, State=%d",
-                        i, session.SessionId, session.State);
-
-                    if (session.State == WTSActive) {
-                        activeSessionId = session.SessionId;
-                        sessionFound = true;
-                        LOG_INFO("GetActiveTerminalSessionId: Found active session ID = %d", activeSessionId);
-                        break;
-                    }
-                }
-
-                WTSFreeMemory(pSessionArray);
-
-                if (!sessionFound) {
-                    LOG_ERROR("GetActiveTerminalSessionId: No active terminal session found");
-                    throw std::runtime_error("Could not find active terminal session.");
-                }
-
-                LOG_INFO("GetActiveTerminalSessionId: Successfully returning session ID = %d", activeSessionId);
-                return activeSessionId;
+            if (!WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionArray, &sessionCount)) {
+                LOG_ERROR("WTSEnumerateSessions failed");
+                throw WinApiException("WTSEnumerateSessions");
             }
-            catch (const std::exception& e) {
-                LOG_ERROR("GetActiveTerminalSessionId: Caught exception - %s", e.what());
-                if (pSessionArray != nullptr) {
-                    WTSFreeMemory(pSessionArray);
+
+            DWORD targetId = 0;
+            for (DWORD i = 0; i < sessionCount; ++i) {
+                const auto& s = pSessionArray[i];
+                LOG_DEBUG("Session %lu  ID=%lu  State=%lu",
+                    i, s.SessionId, s.State);
+
+                // ① 先挑真正的 Active
+                if (s.State == WTSActive) {
+                    targetId = s.SessionId;
+                    break;
                 }
-                throw;
+                // ② 再挑 Connected 的 RDP
+                if (s.State == WTSConnected && s.SessionId != 0) {
+                    targetId = s.SessionId;
+                    // 不 break，后面可能还有 Active
+                }
+                // ③ 最后兜底：Disconnected 但不是 Session 0（Console）
+                if (targetId == 0 &&
+                    s.State == WTSDisconnected &&
+                    s.SessionId != 0)
+                    targetId = s.SessionId;
             }
+            WTSFreeMemory(pSessionArray);
+
+            if (targetId == 0) {
+                LOG_ERROR("No usable interactive session found");
+                throw std::runtime_error("Could not find usable interactive session");
+            }
+            LOG_INFO("Selected session ID = %lu", targetId);
+            return targetId;
         }
 
         // Get string representation of the last error

@@ -1003,8 +1003,9 @@ namespace hope {
                 if (size < sizeof(short) + 2 * sizeof(uint16_t)) return;
 
                 const uint16_t* xy = reinterpret_cast<const uint16_t*>(data + sizeof(short));
-                // xy[0/1] 已经是 0-65535 固定点，直接转发
+  
                 keyMouseSim->MouseMove(xy[0], xy[1], true);
+
                 break;
             }
 
