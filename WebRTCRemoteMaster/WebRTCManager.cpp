@@ -435,7 +435,7 @@ bool WebRTCManager::initializePeerConnection()
 
         const char* field_trials =
             "WebRTC-Video-JitterBufferDelay/Enabled/"
-            "WebRTC-ZeroPlayoutDelay/Enabled/";
+            "WebRTC-ZeroPlayoutDelay/min_pacing:2ms/";
 
         std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
 
