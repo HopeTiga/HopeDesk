@@ -55,7 +55,7 @@ namespace hope {
 
 			boost::asio::io_context & ioContext;
 
-			hope::utils::MsquicHashMap<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>,std::shared_ptr<hope::mysql::MsquicMysqlManager>)>> msquicHandlers;
+			hope::utils::MsquicHashMap<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::quic::MsquicData>)>> msquicHandlers;
 
 		};
 	}
