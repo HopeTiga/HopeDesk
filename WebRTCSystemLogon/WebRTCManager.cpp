@@ -550,11 +550,11 @@ namespace hope {
                 audioDeviceModuleImpl = AudioDeviceModuleImpl::Create();
 
                 const char* field_trials =
-                    "WebRTC-Video-Pacing/Enabled/"
+                    "WebRTC-Bwe-TrendlineEstimatorSettings/window_size:12,sort:true/"
+                    "WebRTC-SendNackDelayMs/0/"
+                    "WebRTC-Video-Pacing/factor:1.2,max_delay:200ms/"
                     "WebRTC-Pacer-DrainQueue/Enabled/"
-                    "WebRTC-CongestionWindow/Enabled/"
                     "WebRTC-Pacer-PadInSilence/Enabled/"
-                    "WebRTC-SendNackDelayMs/Enabled/"
                     "WebRTC-Bwe-ProbingConfiguration/Enabled/"
                     "WebRTC-LossBasedBweV2/Enabled/";
 
