@@ -74,7 +74,7 @@ private:
 
     // 新增：性能优化相关
     bool needsTextureResize(int width, int height, int slot);
-    void resizeTextureIfNeeded(int slot, const QSize& newSize);
+    void recreateTextures(int slot, const QSize& newSize);
     void loadPipelineCache();
     void savePipelineCache();
 
@@ -91,7 +91,9 @@ private:
     // Triple buffering资源（每帧独立）
     static constexpr int FRAME_BUFFER_COUNT = 3;
     std::array<std::unique_ptr<QRhiBuffer>, FRAME_BUFFER_COUNT> uniformBuffers;
-    std::array<std::unique_ptr<QRhiTexture>, FRAME_BUFFER_COUNT> videoTextures;
+    std::array<std::unique_ptr<QRhiTexture>, FRAME_BUFFER_COUNT> videoTexturesY;
+    std::array<std::unique_ptr<QRhiTexture>, FRAME_BUFFER_COUNT> videoTexturesU;
+    std::array<std::unique_ptr<QRhiTexture>, FRAME_BUFFER_COUNT> videoTexturesV;
     std::array<std::unique_ptr<QRhiShaderResourceBindings>, FRAME_BUFFER_COUNT> perFrameSrb;
 
     // 帧数据缓冲

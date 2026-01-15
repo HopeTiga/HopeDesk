@@ -99,15 +99,15 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
 bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 {
     createBuffers();
-    createTextures();
+    createTextures(); // 这里面会创建 YUV 三个纹理
     createSampler();
-    createShaderResourceBindings();
+    createShaderResourceBindings(); // 这里面会绑定三个纹理
     createPipeline();
 
     if (cb && rhi) {
         QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
 
-        // Upload vertex data
+        // 顶点数据不变
         static const float vertexData[] = {
             -1.0f,  1.0f,  0.0f, 0.0f,
             -1.0f, -1.0f,  0.0f, 1.0f,
@@ -118,15 +118,10 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
         };
         batch->uploadStaticBuffer(vertexBuffer.get(), vertexData);
 
-        // Initialize uniform buffers
+        // 初始化 Uniform，此时我们不需要 flag 区分 RGB/YUV 了，默认全走 YUV
         UniformData uniformData;
         uniformData.mvp.setToIdentity();
-        uniformData.params = QVector4D(
-            hasVideo ? 1.0f : 0.0f,
-            0.0f,
-            1.0f,
-            0.0f
-            );
+        uniformData.params = QVector4D(hasVideo ? 1.0f : 0.0f, 0.0f, 1.0f, 0.0f);
 
         for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
             batch->updateDynamicBuffer(uniformBuffers[i].get(), 0, sizeof(UniformData), &uniformData);
@@ -135,12 +130,7 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 
         cb->resourceUpdate(batch);
     }
-
-    bool success = (pipeline != nullptr);
-    if (!success) {
-        LOG_ERROR("initializeResources failed");
-    }
-    return success;
+    return (pipeline != nullptr);
 }
 
 void VideoWidget::createBuffers()
@@ -177,47 +167,32 @@ void VideoWidget::createBuffers()
 
 void VideoWidget::createTextures()
 {
-    if (!rhi) {
-        LOG_ERROR("createTextures: RHI is null");
-        return;
-    }
+    if (!rhi) return;
 
-    // Use fixed maximum size to avoid frequent texture reconstruction
-    QSize initialSize(MAX_TEXTURE_WIDTH, MAX_TEXTURE_HEIGHT);
+    // 初始大小，使用 MAX 以避免频繁分配
+    QSize sizeY(MAX_TEXTURE_WIDTH, MAX_TEXTURE_HEIGHT);
+    QSize sizeUV(MAX_TEXTURE_WIDTH / 2, MAX_TEXTURE_HEIGHT / 2);
 
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        // Key modification: Added UsedAsTransferSource flag, create Dynamic texture
-        videoTextures[i].reset(rhi->newTexture(
-            QRhiTexture::RGBA8,
-            initialSize,
-            1,
-            QRhiTexture::UsedAsTransferSource  // Enable dynamic upload optimization
-            ));
+        // 修改：移除所有标志位，使用默认值 (0)
+        // 默认创建的纹理就可以被 Shader 采样，也可以通过 uploadTexture 上传数据
 
-        if (!videoTextures[i]) {
-            LOG_ERROR("Failed to create video texture object %d", i);
-            return;
-        }
+        // 创建 Y 纹理 (R8 格式，单通道)
+        videoTexturesY[i].reset(rhi->newTexture(
+            QRhiTexture::R8, sizeY, 1)); // 这里的 flags 默认为 QRhiTexture::Flags()
+        videoTexturesY[i]->create();
 
-        if (!videoTextures[i]->create()) {
-            LOG_WARNING("Failed to create video texture %d, trying to create fallback texture", i);
+        // 创建 U 纹理 (R8 格式，尺寸减半)
+        videoTexturesU[i].reset(rhi->newTexture(
+            QRhiTexture::R8, sizeUV, 1));
+        videoTexturesU[i]->create();
 
-            // Fallback texture also uses Dynamic flag
-            videoTextures[i].reset(rhi->newTexture(
-                QRhiTexture::RGBA8,
-                QSize(1280, 720),
-                1,
-                QRhiTexture::UsedAsTransferSource
-                ));
-
-            if (!videoTextures[i] || !videoTextures[i]->create()) {
-                LOG_ERROR("Failed to create fallback texture %d", i);
-                return;
-            }
-        }
+        // 创建 V 纹理 (R8 格式，尺寸减半)
+        videoTexturesV[i].reset(rhi->newTexture(
+            QRhiTexture::R8, sizeUV, 1));
+        videoTexturesV[i]->create();
     }
-
-    LOG_INFO("Dynamic texture creation completed, size: %dx%d", initialSize.width(), initialSize.height());
+    LOG_INFO("YUV textures created");
 }
 
 void VideoWidget::createSampler()
@@ -243,67 +218,33 @@ void VideoWidget::createSampler()
 
 void VideoWidget::createShaderResourceBindings()
 {
-    if (!rhi) {
-        LOG_ERROR("createShaderResourceBindings: RHI is null");
-        return;
-    }
+    if (!rhi || !uniformBuffers[0] || !videoTexturesY[0] || !sampler) return;
 
-    if (!uniformBuffers[0] || !videoTextures[0] || !sampler) {
-        LOG_ERROR("Dependent resources not ready");
-        return;
-    }
-
-    srb.reset(rhi->newShaderResourceBindings());
-    if (!srb) {
-        LOG_ERROR("Failed to create SRB object");
-        return;
-    }
-
-    srb->setBindings({
-        QRhiShaderResourceBinding::uniformBuffer(
-            0,
-            QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-            uniformBuffers[0].get()
-            ),
-        QRhiShaderResourceBinding::sampledTexture(
-            1,
-            QRhiShaderResourceBinding::FragmentStage,
-            videoTextures[0].get(),
-            sampler.get()
-            )
-    });
-
-    if (!srb->create()) {
-        LOG_ERROR("Main shader resource binding create() failed");
-        srb.reset();
-        return;
-    }
-
+    // 只需要创建 perFrameSrb，主 srb 如果没用到可以忽略
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
         perFrameSrb[i].reset(rhi->newShaderResourceBindings());
-        if (!perFrameSrb[i]) {
-            LOG_ERROR("Failed to create frame %d SRB object", i);
-            continue;
-        }
 
+        // 绑定顺序必须和 Shader 里的 binding 对应
+        // binding 0: Uniform
+        // binding 1: Texture Y
+        // binding 2: Texture U
+        // binding 3: Texture V
         perFrameSrb[i]->setBindings({
             QRhiShaderResourceBinding::uniformBuffer(
-                0,
-                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                uniformBuffers[i].get()
-                ),
+                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                uniformBuffers[i].get()),
             QRhiShaderResourceBinding::sampledTexture(
-                1,
-                QRhiShaderResourceBinding::FragmentStage,
-                videoTextures[i].get(),
-                sampler.get()
-                )
+                1, QRhiShaderResourceBinding::FragmentStage,
+                videoTexturesY[i].get(), sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                2, QRhiShaderResourceBinding::FragmentStage,
+                videoTexturesU[i].get(), sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                3, QRhiShaderResourceBinding::FragmentStage,
+                videoTexturesV[i].get(), sampler.get())
         });
 
-        if (!perFrameSrb[i]->create()) {
-            LOG_ERROR("Frame %d shader resource binding create() failed", i);
-            perFrameSrb[i].reset();
-        }
+        perFrameSrb[i]->create();
     }
 }
 
@@ -314,8 +255,11 @@ void VideoWidget::createPipeline()
         return;
     }
 
-    if (!srb) {
-        LOG_ERROR("Cannot create pipeline: shader resource binding not ready");
+    // 修改：Pipeline 需要一个 SRB 来确定布局（Binding Layout）。
+    // 因为我们已经在 createShaderResourceBindings 里创建了 perFrameSrb，
+    // 它们的布局都是一样的（Uniform + 3 Textures），所以直接用第 0 个作为模板即可。
+    if (!perFrameSrb[0]) {
+        LOG_ERROR("Cannot create pipeline: per-frame shader resource bindings not ready");
         return;
     }
 
@@ -330,8 +274,8 @@ void VideoWidget::createPipeline()
 
     if (!vertShader.isValid() || !fragShader.isValid()) {
         LOG_ERROR("Shader invalid - vertex: %s, fragment: %s",
-                 vertShader.isValid() ? "valid" : "invalid",
-                 fragShader.isValid() ? "valid" : "invalid");
+                  vertShader.isValid() ? "valid" : "invalid",
+                  fragShader.isValid() ? "valid" : "invalid");
         pipeline.reset();
         return;
     }
@@ -351,7 +295,12 @@ void VideoWidget::createPipeline()
     });
 
     pipeline->setVertexInputLayout(inputLayout);
-    pipeline->setShaderResourceBindings(srb.get());
+
+    // 修改：直接设置 perFrameSrb[0]
+    // Pipeline 创建时会读取这个 SRB 的布局信息并“烘焙”进去。
+    // 渲染时只要传具有相同布局的 SRB (perFrameSrb[0], [1], [2]) 都可以。
+    pipeline->setShaderResourceBindings(perFrameSrb[0].get());
+
     pipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
     pipeline->setDepthTest(false);
     pipeline->setDepthWrite(false);
@@ -366,60 +315,59 @@ void VideoWidget::createPipeline()
 
 bool VideoWidget::needsTextureResize(int width, int height, int slot)
 {
-    if (!videoTextures[slot]) return true;
+    if (!videoTexturesY[slot]) return true;
+    QSize currentSize = videoTexturesY[slot]->pixelSize();
 
-    QSize currentSize = videoTextures[slot]->pixelSize();
+    // 如果视频尺寸变大了，必须重建
+    if (width > currentSize.width() || height > currentSize.height()) return true;
 
-    // Optimization: Only rebuild when size change exceeds threshold
-    int widthDiff = std::abs(currentSize.width() - width);
-    int heightDiff = std::abs(currentSize.height() - height);
-
-    // If new size exceeds current texture size, need to rebuild
-    if (width > currentSize.width() || height > currentSize.height()) {
-        return true;
-    }
-
-    // If new size is much smaller than current texture (save video memory), also consider rebuilding
-    if (widthDiff > MIN_TEXTURE_RESIZE_THRESHOLD * 2 &&
-        heightDiff > MIN_TEXTURE_RESIZE_THRESHOLD * 2) {
-        return true;
-    }
+    // 如果视频尺寸变小太多，也可以重建以节省显存
+    if (std::abs(currentSize.width() - width) > MIN_TEXTURE_RESIZE_THRESHOLD) return true;
 
     return false;
 }
 
-void VideoWidget::resizeTextureIfNeeded(int slot, const QSize& newSize)
+void VideoWidget::recreateTextures(int slot, const QSize& newSize)
 {
-    // Rebuild texture with Dynamic flag
-    videoTextures[slot].reset(rhi->newTexture(
-        QRhiTexture::RGBA8,
-        newSize,
-        1,
-        QRhiTexture::UsedAsTransferSource  // Dynamic texture
-        ));
+    QSize sizeY = newSize;
+    QSize sizeUV(newSize.width() / 2, newSize.height() / 2);
 
-    if (videoTextures[slot] && videoTextures[slot]->create()) {
-        // Rebuild shader resource binding
-        perFrameSrb[slot].reset(rhi->newShaderResourceBindings());
-        perFrameSrb[slot]->setBindings({
-            QRhiShaderResourceBinding::uniformBuffer(
-                0,
-                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                uniformBuffers[slot].get()
-                ),
-            QRhiShaderResourceBinding::sampledTexture(
-                1,
-                QRhiShaderResourceBinding::FragmentStage,
-                videoTextures[slot].get(),
-                sampler.get()
-                )
-        });
-        perFrameSrb[slot]->create();
+    // 修改：移除 Sampled 标志，使用默认构造
 
-        LOG_INFO("Dynamic texture rebuilt, slot: %d, size: %dx%d", slot, newSize.width(), newSize.height());
-    } else {
-        LOG_ERROR("Failed to rebuild dynamic texture");
-    }
+    // 重建 Y
+    videoTexturesY[slot].reset(rhi->newTexture(
+        QRhiTexture::R8, sizeY, 1));
+    videoTexturesY[slot]->create();
+
+    // 重建 U
+    videoTexturesU[slot].reset(rhi->newTexture(
+        QRhiTexture::R8, sizeUV, 1));
+    videoTexturesU[slot]->create();
+
+    // 重建 V
+    videoTexturesV[slot].reset(rhi->newTexture(
+        QRhiTexture::R8, sizeUV, 1));
+    videoTexturesV[slot]->create();
+
+    // 重建 SRB
+    perFrameSrb[slot].reset(rhi->newShaderResourceBindings());
+    perFrameSrb[slot]->setBindings({
+        QRhiShaderResourceBinding::uniformBuffer(
+            0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+            uniformBuffers[slot].get()),
+        QRhiShaderResourceBinding::sampledTexture(
+            1, QRhiShaderResourceBinding::FragmentStage,
+            videoTexturesY[slot].get(), sampler.get()),
+        QRhiShaderResourceBinding::sampledTexture(
+            2, QRhiShaderResourceBinding::FragmentStage,
+            videoTexturesU[slot].get(), sampler.get()),
+        QRhiShaderResourceBinding::sampledTexture(
+            3, QRhiShaderResourceBinding::FragmentStage,
+            videoTexturesV[slot].get(), sampler.get())
+    });
+    perFrameSrb[slot]->create();
+
+    LOG_INFO("Textures resized to %dx%d", newSize.width(), newSize.height());
 }
 
 void VideoWidget::render(QRhiCommandBuffer* cb)
@@ -434,14 +382,12 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
     QRhiResourceUpdateBatch* batch = nullptr;
     int frameToRender = -1;
 
-    // Find the latest available frame
-    {
-        for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-            int slotIndex = (currentFrameSlot.load(std::memory_order_acquire) - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
-            if (frameBuffers[slotIndex].ready && frameBuffers[slotIndex].data) {
-                frameToRender = slotIndex;
-                break;
-            }
+    // 查找最新帧
+    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
+        int slotIndex = (currentFrameSlot.load(std::memory_order_acquire) - i + FRAME_BUFFER_COUNT) % FRAME_BUFFER_COUNT;
+        if (frameBuffers[slotIndex].ready && frameBuffers[slotIndex].data) {
+            frameToRender = slotIndex;
+            break;
         }
     }
 
@@ -450,39 +396,53 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         FrameBuffer& frame = frameBuffers[frameToRender];
 
         if (frame.needsUpdate && frame.ready && frame.data) {
-            // Check if texture needs to be rebuilt
+            // 检查尺寸
             if (needsTextureResize(frame.width, frame.height, frameToRender)) {
-                QSize newSize(
-                    std::min(frame.width, MAX_TEXTURE_WIDTH),
-                    std::min(frame.height, MAX_TEXTURE_HEIGHT)
-                    );
-                resizeTextureIfNeeded(frameToRender, newSize);
+                QSize newSize(std::min(frame.width, MAX_TEXTURE_WIDTH),
+                              std::min(frame.height, MAX_TEXTURE_HEIGHT));
+                recreateTextures(frameToRender, newSize);
             }
 
-            if (videoTextures[frameToRender]) {
-                size_t rgbaSize = frame.width * frame.height * 4;
+            // 确保纹理对象存在
+            if (videoTexturesY[frameToRender]) {
+                int w = frame.width;
+                int h = frame.height;
+                int w2 = (w + 1) / 2;
+                int h2 = (h + 1) / 2;
 
-                // Optimization: For Dynamic textures, this upload is more efficient
-                // QRhi internally uses staging buffer or mapped memory
-                QRhiTextureSubresourceUploadDescription subresDesc(
-                    frame.data.get(),
-                    rgbaSize
-                    );
-                subresDesc.setSourceSize(QSize(frame.width, frame.height));
-                subresDesc.setDestinationTopLeft(QPoint(0, 0));
+                // 计算数据偏移量
+                // 数据布局: [YYYY...][UU...][VV...]
+                const uint8_t* dataY = frame.data.get();
+                const uint8_t* dataU = dataY + (w * h);
+                const uint8_t* dataV = dataU + (w2 * h2);
 
-                QRhiTextureUploadDescription desc({ 0, 0, subresDesc });
-                batch->uploadTexture(videoTextures[frameToRender].get(), desc);
+                // 上传 Y 平面
+                QRhiTextureSubresourceUploadDescription subDescY(dataY, w * h);
+                subDescY.setSourceSize(QSize(w, h));
+                QRhiTextureUploadDescription descY({ 0, 0, subDescY });
+                batch->uploadTexture(videoTexturesY[frameToRender].get(), descY);
+
+                // 上传 U 平面
+                QRhiTextureSubresourceUploadDescription subDescU(dataU, w2 * h2);
+                subDescU.setSourceSize(QSize(w2, h2));
+                QRhiTextureUploadDescription descU({ 0, 0, subDescU });
+                batch->uploadTexture(videoTexturesU[frameToRender].get(), descU);
+
+                // 上传 V 平面
+                QRhiTextureSubresourceUploadDescription subDescV(dataV, w2 * h2);
+                subDescV.setSourceSize(QSize(w2, h2));
+                QRhiTextureUploadDescription descV({ 0, 0, subDescV });
+                batch->uploadTexture(videoTexturesV[frameToRender].get(), descV);
 
                 frame.needsUpdate = false;
                 hasVideo = true;
-                videoWidth = frame.width;
-                videoHeight = frame.height;
+                videoWidth = w;
+                videoHeight = h;
             }
         }
 
-        // Update uniform buffer (only when data changes)
-        if (frameToRender >= 0 && videoTextures[frameToRender]) {
+        // 更新 Uniform
+        if (frameToRender >= 0) {
             UniformData uniformData;
             uniformData.mvp.setToIdentity();
             uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
@@ -500,6 +460,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
 
     if (frameToRender >= 0 && perFrameSrb[frameToRender]) {
         const QSize outputSize = renderTarget()->pixelSize();
+
         cb->setGraphicsPipeline(pipeline.get());
         cb->setViewport({ 0, 0, float(outputSize.width()), float(outputSize.height()) });
         cb->setShaderResources(perFrameSrb[frameToRender].get());
@@ -575,7 +536,9 @@ void VideoWidget::releaseResources()
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
         perFrameSrb[i].reset();
         uniformBuffers[i].reset();
-        videoTextures[i].reset();
+        videoTexturesY[i].reset();
+        videoTexturesU[i].reset();
+        videoTexturesV[i].reset();
     }
 
     sampler.reset();
