@@ -273,7 +273,7 @@ namespace hope {
                                                     }
 
                                                     if (json.contains("webrtcAudioEnable")) {
-                                                    
+
                                                         webrtcAudioEnable = json["webrtcAudioEnable"].as_int64();
 
                                                     }
@@ -310,7 +310,7 @@ namespace hope {
                                                             continue;
 
                                                         }
-                                                    }    
+                                                    }
 
                                                     if (json.contains("accountId")) {
                                                         targetId = std::string(json["accountId"].as_string().c_str());
@@ -790,7 +790,7 @@ namespace hope {
             }
 
             if (webrtcAudioEnable == 1) {
-            
+
                 audioTrack = peerConnectionFactory->CreateAudioTrack("audioTrack", nullptr);
 
                 std::vector<std::string> audioStreamIds = { "audioStream" };
@@ -817,7 +817,26 @@ namespace hope {
             }
 
             dataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
+
             dataChannel->RegisterObserver(dataChannelObserver.get());
+
+            std::unique_ptr<webrtc::DataChannelInit> mouseMoveDataChannelConfig = std::make_unique<webrtc::DataChannelInit>();
+
+            mouseMoveDataChannelConfig->ordered = false;
+
+            mouseMoveDataChannelConfig->maxRetransmits = 1;
+
+            mouseMoveDataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
+
+            mouseMoveDataChannel = peerConnection->CreateDataChannel("mouseMoveDataChannel", mouseMoveDataChannelConfig.get());
+            if (!mouseMoveDataChannel) {
+                LOG_ERROR("Failed to create data channel");
+                return false;
+            }
+
+            mouseMoveDataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
+
+            mouseMoveDataChannel->RegisterObserver(mouseMoveDataChannelObserver.get());
 
             return true;
         }
@@ -1002,9 +1021,27 @@ namespace hope {
             case 0: { // Mouse move
                 if (size < sizeof(short) + 2 * sizeof(uint16_t)) return;
 
-                const uint16_t* xy = reinterpret_cast<const uint16_t*>(data + sizeof(short));
-  
-                keyMouseSim->MouseMove(xy[0], xy[1], true);
+#pragma pack(push,1)
+                struct MouseMove              // 6 字节
+                {
+                    short  type;              // 0
+                    uint16_t x;               // 屏幕绝对像素
+                    uint16_t y;
+                    uint32_t sequence;
+                };
+#pragma pack(pop)
+
+                const MouseMove* mouseMove = reinterpret_cast<const MouseMove*>(data);
+
+                if (mouseMove->sequence <= lastMouseSequence) {
+                    // 可选：如果是刚启动第一次收到，可能需要特殊处理，
+                    // 但通常 0 会被第一帧覆盖，所以直接 return 即可
+                    return;
+                }
+
+                lastMouseSequence = mouseMove->sequence;
+
+                keyMouseSim->MouseMove(mouseMove->x, mouseMove->y, true);
 
                 break;
             }
@@ -1195,10 +1232,10 @@ namespace hope {
             }
 
             if (hAudioCatch) {
-            
+
                 hAudioCatch->stopEventLoop();
 
-				hAudioCatch.reset();
+                hAudioCatch.reset();
 
             }
 
