@@ -873,7 +873,6 @@ namespace hope {
             }
 
             screenCapture->setConfig(config);
-            // 在 WebRTCManager.cpp 的 initializeScreenCapture 函数中
 
             screenCapture->setDataHandle([this](const uint8_t* data, int stride, int width, int height, bool isYUV) {
 
@@ -900,22 +899,23 @@ namespace hope {
                     const uint8_t* srcU = data + ySize;
                     const uint8_t* srcV = data + ySize + uvSize;
 
-                    const int srcStrideY = stride; // 传入的 stride 即为 width
-                    const int srcStrideU = (stride + 1) / 2;
-                    const int srcStrideV = (stride + 1) / 2;
+                    if (dstStrideY == width && dstStrideU == (width + 1) / 2 && dstStrideV == (width + 1) / 2) {
+                        fastCopy(dstY, srcY, ySize);
+                        fastCopy(dstU, srcU, uvSize);
+                        fastCopy(dstV, srcV, uvSize);
+                    }
+                    else {
+         
+                        const int halfWidth = (width + 1) / 2;
+                        const int halfHeight = (height + 1) / 2;
 
-                    libyuv::I420Copy(
-                        srcY, srcStrideY,
-                        srcU, srcStrideU,
-                        srcV, srcStrideV,
-                        dstY, dstStrideY,
-                        dstU, dstStrideU,
-                        dstV, dstStrideV,
-                        width, height
-                    );
+                        libyuv::CopyPlane(srcY, width, dstY, dstStrideY, width, height);
+                        libyuv::CopyPlane(srcU, halfWidth, dstU, dstStrideU, halfWidth, halfHeight);
+                        libyuv::CopyPlane(srcV, halfWidth, dstV, dstStrideV, halfWidth, halfHeight);
+                    }
                 }
                 else {
-
+                    // CPU 路径：需要颜色空间转换 (BGRA -> I420)
                     libyuv::ARGBToI420(
                         data, stride,       // 源数据和源 Stride (RowPitch)
                         dstY, dstStrideY,   // 目标 Y
@@ -932,6 +932,7 @@ namespace hope {
                     .build();
 
                 videoTrackSourceImpl->PushFrame(frame);
+
                 });
 
             if (!screenCapture->initialize()) {

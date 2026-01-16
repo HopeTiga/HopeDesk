@@ -30,7 +30,7 @@ namespace hope {
                 int height = 0;
                 int fps = 120;
                 bool enableDirtyRects = true;
-                bool enableGPUYUV = true; // å¼€å…³ï¼šæ˜¯å¦å¯ç”¨ GPU è½¬æ¢
+                bool enableGPUYUV = true; // ¿ª¹Ø£ºÊÇ·ñÆôÓÃ GPU ×ª»»
             };
 
             ScreenCapture();
@@ -46,17 +46,17 @@ namespace hope {
 
         private:
             bool initializeDXGI();
-            bool initializeGPUConverter(); // åˆå§‹åŒ– Shader èµ„æº
+            bool initializeGPUConverter(); // ³õÊ¼»¯ Shader ×ÊÔ´
 
             void captureThreadFunc();
             bool captureFrame();
 
-            // ç»Ÿä¸€å¤„ç†å…¥å£
+            // Í³Ò»´¦ÀíÈë¿Ú
             bool processFrame(ID3D11Texture2D* texture);
 
-            // åˆ†æ”¯è·¯å¾„
-            bool processFrameCPU_BGRA(ID3D11Texture2D* texture); // è·¯å¾„A: CPU ç›´é€š
-            bool processFrameGPU_YUV(ID3D11Texture2D* texture);  // è·¯å¾„B: GPU è½¬æ¢
+            // ·ÖÖ§Â·¾¶
+            bool processFrameCPU_BGRA(ID3D11Texture2D* texture); // Â·¾¶A: CPU Ö±Í¨
+            bool processFrameGPU_YUV(ID3D11Texture2D* texture);  // Â·¾¶B: GPU ×ª»»
 
             void ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture);
             void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
@@ -66,7 +66,7 @@ namespace hope {
             void releaseResources();
             void releaseResourceDXGI();
 
-            // DXGI æ ¸å¿ƒèµ„æº
+            // DXGI ºËĞÄ×ÊÔ´
             Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
             Microsoft::WRL::ComPtr<ID3D11Device1> d3dDevice1;
@@ -80,15 +80,20 @@ namespace hope {
 
             Microsoft::WRL::ComPtr<ID3D11Texture2D> sharedTexture;
 
-            // --- CPU æ¨¡å¼ä¸‹çš„ç¼“å†² (BGRA Texture) ---
+            // --- CPU Ä£Ê½ÏÂµÄ»º³å (BGRA Texture) ---
             static constexpr int NUM_BUFFERS = 3;
             Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[NUM_BUFFERS];
 
-            // --- GPU æ¨¡å¼ä¸‹çš„èµ„æº (Compute Shader) ---
+            // --- GPU Ä£Ê½ÏÂµÄ×ÊÔ´ (Compute Shader) ---
             Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvConstantBuffer;
-            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;  // GPU æ˜¾å­˜ Buffer
-            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvStagingBuffer; // CPU å¯è¯» Buffer
+            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;  // GPU ÏÔ´æ Buffer
+
+            // --- [ÓÅ»¯] GPU Òì²½»Ø¶Á¶àÖØ»º³å ---
+            static constexpr int YUV_BUFFERS = 3; // Ê¹ÓÃ3»º³åÒÔÆ½ºâÑÓ³ÙºÍÍÌÍÂÁ¿
+            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvStagingBuffers[YUV_BUFFERS]; // CPU ¿É¶Á Buffer Êı×é
+            int currentYuvIdx = 0; // µ±Ç°Ğ´ÈëµÄË÷Òı
+
             Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
 
             int currentTexture = 0;

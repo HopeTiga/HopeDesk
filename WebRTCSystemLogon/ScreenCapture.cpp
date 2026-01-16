@@ -181,7 +181,7 @@ namespace hope {
         }
 
         bool ScreenCapture::initializeGPUConverter() {
-            // 你之前的 Shader 代码 (BGRA -> YUV/NV12)
+            // Shader 代码 (BGRA -> YUV/NV12)
             const char* shaderSource = R"(
                 Texture2D<float4> inputTexture : register(t0);
                 RWStructuredBuffer<uint> outputBuffer : register(u0);
@@ -279,13 +279,21 @@ namespace hope {
             hr = d3dDevice->CreateUnorderedAccessView(yuvOutputBuffer.Get(), &uavDesc, &yuvUAV);
             if (FAILED(hr)) return false;
 
-            // 2. Staging Buffer (CPU Read)
+            // 2. Staging Buffers (CPU Read) - 使用多重缓冲
             bufferDesc.Usage = D3D11_USAGE_STAGING;
             bufferDesc.BindFlags = 0;
             bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
             bufferDesc.MiscFlags = 0;
-            hr = d3dDevice->CreateBuffer(&bufferDesc, nullptr, &yuvStagingBuffer);
-            if (FAILED(hr)) return false;
+
+            // [优化] 循环初始化数组中的所有 Buffer
+            for (int i = 0; i < YUV_BUFFERS; i++) {
+                hr = d3dDevice->CreateBuffer(&bufferDesc, nullptr, &yuvStagingBuffers[i]);
+                if (FAILED(hr)) {
+                    LOG_ERROR("Failed to create staging buffer %d", i);
+                    return false;
+                }
+            }
+            currentYuvIdx = 0; // 重置索引
 
             // 3. Constant Buffer
             struct Constants { UINT w; UINT h; UINT ySize; UINT uvSize; };
@@ -401,6 +409,7 @@ namespace hope {
         }
 
         // 路径 B: GPU 转换 (YUV)
+        // [优化] 引入 Ring Buffer 机制，解除 CPU/GPU 串行等待
         bool ScreenCapture::processFrameGPU_YUV(ID3D11Texture2D* texture) {
             if (!texture || !d3dContext || !yuvComputeShader) return false;
 
@@ -418,23 +427,31 @@ namespace hope {
             d3dContext->CSSetUnorderedAccessViews(0, 1, yuvUAV.GetAddressOf(), nullptr);
             d3dContext->CSSetConstantBuffers(0, 1, yuvConstantBuffer.GetAddressOf());
 
-            // 2. Dispatch
+            // 2. Dispatch (GPU 开始计算当前帧)
             UINT dispatchX = (config.width + 15) / 16;
             UINT dispatchY = (config.height + 15) / 16;
             d3dContext->Dispatch(dispatchX, dispatchY, 1);
 
-            // 3. 解绑 UAV 避免冲突
+            // 3. 解绑 UAV 避免冲突 (必须在 Dispatch 后做)
             ID3D11UnorderedAccessView* nullUAV = nullptr;
             d3dContext->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
             ID3D11ShaderResourceView* nullSRV = nullptr;
             d3dContext->CSSetShaderResources(0, 1, &nullSRV);
 
-            // 4. 显存 -> 内存 (Staging Buffer)
-            d3dContext->CopyResource(yuvStagingBuffer.Get(), yuvOutputBuffer.Get());
+            // 4. 将计算结果拷贝到 "当前写" 的 Staging Buffer
+            // GPU 在后台执行这个拷贝，不会阻塞 CPU
+            d3dContext->CopyResource(yuvStagingBuffers[currentYuvIdx].Get(), yuvOutputBuffer.Get());
 
-            // 5. Map & Callback
+            // 5. 计算读取索引 (读取 N-1 或 N-2 帧的数据)
+            int readIdx = (currentYuvIdx + 1) % YUV_BUFFERS;
+
+            // 更新当前索引指向下一帧
+            currentYuvIdx = readIdx;
+
+            // 6. Map 读取 (读取的是以前的帧，GPU 此时很可能已经写完了，Map 不会等待)
             D3D11_MAPPED_SUBRESOURCE mapped;
-            if (SUCCEEDED(d3dContext->Map(yuvStagingBuffer.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+            // 如果是刚启动，前几帧 buffer 可能是空的，Map 出来是黑屏，这是正常的
+            if (SUCCEEDED(d3dContext->Map(yuvStagingBuffers[readIdx].Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
                 if (dataHandle) {
                     // isYUV = true
                     // 对于 YUV420p，width 就是 Y 分量的 stride
@@ -446,7 +463,7 @@ namespace hope {
                         true
                     );
                 }
-                d3dContext->Unmap(yuvStagingBuffer.Get(), 0);
+                d3dContext->Unmap(yuvStagingBuffers[readIdx].Get(), 0);
                 return true;
             }
             return false;
@@ -548,7 +565,10 @@ namespace hope {
             // 释放 Shader 资源
             yuvComputeShader.Reset();
             yuvOutputBuffer.Reset();
-            yuvStagingBuffer.Reset();
+            // [优化] 释放所有缓冲
+            for (int i = 0; i < YUV_BUFFERS; i++) {
+                yuvStagingBuffers[i].Reset();
+            }
             yuvConstantBuffer.Reset();
             yuvUAV.Reset();
         }
