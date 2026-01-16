@@ -912,6 +912,8 @@ void WebRTCManager::releaseSource()
 
     dataChannelObserver.reset();
 
+    mouseMoveDataChannelObserver.reset();
+
     createOfferObserver = nullptr;
 
     createAnswerObserver = nullptr;
@@ -925,6 +927,8 @@ void WebRTCManager::releaseSource()
     audioSender = nullptr;
 
     dataChannel = nullptr;
+
+    mouseMoveDataChannel = nullptr;
 
     peerConnection = nullptr;
 
