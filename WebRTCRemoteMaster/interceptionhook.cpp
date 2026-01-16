@@ -322,7 +322,7 @@ void InterceptionHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifier
 #pragma pack(pop)
 
     KeyButton* keyButton = new KeyButton{type, windowsVK, modifiers};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(keyButton), sizeof(KeyButton),ChannelType::Control);
+    manager->writerRemote(reinterpret_cast<unsigned char*>(keyButton), sizeof(KeyButton));
 }
 
 void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
@@ -345,7 +345,7 @@ void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
 #pragma pack(pop)
 
     MouseButton* mouseBtn = new MouseButton{type, button, normalizedX, normalizedY};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseBtn), sizeof(MouseButton),ChannelType::Control);
+    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseBtn), sizeof(MouseButton));
 }
 
 void InterceptionHook::sendMouseMoveEvent(int x, int y)
@@ -369,7 +369,7 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
 
     MouseMove* pkt = new MouseMove{0, ux, uy,++mouseMoveSequence};
 
-    manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove),ChannelType::Cursor);
+    manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
 }
 
 void InterceptionHook::sendWheelEvent(int delta)
@@ -387,7 +387,7 @@ void InterceptionHook::sendWheelEvent(int delta)
 #pragma pack(pop)
 
     MouseWheel* mouseWheel = new MouseWheel{5, delta, 0};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel),ChannelType::Control);
+    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
 }
 
 void InterceptionHook::convertClientToScreen(int& x, int& y)

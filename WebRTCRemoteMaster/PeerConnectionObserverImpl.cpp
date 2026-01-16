@@ -32,31 +32,16 @@ namespace hope {
     }
 
     void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
+
         LOG_INFO("Data channel received: %s" ,dataChannel->label().c_str());
 
-        if(dataChannel->label() == "dataChannel"){
+        manager->dataChannel = dataChannel;
 
-            manager->dataChannel = dataChannel;
+        manager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>(manager);
 
-            manager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>(manager);
+        dataChannel->RegisterObserver(manager->dataChannelObserver.get());
 
-            dataChannel->RegisterObserver(manager->dataChannelObserver.get());
-
-            return;
-        }
-
-        if(dataChannel->label() == "mouseMoveDataChannel"){
-
-            manager->mouseMoveDataChannel = dataChannel;
-
-            manager->mouseMoveDataChannelObserver = std::make_unique<DataChannelObserverImpl>(manager);
-
-            dataChannel->RegisterObserver(manager->mouseMoveDataChannelObserver.get());
-
-            return;
-
-        }
-
+        return;
 
     }
 

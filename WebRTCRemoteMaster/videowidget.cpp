@@ -60,6 +60,14 @@ VideoWidget::VideoWidget(QWidget* parent)
         uniformData.uvScale = QVector2D(1.0f, 1.0f);
     }
 
+    for (auto& fb : frameBuffers) {
+        fb.buffer = nullptr;   // 确保初始是空
+        fb.width  = 0;
+        fb.height = 0;
+    }
+    producerIdx.store(-1);
+    consumerIdx.store(-1);
+
     initializeControls();
 
     LOG_INFO("VideoWidget init finished");
@@ -68,6 +76,7 @@ VideoWidget::VideoWidget(QWidget* parent)
 VideoWidget::~VideoWidget()
 {
     LOG_INFO("VideoWidget destruction");
+
     savePipelineCache();
 }
 
@@ -259,40 +268,27 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 {
     if (!frame || !frame->buffer) return;
 
-    // 简单限流
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdateTime).count() < MIN_FRAME_INTERVAL_MS)
-        return;
-
-    // 寻找可用槽位：不是消费者正在读的，也不是刚才写入的
     int cIdx = consumerIdx.load(std::memory_order_acquire);
-    int pIdx = producerIdx.load(std::memory_order_relaxed); // 自己的上一个状态
-
-    // 简单的三缓冲轮转：找一个既不是 cIdx 也不是 pIdx 的槽位
-    // 总共 0,1,2。如果 cIdx=0, pIdx=1，则 next=2。
+    int pIdx = producerIdx.load(std::memory_order_relaxed);
     int nextIdx = 0;
     for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        if (i != cIdx && i != pIdx) {
-            nextIdx = i;
-            break;
-        }
+        if (i != cIdx && i != pIdx) { nextIdx = i; break; }
     }
-
-    // 零拷贝：移动引用
+    // 关键：先清空旧引用再写新引用，防止野指针
+    frameBuffers[nextIdx].buffer = nullptr;   // ★释放旧帧
     frameBuffers[nextIdx].buffer = frame->buffer;
-    frameBuffers[nextIdx].width = frame->width;
+    frameBuffers[nextIdx].width  = frame->width;
     frameBuffers[nextIdx].height = frame->height;
 
-    // 发布：告诉消费者这个槽位有新数据
     producerIdx.store(nextIdx, std::memory_order_release);
-
     update();
-    lastUpdateTime = now;
+
 }
 
 // --- 优化 9: 消费者 (无锁逻辑) ---
 void VideoWidget::render(QRhiCommandBuffer* cb)
 {
+
     if (!rhi || !resourcesInitialized || !pipeline) {
         const QColor clearColor(32, 32, 32);
         cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
@@ -304,8 +300,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
     int pIdx = producerIdx.load(std::memory_order_acquire);
     int cIdx = consumerIdx.load(std::memory_order_relaxed);
 
-    // 如果生产者有新数据 (pIdx != cIdx)，则获取它
-    // 注意：如果是 -1 表示还没数据
     if (pIdx != -1 && pIdx != cIdx) {
         cIdx = pIdx;
         consumerIdx.store(cIdx, std::memory_order_release); // 锁定这个槽位用于显示
@@ -330,14 +324,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
                 currentUVScale = QVector2D(0.0f, 0.0f);
             }
 
-            // 每次都上传 (因为我们移除了 needsUpdate 标志，简化无锁逻辑)
-            // 实际上如果 cIdx 没变，其实可以不传，但这里为了确保新帧一定被传...
-            // 优化：增加一个 localCacheIndex 只有 cIdx 变了才 upload
-            // 但为了代码清晰，这里直接上传。由于是 Zero-Copy + Stride，开销极低。
-            // 如果想更极致，可以在类里存个 lastRenderedIdx，如果 == cIdx 就不 upload。
-
-            // 为了保持最高性能，这里假设只要 render 被调用且有新帧就上传
-            // 实际在 requestUpdate 驱动下，只有 displayFrame 触发 update 才会重绘
             if (videoTexturesY[frameToRender]) {
                 auto* i420 = frame.buffer.get();
 

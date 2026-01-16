@@ -86,14 +86,6 @@ enum class WebRTCRequestState {
     CLOSE = 5,
 };
 
-enum class ChannelType{
-
-    Control = 0,
-
-    Cursor = 1
-
-};
-
 struct VideoFrame {
     // 核心：持有 WebRTC 的 buffer 引用
     // scoped_refptr 会自动管理生命周期，引用计数归零时 WebRTC 会自动回收内存
@@ -175,7 +167,7 @@ public:
 
     void setTargetId(const std::string& newTargetID);
 
-    void writerRemote(unsigned char* data, size_t size,ChannelType  channelType);
+    void writerRemote(unsigned char* data, size_t size);
 
     void writerAsync(std::shared_ptr<WriterData> writerData);
 
@@ -221,8 +213,6 @@ private:
 
     webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel;
 
-    webrtc::scoped_refptr<webrtc::DataChannelInterface> mouseMoveDataChannel;
-
     webrtc::scoped_refptr<webrtc::VideoTrackInterface> videoTrack;
 
     webrtc::scoped_refptr<webrtc::RtpSenderInterface> videoSender;
@@ -234,8 +224,6 @@ private:
     std::unique_ptr<PeerConnectionObserverImpl> peerConnectionObserver;
 
     std::unique_ptr<DataChannelObserverImpl> dataChannelObserver;
-
-    std::unique_ptr<DataChannelObserverImpl> mouseMoveDataChannelObserver;
 
     webrtc::scoped_refptr<CreateOfferObserverImpl> createOfferObserver;
 

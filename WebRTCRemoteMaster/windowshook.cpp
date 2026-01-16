@@ -158,7 +158,7 @@ void WindowsHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)
 
     KeyButton * keyButton = new KeyButton{type,windowsVK,modifiers};
 
-    manager->writerRemote(reinterpret_cast<unsigned char *>(keyButton), sizeof(KeyButton),ChannelType::Control);
+    manager->writerRemote(reinterpret_cast<unsigned char *>(keyButton), sizeof(KeyButton));
 }
 
 void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
@@ -187,7 +187,7 @@ void WindowsHook::sendMouseEvent(short type, short button, int x, int y)
 
     MouseButton * mouseBtn = new MouseButton{type,button,normalizedX,normalizedY};
 
-    manager->writerRemote(reinterpret_cast<unsigned char * >(mouseBtn), sizeof(MouseButton),ChannelType::Control);
+    manager->writerRemote(reinterpret_cast<unsigned char * >(mouseBtn), sizeof(MouseButton));
 }
 
 // 修改 sendMouseMoveEvent 函数
@@ -216,7 +216,7 @@ void WindowsHook::sendMouseMoveEvent(int x, int y)
 
     MouseMove * mouseMove = new MouseMove{0,normalizedX,normalizedY};
 
-    manager->writerRemote(reinterpret_cast<unsigned char *>(mouseMove), sizeof(MouseMove),ChannelType::Control);
+    manager->writerRemote(reinterpret_cast<unsigned char *>(mouseMove), sizeof(MouseMove));
 }
 
 void WindowsHook::sendWheelEvent(int delta)
@@ -237,7 +237,7 @@ void WindowsHook::sendWheelEvent(int delta)
 
     MouseWheel * mouseWheel = new MouseWheel{5,delta};
 
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel),ChannelType::Control);
+    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
 }
 
 char WindowsHook::getCurrentModifiers()

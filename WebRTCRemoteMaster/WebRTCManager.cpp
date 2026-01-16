@@ -912,8 +912,6 @@ void WebRTCManager::releaseSource()
 
     dataChannelObserver.reset();
 
-    mouseMoveDataChannelObserver.reset();
-
     createOfferObserver = nullptr;
 
     createAnswerObserver = nullptr;
@@ -927,8 +925,6 @@ void WebRTCManager::releaseSource()
     audioSender = nullptr;
 
     dataChannel = nullptr;
-
-    mouseMoveDataChannel = nullptr;
 
     peerConnection = nullptr;
 
@@ -1021,56 +1017,30 @@ void WebRTCManager::setTargetId(const std::string &newTargetId)
     targetId = newTargetId;
 }
 
-void WebRTCManager::writerRemote(unsigned char *data, size_t size,ChannelType channelType)
+void WebRTCManager::writerRemote(unsigned char *data, size_t size)
 {
     if(state.load() == WebRTCRemoteState::masterRemote){
 
-        if(channelType == ChannelType::Control){
+        if(!dataChannel) {
 
-            if(!dataChannel) {
+            LOG_ERROR("DataChannel is null");
 
-                LOG_ERROR("DataChannel is null");
-
-                delete reinterpret_cast<void*>(data);
-
-                return;
-            }
-
-            webrtc::CopyOnWriteBuffer buffer(data, size);
-
-            webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
-
-            dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
-
-                delete reinterpret_cast<void*>(data);
-
-            });
+            delete reinterpret_cast<void*>(data);
 
             return;
         }
 
-        if(channelType == ChannelType::Cursor){
+        webrtc::CopyOnWriteBuffer buffer(data, size);
 
-            if(!mouseMoveDataChannel) {
+        webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
 
-                LOG_ERROR("MouseMoveDataChannel is null");
+        dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
 
-                delete reinterpret_cast<void*>(data);
+            delete reinterpret_cast<void*>(data);
 
-                return;
-            }
+        });
 
-            webrtc::CopyOnWriteBuffer buffer(data, size);
-
-            webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
-
-            mouseMoveDataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
-
-                delete reinterpret_cast<void*>(data);
-
-            });
-
-        }
+        return;
 
     }
 }
