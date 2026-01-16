@@ -5,7 +5,7 @@
 #include <QWidget>
 #include <QPropertyAnimation>
 #include <memory>
-#include <atomic>
+#include <atomic> // 必须包含
 #include <mutex>
 #include <QElapsedTimer>
 #include <rhi/qrhi.h>
@@ -13,15 +13,16 @@
 #include <array>
 #include <chrono>
 
-#include "windows.h"
+#include <api/video/video_frame.h>
+#include <api/video/i420_buffer.h>
 
+#include "windows.h"
 #include "windowshook.h"
 #include "Utils.h"
 #include "interceptionhook.h"
 
-namespace hope{
-
-namespace rtc{
+namespace hope {
+namespace rtc {
 
 class WebRTCManager;
 struct VideoFrame;
@@ -72,9 +73,6 @@ private:
     void createPipeline();
     QShader getShader(const QString& name);
 
-    // 新增：性能优化相关
-    bool needsTextureResize(int width, int height, int slot);
-    void recreateTextures(int slot, const QSize& newSize);
     void loadPipelineCache();
     void savePipelineCache();
 
@@ -82,13 +80,13 @@ private:
     WebRTCManager* manager;
     QRhi* rhi = nullptr;
 
-    // 共享资源（所有帧共用）
     std::unique_ptr<QRhiGraphicsPipeline> pipeline;
     std::unique_ptr<QRhiBuffer> vertexBuffer;
     std::unique_ptr<QRhiSampler> sampler;
+    // 主 SRB 仅用于 Pipeline 布局模板
     std::unique_ptr<QRhiShaderResourceBindings> srb;
 
-    // Triple buffering资源（每帧独立）
+    // 三缓冲 (Triple Buffering)
     static constexpr int FRAME_BUFFER_COUNT = 3;
     std::array<std::unique_ptr<QRhiBuffer>, FRAME_BUFFER_COUNT> uniformBuffers;
     std::array<std::unique_ptr<QRhiTexture>, FRAME_BUFFER_COUNT> videoTexturesY;
@@ -96,31 +94,30 @@ private:
     std::array<std::unique_ptr<QRhiTexture>, FRAME_BUFFER_COUNT> videoTexturesV;
     std::array<std::unique_ptr<QRhiShaderResourceBindings>, FRAME_BUFFER_COUNT> perFrameSrb;
 
-    // 帧数据缓冲
+    // --- 核心优化：无锁环形队列结构 ---
     struct FrameBuffer {
-        std::shared_ptr<uint8_t[]> data;
+        webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer;
         int width = 0;
         int height = 0;
-        bool ready = false;
-        bool needsUpdate = false;
+        // 无需 ready/needsUpdate 标志，通过索引状态判断
     };
 
     std::array<FrameBuffer, FRAME_BUFFER_COUNT> frameBuffers;
-    std::atomic<int> currentFrameSlot{0};
-    std::atomic<int> renderFrameIndex{0};
-    std::mutex frameMutex;
+
+    // 无锁队列索引
+    // producerIdx: 生产者最新写入的帧索引 (Ready to read)
+    // consumerIdx: 消费者正在显示的帧索引 (Displaying)
+    std::atomic<int> producerIdx{-1};
+    std::atomic<int> consumerIdx{-1};
 
     // 视频信息
     std::atomic<int> videoWidth{640};
     std::atomic<int> videoHeight{480};
     bool resourcesInitialized = false;
 
-    // 帧率统计
     QElapsedTimer fpsTimer;
     std::atomic<int> frameCount{0};
     std::atomic<double> currentFPS{0.0};
-
-    // 状态信息
     std::atomic<bool> hasVideo{false};
 
     // UI控件
@@ -143,32 +140,26 @@ private:
     std::unique_ptr<WindowsHook> windowsHook;
     std::unique_ptr<InterceptionHook> interceptionHook;
 
-    // Uniform数据结构
+    // --- 修复花屏的关键 1：强制内存对齐 ---
     struct UniformData {
-        QMatrix4x4 mvp;     // 64字节
-        QVector4D params;   // 16字节 (x=hasVideo, y=isYUV, z=brightness, w=padding)
+        QMatrix4x4 mvp;     // 0-64
+        QVector4D params;   // 64-80
+        QVector2D uvScale;  // 80-88
+        QVector2D padding;  // 88-96 (补齐 16 字节对齐)
 
         bool operator!=(const UniformData& other) const {
-            return mvp != other.mvp || params != other.params;
+            return mvp != other.mvp || params != other.params || uvScale != other.uvScale;
         }
     };
 
-    // 优化：缓存上一次的uniform数据，避免不必要的更新
     std::array<UniformData, FRAME_BUFFER_COUNT> lastUniformData;
 
-    // 优化：纹理尺寸配置
-    static constexpr int MAX_TEXTURE_WIDTH = 1920;
-    static constexpr int MAX_TEXTURE_HEIGHT = 1080;
-    static constexpr int MIN_TEXTURE_RESIZE_THRESHOLD = 64; // 尺寸变化超过此值才重建
+    // 固定大纹理 (1080P)，如需 4K 请改为 3840x2160
+    const QSize MAX_TEXTURE_SIZE = QSize(1920, 1080);
 
-    // 优化：帧率限制
     std::chrono::steady_clock::time_point lastUpdateTime;
-    static constexpr int MIN_FRAME_INTERVAL_MS = 8; // 最高60fps
-
-
+    static constexpr int MIN_FRAME_INTERVAL_MS = 1; // 解除锁帧，由 VSync 控制
 };
 
-
 }
-
 }

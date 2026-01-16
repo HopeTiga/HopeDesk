@@ -95,20 +95,22 @@ enum class ChannelType{
 };
 
 struct VideoFrame {
-    std::shared_ptr<uint8_t[]> data;
-    int width;
-    int height;
-    int64_t timestamp;
+    // 核心：持有 WebRTC 的 buffer 引用
+    // scoped_refptr 会自动管理生命周期，引用计数归零时 WebRTC 会自动回收内存
+    webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer;
 
-    VideoFrame(int w, int h) : width(w), height(h), timestamp(0) {
-        // 改为RGBA，4字节每像素
-        data = std::make_shared<uint8_t[]>(width * height * 4);
+    int width = 0;
+    int height = 0;
+
+    VideoFrame() = default;
+
+    // 构造函数：直接接管 WebRTC 的帧
+    explicit VideoFrame(const webrtc::VideoFrame& frame) {
+        // ToI420() 如果底层已经是 I420，这里只是指针转换，开销极低
+        buffer = frame.video_frame_buffer()->ToI420();
+        width = frame.width();
+        height = frame.height();
     }
-
-    VideoFrame(const VideoFrame&) = delete;
-    VideoFrame& operator=(const VideoFrame&) = delete;
-    VideoFrame(VideoFrame&&) = default;
-    VideoFrame& operator=(VideoFrame&&) = default;
 };
 
 
