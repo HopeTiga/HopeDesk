@@ -1124,6 +1124,10 @@ namespace hope {
                 dataChannelObserver.reset();
             }
 
+            if (mouseMoveDataChannelObserver) {
+                mouseMoveDataChannelObserver.reset();
+            }
+
             if (createOfferObserver) {
                 createOfferObserver = nullptr;
             }
@@ -1151,6 +1155,10 @@ namespace hope {
 
             if (dataChannel) {
                 dataChannel = nullptr;
+            }
+
+            if (mouseMoveDataChannel) {
+                mouseMoveDataChannel = nullptr;
             }
 
             if (videoTrackSourceImpl) {
