@@ -86,6 +86,14 @@ enum class WebRTCRequestState {
     CLOSE = 5,
 };
 
+enum class ChannelType{
+
+    Control = 0,
+
+    Cursor = 1
+
+};
+
 struct VideoFrame {
     std::shared_ptr<uint8_t[]> data;
     int width;
@@ -165,7 +173,7 @@ public:
 
     void setTargetId(const std::string& newTargetID);
 
-    void writerRemote(unsigned char* data, size_t size);
+    void writerRemote(unsigned char* data, size_t size,ChannelType  channelType);
 
     void writerAsync(std::shared_ptr<WriterData> writerData);
 
@@ -211,6 +219,8 @@ private:
 
     webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel;
 
+    webrtc::scoped_refptr<webrtc::DataChannelInterface> mouseMoveDataChannel;
+
     webrtc::scoped_refptr<webrtc::VideoTrackInterface> videoTrack;
 
     webrtc::scoped_refptr<webrtc::RtpSenderInterface> videoSender;
@@ -222,6 +232,8 @@ private:
     std::unique_ptr<PeerConnectionObserverImpl> peerConnectionObserver;
 
     std::unique_ptr<DataChannelObserverImpl> dataChannelObserver;
+
+    std::unique_ptr<DataChannelObserverImpl> mouseMoveDataChannelObserver;
 
     webrtc::scoped_refptr<CreateOfferObserverImpl> createOfferObserver;
 

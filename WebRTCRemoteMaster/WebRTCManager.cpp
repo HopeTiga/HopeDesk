@@ -1017,28 +1017,57 @@ void WebRTCManager::setTargetId(const std::string &newTargetId)
     targetId = newTargetId;
 }
 
-void WebRTCManager::writerRemote(unsigned char *data, size_t size)
+void WebRTCManager::writerRemote(unsigned char *data, size_t size,ChannelType channelType)
 {
     if(state.load() == WebRTCRemoteState::masterRemote){
 
-        if(!dataChannel) {
+        if(channelType == ChannelType::Control){
 
-            LOG_ERROR("DataChannel is null");
+            if(!dataChannel) {
 
-            delete reinterpret_cast<void*>(data);
+                LOG_ERROR("DataChannel is null");
+
+                delete reinterpret_cast<void*>(data);
+
+                return;
+            }
+
+            webrtc::CopyOnWriteBuffer buffer(data, size);
+
+            webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+
+            dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
+
+                delete reinterpret_cast<void*>(data);
+
+            });
 
             return;
         }
 
-        webrtc::CopyOnWriteBuffer buffer(data, size);
+        if(channelType == ChannelType::Cursor){
 
-        webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+            if(!mouseMoveDataChannel) {
 
-        dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
+                LOG_ERROR("MouseMoveDataChannel is null");
 
-            delete reinterpret_cast<void*>(data);
+                delete reinterpret_cast<void*>(data);
 
-        });
+                return;
+            }
+
+            webrtc::CopyOnWriteBuffer buffer(data, size);
+
+            webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+
+            mouseMoveDataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
+
+                delete reinterpret_cast<void*>(data);
+
+            });
+
+        }
+
     }
 }
 

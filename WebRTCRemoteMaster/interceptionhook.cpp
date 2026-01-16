@@ -322,7 +322,7 @@ void InterceptionHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifier
 #pragma pack(pop)
 
     KeyButton* keyButton = new KeyButton{type, windowsVK, modifiers};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(keyButton), sizeof(KeyButton));
+    manager->writerRemote(reinterpret_cast<unsigned char*>(keyButton), sizeof(KeyButton),ChannelType::Control);
 }
 
 void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
@@ -345,7 +345,7 @@ void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
 #pragma pack(pop)
 
     MouseButton* mouseBtn = new MouseButton{type, button, normalizedX, normalizedY};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseBtn), sizeof(MouseButton));
+    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseBtn), sizeof(MouseButton),ChannelType::Control);
 }
 
 void InterceptionHook::sendMouseMoveEvent(int x, int y)
@@ -358,15 +358,18 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
         short  type;              // 0
         uint16_t x;               // 屏幕绝对像素
         uint16_t y;
+        uint32_t sequence;
     };
 #pragma pack(pop)
 
     // 边界保护
     uint16_t ux = static_cast<uint16_t>(std::clamp(x, 0, screenWidth));
+
     uint16_t uy = static_cast<uint16_t>(std::clamp(y, 0, screenHeight));
 
-    MouseMove* pkt = new MouseMove{0, ux, uy};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
+    MouseMove* pkt = new MouseMove{0, ux, uy,++mouseMoveSequence};
+
+    manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove),ChannelType::Cursor);
 }
 
 void InterceptionHook::sendWheelEvent(int delta)
@@ -384,7 +387,7 @@ void InterceptionHook::sendWheelEvent(int delta)
 #pragma pack(pop)
 
     MouseWheel* mouseWheel = new MouseWheel{5, delta, 0};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
+    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel),ChannelType::Control);
 }
 
 void InterceptionHook::convertClientToScreen(int& x, int& y)

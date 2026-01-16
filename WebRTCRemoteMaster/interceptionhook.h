@@ -58,8 +58,11 @@ private:
 
     // 发送事件到远程
     void sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers);
+
     void sendMouseEvent(short type, short button, int x, int y);
+
     void sendMouseMoveEvent(int x, int y);
+
     void sendWheelEvent(int delta);
 
     // 坐标转换：窗口客户区坐标转屏幕坐标
@@ -68,33 +71,37 @@ private:
 private:
     // Interception 上下文
     InterceptionContext context;
-    InterceptionDevice keyboard;
-    InterceptionDevice mouse;
 
+    InterceptionDevice keyboard;
+
+    InterceptionDevice mouse;
     // 目标窗口
     VideoWidget* targetWidget;
-    HWND targetHwnd;
 
+    HWND targetHwnd;
     // 远程客户端
     WebRTCManager * manager;
 
     // 捕获线程
     std::thread captureThread;
+
     std::atomic<bool> running;
+
     std::atomic<bool> initialized;
 
     // 上次鼠标位置（用于优化）
     std::atomic<int> lastMouseX;
+
     std::atomic<int> lastMouseY;
 
     // 屏幕尺寸缓存
     int screenWidth;
-    int screenHeight;
 
+    int screenHeight;
 
     std::atomic<bool> numLockState;
 
-    std::atomic<uint64_t> mouseMoveNums {0};
+    uint32_t mouseMoveSequence = 0;
 };
 
 }
