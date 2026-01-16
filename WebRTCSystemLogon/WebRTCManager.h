@@ -201,8 +201,6 @@ namespace hope {
 
             webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel;
 
-            webrtc::scoped_refptr<webrtc::DataChannelInterface> mouseMoveDataChannel;
-
             webrtc::scoped_refptr<webrtc::VideoTrackInterface> videoTrack;
 
             webrtc::scoped_refptr<webrtc::RtpSenderInterface> videoSender;
@@ -214,8 +212,6 @@ namespace hope {
             std::unique_ptr<PeerConnectionObserverImpl> peerConnectionObserver;
 
             std::unique_ptr<DataChannelObserverImpl> dataChannelObserver;
-
-            std::unique_ptr<DataChannelObserverImpl> mouseMoveDataChannelObserver;
 
             webrtc::scoped_refptr<CreateOfferObserverImpl> createOfferObserver;
 

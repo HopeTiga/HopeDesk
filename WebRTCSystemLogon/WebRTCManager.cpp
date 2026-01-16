@@ -820,24 +820,6 @@ namespace hope {
 
             dataChannel->RegisterObserver(dataChannelObserver.get());
 
-            std::unique_ptr<webrtc::DataChannelInit> mouseMoveDataChannelConfig = std::make_unique<webrtc::DataChannelInit>();
-
-            mouseMoveDataChannelConfig->ordered = false;
-
-            mouseMoveDataChannelConfig->maxRetransmits = 1;
-
-            mouseMoveDataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
-
-            mouseMoveDataChannel = peerConnection->CreateDataChannel("mouseMoveDataChannel", mouseMoveDataChannelConfig.get());
-            if (!mouseMoveDataChannel) {
-                LOG_ERROR("Failed to create data channel");
-                return false;
-            }
-
-            mouseMoveDataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
-
-            mouseMoveDataChannel->RegisterObserver(mouseMoveDataChannelObserver.get());
-
             return true;
         }
 
@@ -1125,10 +1107,6 @@ namespace hope {
                 dataChannelObserver.reset();
             }
 
-            if (mouseMoveDataChannelObserver) {
-                mouseMoveDataChannelObserver.reset();
-            }
-
             if (createOfferObserver) {
                 createOfferObserver = nullptr;
             }
@@ -1158,10 +1136,6 @@ namespace hope {
                 dataChannel = nullptr;
             }
 
-            if (mouseMoveDataChannel) {
-                mouseMoveDataChannel = nullptr;
-            }
-
             if (videoTrackSourceImpl) {
                 videoTrackSourceImpl = nullptr;
             }
@@ -1177,6 +1151,7 @@ namespace hope {
 
             // Reset state flags
             isInit = false;
+
             isProcessingOffer = false;
         }
 
