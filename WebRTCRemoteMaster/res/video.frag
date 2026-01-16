@@ -13,7 +13,7 @@ layout(std140, binding = 0) uniform buf {
 
 void main() {
 
-    float y = texture(texY, v_texCoord).r + 0.07; 
+    float y = texture(texY, v_texCoord).r + 0.05; 
     
     float u = texture(texU, v_texCoord).r - 0.5;
 
