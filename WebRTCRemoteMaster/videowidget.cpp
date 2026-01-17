@@ -6,6 +6,7 @@
 #include <QResizeEvent>
 #include <QStandardPaths>
 #include <QDir>
+#include <QWindow>
 #include <algorithm>
 #include "Utils.h"
 
@@ -27,14 +28,13 @@ VideoWidget::VideoWidget(QWidget* parent)
     , sidebarAnimation(nullptr)
     , isFullScreenMode(false)
     , sidebarVisible(false)
-    ,interceptionHook(nullptr)
+    , interceptionHook(nullptr)
 {
-    // --- 优化 7: 关闭 VSync ---
-    // 通过环境变量强制 Qt Quick/RHI 关闭垂直同步
+    // 强制关闭 VSync 以获得最低延迟（注意：可能会有画面撕裂，但延迟最低）
     qputenv("QSG_RENDER_LOOP", "basic");
     qputenv("QT_QSG_NO_VSYNC", "1");
 
-    LOG_INFO("VideoWidget init (VSync Disabled via Env)");
+    LOG_INFO("VideoWidget init (Low Latency Mode)");
 
     QIcon windowIcon(":/logo/res/hope.png");
     if (!windowIcon.isNull()) {
@@ -52,21 +52,10 @@ VideoWidget::VideoWidget(QWidget* parent)
     connect(fpsUpdateTimer, &QTimer::timeout, this, &VideoWidget::updateFPS);
     fpsUpdateTimer->start(1000);
 
-    lastUpdateTime = std::chrono::steady_clock::now();
-
-    for (auto& uniformData : lastUniformData) {
-        uniformData.mvp.setToIdentity();
-        uniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
-        uniformData.uvScale = QVector2D(1.0f, 1.0f);
-    }
-
-    for (auto& fb : frameBuffers) {
-        fb.buffer = nullptr;   // 确保初始是空
-        fb.width  = 0;
-        fb.height = 0;
-    }
-    producerIdx.store(-1);
-    consumerIdx.store(-1);
+    // 初始化 Uniform
+    lastUniformData.mvp.setToIdentity();
+    lastUniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
+    lastUniformData.uvScale = QVector2D(1.0f, 1.0f);
 
     initializeControls();
 
@@ -76,7 +65,11 @@ VideoWidget::VideoWidget(QWidget* parent)
 VideoWidget::~VideoWidget()
 {
     LOG_INFO("VideoWidget destruction");
-
+    // 析构前清空引用
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+        currentFrame.reset();
+    }
     savePipelineCache();
 }
 
@@ -91,10 +84,7 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
         LOG_INFO("RHI instance changed, recreating resources");
         releaseResources();
         rhi = QRhiWidget::rhi();
-
-        // --- 优化 8: 加载 Pipeline Cache ---
         loadPipelineCache();
-
         resourcesInitialized = false;
     }
 
@@ -134,10 +124,8 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
         uniformData.params = QVector4D(hasVideo ? 1.0f : 0.0f, 0.0f, 1.0f, 0.0f);
         uniformData.uvScale = QVector2D(1.0f, 1.0f);
 
-        for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-            batch->updateDynamicBuffer(uniformBuffers[i].get(), 0, sizeof(UniformData), &uniformData);
-            lastUniformData[i] = uniformData;
-        }
+        batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
+        lastUniformData = uniformData;
 
         cb->resourceUpdate(batch);
     }
@@ -151,11 +139,9 @@ void VideoWidget::createBuffers()
         QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, 6 * 4 * sizeof(float)));
     vertexBuffer->create();
 
-    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        uniformBuffers[i].reset(rhi->newBuffer(
-            QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UniformData)));
-        uniformBuffers[i]->create();
-    }
+    uniformBuffer.reset(rhi->newBuffer(
+        QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UniformData)));
+    uniformBuffer->create();
 }
 
 void VideoWidget::createTextures()
@@ -167,18 +153,15 @@ void VideoWidget::createTextures()
 
     LOG_INFO("Allocating fixed YUV textures: %dx%d", sizeY.width(), sizeY.height());
 
-    // --- 修复编译错误 2: 移除 UsedAsTransferDestination ---
-    // QRhi 纹理默认支持 upload，无需特殊 flag (除非是 RenderTarget)
-    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        videoTexturesY[i].reset(rhi->newTexture(QRhiTexture::R8, sizeY, 1));
-        videoTexturesY[i]->create();
+    // 创建单套纹理
+    videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, sizeY, 1));
+    videoTextureY->create();
 
-        videoTexturesU[i].reset(rhi->newTexture(QRhiTexture::R8, sizeUV, 1));
-        videoTexturesU[i]->create();
+    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, sizeUV, 1));
+    videoTextureU->create();
 
-        videoTexturesV[i].reset(rhi->newTexture(QRhiTexture::R8, sizeUV, 1));
-        videoTexturesV[i]->create();
-    }
+    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, sizeUV, 1));
+    videoTextureV->create();
 }
 
 void VideoWidget::createSampler()
@@ -192,31 +175,29 @@ void VideoWidget::createSampler()
 
 void VideoWidget::createShaderResourceBindings()
 {
-    if (!rhi || !uniformBuffers[0] || !videoTexturesY[0] || !sampler) return;
+    if (!rhi || !uniformBuffer || !videoTextureY || !sampler) return;
 
-    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        perFrameSrb[i].reset(rhi->newShaderResourceBindings());
-        perFrameSrb[i]->setBindings({
-            QRhiShaderResourceBinding::uniformBuffer(
-                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                uniformBuffers[i].get()),
-            QRhiShaderResourceBinding::sampledTexture(
-                1, QRhiShaderResourceBinding::FragmentStage,
-                videoTexturesY[i].get(), sampler.get()),
-            QRhiShaderResourceBinding::sampledTexture(
-                2, QRhiShaderResourceBinding::FragmentStage,
-                videoTexturesU[i].get(), sampler.get()),
-            QRhiShaderResourceBinding::sampledTexture(
-                3, QRhiShaderResourceBinding::FragmentStage,
-                videoTexturesV[i].get(), sampler.get())
-        });
-        perFrameSrb[i]->create();
-    }
+    srb.reset(rhi->newShaderResourceBindings());
+    srb->setBindings({
+        QRhiShaderResourceBinding::uniformBuffer(
+            0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+            uniformBuffer.get()),
+        QRhiShaderResourceBinding::sampledTexture(
+            1, QRhiShaderResourceBinding::FragmentStage,
+            videoTextureY.get(), sampler.get()),
+        QRhiShaderResourceBinding::sampledTexture(
+            2, QRhiShaderResourceBinding::FragmentStage,
+            videoTextureU.get(), sampler.get()),
+        QRhiShaderResourceBinding::sampledTexture(
+            3, QRhiShaderResourceBinding::FragmentStage,
+            videoTextureV.get(), sampler.get())
+    });
+    srb->create();
 }
 
 void VideoWidget::createPipeline()
 {
-    if (!rhi || !perFrameSrb[0]) return;
+    if (!rhi || !srb) return;
 
     pipeline.reset(rhi->newGraphicsPipeline());
 
@@ -241,7 +222,7 @@ void VideoWidget::createPipeline()
     });
 
     pipeline->setVertexInputLayout(inputLayout);
-    pipeline->setShaderResourceBindings(perFrameSrb[0].get());
+    pipeline->setShaderResourceBindings(srb.get());
     pipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
     pipeline->setDepthTest(false);
     pipeline->setDepthWrite(false);
@@ -253,42 +234,32 @@ void VideoWidget::clearDisplay()
 {
     LOG_INFO("Clearing display");
     hasVideo = false;
-    // 重置索引
-    producerIdx.store(-1);
-    consumerIdx.store(-1);
-    // 释放引用
-    for (auto& buffer : frameBuffers) {
-        buffer.buffer = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+        currentFrame.reset();
     }
     update();
 }
 
-// --- 优化 9: 生产者 (无锁逻辑) ---
+// --- 极低延迟核心：Mailbox 模式 ---
 void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 {
     if (!frame || !frame->buffer) return;
 
-    int cIdx = consumerIdx.load(std::memory_order_acquire);
-    int pIdx = producerIdx.load(std::memory_order_relaxed);
-    int nextIdx = 0;
-    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        if (i != cIdx && i != pIdx) { nextIdx = i; break; }
+    {
+        // 加锁，直接覆盖当前帧，不管上一帧有没有被渲染
+        // 这就是去掉了所有缓冲队列，只保留“最新”的一帧
+        std::lock_guard<std::mutex> lock(frameMutex);
+        currentFrame = frame;
     }
-    // 关键：先清空旧引用再写新引用，防止野指针
-    frameBuffers[nextIdx].buffer = nullptr;   // ★释放旧帧
-    frameBuffers[nextIdx].buffer = frame->buffer;
-    frameBuffers[nextIdx].width  = frame->width;
-    frameBuffers[nextIdx].height = frame->height;
 
-    producerIdx.store(nextIdx, std::memory_order_release);
-    update();
-
+    if (QWindow* w = windowHandle())
+        w->requestUpdate();
 }
 
-// --- 优化 9: 消费者 (无锁逻辑) ---
+// --- 渲染线程 ---
 void VideoWidget::render(QRhiCommandBuffer* cb)
 {
-
     if (!rhi || !resourcesInitialized || !pipeline) {
         const QColor clearColor(32, 32, 32);
         cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
@@ -296,88 +267,82 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         return;
     }
 
-    // 检查是否有新帧
-    int pIdx = producerIdx.load(std::memory_order_acquire);
-    int cIdx = consumerIdx.load(std::memory_order_relaxed);
+    std::shared_ptr<VideoFrame> frameToRender = nullptr;
 
-    if (pIdx != -1 && pIdx != cIdx) {
-        cIdx = pIdx;
-        consumerIdx.store(cIdx, std::memory_order_release); // 锁定这个槽位用于显示
+    // 1. 快速取出当前帧的引用，减少锁占用时间
+    {
+        std::lock_guard<std::mutex> lock(frameMutex);
+        frameToRender = currentFrame;
     }
 
     QVector2D currentUVScale(1.0f, 1.0f);
 
-    int frameToRender = cIdx;
-
-    if (frameToRender >= 0) {
+    if (frameToRender && frameToRender->buffer) {
         QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
-        FrameBuffer& frame = frameBuffers[frameToRender];
 
-        // 如果该帧有效
-        if (frame.buffer) {
-            // 计算 UV Scale
-            if (frame.width > 0 && frame.height > 0) {
-                float scaleX = float(frame.width) / MAX_TEXTURE_SIZE.width();
-                float scaleY = float(frame.height) / MAX_TEXTURE_SIZE.height();
-                currentUVScale = QVector2D(scaleX, scaleY);
-            } else {
-                currentUVScale = QVector2D(0.0f, 0.0f);
-            }
-
-            if (videoTexturesY[frameToRender]) {
-                auto* i420 = frame.buffer.get();
-
-                QRhiTextureSubresourceUploadDescription subDescY(i420->DataY(), i420->StrideY() * i420->height());
-                subDescY.setSourceSize(QSize(frame.width, frame.height));
-                subDescY.setDataStride(i420->StrideY());
-                batch->uploadTexture(videoTexturesY[frameToRender].get(), QRhiTextureUploadDescription{{0, 0, subDescY}});
-
-                int chromaW = (frame.width + 1) / 2;
-                int chromaH = (frame.height + 1) / 2;
-
-                QRhiTextureSubresourceUploadDescription subDescU(i420->DataU(), i420->StrideU() * chromaH);
-                subDescU.setSourceSize(QSize(chromaW, chromaH));
-                subDescU.setDataStride(i420->StrideU());
-                batch->uploadTexture(videoTexturesU[frameToRender].get(), QRhiTextureUploadDescription{{0, 0, subDescU}});
-
-                QRhiTextureSubresourceUploadDescription subDescV(i420->DataV(), i420->StrideV() * chromaH);
-                subDescV.setSourceSize(QSize(chromaW, chromaH));
-                subDescV.setDataStride(i420->StrideV());
-                batch->uploadTexture(videoTexturesV[frameToRender].get(), QRhiTextureUploadDescription{{0, 0, subDescV}});
-
-                hasVideo = true;
-                videoWidth = frame.width;
-                videoHeight = frame.height;
-            }
+        // 计算 UV Scale
+        if (frameToRender->width > 0 && frameToRender->height > 0) {
+            float scaleX = float(frameToRender->width) / MAX_TEXTURE_SIZE.width();
+            float scaleY = float(frameToRender->height) / MAX_TEXTURE_SIZE.height();
+            currentUVScale = QVector2D(scaleX, scaleY);
+        } else {
+            currentUVScale = QVector2D(0.0f, 0.0f);
         }
 
-        // 更新 Uniform
+        auto* i420 = frameToRender->buffer.get();
+
+        // 2. 上传 YUV 数据
+        if (videoTextureY) {
+            QRhiTextureSubresourceUploadDescription subDescY(i420->DataY(), i420->StrideY() * i420->height());
+            subDescY.setSourceSize(QSize(frameToRender->width, frameToRender->height));
+            subDescY.setDataStride(i420->StrideY());
+            batch->uploadTexture(videoTextureY.get(), QRhiTextureUploadDescription{{0, 0, subDescY}});
+
+            int chromaW = (frameToRender->width + 1) / 2;
+            int chromaH = (frameToRender->height + 1) / 2;
+
+            QRhiTextureSubresourceUploadDescription subDescU(i420->DataU(), i420->StrideU() * chromaH);
+            subDescU.setSourceSize(QSize(chromaW, chromaH));
+            subDescU.setDataStride(i420->StrideU());
+            batch->uploadTexture(videoTextureU.get(), QRhiTextureUploadDescription{{0, 0, subDescU}});
+
+            QRhiTextureSubresourceUploadDescription subDescV(i420->DataV(), i420->StrideV() * chromaH);
+            subDescV.setSourceSize(QSize(chromaW, chromaH));
+            subDescV.setDataStride(i420->StrideV());
+            batch->uploadTexture(videoTextureV.get(), QRhiTextureUploadDescription{{0, 0, subDescV}});
+
+            hasVideo = true;
+            videoWidth = frameToRender->width;
+            videoHeight = frameToRender->height;
+        }
+
+        // 3. 更新 Uniform
         UniformData uniformData;
         uniformData.mvp.setToIdentity();
         uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
         uniformData.uvScale = currentUVScale;
 
-        if (uniformData != lastUniformData[frameToRender]) {
-            batch->updateDynamicBuffer(uniformBuffers[frameToRender].get(), 0, sizeof(UniformData), &uniformData);
-            lastUniformData[frameToRender] = uniformData;
+        if (uniformData != lastUniformData) {
+            batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
+            lastUniformData = uniformData;
         }
 
-        // 提交上传
         cb->resourceUpdate(batch);
+        frameCount++; // 统计FPS
     }
 
     const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
-    cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, nullptr); // batch 已经在上面提交了
+    cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, nullptr);
 
-    if (frameToRender >= 0 && perFrameSrb[frameToRender]) {
+    // 4. 绘制
+    if (hasVideo && srb) {
         const QSize outputSize = renderTarget()->pixelSize();
         cb->setGraphicsPipeline(pipeline.get());
         cb->setViewport(QRhiViewport{0.0f, 0.0f, float(outputSize.width()), float(outputSize.height()), 0.0f, 1.0f});
-        cb->setShaderResources(perFrameSrb[frameToRender].get());
+        cb->setShaderResources(srb.get());
         const QRhiCommandBuffer::VertexInput vbufBinding(vertexBuffer.get(), 0);
         cb->setVertexInput(0, 1, &vbufBinding);
         cb->draw(6);
-        frameCount++;
     }
     cb->endPass();
 }
@@ -386,13 +351,12 @@ void VideoWidget::releaseResources()
 {
     pipeline.reset();
     srb.reset();
-    for (int i = 0; i < FRAME_BUFFER_COUNT; ++i) {
-        perFrameSrb[i].reset();
-        uniformBuffers[i].reset();
-        videoTexturesY[i].reset();
-        videoTexturesU[i].reset();
-        videoTexturesV[i].reset();
-    }
+
+    uniformBuffer.reset();
+    videoTextureY.reset();
+    videoTextureU.reset();
+    videoTextureV.reset();
+
     sampler.reset();
     vertexBuffer.reset();
     resourcesInitialized = false;
@@ -446,7 +410,6 @@ void VideoWidget::updateFPS()
     }
 }
 
-// ... 辅助函数不变 ...
 void VideoWidget::setWebRTCManager(WebRTCManager * manager)
 {
     this->manager = manager;

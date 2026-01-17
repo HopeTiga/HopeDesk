@@ -8,6 +8,9 @@ CONFIG -= debug debug_and_release
 
 RC_ICONS = hope.ico
 
+TCMALLOC_AGGRESSIVE_DECOMMIT = true
+TCMALLOC_RELEASE_RATE = 10.0
+
 # MSVC编译器优化标志 - 稳定版本
 win32-msvc* {
     # 基础优化
@@ -88,6 +91,7 @@ win32 {
     LIBS += -L$$PWD/lib/webrtc/
     LIBS += -L$$PWD/lib/msquic/
     LIBS += -L$$PWD/lib/interception/x64/
+    LIBS += -L$$PWD/lib/tcmalloc/
 
     # WebRTC相关库
     LIBS += -lwebrtc
@@ -95,6 +99,8 @@ win32 {
     LIBS += -linterception
 
     LIBS += -lmsquic          # Msquic lib
+
+    LIBS += -llibtcmalloc_minimal
 
     # Windows系统库
     LIBS += -lws2_32          # Windows Socket 2.0
@@ -121,6 +127,7 @@ win32 {
     LIBS += -lmfuuid          # Media Foundation UUIDs
 
 
+    QMAKE_LFLAGS += /INCLUDE:_tcmalloc
     # Windows版本定义
     DEFINES += WIN32_LEAN_AND_MEAN
     DEFINES += NOMINMAX

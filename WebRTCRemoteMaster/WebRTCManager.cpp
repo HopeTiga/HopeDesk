@@ -434,6 +434,7 @@ bool WebRTCManager::initializePeerConnection()
         }
 
         const char* field_trials =
+            "WebRTC-DataChannelMessageInterleaving/Disabled/"
             "WebRTC-Video-JitterBufferDelay/Enabled/"
             "WebRTC-ZeroPlayoutDelay/min_pacing:2ms/";
 
