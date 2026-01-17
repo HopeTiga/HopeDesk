@@ -47,6 +47,7 @@
 #include "CreateDescriptionObserverImpl.h"
 
 // Project includes
+#include "WebRTCManagerI420Buffer.h"
 #include "concurrentqueue.h"
 #include "ScreenCapture.h"
 #include "HAudioCatch.h"
@@ -168,8 +169,8 @@ namespace hope {
             static webrtc::RtpEncodingParameters getDefaultRtpEncodingParameters() {
                 webrtc::RtpEncodingParameters encoding;
                 encoding.active = true;
-                encoding.max_bitrate_bps = 1000000;  // 4 Mbps
-                encoding.min_bitrate_bps = 1000000;  // 1 Mbps
+                encoding.max_bitrate_bps = 2000000;  // 4 Mbps
+                encoding.min_bitrate_bps = 2000000;  // 1 Mbps
                 encoding.bitrate_priority = 4.0;
                 encoding.max_framerate = 120;
                 encoding.scale_resolution_down_by = 1.0;

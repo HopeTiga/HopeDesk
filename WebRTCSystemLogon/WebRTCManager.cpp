@@ -556,6 +556,7 @@ namespace hope {
                     "WebRTC-Pacer-DrainQueue/Enabled/"
                     "WebRTC-Pacer-PadInSilence/Enabled/"
                     "WebRTC-Bwe-ProbingConfiguration/Enabled/"
+                    "WebRTC-DataChannelMessageInterleaving/Disabled/"
                     "WebRTC-LossBasedBweV2/Enabled/";
 
                 std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
@@ -856,65 +857,39 @@ namespace hope {
 
             screenCapture->setConfig(config);
 
-            screenCapture->setDataHandle([this](const uint8_t* data, int stride, int width, int height, bool isYUV) {
+            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag) {
+                if (!videoTrackSourceImpl || !data) {
+                    if (releaseFlag) releaseFlag->store(false);
+                    return;
+                }
 
-                if (!videoTrackSourceImpl || !data) return;
+                webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer;
 
-                webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer =
-                    bufferPool.CreateI420Buffer(width, height);
+                if (releaseFlag) {
 
-                if (!i420Buffer) return;
-
-                uint8_t* dstY = i420Buffer->MutableDataY();
-                int dstStrideY = i420Buffer->StrideY();
-                uint8_t* dstU = i420Buffer->MutableDataU();
-                int dstStrideU = i420Buffer->StrideU();
-                uint8_t* dstV = i420Buffer->MutableDataV();
-                int dstStrideV = i420Buffer->StrideV();
-
-                if (isYUV) {
-
-                    const int ySize = width * height;
-                    const int uvSize = ((width + 1) / 2) * ((height + 1) / 2);
-
-                    const uint8_t* srcY = data;
-                    const uint8_t* srcU = data + ySize;
-                    const uint8_t* srcV = data + ySize + uvSize;
-
-                    if (dstStrideY == width && dstStrideU == (width + 1) / 2 && dstStrideV == (width + 1) / 2) {
-                        fastCopy(dstY, srcY, ySize);
-                        fastCopy(dstU, srcU, uvSize);
-                        fastCopy(dstV, srcV, uvSize);
-                    }
-                    else {
-         
-                        const int halfWidth = (width + 1) / 2;
-                        const int halfHeight = (height + 1) / 2;
-
-                        libyuv::CopyPlane(srcY, width, dstY, dstStrideY, width, height);
-                        libyuv::CopyPlane(srcU, halfWidth, dstU, dstStrideU, halfWidth, halfHeight);
-                        libyuv::CopyPlane(srcV, halfWidth, dstV, dstStrideV, halfWidth, halfHeight);
-                    }
+                    buffer = webrtc::make_ref_counted<WebRTCManagerI420Buffer>(data, width, height, releaseFlag);
                 }
                 else {
-                    // CPU 路径：需要颜色空间转换 (BGRA -> I420)
+
+                    webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer = bufferPool.CreateI420Buffer(width, height);
+                    // Note: The CPU path in ScreenCapture passes data ptr of BGRA (stride = width*4)
                     libyuv::ARGBToI420(
-                        data, stride,       // 源数据和源 Stride (RowPitch)
-                        dstY, dstStrideY,   // 目标 Y
-                        dstU, dstStrideU,   // 目标 U
-                        dstV, dstStrideV,   // 目标 V
+                        data, width * 4,
+                        i420Buffer->MutableDataY(), i420Buffer->StrideY(),
+                        i420Buffer->MutableDataU(), i420Buffer->StrideU(),
+                        i420Buffer->MutableDataV(), i420Buffer->StrideV(),
                         width, height
                     );
+                    buffer = i420Buffer;
                 }
 
                 webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
-                    .set_video_frame_buffer(i420Buffer)
+                    .set_video_frame_buffer(buffer)
                     .set_rotation(webrtc::kVideoRotation_0)
                     .set_timestamp_us(webrtc::TimeMicros())
                     .build();
 
                 videoTrackSourceImpl->PushFrame(frame);
-
                 });
 
             if (!screenCapture->initialize()) {

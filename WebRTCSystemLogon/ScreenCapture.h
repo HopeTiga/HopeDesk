@@ -1,37 +1,47 @@
+// --- START OF FILE ScreenCapture.h ---
+
 #pragma once
 
-#include <memory>
+#include <d3d11.h>
+#include <d3d11_1.h> // 鏂板
+#include <dxgi1_2.h>
+#include <dxgi1_5.h> // 鏂板
+#include <wrl/client.h>
+#include <thread>
+#include <atomic>
 #include <functional>
 #include <vector>
-#include <atomic>
-#include <thread>
-#include <mutex>
-
-#include <windows.h>
-#include <d3d11_1.h>
-#include <dxgi1_5.h>
-#include <wrl/client.h>
-
+#include <memory>
 #include "WinLogon.h"
+#include "Utils.h"
+
+#include <d3d11_1.h>  // 瑙ｅ喅 ID3D11Device1, ID3D11DeviceContext1
+#include <dxgi1_5.h>  // 瑙ｅ喅 IDXGIOutput5
 
 namespace hope {
     namespace rtc {
 
-        struct DirtyRegionTracker;
+        // Defined to match Shader layout
+        static const int YUV_BUFFERS = 4; // Increase buffer count to allow Encoder time to hold one
+
+        struct YuvStagingBuffer {
+            Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
+            std::atomic<bool> isBusy{ false }; // True if WebRTC is holding it
+            uint8_t* mappedData = nullptr;     // Cache the pointer
+            D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
+        };
 
         class ScreenCapture {
-
         public:
-
-            using DataHandle = std::function<void(const uint8_t* data, int stride, int width, int height, bool isYUV)>;
-
             struct CaptureConfig {
-                int width = 0;
-                int height = 0;
-                int fps = 120;
+                int width = 1920;
+                int height = 1080;
+                bool enableGPUYUV = true;
                 bool enableDirtyRects = true;
-                bool enableGPUYUV = true; // 开关：是否启用 GPU 转换
             };
+
+            // Callback receives: data ptr, width, height, and a pointer to the busy flag
+            using DataHandle = std::function<void(const uint8_t*, int, int, std::atomic<bool>*)>;
 
             ScreenCapture();
             ~ScreenCapture();
@@ -39,80 +49,68 @@ namespace hope {
             bool initialize();
             bool startCapture();
             void stopCapture();
-
-            void setDataHandle(DataHandle handle) { dataHandle = handle; }
-            void setConfig(const CaptureConfig& cfg) { config = cfg; }
-            const CaptureConfig& getConfig() const { return config; }
+            void setConfig(CaptureConfig c) { config = c; }
+            void setDataHandle(DataHandle dh) { dataHandle = dh; }
 
         private:
-            bool initializeDXGI();
-            bool initializeGPUConverter(); // 初始化 Shader 资源
-
             void captureThreadFunc();
-            bool captureFrame();
-
-            // 统一处理入口
-            bool processFrame(ID3D11Texture2D* texture);
-
-            // 分支路径
-            bool processFrameCPU_BGRA(ID3D11Texture2D* texture); // 路径A: CPU 直通
-            bool processFrameGPU_YUV(ID3D11Texture2D* texture);  // 路径B: GPU 转换
-
-            void ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture);
-            void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
-            std::vector<RECT> MergeDirtyRects(RECT* rects, UINT count);
-
-            void handleCaptureError(HRESULT hr);
+            bool initializeDXGI();
+            bool initializeGPUConverter();
             void releaseResources();
             void releaseResourceDXGI();
 
-            // DXGI 核心资源
+            bool captureFrame();
+            bool processFrame(ID3D11Texture2D* texture);
+            bool processFrameCPU_BGRA(ID3D11Texture2D* texture);
+            bool processFrameGPU_YUV(ID3D11Texture2D* texture);
+
+            // ... Dirty Rect Functions (same as before) ...
+            void ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture);
+            void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
+            std::vector<RECT> MergeDirtyRects(RECT* rects, UINT count);
+            void handleCaptureError(HRESULT hr);
+
+            CaptureConfig config;
+            std::atomic<bool> capturing{ false };
+            std::thread captureThread;
+            DataHandle dataHandle;
+
+            // DXGI Resources
             Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
             Microsoft::WRL::ComPtr<ID3D11Device1> d3dDevice1;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext1> d3dContext1;
-            Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+
             Microsoft::WRL::ComPtr<IDXGIAdapter> dxgiAdapter;
+            Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
             Microsoft::WRL::ComPtr<IDXGIOutput> dxgiOutput;
             Microsoft::WRL::ComPtr<IDXGIOutput1> dxgiOutput1;
             Microsoft::WRL::ComPtr<IDXGIOutput5> dxgiOutput5;
             Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dxgiDuplication;
 
             Microsoft::WRL::ComPtr<ID3D11Texture2D> sharedTexture;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[YUV_BUFFERS]; // For CPU Path
+            HANDLE sharedHandle = nullptr;
 
-            // --- CPU 模式下的缓冲 (BGRA Texture) ---
-            static constexpr int NUM_BUFFERS = 3;
-            Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[NUM_BUFFERS];
-
-            // --- GPU 模式下的资源 (Compute Shader) ---
+            // GPU YUV Resources
             Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
-            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvConstantBuffer;
-            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;  // GPU 显存 Buffer
-
-            // --- [优化] GPU 异步回读多重缓冲 ---
-            static constexpr int YUV_BUFFERS = 3; // 使用3缓冲以平衡延迟和吞吐量
-            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvStagingBuffers[YUV_BUFFERS]; // CPU 可读 Buffer 数组
-            int currentYuvIdx = 0; // 当前写入的索引
-
+            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
             Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
+            Microsoft::WRL::ComPtr<ID3D11Buffer> yuvConstantBuffer;
 
-            int currentTexture = 0;
+            // Optimized Staging Buffers
+            YuvStagingBuffer yuvStagingBuffers[YUV_BUFFERS];
+            int currentYuvIdx = 0;
+            int currentTexture = 0; // For CPU path
 
-            std::unique_ptr<DirtyRegionTracker> dirtyTracker;
+            // Helpers
+            std::unique_ptr<struct DirtyRegionTracker> dirtyTracker;
             std::unique_ptr<WinLogon> winLogonSwitcher;
-
-            std::thread captureThread;
-            std::atomic<bool> capturing{ false };
-
-            std::atomic<bool> isOnWinLogonDesktop{ false };
-            std::atomic<bool> desktopSwitchInProgress{ false };
+            bool isOnWinLogonDesktop = false;
+            bool desktopSwitchInProgress = false;
             int invalidCallCount = 0;
             int invalidCallDxgi = 0;
-
-            CaptureConfig config;
-            DataHandle dataHandle;
-
-            HANDLE sharedHandle = nullptr;
         };
+
     }
 }
