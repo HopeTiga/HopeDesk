@@ -101,7 +101,6 @@ private:
 
     std::atomic<bool> numLockState;
 
-    uint32_t mouseMoveSequence = 0;
 };
 
 }

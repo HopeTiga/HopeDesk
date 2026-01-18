@@ -358,7 +358,6 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
         short  type;              // 0
         uint16_t x;               // 屏幕绝对像素
         uint16_t y;
-        uint32_t sequence;
     };
 #pragma pack(pop)
 
@@ -367,7 +366,7 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
 
     uint16_t uy = static_cast<uint16_t>(std::clamp(y, 0, screenHeight));
 
-    MouseMove* pkt = new MouseMove{0, ux, uy,++mouseMoveSequence};
+    MouseMove* pkt = new MouseMove{0, ux, uy};
 
     manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
 }
