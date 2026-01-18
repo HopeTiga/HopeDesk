@@ -1,5 +1,3 @@
-// --- START OF FILE ScreenCapture.h ---
-
 #pragma once
 
 #include <d3d11.h>
@@ -15,19 +13,17 @@
 #include "WinLogon.h"
 #include "Utils.h"
 
-#include <d3d11_1.h>  // 解决 ID3D11Device1, ID3D11DeviceContext1
-#include <dxgi1_5.h>  // 解决 IDXGIOutput5
 
 namespace hope {
     namespace rtc {
 
-        // Defined to match Shader layout
-        static const int YUV_BUFFERS = 4; // Increase buffer count to allow Encoder time to hold one
+
+        static const int YUV_BUFFERS = 4; 
 
         struct YuvStagingBuffer {
             Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
-            std::atomic<bool> isBusy{ false }; // True if WebRTC is holding it
-            uint8_t* mappedData = nullptr;     // Cache the pointer
+            std::atomic<bool> isBusy{ false };
+            uint8_t* mappedData = nullptr; 
             D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
         };
 
@@ -40,7 +36,6 @@ namespace hope {
                 bool enableDirtyRects = true;
             };
 
-            // Callback receives: data ptr, width, height, and a pointer to the busy flag
             using DataHandle = std::function<void(const uint8_t*, int, int, std::atomic<bool>*)>;
 
             ScreenCapture();
@@ -64,7 +59,6 @@ namespace hope {
             bool processFrameCPU_BGRA(ID3D11Texture2D* texture);
             bool processFrameGPU_YUV(ID3D11Texture2D* texture);
 
-            // ... Dirty Rect Functions (same as before) ...
             void ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture);
             void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
             std::vector<RECT> MergeDirtyRects(RECT* rects, UINT count);
@@ -75,7 +69,6 @@ namespace hope {
             std::thread captureThread;
             DataHandle dataHandle;
 
-            // DXGI Resources
             Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
             Microsoft::WRL::ComPtr<ID3D11Device1> d3dDevice1;
@@ -92,18 +85,16 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[YUV_BUFFERS]; // For CPU Path
             HANDLE sharedHandle = nullptr;
 
-            // GPU YUV Resources
             Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
             Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvConstantBuffer;
 
-            // Optimized Staging Buffers
+
             YuvStagingBuffer yuvStagingBuffers[YUV_BUFFERS];
             int currentYuvIdx = 0;
-            int currentTexture = 0; // For CPU path
+            int currentTexture = 0; 
 
-            // Helpers
             std::unique_ptr<struct DirtyRegionTracker> dirtyTracker;
             std::unique_ptr<WinLogon> winLogonSwitcher;
             bool isOnWinLogonDesktop = false;

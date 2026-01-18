@@ -1,5 +1,3 @@
-// --- START OF FILE ScreenCapture.cpp ---
-
 #include "ScreenCapture.h"
 #include <algorithm>
 #include <vector>
@@ -11,7 +9,6 @@
 namespace hope {
     namespace rtc {
 
-        // ... [Include DirtyRegionTracker struct from original code] ...
         struct DirtyRegionTracker {
             std::vector<RECT> dirtyRects;
             std::vector<uint8_t> metadataBuffer;
@@ -38,15 +35,13 @@ namespace hope {
             releaseResources();
         }
 
-        // ... [initialize, startCapture, stopCapture, captureThreadFunc, initializeDXGI remain mostly same] ...
-        // Ensure initializeDXGI initializes stagingTextures only if !config.enableGPUYUV
-
         bool ScreenCapture::initialize() {
-            // ... [Same as original] ...
+
             LOG_INFO("=== Starting ScreenCapture (Full) ===");
             if (!initializeDXGI()) {
-                // ... [Error handling same as original]
+
                 return false;
+
             }
 
             if (config.enableGPUYUV) {
@@ -55,80 +50,116 @@ namespace hope {
                     config.enableGPUYUV = false;
                 }
             }
-            // ...
+
             return true;
         }
 
         bool ScreenCapture::startCapture() {
+
             if (capturing.load()) return true;
+
             capturing = true;
+
             captureThread = std::thread([this]() {
-                // ... [Same as original] ...
+   
                 captureThreadFunc();
+
                 });
+
             return true;
         }
 
         void ScreenCapture::stopCapture() {
+
             if (!capturing.load()) return;
+
             capturing = false;
+
             if (captureThread.joinable()) captureThread.join();
+
         }
 
         void ScreenCapture::captureThreadFunc() {
+
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
             while (capturing.load()) {
+
                 bool success = captureFrame();
+
                 if (!success && !isOnWinLogonDesktop) {
+
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
                 }
+
             }
+
         }
 
-        // ... [initializeDXGI implementation same as original] ...
         bool ScreenCapture::initializeDXGI() {
-            // ... [Copy existing D3D creation logic] ...
+
             HRESULT hr;
+
             D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
+
             UINT createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
+
             D3D_FEATURE_LEVEL featureLevel;
+
             hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createFlags,
                 featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION,
                 &d3dDevice, &featureLevel, &d3dContext);
             if (FAILED(hr)) return false;
 
-            // ... [Setup Duplication interfaces] ...
             d3dDevice.As(&d3dDevice1);
+
             d3dContext.As(&d3dContext1);
+
             d3dDevice.As(&dxgiDevice);
+
             dxgiDevice->GetAdapter(&dxgiAdapter);
+
             dxgiAdapter->EnumOutputs(0, &dxgiOutput);
+
             dxgiOutput.As(&dxgiOutput1);
 
             static bool init = false;
+
             hr = dxgiOutput1->DuplicateOutput(d3dDevice.Get(), &dxgiDuplication);
-            // ... [Handle AccessDenied logic same as original] ...
+
             if (FAILED(hr)) return false;
 
             DXGI_OUTDUPL_DESC duplDesc;
+
             dxgiDuplication->GetDesc(&duplDesc);
+
             config.width = duplDesc.ModeDesc.Width;
+
             config.height = duplDesc.ModeDesc.Height;
 
             D3D11_TEXTURE2D_DESC desc = {};
+
             desc.Width = config.width;
+
             desc.Height = config.height;
+
             desc.MipLevels = 1;
+
             desc.ArraySize = 1;
+
             desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+
             desc.SampleDesc.Count = 1;
+
             desc.Usage = D3D11_USAGE_DEFAULT;
+
             desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+
             desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
 
             if (FAILED(d3dDevice->CreateTexture2D(&desc, nullptr, &sharedTexture))) return false;
 
-            // CPU BGRA fallback buffers
             if (!config.enableGPUYUV) {
                 desc.Usage = D3D11_USAGE_STAGING;
                 desc.BindFlags = 0;
@@ -143,7 +174,7 @@ namespace hope {
 
 
         bool ScreenCapture::initializeGPUConverter() {
-            // ... [Shader Source Code same as original] ...
+
             const char* shaderSource = R"(
                 Texture2D<float4> inputTexture : register(t0);
                 RWStructuredBuffer<uint> outputBuffer : register(u0);
@@ -192,7 +223,6 @@ namespace hope {
             const UINT yuvBufferSize = config.width * config.height * 3 / 2;
             const UINT bufferSizeInUints = (yuvBufferSize + 3) / 4;
 
-            // Output UAV Buffer
             D3D11_BUFFER_DESC bufferDesc = {};
             bufferDesc.ByteWidth = bufferSizeInUints * sizeof(UINT);
             bufferDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -208,7 +238,6 @@ namespace hope {
             uavDesc.Buffer.NumElements = bufferSizeInUints;
             d3dDevice->CreateUnorderedAccessView(yuvOutputBuffer.Get(), &uavDesc, &yuvUAV);
 
-            // Staging Buffers
             bufferDesc.Usage = D3D11_USAGE_STAGING;
             bufferDesc.BindFlags = 0;
             bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -220,7 +249,6 @@ namespace hope {
                 yuvStagingBuffers[i].mappedData = nullptr;
             }
 
-            // Constant Buffer
             struct Constants { UINT w; UINT h; UINT ySize; UINT uvSize; };
             Constants consts = { (UINT)config.width, (UINT)config.height, (UINT)(config.width * config.height), (UINT)(config.width * config.height / 4) };
             D3D11_BUFFER_DESC cbDesc = {};
@@ -234,9 +262,7 @@ namespace hope {
         }
 
         bool ScreenCapture::captureFrame() {
-            // ... [Duplicate Output Logic same as original] ...
             if (!dxgiDuplication) {
-                // ... [Re-init logic]
                 return false;
             }
 
@@ -255,7 +281,6 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> acquiredTexture;
             if (FAILED(desktopResource.As(&acquiredTexture))) return false;
 
-            // ... [Dirty Rect Processing same as original] ...
             d3dContext->CopyResource(sharedTexture.Get(), acquiredTexture.Get());
 
             return processFrame(sharedTexture.Get());
@@ -267,14 +292,14 @@ namespace hope {
         }
 
         bool ScreenCapture::processFrameCPU_BGRA(ID3D11Texture2D* texture) {
-            // CPU Legacy Path - Map/Unmap immediately
+
             if (!texture || !d3dContext) return false;
             d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
             D3D11_MAPPED_SUBRESOURCE mapped;
             if (FAILED(d3dContext->Map(stagingTextures[currentTexture].Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
 
             if (dataHandle) {
-                // Pass nullptr as 'busy' flag, implying synchronous copy downstream
+
                 dataHandle(reinterpret_cast<const uint8_t*>(mapped.pData), config.width, config.height, nullptr);
             }
             d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
@@ -285,7 +310,6 @@ namespace hope {
         bool ScreenCapture::processFrameGPU_YUV(ID3D11Texture2D* texture) {
             if (!texture || !d3dContext || !yuvComputeShader) return false;
 
-            // 1. 设置 Shader 资源
             D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
             srvDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
             srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
@@ -304,73 +328,54 @@ namespace hope {
 
             d3dContext->Dispatch(dispatchX, dispatchY, 1);
 
-            // 解绑 UAV 避免冲突
             ID3D11UnorderedAccessView* nullUAV = nullptr;
             d3dContext->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
             ID3D11ShaderResourceView* nullSRV = nullptr;
             d3dContext->CSSetShaderResources(0, 1, &nullSRV);
 
-            // ==========================================================
-            // 修复重点：使用指针 (YuvStagingBuffer*) 而不是引用或对象拷贝
-            // ==========================================================
-
-            // 2. 查找可用的 Staging Buffer
             YuvStagingBuffer* pTargetBuffer = &yuvStagingBuffers[currentYuvIdx];
 
-            // 3. 如果当前 Buffer 被 WebRTC 占用 (isBusy == true)，尝试找下一个
             if (pTargetBuffer->isBusy.load()) {
                 int retries = 0;
-                // 尝试遍历所有 buffer 找到一个空闲的
                 while (pTargetBuffer->isBusy.load() && retries < YUV_BUFFERS) {
                     currentYuvIdx = (currentYuvIdx + 1) % YUV_BUFFERS;
-                    pTargetBuffer = &yuvStagingBuffers[currentYuvIdx]; // 指针指向新地址，这是合法的
+                    pTargetBuffer = &yuvStagingBuffers[currentYuvIdx];
                     retries++;
                 }
 
-                // 如果转了一圈还是忙，说明编码器太慢了，丢帧处理
                 if (pTargetBuffer->isBusy.load()) {
                     LOG_WARNING("All Staging Buffers busy. Dropping frame.");
                     return true;
                 }
             }
 
-            // 4. 清理上一帧状态：如果之前被 Map 过，现在需要 Unmap 以便写入新数据
             if (pTargetBuffer->mappedData) {
                 d3dContext->Unmap(pTargetBuffer->buffer.Get(), 0);
                 pTargetBuffer->mappedData = nullptr;
             }
 
-            // 5. 将 GPU 计算结果拷贝到 Staging Buffer
             d3dContext->CopyResource(pTargetBuffer->buffer.Get(), yuvOutputBuffer.Get());
 
-            // 6. 立即 Map 供消费者 (WebRTC) 读取
-            // 注意：这里我们 Map 之后并不 Unmap，而是留给 WebRTC 读完后再由析构函数标记释放
             if (SUCCEEDED(d3dContext->Map(pTargetBuffer->buffer.Get(), 0, D3D11_MAP_READ, 0, &pTargetBuffer->mappedSubresource))) {
                 pTargetBuffer->mappedData = static_cast<uint8_t*>(pTargetBuffer->mappedSubresource.pData);
 
-                // 标记为忙碌
                 pTargetBuffer->isBusy.store(true);
 
                 if (dataHandle) {
-                    // 传递指针和控制标记
                     dataHandle(pTargetBuffer->mappedData, config.width, config.height, &pTargetBuffer->isBusy);
                 }
                 else {
-                    // 如果没有回调，立即释放以防死锁
                     d3dContext->Unmap(pTargetBuffer->buffer.Get(), 0);
                     pTargetBuffer->mappedData = nullptr;
                     pTargetBuffer->isBusy.store(false);
                 }
             }
 
-            // 指向下一个位置，为下一帧做准备
             currentYuvIdx = (currentYuvIdx + 1) % YUV_BUFFERS;
             return true;
         }
 
-        // ... [ProcessDirtyRects, MergeDirtyRects, etc. same as original] ...
         void ScreenCapture::ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture) {
-            // ... [Copy from original]
             if (moveRect->SourcePoint.x == moveRect->DestinationRect.left && moveRect->SourcePoint.y == moveRect->DestinationRect.top) return;
             D3D11_BOX srcBox;
             srcBox.left = moveRect->SourcePoint.x; srcBox.top = moveRect->SourcePoint.y;
@@ -380,7 +385,6 @@ namespace hope {
             d3dContext->CopySubresourceRegion(destTexture, 0, moveRect->DestinationRect.left, moveRect->DestinationRect.top, 0, sourceTexture, 0, &srcBox);
         }
         void ScreenCapture::ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture) {
-            // ... [Copy from original]
             dirtyTracker->Reset();
             if (dirtyTracker->metadataBuffer.size() < frameInfo->TotalMetadataBufferSize) dirtyTracker->metadataBuffer.resize(frameInfo->TotalMetadataBufferSize);
             if (frameInfo->TotalMetadataBufferSize == 0) return;
@@ -403,7 +407,7 @@ namespace hope {
             }
         }
         std::vector<RECT> ScreenCapture::MergeDirtyRects(RECT* rects, UINT count) {
-            // ... [Copy from original]
+
             if (count == 0) return {};
             long totalArea = 0;
             std::vector<RECT> res; res.reserve(count);
@@ -418,7 +422,6 @@ namespace hope {
             return res;
         }
         void ScreenCapture::handleCaptureError(HRESULT hr) {
-            // ... [Copy from original]
             if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_INVALID_CALL) {
                 invalidCallCount++;
                 if (invalidCallCount >= 2) {
