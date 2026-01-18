@@ -38,9 +38,19 @@ namespace hope {
         bool ScreenCapture::initialize() {
 
             LOG_INFO("=== Starting ScreenCapture (Full) ===");
+
             if (!initializeDXGI()) {
 
-                return false;
+                winLogonSwitcher->SwitchToWinLogonDesktop();
+
+                desktopSwitchInProgress = true;
+
+                if (!initializeDXGI()) {
+
+                    LOG_ERROR("Failed to initialize DXGI on WinLogon desktop");
+
+                    return false;
+                }
 
             }
 
@@ -110,6 +120,7 @@ namespace hope {
             hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createFlags,
                 featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION,
                 &d3dDevice, &featureLevel, &d3dContext);
+
             if (FAILED(hr)) return false;
 
             d3dDevice.As(&d3dDevice1);
@@ -128,7 +139,27 @@ namespace hope {
 
             hr = dxgiOutput1->DuplicateOutput(d3dDevice.Get(), &dxgiDuplication);
 
-            if (FAILED(hr)) return false;
+            if (FAILED(hr)) {
+
+                if (hr == DXGI_ERROR_NOT_CURRENTLY_AVAILABLE) {
+
+                    LOG_ERROR("Desktop duplication not available (may be in use by another process)");
+
+					return false;
+                }
+                else if (hr == E_ACCESSDENIED) {
+
+                    if (init == true) return false;
+
+                    init = true;
+
+					handleCaptureError(hr);
+
+                }
+
+                return false;
+
+            }
 
             DXGI_OUTDUPL_DESC duplDesc;
 
