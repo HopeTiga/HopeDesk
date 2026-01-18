@@ -985,19 +985,10 @@ namespace hope {
                     short  type;              // 0
                     uint16_t x;               // 屏幕绝对像素
                     uint16_t y;
-                    uint32_t sequence;
                 };
 #pragma pack(pop)
 
                 const MouseMove* mouseMove = reinterpret_cast<const MouseMove*>(data);
-
-                if (mouseMove->sequence <= lastMouseSequence) {
-                    // 可选：如果是刚启动第一次收到，可能需要特殊处理，
-                    // 但通常 0 会被第一帧覆盖，所以直接 return 即可
-                    return;
-                }
-
-                lastMouseSequence = mouseMove->sequence;
 
                 keyMouseSim->MouseMove(mouseMove->x, mouseMove->y, true);
 
