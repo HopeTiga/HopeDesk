@@ -15,15 +15,15 @@
 
 
 namespace hope {
+
     namespace rtc {
 
-
-        static const int YUV_BUFFERS = 4; 
+        static constexpr int YUV_BUFFERS = 8;
 
         struct YuvStagingBuffer {
             Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
             std::atomic<bool> isBusy{ false };
-            uint8_t* mappedData = nullptr; 
+            uint8_t* mappedData = nullptr;
             D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
         };
 
@@ -89,18 +89,18 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
             Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> yuvUAV;
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvConstantBuffer;
-
+            D3D11_BUFFER_DESC bufferDesc;
 
             YuvStagingBuffer yuvStagingBuffers[YUV_BUFFERS];
+            std::vector<std::unique_ptr<YuvStagingBuffer>> emergencyBuffers;
             int currentYuvIdx = 0;
-            int currentTexture = 0; 
+            int currentTexture = 0;
 
             std::unique_ptr<struct DirtyRegionTracker> dirtyTracker;
             std::unique_ptr<WinLogon> winLogonSwitcher;
             bool isOnWinLogonDesktop = false;
             bool desktopSwitchInProgress = false;
             int invalidCallCount = 0;
-            int invalidCallDxgi = 0;
         };
 
     }

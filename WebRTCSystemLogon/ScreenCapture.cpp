@@ -141,9 +141,12 @@ namespace hope {
 
             if (FAILED(hr)) {
 
-                return false;
+                handleCaptureError(hr);
 
+                return false;
             }
+
+            init = false;
 
             DXGI_OUTDUPL_DESC duplDesc;
 
@@ -238,7 +241,7 @@ namespace hope {
             const UINT yuvBufferSize = config.width * config.height * 3 / 2;
             const UINT bufferSizeInUints = (yuvBufferSize + 3) / 4;
 
-            D3D11_BUFFER_DESC bufferDesc = {};
+            bufferDesc = {};
             bufferDesc.ByteWidth = bufferSizeInUints * sizeof(UINT);
             bufferDesc.Usage = D3D11_USAGE_DEFAULT;
             bufferDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
@@ -277,7 +280,9 @@ namespace hope {
         }
 
         bool ScreenCapture::captureFrame() {
+
             if (!dxgiDuplication) {
+                handleCaptureError(DXGI_ERROR_ACCESS_LOST);
                 return false;
             }
 
@@ -359,8 +364,39 @@ namespace hope {
                 }
 
                 if (pTargetBuffer->isBusy.load()) {
-                    LOG_WARNING("All Staging Buffers busy. Dropping frame.");
-                    return true;
+
+                    YuvStagingBuffer* foundEmergency = nullptr;
+
+                    // 1. 尝试在现有的紧急池 vector 中找空闲的
+                    for (auto& pBuf : emergencyBuffers) {
+                        if (!pBuf->isBusy.load(std::memory_order_acquire)) {
+                            foundEmergency = pBuf.get();
+                            break; // <--- 关键点：这里要 break，不是 return！
+                        }
+                    }
+
+                    // 2. 如果没找到，扩容
+                    if (!foundEmergency) {
+
+                        std::unique_ptr<YuvStagingBuffer> newBuf = std::make_unique<YuvStagingBuffer>();
+
+                        if (FAILED(d3dDevice->CreateBuffer(&bufferDesc, nullptr, &newBuf->buffer))) {
+                            LOG_ERROR("Failed to create emergency buffer");
+                            return false; // 真的失败了
+                        }
+
+                        newBuf->isBusy.store(false);
+                        newBuf->mappedData = nullptr;
+
+                        LOG_WARNING("Static pool exhausted. Expanded emergency pool size to: %d", emergencyBuffers.size() + 1);
+
+                        foundEmergency = newBuf.get();
+                        emergencyBuffers.push_back(std::move(newBuf));
+                    }
+
+                    // 将目标指向找到的（或新建的）紧急 buffer
+                    pTargetBuffer = foundEmergency;
+
                 }
             }
 
@@ -472,6 +508,12 @@ namespace hope {
                 yuvStagingBuffers[i].mappedData = nullptr;
                 yuvStagingBuffers[i].isBusy = false;
             }
+            for (int i = 0; i < emergencyBuffers.size(); i++) {
+                emergencyBuffers[i]->buffer.Reset();
+                emergencyBuffers[i]->mappedData = nullptr;
+                emergencyBuffers[i]->isBusy = false;
+            }
+            emergencyBuffers.clear();
             yuvConstantBuffer.Reset();
             yuvUAV.Reset();
         }
