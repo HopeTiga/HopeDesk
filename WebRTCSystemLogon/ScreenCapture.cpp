@@ -71,7 +71,7 @@ namespace hope {
             capturing = true;
 
             captureThread = std::thread([this]() {
-   
+
                 captureThreadFunc();
 
                 });
@@ -140,22 +140,6 @@ namespace hope {
             hr = dxgiOutput1->DuplicateOutput(d3dDevice.Get(), &dxgiDuplication);
 
             if (FAILED(hr)) {
-
-                if (hr == DXGI_ERROR_NOT_CURRENTLY_AVAILABLE) {
-
-                    LOG_ERROR("Desktop duplication not available (may be in use by another process)");
-
-					return false;
-                }
-                else if (hr == E_ACCESSDENIED) {
-
-                    if (init == true) return false;
-
-                    init = true;
-
-					handleCaptureError(hr);
-
-                }
 
                 return false;
 
