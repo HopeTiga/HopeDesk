@@ -353,17 +353,17 @@ namespace hope {
             ID3D11ShaderResourceView* nullSRV = nullptr;
             d3dContext->CSSetShaderResources(0, 1, &nullSRV);
 
-            YuvStagingBuffer* pTargetBuffer = &yuvStagingBuffers[currentYuvIdx];
+            YuvStagingBuffer* targetBuffer = &yuvStagingBuffers[currentYuvIdx];
 
-            if (pTargetBuffer->isBusy.load()) {
+            if (targetBuffer->isBusy.load()) {
                 int retries = 0;
-                while (pTargetBuffer->isBusy.load() && retries < YUV_BUFFERS) {
+                while (targetBuffer->isBusy.load() && retries < YUV_BUFFERS) {
                     currentYuvIdx = (currentYuvIdx + 1) % YUV_BUFFERS;
-                    pTargetBuffer = &yuvStagingBuffers[currentYuvIdx];
+                    targetBuffer = &yuvStagingBuffers[currentYuvIdx];
                     retries++;
                 }
 
-                if (pTargetBuffer->isBusy.load()) {
+                if (targetBuffer->isBusy.load()) {
 
                     YuvStagingBuffer* foundEmergency = nullptr;
 
@@ -376,7 +376,7 @@ namespace hope {
                     }
 
                     // 2. 如果没找到，扩容
-                    if (!foundEmergency) {
+                    if (!foundEmergency && emergencyBuffers.size() != YUV_BUFFERS * 3) {
 
                         std::unique_ptr<YuvStagingBuffer> newBuf = std::make_unique<YuvStagingBuffer>();
 
@@ -391,38 +391,44 @@ namespace hope {
                         LOG_WARNING("Static pool exhausted. Expanded emergency pool size to: %d", emergencyBuffers.size() + 1);
 
                         foundEmergency = newBuf.get();
+
                         emergencyBuffers.push_back(std::move(newBuf));
                     }
 
+                    if (!foundEmergency) {
+                        return true;
+                    }
+
                     // 将目标指向找到的（或新建的）紧急 buffer
-                    pTargetBuffer = foundEmergency;
+                    targetBuffer = foundEmergency;
 
                 }
             }
 
-            if (pTargetBuffer->mappedData) {
-                d3dContext->Unmap(pTargetBuffer->buffer.Get(), 0);
-                pTargetBuffer->mappedData = nullptr;
+            if (targetBuffer->mappedData) {
+                d3dContext->Unmap(targetBuffer->buffer.Get(), 0);
+                targetBuffer->mappedData = nullptr;
             }
 
-            d3dContext->CopyResource(pTargetBuffer->buffer.Get(), yuvOutputBuffer.Get());
+            d3dContext->CopyResource(targetBuffer->buffer.Get(), yuvOutputBuffer.Get());
 
-            if (SUCCEEDED(d3dContext->Map(pTargetBuffer->buffer.Get(), 0, D3D11_MAP_READ, 0, &pTargetBuffer->mappedSubresource))) {
-                pTargetBuffer->mappedData = static_cast<uint8_t*>(pTargetBuffer->mappedSubresource.pData);
+            if (SUCCEEDED(d3dContext->Map(targetBuffer->buffer.Get(), 0, D3D11_MAP_READ, 0, &targetBuffer->mappedSubresource))) {
+                targetBuffer->mappedData = static_cast<uint8_t*>(targetBuffer->mappedSubresource.pData);
 
-                pTargetBuffer->isBusy.store(true);
+                targetBuffer->isBusy.store(true);
 
                 if (dataHandle) {
-                    dataHandle(pTargetBuffer->mappedData, config.width, config.height, &pTargetBuffer->isBusy);
+                    dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy);
                 }
                 else {
-                    d3dContext->Unmap(pTargetBuffer->buffer.Get(), 0);
-                    pTargetBuffer->mappedData = nullptr;
-                    pTargetBuffer->isBusy.store(false);
+                    d3dContext->Unmap(targetBuffer->buffer.Get(), 0);
+                    targetBuffer->mappedData = nullptr;
+                    targetBuffer->isBusy.store(false);
                 }
             }
 
             currentYuvIdx = (currentYuvIdx + 1) % YUV_BUFFERS;
+
             return true;
         }
 
