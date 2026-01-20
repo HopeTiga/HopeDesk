@@ -104,7 +104,7 @@ namespace {
     // 辅助函数：构建消息头 + 消息体（只有length作为消息头）
     std::pair<unsigned char*, size_t> buildData(const std::string& body, hope::quic::MsquicSocketInterface* msquicSocketInterface) {
 
-        if (dynamic_cast<hope::quic::WebRTCSignalSocket*>(msquicSocketInterface)) {
+        if (msquicSocketInterface->getType() == hope::quic::SocketType::WebSocket) {
 
             size_t totalSize = body.size();
 
@@ -114,9 +114,10 @@ namespace {
 
             return { std::move(buffer), body.size() };
         }
-        else {
+        else if(msquicSocketInterface->getType() == hope::quic::SocketType::MsquicSocket){
 
             int64_t bodyLength = static_cast<int64_t>(body.size());
+
             size_t totalSize = sizeof(int64_t) + bodyLength;
 
             unsigned char* buffer = new unsigned char[totalSize];
