@@ -18,13 +18,29 @@ namespace hope {
 
     namespace rtc {
 
-        static constexpr int YUV_BUFFERS = 8;
+        static constexpr int YUV_BUFFERS = 8; 
 
         struct YuvStagingBuffer {
             Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
             std::atomic<bool> isBusy{ false };
-            uint8_t* mappedData = nullptr;
+            uint8_t* mappedData = nullptr; 
             D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
+        };
+
+        struct Nv12TextureBuffer {
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> buffer;
+            std::atomic<bool> isBusy{ false };
+            D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
+        };
+
+        enum class CaptureLevels {
+
+            CPU = 1,
+
+            GPU = 1,
+
+            PRO = 2
+
         };
 
         class ScreenCapture {
@@ -32,11 +48,12 @@ namespace hope {
             struct CaptureConfig {
                 int width = 1920;
                 int height = 1080;
-                bool enableGPUYUV = true;
+                CaptureLevels levels;
+                CaptureLevels uselevels;
                 bool enableDirtyRects = true;
             };
 
-            using DataHandle = std::function<void(const uint8_t*, int, int, std::atomic<bool>*)>;
+            using DataHandle = std::function<void(const uint8_t*, int, int, std::atomic<bool>*,int, CaptureLevels)>;
 
             ScreenCapture();
             ~ScreenCapture();
@@ -51,13 +68,15 @@ namespace hope {
             void captureThreadFunc();
             bool initializeDXGI();
             bool initializeGPUConverter();
+            bool initializeProcessor();
             void releaseResources();
             void releaseResourceDXGI();
 
             bool captureFrame();
             bool processFrame(ID3D11Texture2D* texture);
-            bool processFrameCPU_BGRA(ID3D11Texture2D* texture);
-            bool processFrameGPU_YUV(ID3D11Texture2D* texture);
+            bool processFrameCPU(ID3D11Texture2D* texture);
+            bool processFrameGPU(ID3D11Texture2D* texture);
+            bool processFramePro(ID3D11Texture2D* texture);
 
             void ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture);
             void ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture);
@@ -91,10 +110,22 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvConstantBuffer;
             D3D11_BUFFER_DESC bufferDesc;
 
+            Microsoft::WRL::ComPtr<ID3D11VideoDevice> proVideoDevice; //Pro path
+            Microsoft::WRL::ComPtr<ID3D11VideoContext> proVideoContext;
+            Microsoft::WRL::ComPtr<ID3D11VideoProcessor> proVideoProcessor;
+            Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> proVideoProcessorEnum;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> proOutputTex;
+
             YuvStagingBuffer yuvStagingBuffers[YUV_BUFFERS];
             std::vector<std::unique_ptr<YuvStagingBuffer>> emergencyBuffers;
+
+            Nv12TextureBuffer nv12TextureBuffers[YUV_BUFFERS];
+            std::vector<std::unique_ptr<Nv12TextureBuffer>> emergencyNv12Buffers;
+
             int currentYuvIdx = 0;
             int currentTexture = 0;
+
+            int currentProIdx = 0;
 
             std::unique_ptr<struct DirtyRegionTracker> dirtyTracker;
             std::unique_ptr<WinLogon> winLogonSwitcher;

@@ -54,12 +54,60 @@ namespace hope {
 
             }
 
-            if (config.enableGPUYUV) {
+            if (config.levels == CaptureLevels::PRO) {
+            
+                if (!initializeProcessor()) {
+
+                    LOG_WARNING("PRO Converter init failed, falling back to CPU BGRA");
+
+                    config.levels = CaptureLevels::GPU;
+
+                }
+                else {
+                
+                    config.uselevels = CaptureLevels::PRO;
+
+                }
+
+
+            }
+
+            if (config.levels == CaptureLevels::GPU) {
+
                 if (!initializeGPUConverter()) {
+
                     LOG_WARNING("GPU Converter init failed, falling back to CPU BGRA");
-                    config.enableGPUYUV = false;
+
+                    config.levels = CaptureLevels::CPU;
+
+                    config.uselevels = CaptureLevels::CPU;
+
+                }
+                else {
+
+                    config.uselevels = CaptureLevels::GPU;
+
                 }
             }
+
+            std::string levels;
+
+            switch (static_cast<int>(config.uselevels)) {
+            case 0:
+                levels = "CaptureLevels::CPU";
+                break;
+            case 1:
+                levels = "CaptureLevels::GPU";
+                break;
+            case 2:
+                levels = "CaptureLevels::PRO";
+                break;
+            default:
+                levels = "unknown";
+                break;
+            }
+
+             LOG_INFO("CaptureLevels: %s", levels.c_str());
 
             return true;
         }
@@ -178,15 +226,14 @@ namespace hope {
 
             if (FAILED(d3dDevice->CreateTexture2D(&desc, nullptr, &sharedTexture))) return false;
 
-            if (!config.enableGPUYUV) {
-                desc.Usage = D3D11_USAGE_STAGING;
-                desc.BindFlags = 0;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-                desc.MiscFlags = 0;
-                for (int i = 0; i < YUV_BUFFERS; i++) {
-                    d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTextures[i]);
-                }
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            desc.MiscFlags = 0;
+            for (int i = 0; i < YUV_BUFFERS; i++) {
+                d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTextures[i]);
             }
+
             return true;
         }
 
@@ -279,6 +326,73 @@ namespace hope {
             return true;
         }
 
+        bool ScreenCapture::initializeProcessor()
+        {
+
+            if (FAILED(d3dDevice->QueryInterface(IID_PPV_ARGS(&proVideoDevice)))) {
+                LOG_ERROR("Failed to query ID3D11VideoDevice from d3dDevice");
+                return false;
+            }
+
+            if (FAILED(d3dContext->QueryInterface(IID_PPV_ARGS(&proVideoContext)))) {
+                LOG_ERROR("Failed to query ID3D11VideoContext from d3dContext");
+                return false;
+            }
+
+            BOOL supported = false;
+            D3D11_VIDEO_PROCESSOR_CONTENT_DESC contentDesc = {};
+            contentDesc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
+            contentDesc.InputWidth = config.width;
+            contentDesc.InputHeight = config.height;
+            contentDesc.OutputWidth = config.width;
+            contentDesc.OutputHeight = config.height;
+            contentDesc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
+
+            if (FAILED(proVideoDevice->CreateVideoProcessorEnumerator(&contentDesc, &proVideoProcessorEnum))) {
+                LOG_ERROR("Failed CreateVideoProcessorEnumerator");
+                return false;
+            }
+
+            UINT flags = 0;
+            if (FAILED(proVideoProcessorEnum->CheckVideoProcessorFormat(DXGI_FORMAT_NV12, &flags))) return false;
+            if ((flags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT) == 0) {
+                return false; // ¸ÃÏÔ¿¨²»Ö§³Ö VP Êä³ö NV12
+            }
+
+            // 3. ´´½¨ Processor
+            if (FAILED(proVideoDevice->CreateVideoProcessor(proVideoProcessorEnum.Get(), 0, &proVideoProcessor))) return false;
+
+            D3D11_TEXTURE2D_DESC texDesc = {};
+            texDesc.Width = config.width;
+            texDesc.Height = config.height;
+            texDesc.MipLevels = 1;
+            texDesc.ArraySize = 1;
+            texDesc.Format = DXGI_FORMAT_NV12;
+            texDesc.SampleDesc.Count = 1;
+            texDesc.Usage = D3D11_USAGE_DEFAULT;
+            texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+            if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &proOutputTex))) return false;
+
+            // 3. ¡¾¹Ø¼ü¡¿³õÊ¼»¯ CPU »Ø¶ÁÓÃµÄ Staging ³Ø
+            texDesc.Usage = D3D11_USAGE_STAGING;
+            texDesc.BindFlags = 0; // Staging ÎÆÀí²»ÐèÒª BindFlags
+            texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            texDesc.MiscFlags = 0; // Çå³ýÖ®Ç°µÄ Flags
+
+            for (int i = 0; i < YUV_BUFFERS; i++) {
+                // ÎªÃ¿¸ö³Ø²ÛÎ»´´½¨Ò»¸ö Staging Texture
+                if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &nv12TextureBuffers[i].buffer))) {
+                    LOG_ERROR("Failed to create Pro staging texture %d", i);
+                    return false;
+                }
+                nv12TextureBuffers[i].isBusy = false;
+                nv12TextureBuffers[i].mappedSubresource.pData = nullptr;
+            }
+
+            return true;
+        }
+
         bool ScreenCapture::captureFrame() {
 
             if (!dxgiDuplication) {
@@ -307,11 +421,13 @@ namespace hope {
         }
 
         bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
-            if (config.enableGPUYUV && yuvComputeShader) return processFrameGPU_YUV(texture);
-            return processFrameCPU_BGRA(texture);
+
+            if (config.uselevels == CaptureLevels::PRO) return processFramePro(texture);
+            else if (config.uselevels == CaptureLevels::GPU && yuvComputeShader) return processFrameGPU(texture);
+            return processFrameCPU(texture);
         }
 
-        bool ScreenCapture::processFrameCPU_BGRA(ID3D11Texture2D* texture) {
+        bool ScreenCapture::processFrameCPU(ID3D11Texture2D* texture) {
 
             if (!texture || !d3dContext) return false;
             d3dContext->CopyResource(stagingTextures[currentTexture].Get(), texture);
@@ -320,14 +436,14 @@ namespace hope {
 
             if (dataHandle) {
 
-                dataHandle(reinterpret_cast<const uint8_t*>(mapped.pData), config.width, config.height, nullptr);
+                dataHandle(reinterpret_cast<const uint8_t*>(mapped.pData), config.width, config.height, nullptr, mapped.RowPitch, CaptureLevels::CPU);
             }
             d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
             currentTexture = (currentTexture + 1) % YUV_BUFFERS;
             return true;
         }
 
-        bool ScreenCapture::processFrameGPU_YUV(ID3D11Texture2D* texture) {
+        bool ScreenCapture::processFrameGPU(ID3D11Texture2D* texture) {
             if (!texture || !d3dContext || !yuvComputeShader) return false;
 
             D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -367,22 +483,22 @@ namespace hope {
 
                     YuvStagingBuffer* foundEmergency = nullptr;
 
-                    // 1. å°è¯•åœ¨çŽ°æœ‰çš„ç´§æ€¥æ±  vector ä¸­æ‰¾ç©ºé—²çš„
+                    // 1. ³¢ÊÔÔÚÏÖÓÐµÄ½ô¼±³Ø vector ÖÐÕÒ¿ÕÏÐµÄ
                     for (auto& pBuf : emergencyBuffers) {
                         if (!pBuf->isBusy.load(std::memory_order_acquire)) {
                             foundEmergency = pBuf.get();
-                            break; // <--- å…³é”®ç‚¹ï¼šè¿™é‡Œè¦ breakï¼Œä¸æ˜¯ returnï¼
+                            break; // <--- ¹Ø¼üµã£ºÕâÀïÒª break£¬²»ÊÇ return£¡
                         }
                     }
 
-                    // 2. å¦‚æžœæ²¡æ‰¾åˆ°ï¼Œæ‰©å®¹
+                    // 2. Èç¹ûÃ»ÕÒµ½£¬À©ÈÝ
                     if (!foundEmergency && emergencyBuffers.size() != YUV_BUFFERS * 3) {
 
                         std::unique_ptr<YuvStagingBuffer> newBuf = std::make_unique<YuvStagingBuffer>();
 
                         if (FAILED(d3dDevice->CreateBuffer(&bufferDesc, nullptr, &newBuf->buffer))) {
                             LOG_ERROR("Failed to create emergency buffer");
-                            return false; // çœŸçš„å¤±è´¥äº†
+                            return false; // ÕæµÄÊ§°ÜÁË
                         }
 
                         newBuf->isBusy.store(false);
@@ -393,13 +509,14 @@ namespace hope {
                         foundEmergency = newBuf.get();
 
                         emergencyBuffers.push_back(std::move(newBuf));
+
                     }
 
                     if (!foundEmergency) {
                         return true;
                     }
 
-                    // å°†ç›®æ ‡æŒ‡å‘æ‰¾åˆ°çš„ï¼ˆæˆ–æ–°å»ºçš„ï¼‰ç´§æ€¥ buffer
+                    // ½«Ä¿±êÖ¸ÏòÕÒµ½µÄ£¨»òÐÂ½¨µÄ£©½ô¼± buffer
                     targetBuffer = foundEmergency;
 
                 }
@@ -418,7 +535,7 @@ namespace hope {
                 targetBuffer->isBusy.store(true);
 
                 if (dataHandle) {
-                    dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy);
+                    dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy, config.width, CaptureLevels::GPU);
                 }
                 else {
                     d3dContext->Unmap(targetBuffer->buffer.Get(), 0);
@@ -432,6 +549,126 @@ namespace hope {
             return true;
         }
 
+        bool ScreenCapture::processFramePro(ID3D11Texture2D* texture)
+        {
+            // 1. ´´½¨ VideoProcessor ÊÓÍ¼ (View)
+            D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputDesc = {};
+            inputDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+            inputDesc.Texture2D.MipSlice = 0;
+            Microsoft::WRL::ComPtr<ID3D11VideoProcessorInputView> inputView;
+            if (FAILED(proVideoDevice->CreateVideoProcessorInputView(texture, proVideoProcessorEnum.Get(), &inputDesc, &inputView))) return false;
+
+            D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputDesc = {};
+            outputDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+            Microsoft::WRL::ComPtr<ID3D11VideoProcessorOutputView> outputView;
+            // ÕâÀïµÄ proOutputTex ÊÇ Default Usage (GPU¶Ë)
+            if (FAILED(proVideoDevice->CreateVideoProcessorOutputView(proOutputTex.Get(), proVideoProcessorEnum.Get(), &outputDesc, &outputView))) return false;
+
+            // 2. Ö´ÐÐÓ²¼þ×ª»» (RGBA -> NV12)
+            D3D11_VIDEO_PROCESSOR_STREAM stream = {};
+            stream.Enable = TRUE;
+            stream.pInputSurface = inputView.Get();
+            HRESULT hr = proVideoContext->VideoProcessorBlt(proVideoProcessor.Get(), outputView.Get(), 0, 1, &stream);
+            if (FAILED(hr)) return false;
+
+            Nv12TextureBuffer* targetFrame = &nv12TextureBuffers[currentProIdx];
+
+    
+            if (targetFrame->isBusy.load()) {
+
+                int retries = 0;
+                while (targetFrame->isBusy.load() && retries < YUV_BUFFERS) {
+                    currentProIdx = (currentProIdx + 1) % YUV_BUFFERS;
+                    targetFrame = &nv12TextureBuffers[currentProIdx];
+                    retries++;
+                }
+                if (targetFrame->isBusy.load()) {
+
+                    Nv12TextureBuffer* foundEmergency = nullptr;
+
+                    // 1. ³¢ÊÔÔÚÏÖÓÐµÄ½ô¼±³Ø vector ÖÐÕÒ¿ÕÏÐµÄ
+                    for (auto& pBuf : emergencyNv12Buffers) {
+                        if (!pBuf->isBusy.load(std::memory_order_acquire)) {
+                            foundEmergency = pBuf.get();
+                            break; // <--- ¹Ø¼üµã£ºÕâÀïÒª break£¬²»ÊÇ return£¡
+                        }
+                    }
+
+                    // 2. Èç¹ûÃ»ÕÒµ½£¬À©ÈÝ
+                    if (!foundEmergency && emergencyNv12Buffers.size() != YUV_BUFFERS * 3) {
+
+                        std::unique_ptr<Nv12TextureBuffer> newBuf = std::make_unique<Nv12TextureBuffer>();
+
+                        D3D11_TEXTURE2D_DESC stagingDesc = {};
+                        stagingDesc.Width = config.width;
+                        stagingDesc.Height = config.height;
+                        stagingDesc.MipLevels = 1;
+                        stagingDesc.ArraySize = 1;
+                        stagingDesc.Format = DXGI_FORMAT_NV12; // ±ØÐëÊÇ NV12
+                        stagingDesc.SampleDesc.Count = 1;
+                        stagingDesc.Usage = D3D11_USAGE_STAGING;           // CPU ¶ÁÈ¡×¨ÓÃ
+                        stagingDesc.BindFlags = 0;                         // Staging ÎÆÀí²»ÐèÒª°ó¶¨
+                        stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ; // ÔÊÐí CPU ¶Á
+                        stagingDesc.MiscFlags = 0;
+
+                        if (FAILED(d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &newBuf->buffer))) {
+                            LOG_ERROR("Failed to create emergency buffer");
+                            return false; // ÕæµÄÊ§°ÜÁË
+                        }
+
+                        newBuf->isBusy.store(false);
+
+                        LOG_WARNING("Static pool exhausted. Expanded emergency pool size to: %d", emergencyNv12Buffers.size() + 1);
+
+                        foundEmergency = newBuf.get();
+
+                        emergencyNv12Buffers.push_back(std::move(newBuf));
+
+                    }
+
+                    if (!foundEmergency) {
+                        return true;
+                    }
+
+                    targetFrame = foundEmergency;
+                }
+            }
+
+            if (targetFrame->mappedSubresource.pData) {
+                d3dContext->Unmap(targetFrame->buffer.Get(), 0);
+                targetFrame->mappedSubresource.pData = nullptr;
+            }
+
+            d3dContext->CopyResource(targetFrame->buffer.Get(), proOutputTex.Get());
+
+            if (SUCCEEDED(d3dContext->Map(targetFrame->buffer.Get(), 0, D3D11_MAP_READ, 0, &targetFrame->mappedSubresource))) {
+
+                targetFrame->isBusy.store(true);
+
+                if (dataHandle) {
+                
+                    dataHandle(reinterpret_cast<const uint8_t*>(targetFrame->mappedSubresource.pData),
+                        config.width, config.height, &targetFrame->isBusy, targetFrame->mappedSubresource.RowPitch, CaptureLevels::PRO);
+                
+                }
+                else {
+                    d3dContext->Unmap(targetFrame->buffer.Get(), 0);
+                    targetFrame->mappedSubresource.pData = nullptr;
+                    targetFrame->isBusy.store(false);
+                }
+
+            }
+            else {
+                d3dContext->Unmap(targetFrame->buffer.Get(), 0);
+                targetFrame->mappedSubresource.pData = nullptr;
+                targetFrame->isBusy.store(false);
+            }
+        
+            currentProIdx = (currentProIdx + 1) % YUV_BUFFERS;
+
+            return true;
+        }
+
         void ScreenCapture::ProcessMoveRect(ID3D11Texture2D* sourceTexture, DXGI_OUTDUPL_MOVE_RECT* moveRect, ID3D11Texture2D* destTexture) {
             if (moveRect->SourcePoint.x == moveRect->DestinationRect.left && moveRect->SourcePoint.y == moveRect->DestinationRect.top) return;
             D3D11_BOX srcBox;
@@ -441,6 +678,7 @@ namespace hope {
             srcBox.front = 0; srcBox.back = 1;
             d3dContext->CopySubresourceRegion(destTexture, 0, moveRect->DestinationRect.left, moveRect->DestinationRect.top, 0, sourceTexture, 0, &srcBox);
         }
+
         void ScreenCapture::ProcessDirtyRects(DXGI_OUTDUPL_FRAME_INFO* frameInfo, ID3D11Texture2D* sourceTexture, ID3D11Texture2D* destTexture) {
             dirtyTracker->Reset();
             if (dirtyTracker->metadataBuffer.size() < frameInfo->TotalMetadataBufferSize) dirtyTracker->metadataBuffer.resize(frameInfo->TotalMetadataBufferSize);
@@ -487,7 +725,8 @@ namespace hope {
                     if (targetWinLogon) winLogonSwitcher->SwitchToWinLogonDesktop();
                     else winLogonSwitcher->SwitchToDefaultDesktop();
                     initializeDXGI();
-                    if (config.enableGPUYUV) initializeGPUConverter();
+                    if (config.uselevels == CaptureLevels::PRO) initializeProcessor();
+                    if (config.uselevels == CaptureLevels::GPU) initializeGPUConverter();
                     desktopSwitchInProgress = targetWinLogon;
                     invalidCallCount = 0;
                 }
@@ -513,12 +752,21 @@ namespace hope {
                 yuvStagingBuffers[i].buffer.Reset();
                 yuvStagingBuffers[i].mappedData = nullptr;
                 yuvStagingBuffers[i].isBusy = false;
+
+                nv12TextureBuffers[i].buffer.Reset();
+                nv12TextureBuffers[i].isBusy = false;
             }
             for (int i = 0; i < emergencyBuffers.size(); i++) {
                 emergencyBuffers[i]->buffer.Reset();
                 emergencyBuffers[i]->mappedData = nullptr;
                 emergencyBuffers[i]->isBusy = false;
             }
+
+            for (int i = 0; i < emergencyNv12Buffers.size(); i++) {
+                emergencyNv12Buffers[i]->buffer.Reset();
+                emergencyNv12Buffers[i]->isBusy = false;
+            }
+
             emergencyBuffers.clear();
             yuvConstantBuffer.Reset();
             yuvUAV.Reset();

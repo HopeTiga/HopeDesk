@@ -31,7 +31,6 @@
 #include <api/enable_media_with_defaults.h>
 #include <media/base/adapted_video_track_source.h>
 #include <common_video/include/video_frame_buffer_pool.h> 
-#include <third_party/libyuv/include/libyuv.h>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -47,7 +46,6 @@
 #include "CreateDescriptionObserverImpl.h"
 
 // Project includes
-#include "WebRTCManagerI420Buffer.h"
 #include "concurrentqueue.h"
 #include "ScreenCapture.h"
 #include "HAudioCatch.h"
@@ -160,7 +158,7 @@ namespace hope {
 
             bool initializePeerConnection();
 
-            bool initializeScreenCapture(int webrtcModulesType = 0, int webrtcUseGPU = 0);
+            bool initializeScreenCapture(int webrtcModulesType = 0, int webrtcUseLevels = 0);
 
             bool initializeHAudioCatch();
 

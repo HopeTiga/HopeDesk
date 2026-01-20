@@ -8,7 +8,7 @@ namespace hope {
 
         class WebRTCManagerI420Buffer : public webrtc::I420BufferInterface {
         public:
-            WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag);
+            WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag,int stride);
             ~WebRTCManagerI420Buffer() override;
 
             int width() const override;

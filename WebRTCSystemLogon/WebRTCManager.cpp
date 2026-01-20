@@ -7,8 +7,13 @@
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
 #include <api/video/i420_buffer.h>
+#include <api/video/nv12_buffer.h>
 #include <api/field_trials.h>
+#include <third_party/libyuv/include/libyuv.h>
+
 #include "WebRTCVideoEncoderFactory.h"
+#include "WebRTCManagerI420Buffer.h"
+#include "WebRTCManagerNV12Buffer.h"
 #include "ConfigManager.h"
 
 
@@ -285,7 +290,7 @@ namespace hope {
 
                                                     int webrtcModulesType = 0;
 
-                                                    int webrtcUseGPU = 0;
+                                                    int webrtcUseLevels = 0;
 
                                                     if (json.contains("webrtcModulesType")) {
 
@@ -293,13 +298,13 @@ namespace hope {
 
                                                     }
 
-                                                    if (json.contains("webrtcUseGPU")) {
+                                                    if (json.contains("webrtcUseLevels")) {
 
-                                                        webrtcUseGPU = json["webrtcUseGPU"].as_int64();
+                                                        webrtcUseLevels = json["webrtcUseLevels"].as_int64();
 
                                                     }
 
-                                                    if (!initializeScreenCapture(webrtcModulesType, webrtcUseGPU)) {
+                                                    if (!initializeScreenCapture(webrtcModulesType, webrtcUseLevels)) {
                                                         LOG_ERROR("Failed to initialize ScreenCapture");
                                                         continue;
                                                     }
@@ -824,7 +829,7 @@ namespace hope {
             return true;
         }
 
-        bool WebRTCManager::initializeScreenCapture(int webrtcModulesType, int webrtcUseGPU) {
+        bool WebRTCManager::initializeScreenCapture(int webrtcModulesType, int webrtcUseLevels) {
             if (screenCapture) {
                 return false;
             }
@@ -844,20 +849,11 @@ namespace hope {
 
             }
 
-            if (webrtcUseGPU == 0) {
-
-                config.enableGPUYUV = true;
-
-            }
-            else if (webrtcUseGPU == 1) {
-
-                config.enableGPUYUV = false;
-
-            }
+            config.levels = CaptureLevels(webrtcUseLevels);
 
             screenCapture->setConfig(config);
 
-            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag) {
+            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag, int stride, CaptureLevels levels) {
                 if (!videoTrackSourceImpl || !data) {
                     if (releaseFlag) releaseFlag->store(false);
                     return;
@@ -867,14 +863,24 @@ namespace hope {
 
                 if (releaseFlag) {
 
-                    buffer = webrtc::make_ref_counted<WebRTCManagerI420Buffer>(data, width, height, releaseFlag);
+                    if (levels == CaptureLevels::GPU) {
+
+                        buffer = webrtc::make_ref_counted<WebRTCManagerI420Buffer>(data, width, height, releaseFlag, stride);
+
+                    }
+                    else if (levels == CaptureLevels::PRO) {
+
+                        buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
+
+                    }
+
                 }
                 else {
 
                     webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer = bufferPool.CreateI420Buffer(width, height);
                     // Note: The CPU path in ScreenCapture passes data ptr of BGRA (stride = width*4)
                     libyuv::ARGBToI420(
-                        data, width * 4,
+                        data, stride,
                         i420Buffer->MutableDataY(), i420Buffer->StrideY(),
                         i420Buffer->MutableDataU(), i420Buffer->StrideU(),
                         i420Buffer->MutableDataV(), i420Buffer->StrideV(),

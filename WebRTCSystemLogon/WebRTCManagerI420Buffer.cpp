@@ -3,20 +3,22 @@
 namespace hope {
     namespace rtc {
 
-        WebRTCManagerI420Buffer::WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag)
+        WebRTCManagerI420Buffer::WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag, int stride)
             : bufferWidth(width), bufferHeight(height), releaseFlag(releaseFlag) {
 
-            // Calculate offsets for I420 (packed tightly by Shader)
-            const int ySize = width * height;
-            const int uvSize = ((width + 1) / 2) * ((height + 1) / 2);
+            if (stride == 0) stride = width;
 
-            dataY = data;
-            dataU = data + ySize;
-            dataV = data + ySize + uvSize;
+            strideY = stride;
 
-            strideY = width;
             strideU = (width + 1) / 2;
             strideV = (width + 1) / 2;
+            const int ySize = stride * height;
+            const int uSize = strideU * ((height + 1) / 2);
+
+            dataY = data;
+            dataU = data + ySize;         
+            dataV = data + ySize + uSize; 
+
         }
 
         WebRTCManagerI420Buffer::~WebRTCManagerI420Buffer() {
