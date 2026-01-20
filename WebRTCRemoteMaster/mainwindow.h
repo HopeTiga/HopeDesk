@@ -72,14 +72,13 @@ namespace hope{
 
         void onDeviceItemClicked(QListWidgetItem* item);
 
-
         void on_modeComboBox_currentIndexChanged(int index);
-
-        void on_gpuCheckBox_clicked(bool checked);
 
         void on_codecComboBox_currentIndexChanged(int index);
 
         void on_audioCheckBox_clicked(bool checked);
+
+        void on_accelerationComboBox_currentIndexChanged(int index);
 
     private:
         // UI初始化
@@ -142,11 +141,11 @@ namespace hope{
 
         int webrtcModulesType = 0;
 
-        int webrtcUseGPU = 0;
+        int webrtcLevels = 2;
 
         int videoCodec = 4;
 
-        int webrtcAudioEnable;
+        int webrtcAudioEnable = 0;
     };
 
     }

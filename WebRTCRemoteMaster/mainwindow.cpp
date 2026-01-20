@@ -568,7 +568,7 @@ void MainWindow::onSendRequestClicked()
 
     ui->sendRequestButton->setEnabled(false);
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcUseGPU,this->videoCodec,this->webrtcAudioEnable);
+    manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcLevels,this->videoCodec,this->webrtcAudioEnable);
 
     statusBar()->showMessage("正在建立远程连接...");
 }
@@ -1044,27 +1044,12 @@ void MainWindow::onRemoveAccountClicked()
 
 void MainWindow::on_modeComboBox_currentIndexChanged(int index)
 {
-    this->webrtcModulesType = index;
-}
-
-void MainWindow::on_gpuCheckBox_clicked(bool checked)
-{
-    if(checked){
-
-        this->webrtcUseGPU = 0;
-
-    }
-
-    if(!checked){
-
-        this->webrtcUseGPU = 1;
-
-    }
+    webrtcModulesType = index;
 }
 
 void MainWindow::on_codecComboBox_currentIndexChanged(int index)
 {
-    this->videoCodec = index;
+    videoCodec = index;
 }
 
 void MainWindow::on_audioCheckBox_clicked(bool checked)
@@ -1072,10 +1057,10 @@ void MainWindow::on_audioCheckBox_clicked(bool checked)
     webrtcAudioEnable = checked ? 1 : 0;
 }
 
-
-
-
-
+void MainWindow::on_accelerationComboBox_currentIndexChanged(int index)
+{
+    webrtcLevels = index;
+}
 
     }
 

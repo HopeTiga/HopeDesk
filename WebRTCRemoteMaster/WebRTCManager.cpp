@@ -968,7 +968,7 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
-void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseGPU,int videoCodec,int webrtcAudioEnable)
+void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable)
 {
     if (targetId.empty()) {
         LOG_ERROR("Target ID not set");
@@ -995,7 +995,7 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseGPU,i
         message["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
         message["webRTCRemoteState"] = static_cast<int64_t>(WebRTCRemoteState::masterRemote);
         message["webrtcModulesType"] = webrtcModulesType;
-        message["webrtcUseGPU"] = webrtcUseGPU;
+        message["webrtcUseLevels"] = webrtcUseLevels;
         message["codec"] = videoCodec;
         message["webrtcAudioEnable"] = webrtcAudioEnable;
 

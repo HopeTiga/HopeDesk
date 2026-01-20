@@ -936,24 +936,65 @@ QCheckBox::indicator {
             </spacer>
            </item>
            <item>
-            <widget class="QCheckBox" name="gpuCheckBox">
+            <widget class="QLabel" name="accelerationLabel">
              <property name="styleSheet">
-              <string notr="true">QCheckBox {
-    font-size: 13px;
-    color: #4A5568;
-    spacing: 5px;
-}
-QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-}</string>
+              <string notr="true">font-size: 13px; color: #4A5568;</string>
              </property>
              <property name="text">
-              <string>启用GPU加速</string>
+              <string>加速模式:</string>
              </property>
-             <property name="checked">
-              <bool>true</bool>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="accelerationComboBox">
+             <property name="styleSheet">
+              <string notr="true">QComboBox {
+    background-color: rgba(255,255,255,0.85);
+    border: 1px solid #E2E8F0;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: #2D3748;
+}
+QComboBox:focus {
+    border-color: #4299E1;
+}
+QComboBox:hover {
+    border-color: #CBD5E0;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+QComboBox::down-arrow {
+    width: 12px;
+    height: 12px;
+    border: none;
+    image: none;
+    background: transparent;
+}</string>
              </property>
+             <property name="currentText">
+              <string>PRO</string>
+             </property>
+             <property name="currentIndex">
+              <number>2</number>
+             </property>
+             <item>
+              <property name="text">
+               <string>CPU</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>GPU</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>PRO</string>
+              </property>
+             </item>
             </widget>
            </item>
            <item>
