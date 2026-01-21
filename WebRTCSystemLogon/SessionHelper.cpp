@@ -707,17 +707,17 @@ namespace hope {
                 LOG_DEBUG("Session %lu  ID=%lu  State=%lu",
                     i, s.SessionId, s.State);
 
-                // â‘  å…ˆæŒ‘çœŸæ­£çš„ Active
+                // ¢Ù ÏÈÌôÕæÕıµÄ Active
                 if (s.State == WTSActive) {
                     targetId = s.SessionId;
                     break;
                 }
-                // â‘¡ å†æŒ‘ Connected çš„ RDP
+                // ¢Ú ÔÙÌô Connected µÄ RDP
                 if (s.State == WTSConnected && s.SessionId != 0) {
                     targetId = s.SessionId;
-                    // ä¸ breakï¼Œåé¢å¯èƒ½è¿˜æœ‰ Active
+                    // ²» break£¬ºóÃæ¿ÉÄÜ»¹ÓĞ Active
                 }
-                // â‘¢ æœ€åå…œåº•ï¼šDisconnected ä½†ä¸æ˜¯ Session 0ï¼ˆConsoleï¼‰
+                // ¢Û ×îºó¶µµ×£ºDisconnected µ«²»ÊÇ Session 0£¨Console£©
                 if (targetId == 0 &&
                     s.State == WTSDisconnected &&
                     s.SessionId != 0)

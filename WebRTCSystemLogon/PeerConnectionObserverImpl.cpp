@@ -8,8 +8,8 @@
 
 namespace hope {
 
-	namespace rtc {
-	
+    namespace rtc {
+
         // Observer实现
         void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
             switch (newState) {
@@ -135,12 +135,12 @@ namespace hope {
 
         void PeerConnectionObserverImpl::OnIceCandidateError(const std::string& address, int port, const std::string& url,
             int errorCode, const std::string& errorText) {
-        
+
             printf("PeerConnectionObserverImpl::OnIceCandidateError: address=%s, port=%d, url=%s, errorCode=%d, errorText=%s\n",
                 address.c_str(), port, url.c_str(), errorCode, errorText.c_str());
 
         }
 
-	}
+    }
 
 }

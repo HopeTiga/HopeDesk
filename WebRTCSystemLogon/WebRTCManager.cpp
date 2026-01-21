@@ -817,12 +817,18 @@ namespace hope {
             dataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
 
             dataChannel = peerConnection->CreateDataChannel("dataChannel", dataChannelConfig.get());
+
             if (!dataChannel) {
+
                 LOG_ERROR("Failed to create data channel");
+
                 return false;
+
             }
 
             dataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
+
+            dataChannelObserver->setOnDataHandle(std::bind(&WebRTCManager::handleDataChannelData,this, std::placeholders::_1, std::placeholders::_2));
 
             dataChannel->RegisterObserver(dataChannelObserver.get());
 
@@ -869,7 +875,7 @@ namespace hope {
 
                     }
                     else if (levels == CaptureLevels::PRO) {
-
+                  
                         buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
 
                     }

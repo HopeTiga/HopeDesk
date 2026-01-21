@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #include <api/data_channel_interface.h>
 
@@ -14,6 +15,7 @@ namespace hope {
 
 			DataChannelObserverImpl(WebRTCManager * manager);
 
+			void setOnDataHandle(std::function<void(const unsigned char*, size_t)> func);
 			// The data channel state have changed.
 			void OnStateChange() ;
 			//  A data buffer was successfully received.
@@ -22,6 +24,8 @@ namespace hope {
 		private:
 
 			WebRTCManager* manager;
+
+			std::function<void(const unsigned char*, size_t)> onDataHandle;
 
 		};
 

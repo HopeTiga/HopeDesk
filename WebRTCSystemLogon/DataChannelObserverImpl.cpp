@@ -10,6 +10,11 @@ namespace hope {
 
 		DataChannelObserverImpl::DataChannelObserverImpl(WebRTCManager * manager ):manager(manager) {
 		}
+
+		void DataChannelObserverImpl::setOnDataHandle(std::function<void(const unsigned char*, size_t)> func)
+		{
+			this->onDataHandle = func;
+		}
 	
 		// The data channel state have changed.
 		void DataChannelObserverImpl::OnStateChange() {
@@ -32,7 +37,11 @@ namespace hope {
 			
 			}
 
-			manager->handleDataChannelData(reinterpret_cast<const unsigned char *>(buffer.data.data()),buffer.data.size());
+			if (onDataHandle) {
+			
+				onDataHandle(reinterpret_cast<const unsigned char*>(buffer.data.data()), buffer.data.size());
+
+			}
 
 		}
 
