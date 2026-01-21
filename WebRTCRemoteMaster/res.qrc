@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/logo">
+        <file>res/hope.jpg</file>
+        <file>res/windows.jpg</file>
+    </qresource>
+    <qresource prefix="/shaders">
+        <file>res/video.frag.qsb</file>
+        <file>res/video.vert.qsb</file>
+    </qresource>
+    <qresource prefix="/new/prefix1"/>
+</RCC>

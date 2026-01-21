@@ -189,6 +189,8 @@ public:
 
     void setSystemServiceExe(std::string webrtcExe);
 
+    void handleCursor(const unsigned char* data,size_t size);
+
 private:
     // 状态变量使用原子类型
     std::atomic<WebRTCRemoteState> state;

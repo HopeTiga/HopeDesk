@@ -35,11 +35,18 @@ namespace hope {
 
         LOG_INFO("Data channel received: %s" ,dataChannel->label().c_str());
 
-        manager->dataChannel = dataChannel;
+        if(dataChannel->label() == "dataChannel"){
 
-        manager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>(manager);
+            manager->dataChannel = dataChannel;
 
-        dataChannel->RegisterObserver(manager->dataChannelObserver.get());
+            manager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>(manager);
+
+            manager->dataChannelObserver->setOnDataHandle(std::bind(&WebRTCManager::handleCursor,manager,std::placeholders::_1,std::placeholders::_2));
+
+            dataChannel->RegisterObserver(manager->dataChannelObserver.get());
+
+            return;
+        }
 
         return;
 
@@ -192,7 +199,7 @@ namespace hope {
     void PeerConnectionObserverImpl::OnIceCandidateError(const std::string& address, int port, const std::string& url,
                                                          int errorCode, const std::string& errorText) {
 
-        printf("PeerConnectionObserverImpl::OnIceCandidateError: address=%s, port=%d, url=%s, errorCode=%d, errorText=%s\n",
+        LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address=%s, port=%d, url=%s, errorCode=%d, errorText=%s\n",
                address.c_str(), port, url.c_str(), errorCode, errorText.c_str());
 
     }

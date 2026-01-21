@@ -1,32 +1,36 @@
 #pragma once
+#include <functional>
 
 #include <api/data_channel_interface.h>
 
 namespace hope {
 
-	namespace rtc {
-	
-		class WebRTCManager;
+namespace rtc {
 
-		class DataChannelObserverImpl : public webrtc::DataChannelObserver {
+class WebRTCManager;
 
-		public:
+class DataChannelObserverImpl : public webrtc::DataChannelObserver {
 
-			DataChannelObserverImpl(WebRTCManager * manager);
+public:
 
-			// The data channel state have changed.
-			void OnStateChange() ;
-			//  A data buffer was successfully received.
-			void OnMessage(const webrtc::DataBuffer& buffer) ;
+    DataChannelObserverImpl(WebRTCManager * manager);
 
-		private:
+    void setOnDataHandle(std::function<void(const unsigned char*, size_t)> func);
+    // The data channel state have changed.
+    void OnStateChange() ;
+    //  A data buffer was successfully received.
+    void OnMessage(const webrtc::DataBuffer& buffer) ;
 
-			WebRTCManager* manager;
+private:
 
-		};
+    WebRTCManager* manager;
+
+    std::function<void(const unsigned char*, size_t)> onDataHandle;
+
+};
 
 
-	}
+}
 
 }
 
