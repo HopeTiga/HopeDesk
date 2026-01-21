@@ -21,7 +21,6 @@ namespace hope {
 
     namespace rtc {
 
-
         WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
             : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
             state(WebRTCRemoteState::nullRemote),
