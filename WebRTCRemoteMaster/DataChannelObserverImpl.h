@@ -15,7 +15,9 @@ public:
 
     DataChannelObserverImpl(WebRTCManager * manager);
 
-    void setOnDataHandle(std::function<void(const unsigned char*, size_t)> func);
+    void setOnDataHandle(std::function<void(unsigned char*, size_t)> func);
+
+    void setOnStateChangeHandle(std::function<void()> func);
     // The data channel state have changed.
     void OnStateChange() ;
     //  A data buffer was successfully received.
@@ -25,7 +27,9 @@ private:
 
     WebRTCManager* manager;
 
-    std::function<void(const unsigned char*, size_t)> onDataHandle;
+    std::function<void( unsigned char*, size_t)> onDataHandle;
+
+    std::function<void()> onStateChangeHandle;
 
 };
 

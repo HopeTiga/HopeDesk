@@ -192,6 +192,23 @@ public:
     void handleCursor(const unsigned char* data,size_t size);
 
 private:
+
+    // 发送端功能
+    bool initializePeerConnection();
+
+    void convertYUV420ToRGBA32(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
+                               int width, int height, int yStride, int uStride, int vStride,
+                               uint8_t* rgbData);
+
+    void wrtierCoroutineAsync();
+
+    void receiveCoroutineAysnc();
+
+    void handleAsioException();
+
+    void releaseSource();
+
+private:
     // 状态变量使用原子类型
     std::atomic<WebRTCRemoteState> state;
 
@@ -234,23 +251,6 @@ private:
     std::unique_ptr<VideoTrackSinkImpl> videoSinkImpl;
 
     std::atomic<bool> isInit{false};
-
-private:
-
-    // 发送端功能
-    bool initializePeerConnection();
-
-    void convertYUV420ToRGBA32(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
-                               int width, int height, int yStride, int uStride, int vStride,
-                               uint8_t* rgbData);
-
-    void wrtierCoroutineAsync();
-
-    void receiveCoroutineAysnc();
-
-    void handleAsioException();
-
-    void releaseSource();
 
     std::atomic<bool> followRunning{false};
 

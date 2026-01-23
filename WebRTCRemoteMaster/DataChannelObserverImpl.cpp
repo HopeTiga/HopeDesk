@@ -11,13 +11,25 @@ namespace rtc {
 DataChannelObserverImpl::DataChannelObserverImpl(WebRTCManager * manager ):manager(manager) {
 }
 
-void DataChannelObserverImpl::setOnDataHandle(std::function<void(const unsigned char*, size_t)> func)
+void DataChannelObserverImpl::setOnDataHandle(std::function<void(unsigned char*, size_t)> func)
 {
     this->onDataHandle = func;
 }
 
+void DataChannelObserverImpl::setOnStateChangeHandle(std::function<void()> func)
+{
+    this->onStateChangeHandle = func;
+}
+
 // The data channel state have changed.
 void DataChannelObserverImpl::OnStateChange() {
+
+    if(onStateChangeHandle){
+
+        onStateChangeHandle();
+
+    }
+
 }
 //  A data buffer was successfully received.
 void DataChannelObserverImpl::OnMessage(const webrtc::DataBuffer& buffer) {
@@ -39,7 +51,7 @@ void DataChannelObserverImpl::OnMessage(const webrtc::DataBuffer& buffer) {
 
     if (onDataHandle) {
 
-        onDataHandle(reinterpret_cast<const unsigned char*>(buffer.data.data()), buffer.data.size());
+        onDataHandle(const_cast<unsigned char*>(buffer.data.data()), buffer.data.size());
 
     }
 

@@ -142,64 +142,64 @@ void WebRTCManager::connect(std::string ip)
                     }
                 }
             }else if(WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST){
+
                 if(responseState == 200){
+
                     if(json.contains("webRTCRemoteState")){
+
                         WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
-                        // 只在状态未设置时进行角色分配，避免重复处理
-                        if(!isRemote){
-                            // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
-                            if(remoteState == WebRTCRemoteState::masterRemote){
+                        // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
+                        if(remoteState == WebRTCRemoteState::masterRemote){
 
-                                state = WebRTCRemoteState::followerRemote;
+                            state = WebRTCRemoteState::followerRemote;
 
-                                targetId = std::string(json["accountId"].as_string().c_str());
+                            targetId = std::string(json["accountId"].as_string().c_str());
 
-                                this->followData = dataStr;
+                            this->followData = dataStr;
 
-                                WindowsServiceManager::stopService(systemService);
+                            WindowsServiceManager::stopService(systemService);
 
-                                if(!WindowsServiceManager::serviceExists(systemService)){
+                            if(!WindowsServiceManager::serviceExists(systemService)){
 
-                                    WindowsServiceManager::registerService(systemService, systemServiceExe);
+                                WindowsServiceManager::registerService(systemService, systemServiceExe);
 
-                                }
-
-                                if (WindowsServiceManager::startService(systemService)) {
-
-                                    LOG_INFO("WindowsServiceManager::startService Successful!");
-
-                                    boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
-
-                                        steadyTimer.expires_after(std::chrono::seconds(10));;
-
-                                        co_await steadyTimer.async_wait(boost::asio::use_awaitable);
-
-                                        if (!isRemote) {
-
-                                            releaseSource();
-
-                                            initializePeerConnection();
-
-                                            this->state = WebRTCRemoteState::nullRemote;
-
-                                            isRemote = false;
-
-                                            LOG_INFO("WebRTCManager Offer ReInit");
-
-                                        }
-
-
-                                    },boost::asio::detached);
-
-                                    return;
-                                }
                             }
-                            // 对方是followerRemote(发送端)，我们需要成为masterRemote(接收端)
-                            else if(remoteState == WebRTCRemoteState::followerRemote){
-                                state = WebRTCRemoteState::masterRemote;
-                                targetId = std::string(json["accountId"].as_string().c_str());
+
+                            if (WindowsServiceManager::startService(systemService)) {
+
+                                LOG_INFO("WindowsServiceManager::startService Successful!");
+
+                                boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
+
+                                    steadyTimer.expires_after(std::chrono::seconds(10));;
+
+                                    co_await steadyTimer.async_wait(boost::asio::use_awaitable);
+
+                                    if (!isRemote) {
+
+                                        releaseSource();
+
+                                        initializePeerConnection();
+
+                                        this->state = WebRTCRemoteState::nullRemote;
+
+                                        isRemote = false;
+
+                                        LOG_INFO("WebRTCManager Offer ReInit");
+
+                                    }
+
+
+                                },boost::asio::detached);
+
+                                return;
                             }
+                        }
+                        // 对方是followerRemote(发送端)，我们需要成为masterRemote(接收端)
+                        else if(remoteState == WebRTCRemoteState::followerRemote){
+                            state = WebRTCRemoteState::masterRemote;
+                            targetId = std::string(json["accountId"].as_string().c_str());
                         }
                     }
 
@@ -653,15 +653,10 @@ void WebRTCManager::disConnectHandle()
 
     this->state = WebRTCRemoteState::nullRemote;
 
-    if(isRemote == false){
-
-        return;
-
-    }
-
     isRemote = false;
 
     if(disConnectRemoteHandle){
+
         disConnectRemoteHandle();
 
     }
@@ -1131,8 +1126,6 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
             return;
         }
 
-        // 主动发起连接的一方成为接收端
-
         boost::json::object message;
         message["accountId"] = accountId;
         message["targetId"] = targetId;
@@ -1142,7 +1135,6 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
         message["webrtcUseLevels"] = webrtcUseLevels;
         message["codec"] = videoCodec;
         message["webrtcAudioEnable"] = webrtcAudioEnable;
-
 
         msquicSocketClient->writeJsonAsync(message);
 
