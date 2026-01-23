@@ -34,7 +34,7 @@ namespace hope {
             bufferPool(false, 100),
             cursorHooks(nullptr),
             screenCapture(nullptr),
-            hAudioCatch(nullptr) {
+            hAudioCatch(nullptr){
 
             ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
                 boost::asio::make_work_guard(ioContext));

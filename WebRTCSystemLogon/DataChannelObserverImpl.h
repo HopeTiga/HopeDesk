@@ -5,32 +5,36 @@
 
 namespace hope {
 
-	namespace rtc {
-	
-		class WebRTCManager;
+    namespace rtc {
 
-		class DataChannelObserverImpl : public webrtc::DataChannelObserver {
+        class WebRTCManager;
 
-		public:
+        class DataChannelObserverImpl : public webrtc::DataChannelObserver {
 
-			DataChannelObserverImpl(WebRTCManager * manager);
+        public:
 
-			void setOnDataHandle(std::function<void(const unsigned char*, size_t)> func);
-			// The data channel state have changed.
-			void OnStateChange() ;
-			//  A data buffer was successfully received.
-			void OnMessage(const webrtc::DataBuffer& buffer) ;
+            DataChannelObserverImpl(WebRTCManager* manager);
 
-		private:
+            void setOnDataHandle(std::function<void(unsigned char*, size_t)> func);
 
-			WebRTCManager* manager;
+            void setOnStateChangeHandle(std::function<void()> func);
+            // The data channel state have changed.
+            void OnStateChange();
+            //  A data buffer was successfully received.
+            void OnMessage(const webrtc::DataBuffer& buffer);
 
-			std::function<void(const unsigned char*, size_t)> onDataHandle;
+        private:
 
-		};
+            WebRTCManager* manager;
+
+            std::function<void(unsigned char*, size_t)> onDataHandle;
+
+            std::function<void()> onStateChangeHandle;
+
+        };
 
 
-	}
+    }
 
 }
 

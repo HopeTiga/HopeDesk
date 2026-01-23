@@ -254,8 +254,6 @@ namespace hope {
 
             int webrtcAudioEnable = 0;
 
-            uint32_t lastMouseSequence = 0;
-
         };
 
     }
