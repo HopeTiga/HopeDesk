@@ -181,51 +181,42 @@ namespace hope {
 
 
         void MsquicSocketClient::disconnect() {
-            // 防止重复调用
-            if (!connected.load() && connection == nullptr) {
-                return;
+            if (!connected.exchange(false)) return;
+            if (isClear.exchange(true)) return;
+
+            // 1. 先关掉所有回调源，确保不再进用户代码
+            if (connection) {
+                MsQuic->ConnectionShutdown(connection,
+                                           QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                                           0);
+                // 等待 QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE 触发后再 close
+            }
+            if (stream) {
+                MsQuic->StreamShutdown(stream,
+                                       QUIC_STREAM_SHUTDOWN_FLAG_NONE,
+                                       0);
+            }
+            if (remoteStream) {
+                MsQuic->StreamShutdown(remoteStream,
+                                       QUIC_STREAM_SHUTDOWN_FLAG_NONE,
+                                       0);
             }
 
-            // 立即标记逻辑断开，阻止新的写入
-            connected.store(false);
+            // 2. 清自己的资源（此时回调不会再进来）
+            onConnectionHandle = nullptr;
+            onDataReceivedHandle = nullptr;
+            receivedBuffer.clear();
 
+            // 3. 最后才释放/置空
             if (registration) {
-                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
                 registration = nullptr;
             }
-
             if (configuration) {
                 delete configuration;
                 configuration = nullptr;
             }
-
-            if (stream) {
-                MsQuic->StreamShutdown(stream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                    QUIC_STATUS_SUCCESS);
-                MsQuic->StreamClose(stream);
-                stream = nullptr;
-            }
-
-            if (remoteStream) {
-                MsQuic->StreamShutdown(remoteStream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
-                    QUIC_STATUS_SUCCESS);
-                MsQuic->StreamClose(remoteStream);
-                remoteStream = nullptr;
-            }
-
-            if (connection) {
-                MsQuic->ConnectionShutdown(
-                    connection,
-                    QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
-                    QUIC_STATUS_SUCCESS
-                );
-                MsQuic->ConnectionClose(connection);
-                connection = nullptr;
-            }
+            // connection/stream 在 SHUTDOWN_COMPLETE 里由 msquic 自动 close
         }
 
         void MsquicSocketClient::setOnDataReceivedHandle(std::function<void(boost::json::object&)> handle) {
@@ -376,55 +367,44 @@ namespace hope {
         }
 
         void MsquicSocketClient::clear() {
-            if (!connected.load()) return;
+            if (!connected.exchange(false)) return;
             if (isClear.exchange(true)) return;
 
-            onConnectionHandle = nullptr;
-            onDataReceivedHandle = nullptr;
-            connected.store(false);
-            receivedBuffer.clear();
-
-            if (registration) {
-                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
-                registration = nullptr;
+            // 1. 关闭所有回调源，确保 msquic 不再进用户代码
+            if (connection) {
+                MsQuic->ConnectionShutdown(connection,
+                                           QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                                           0);
+                connection = nullptr;
             }
-
             if (stream) {
                 MsQuic->StreamShutdown(stream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT |
-                    QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE,
-                    QUIC_STATUS_ABORTED);
-                MsQuic->StreamClose(stream);
+                                       QUIC_STREAM_SHUTDOWN_FLAG_NONE,
+                                       0);
                 stream = nullptr;
             }
-
             if (remoteStream) {
                 MsQuic->StreamShutdown(remoteStream,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE |
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT |
-                    QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE,
-                    QUIC_STATUS_ABORTED);
-                MsQuic->StreamClose(remoteStream);
+                                       QUIC_STREAM_SHUTDOWN_FLAG_NONE,
+                                       0);
                 remoteStream = nullptr;
             }
 
-            if (connection) {
-                MsQuic->ConnectionShutdown(
-                    connection,
-                    QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT,
-                    QUIC_STATUS_ABORTED
-                );
-                MsQuic->ConnectionClose(connection);
-                connection = nullptr;
-            }
+            // 2. 清上层回调和缓存
+            onConnectionHandle = nullptr;
+            onDataReceivedHandle = nullptr;
+            receivedBuffer.clear();
 
+            // 3. 最后释放/置空（此时回调已不可能再进来）
+            if (registration) {
+                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
+                registration = nullptr;
+            }
             if (configuration) {
                 delete configuration;
                 configuration = nullptr;
             }
+            // connection/stream 指针留给 msquic 在 SHUTDOWN_COMPLETE 里置 nullptr
         }
 
         QUIC_STATUS QUIC_API MsquicClientConnectionHandle(HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event) {
@@ -443,6 +423,7 @@ namespace hope {
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
                 LOG_INFO("QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE");
                 client->connected.store(false);
+                MsQuic->ConnectionClose(connection);
                 if (client->onConnectionHandle) {
                     client->onConnectionHandle(false);
                 }
@@ -486,8 +467,14 @@ namespace hope {
                 }
                 break;
 
-            case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+            case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:{
+
+                MsQuic->StreamClose(stream);
+
                 break;
+
+            }
+
 
             default:
                 break;
