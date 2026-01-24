@@ -1069,6 +1069,10 @@ namespace hope {
                 screenCapture.reset();
             }
 
+            if (hAudioCatch) {
+                hAudioCatch.reset();
+            }
+
             // Close peer connection
             if (peerConnection) {
                 peerConnection->Close();
