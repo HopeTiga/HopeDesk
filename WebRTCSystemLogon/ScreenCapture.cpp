@@ -356,10 +356,10 @@ namespace hope {
             UINT flags = 0;
             if (FAILED(proVideoProcessorEnum->CheckVideoProcessorFormat(DXGI_FORMAT_NV12, &flags))) return false;
             if ((flags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT) == 0) {
-                return false; // ¸ÃÏÔ¿¨²»Ö§³Ö VP Êä³ö NV12
+                return false; // ï¿½ï¿½ï¿½Ô¿ï¿½ï¿½ï¿½Ö§ï¿½ï¿½ VP ï¿½ï¿½ï¿½ NV12
             }
 
-            // 3. ´´½¨ Processor
+            // 3. ï¿½ï¿½ï¿½ï¿½ Processor
             if (FAILED(proVideoDevice->CreateVideoProcessor(proVideoProcessorEnum.Get(), 0, &proVideoProcessor))) return false;
 
             D3D11_TEXTURE2D_DESC texDesc = {};
@@ -374,14 +374,14 @@ namespace hope {
 
             if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &proOutputTex))) return false;
 
-            // 3. ¡¾¹Ø¼ü¡¿³õÊ¼»¯ CPU »Ø¶ÁÓÃµÄ Staging ³Ø
+            // 3. ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½ï¿½ï¿½Ê¼ï¿½ï¿½ CPU ï¿½Ø¶ï¿½ï¿½Ãµï¿½ Staging ï¿½ï¿½
             texDesc.Usage = D3D11_USAGE_STAGING;
-            texDesc.BindFlags = 0; // Staging ÎÆÀí²»ÐèÒª BindFlags
+            texDesc.BindFlags = 0; // Staging ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Òª BindFlags
             texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            texDesc.MiscFlags = 0; // Çå³ýÖ®Ç°µÄ Flags
+            texDesc.MiscFlags = 0; // ï¿½ï¿½ï¿½Ö®Ç°ï¿½ï¿½ Flags
 
             for (int i = 0; i < YUV_BUFFERS; i++) {
-                // ÎªÃ¿¸ö³Ø²ÛÎ»´´½¨Ò»¸ö Staging Texture
+                // ÎªÃ¿ï¿½ï¿½ï¿½Ø²ï¿½Î»ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ Staging Texture
                 if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &nv12TextureBuffers[i].buffer))) {
                     LOG_ERROR("Failed to create Pro staging texture %d", i);
                     return false;
@@ -483,22 +483,22 @@ namespace hope {
 
                     YuvStagingBuffer* foundEmergency = nullptr;
 
-                    // 1. ³¢ÊÔÔÚÏÖÓÐµÄ½ô¼±³Ø vector ÖÐÕÒ¿ÕÏÐµÄ
+                    // 1. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÐµÄ½ï¿½ï¿½ï¿½ï¿½ vector ï¿½ï¿½ï¿½Ò¿ï¿½ï¿½Ðµï¿½
                     for (auto& pBuf : emergencyBuffers) {
                         if (!pBuf->isBusy.load(std::memory_order_acquire)) {
                             foundEmergency = pBuf.get();
-                            break; // <--- ¹Ø¼üµã£ºÕâÀïÒª break£¬²»ÊÇ return£¡
+                            break; // <--- ï¿½Ø¼ï¿½ï¿½ã£ºï¿½ï¿½ï¿½ï¿½Òª breakï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ returnï¿½ï¿½
                         }
                     }
 
-                    // 2. Èç¹ûÃ»ÕÒµ½£¬À©ÈÝ
+                    // 2. ï¿½ï¿½ï¿½Ã»ï¿½Òµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                     if (!foundEmergency && emergencyBuffers.size() != YUV_BUFFERS * 3) {
 
                         std::unique_ptr<YuvStagingBuffer> newBuf = std::make_unique<YuvStagingBuffer>();
 
                         if (FAILED(d3dDevice->CreateBuffer(&bufferDesc, nullptr, &newBuf->buffer))) {
                             LOG_ERROR("Failed to create emergency buffer");
-                            return false; // ÕæµÄÊ§°ÜÁË
+                            return false; // ï¿½ï¿½ï¿½Ê§ï¿½ï¿½ï¿½ï¿½
                         }
 
                         newBuf->isBusy.store(false);
@@ -516,7 +516,7 @@ namespace hope {
                         return true;
                     }
 
-                    // ½«Ä¿±êÖ¸ÏòÕÒµ½µÄ£¨»òÐÂ½¨µÄ£©½ô¼± buffer
+                    // ï¿½ï¿½Ä¿ï¿½ï¿½Ö¸ï¿½ï¿½ï¿½Òµï¿½ï¿½Ä£ï¿½ï¿½ï¿½ï¿½Â½ï¿½ï¿½Ä£ï¿½ï¿½ï¿½ï¿½ buffer
                     targetBuffer = foundEmergency;
 
                 }
@@ -551,7 +551,7 @@ namespace hope {
 
         bool ScreenCapture::processFramePro(ID3D11Texture2D* texture)
         {
-            // 1. ´´½¨ VideoProcessor ÊÓÍ¼ (View)
+            // 1. ï¿½ï¿½ï¿½ï¿½ VideoProcessor ï¿½ï¿½Í¼ (View)
             D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputDesc = {};
             inputDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
             inputDesc.Texture2D.MipSlice = 0;
@@ -561,10 +561,10 @@ namespace hope {
             D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputDesc = {};
             outputDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
             Microsoft::WRL::ComPtr<ID3D11VideoProcessorOutputView> outputView;
-            // ÕâÀïµÄ proOutputTex ÊÇ Default Usage (GPU¶Ë)
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ proOutputTex ï¿½ï¿½ Default Usage (GPUï¿½ï¿½)
             if (FAILED(proVideoDevice->CreateVideoProcessorOutputView(proOutputTex.Get(), proVideoProcessorEnum.Get(), &outputDesc, &outputView))) return false;
 
-            // 2. Ö´ÐÐÓ²¼þ×ª»» (RGBA -> NV12)
+            // 2. Ö´ï¿½ï¿½Ó²ï¿½ï¿½×ªï¿½ï¿½ (RGBA -> NV12)
             D3D11_VIDEO_PROCESSOR_STREAM stream = {};
             stream.Enable = TRUE;
             stream.pInputSurface = inputView.Get();
@@ -586,15 +586,15 @@ namespace hope {
 
                     Nv12TextureBuffer* foundEmergency = nullptr;
 
-                    // 1. ³¢ÊÔÔÚÏÖÓÐµÄ½ô¼±³Ø vector ÖÐÕÒ¿ÕÏÐµÄ
+                    // 1. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÐµÄ½ï¿½ï¿½ï¿½ï¿½ vector ï¿½ï¿½ï¿½Ò¿ï¿½ï¿½Ðµï¿½
                     for (auto& pBuf : emergencyNv12Buffers) {
                         if (!pBuf->isBusy.load(std::memory_order_acquire)) {
                             foundEmergency = pBuf.get();
-                            break; // <--- ¹Ø¼üµã£ºÕâÀïÒª break£¬²»ÊÇ return£¡
+                            break; // <--- ï¿½Ø¼ï¿½ï¿½ã£ºï¿½ï¿½ï¿½ï¿½Òª breakï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ returnï¿½ï¿½
                         }
                     }
 
-                    // 2. Èç¹ûÃ»ÕÒµ½£¬À©ÈÝ
+                    // 2. ï¿½ï¿½ï¿½Ã»ï¿½Òµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                     if (!foundEmergency && emergencyNv12Buffers.size() != YUV_BUFFERS * 3) {
 
                         std::unique_ptr<Nv12TextureBuffer> newBuf = std::make_unique<Nv12TextureBuffer>();
@@ -604,16 +604,16 @@ namespace hope {
                         stagingDesc.Height = config.height;
                         stagingDesc.MipLevels = 1;
                         stagingDesc.ArraySize = 1;
-                        stagingDesc.Format = DXGI_FORMAT_NV12; // ±ØÐëÊÇ NV12
+                        stagingDesc.Format = DXGI_FORMAT_NV12; // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ NV12
                         stagingDesc.SampleDesc.Count = 1;
-                        stagingDesc.Usage = D3D11_USAGE_STAGING;           // CPU ¶ÁÈ¡×¨ÓÃ
-                        stagingDesc.BindFlags = 0;                         // Staging ÎÆÀí²»ÐèÒª°ó¶¨
-                        stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ; // ÔÊÐí CPU ¶Á
+                        stagingDesc.Usage = D3D11_USAGE_STAGING;           // CPU ï¿½ï¿½È¡×¨ï¿½ï¿½
+                        stagingDesc.BindFlags = 0;                         // Staging ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½
+                        stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ; // ï¿½ï¿½ï¿½ï¿½ CPU ï¿½ï¿½
                         stagingDesc.MiscFlags = 0;
 
                         if (FAILED(d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &newBuf->buffer))) {
                             LOG_ERROR("Failed to create emergency buffer");
-                            return false; // ÕæµÄÊ§°ÜÁË
+                            return false; // ï¿½ï¿½ï¿½Ê§ï¿½ï¿½ï¿½ï¿½
                         }
 
                         newBuf->isBusy.store(false);
@@ -743,11 +743,21 @@ namespace hope {
 
         void ScreenCapture::releaseResourceDXGI() {
             dxgiDuplication.Reset();
+
             for (auto& st : stagingTextures) st.Reset();
             sharedTexture.Reset();
             sharedHandle = nullptr;
             yuvComputeShader.Reset();
             yuvOutputBuffer.Reset();
+            yuvConstantBuffer.Reset();
+            yuvUAV.Reset();
+
+            proVideoDevice.Reset();
+            proVideoContext.Reset();
+            proVideoProcessor.Reset();
+            proVideoProcessorEnum.Reset();
+            proOutputTex.Reset(); 
+
             for (int i = 0; i < YUV_BUFFERS; i++) {
                 yuvStagingBuffers[i].buffer.Reset();
                 yuvStagingBuffers[i].mappedData = nullptr;
@@ -755,21 +765,22 @@ namespace hope {
 
                 nv12TextureBuffers[i].buffer.Reset();
                 nv12TextureBuffers[i].isBusy = false;
-            }
-            for (int i = 0; i < emergencyBuffers.size(); i++) {
-                emergencyBuffers[i]->buffer.Reset();
-                emergencyBuffers[i]->mappedData = nullptr;
-                emergencyBuffers[i]->isBusy = false;
+                nv12TextureBuffers[i].mappedSubresource.pData = nullptr; 
             }
 
-            for (int i = 0; i < emergencyNv12Buffers.size(); i++) {
-                emergencyNv12Buffers[i]->buffer.Reset();
-                emergencyNv12Buffers[i]->isBusy = false;
+            for (auto& buf : emergencyBuffers) {
+                buf->buffer.Reset();
+                buf->mappedData = nullptr;
+                buf->isBusy = false;
             }
+            // emergencyBuffers.clear(); 
 
-            emergencyBuffers.clear();
-            yuvConstantBuffer.Reset();
-            yuvUAV.Reset();
+            for (auto& buf : emergencyNv12Buffers) {
+                buf->buffer.Reset();
+                buf->mappedSubresource.pData = nullptr;
+                buf->isBusy = false;
+            }
+            // emergencyNv12Buffers.clear(); 
         }
     }
 }
