@@ -1,13 +1,12 @@
 #pragma once
 #include <memory>
+#include <vector>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
-#include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/json.hpp>
 
 #include "MsquicSocketInterface.h"
-
-#include "concurrentqueue.h"
+#include "SpinLock.h"
 
 
 namespace hope {
@@ -66,7 +65,7 @@ namespace hope {
 
 			boost::asio::awaitable<void> reviceCoroutine();
 
-			boost::asio::awaitable<void> writerCoroutine();
+			boost::asio::awaitable<void> flushWriteQueues();
 
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,int idle = 0, int intvl = 3, int probes = 3);
 
@@ -80,15 +79,15 @@ namespace hope {
 
 			boost::asio::ip::tcp::resolver resolver;
 
-			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
+			std::vector<std::string> writeQueues;
 
-			boost::asio::experimental::concurrent_channel<void(boost::system::error_code)> writerChannel;
+			hope::utils::SpinLock spinLock;
+
+			std::atomic<bool> isWriting{ false };
 
 			std::atomic<bool> isStop{ false };
 
 			std::string accountId;
-
-			std::atomic<bool> isSuppendWrite{ false };
 
 			boost::asio::steady_timer registrationTimer; // 计时器成员
 

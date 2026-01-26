@@ -351,6 +351,8 @@ namespace hope {
             }
 
             LOG_INFO("MsquicServer Protocol: %s Accept Port: %d", alpn.c_str(), msquicStoragePort);
+
+            return true;
         }
 
         bool MsquicServer::RunWebSocketLoop()

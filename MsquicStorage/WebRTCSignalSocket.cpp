@@ -14,7 +14,6 @@ namespace hope {
 
         WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext, hope::quic::MsquicManager * msquicManager)
             : ioContext(ioContext)
-            , writerChannel(ioContext, 1)
             , resolver(ioContext)
             , registrationTimer(ioContext)
             , webSocket(ioContext)
@@ -186,12 +185,6 @@ namespace hope {
 
                 });
 
-            boost::asio::co_spawn(ioContext,
-                [self = shared_from_this()]() -> boost::asio::awaitable<void> {
-                    co_await self->writerCoroutine();
-                },
-                boost::asio::detached);
-
             webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                 boost::beast::role_type::server));
 
@@ -211,8 +204,6 @@ namespace hope {
             return hope::quic::SocketType::WebSocket;
         }
 
-        // WebRTCSignalSocket.cpp
-
         void WebRTCSignalSocket::closeSocket() {
 
             boost::system::error_code ec;
@@ -225,12 +216,9 @@ namespace hope {
 
             registrationTimer.cancel();
 
-            // 3. 关闭 WebSocket
-            // 发送 WebSocket 关闭帧
             if (webSocket.is_open()) {
                 try {
-                    // 使用同步 close，因为我们通常在协程外部或清理阶段调用此函数
-                    // 协程内部调用 close 通常需要 async_close
+
                     webSocket.close(boost::beast::websocket::close_code::normal, ec);
                 }
                 catch (const std::exception& e) {
@@ -250,10 +238,6 @@ namespace hope {
                     LOG_ERROR("WebRTCSignalSocket::closeSocket() close Tcp Socket failed: %s", ec.message().c_str());
                 }
             }
-
-            // 5. 关闭 writerChannel
-            writerChannel.close(); // 确保 writerCoroutine 退出等待
-
 
             LOG_INFO("WebRTCSignalSocket is close");
         }
@@ -294,37 +278,52 @@ namespace hope {
 
         }
 
-        boost::asio::awaitable<void> WebRTCSignalSocket::writerCoroutine() {
+        boost::asio::awaitable<void> WebRTCSignalSocket::flushWriteQueues() {
 
-            for (;;) {
+            std::vector <std::string> localQueues;
 
-                std::string str;
+            localQueues.reserve(16);
 
-                while (writerQueues.try_dequeue(str)) {
+            try {
 
-                    co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
+                while (true) {
 
-                }
+                    spinLock.lock();
 
-                if (!isStop && !isSuppendWrite.exchange(true)) {
+                    if (writeQueues.empty()) {
 
-                    co_await writerChannel.async_receive(boost::asio::use_awaitable);
+                        isWriting = false;
 
-                }
-                else {
+                        spinLock.unlock();
 
-                    std::string str;
+                        co_return;
 
-                    while (writerQueues.try_dequeue(str)) {
+                    }
+
+                    localQueues.swap(writeQueues);
+
+                    spinLock.unlock();
+
+                    for (std::string& str : localQueues) {
 
                         co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
 
                     }
 
-                    co_return;
+                    localQueues.clear();
                 }
-
             }
+            catch (std::exception& e) {
+
+                LOG_ERROR("WebRTCSignalSocket::FlushWriteQueue Write Error: %s", e.what());
+
+                isWriting = false;
+
+                writeQueues.clear();
+
+                destroy();
+
+            };
 
             co_return;
 
@@ -346,12 +345,18 @@ namespace hope {
 
         void WebRTCSignalSocket::writeAsync(std::string str) {
 
-            writerQueues.enqueue(str);
+            if (isStop) return;
 
-            if (isSuppendWrite.exchange(false)) {
-                writerChannel.async_send(boost::system::error_code(), [](boost::system::error_code ec) {});
+            writeQueues.emplace_back(std::move(str));
+
+            if (!isWriting) {
+            
+                isWriting = true;
+
+                boost::asio::co_spawn(ioContext, flushWriteQueues(), boost::asio::detached);
+
             }
-
+           
         }
 
         void WebRTCSignalSocket::setOnDisConnectHandle(std::function<void(std::string,std::string)> handle)
