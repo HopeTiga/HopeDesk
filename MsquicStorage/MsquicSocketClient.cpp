@@ -31,13 +31,15 @@ namespace hope {
         }
 
         bool MsquicSocketClient::connect(std::string serverAddress, uint64_t serverPort) {
+
             // 如果已有连接，先完全清理
             if (connection != nullptr) {
                 LOG_INFO("reclear msquic connection");
                 disconnect();
             }
 
-            if (!registration) {
+            if (registration==nullptr) {
+
                 registration = new MsQuicRegistration("MsquicSocketClient");
                 if (!registration->IsValid()) {
                     return false;
@@ -68,6 +70,7 @@ namespace hope {
                     LOG_ERROR("MsQuicConfiguration Init Error");
                     return false;
                 }
+
             }
 
             this->serverAddress = serverAddress;
@@ -85,25 +88,14 @@ namespace hope {
                 return false;
             }
 
-            // 启动连接
             status = MsQuic->ConnectionStart(
                 connection,
                 *configuration,
                 QUIC_ADDRESS_FAMILY_INET,
                 serverAddress.c_str(),
                 serverPort);
-
             if (QUIC_FAILED(status)) {
                 LOG_ERROR("ConnectionStart failed:0x%08X", status);
-                MsQuic->ConnectionClose(connection);
-                connection = nullptr;
-                return false;
-            }
-
-            // 创建流
-            stream = createStream();
-            if (stream == nullptr) {
-                LOG_ERROR("create MsquicStream failed");
                 MsQuic->ConnectionClose(connection);
                 connection = nullptr;
                 return false;
@@ -207,16 +199,11 @@ namespace hope {
 
             receivedBuffer.clear();
 
-            // 3. 最后才释放/置空
-            if (registration) {
-                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
-                registration = nullptr;
-            }
             if (configuration) {
                 delete configuration;
                 configuration = nullptr;
             }
-            // connection/stream 在 SHUTDOWN_COMPLETE 里由 msquic 自动 close
+
         }
 
         void MsquicSocketClient::setOnDataReceivedHandle(std::function<void(boost::json::object&)> handle) {
@@ -379,11 +366,6 @@ namespace hope {
             onDataReceivedHandle = nullptr;
             receivedBuffer.clear();
 
-            // 3. 最后释放/置空（此时回调已不可能再进来）
-            if (registration) {
-                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
-                registration = nullptr;
-            }
             if (configuration) {
                 delete configuration;
                 configuration = nullptr;
@@ -401,6 +383,19 @@ namespace hope {
             case QUIC_CONNECTION_EVENT_CONNECTED:
                 client->connected.store(true);
                 client->isClear.store(false);
+                // 创建流
+                client->stream = client->createStream();
+
+                if (client->stream == nullptr) {
+
+                    LOG_ERROR("create MsquicStream failed");
+
+                    MsQuic->ConnectionClose(connection);
+
+                    client->connection = nullptr;
+
+                    return QUIC_STATUS_CONNECTION_REFUSED;
+                }
                 if (client->onConnectionHandle) {
                     client->onConnectionHandle(true);
                 }
@@ -410,7 +405,11 @@ namespace hope {
                 LOG_INFO("QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE");
                 client->connected.store(false);
                 MsQuic->ConnectionClose(connection);
-                if (client->onConnectionHandle) {
+                if (client && client->registration) {
+                    client->registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,0);
+                    client->registration = nullptr;
+                }
+                if (client && client->onConnectionHandle) {
                     client->onConnectionHandle(false);
                 }
                 break;
