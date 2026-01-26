@@ -773,14 +773,14 @@ namespace hope {
                 buf->mappedData = nullptr;
                 buf->isBusy = false;
             }
-            // emergencyBuffers.clear(); 
+            emergencyBuffers.clear(); 
 
             for (auto& buf : emergencyNv12Buffers) {
                 buf->buffer.Reset();
                 buf->mappedSubresource.pData = nullptr;
                 buf->isBusy = false;
             }
-            // emergencyNv12Buffers.clear(); 
+            emergencyNv12Buffers.clear(); 
         }
     }
 }
