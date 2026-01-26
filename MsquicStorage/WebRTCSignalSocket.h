@@ -39,6 +39,8 @@ namespace hope {
 
 			void writeAsync(std::string str);
 
+			void writeAsyncMove(std::string && str);
+
 			void setAccountId(const std::string& accountId);
 
 			std::string getAccountId();

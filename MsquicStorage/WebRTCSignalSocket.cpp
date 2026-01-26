@@ -332,7 +332,7 @@ namespace hope {
         void WebRTCSignalSocket::writeAsync(unsigned char* data, size_t size)
         {
     
-            writeAsync(std::string(reinterpret_cast<const char*>(data), size));
+            writeAsyncMove(std::string(reinterpret_cast<const char*>(data), size));
            
             if (data) {
             
@@ -347,7 +347,11 @@ namespace hope {
 
             if (isStop) return;
 
+            spinLock.lock();
+
             writeQueues.emplace_back(std::move(str));
+
+            spinLock.unlock();
 
             if (!isWriting) {
             
@@ -357,6 +361,26 @@ namespace hope {
 
             }
            
+        }
+
+        void WebRTCSignalSocket::writeAsyncMove(std::string && str) {
+
+            if (isStop) return;
+
+            spinLock.lock();
+
+            writeQueues.emplace_back(std::move(str));
+
+            spinLock.unlock();
+
+            if (!isWriting) {
+
+                isWriting = true;
+
+                boost::asio::co_spawn(ioContext, flushWriteQueues(), boost::asio::detached);
+
+            }
+
         }
 
         void WebRTCSignalSocket::setOnDisConnectHandle(std::function<void(std::string,std::string)> handle)
