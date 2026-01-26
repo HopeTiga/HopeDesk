@@ -47,6 +47,7 @@ MainWindow::MainWindow(QWidget* parent)
         qDebug() << "警告：无法加载应用程序图标：:/logo/res/hope.jpg";
     }
 
+    createTrayIcon();
     // 创建背景标签
     background = new QLabel(this);
     QPixmap bg(":/logo/res/windows.jpg");
@@ -255,6 +256,65 @@ void MainWindow::setupWebRTCCallbacks()
 void MainWindow::loadConfigFile()
 {
 
+}
+
+void MainWindow::createTrayIcon()
+{
+    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
+        QMessageBox::critical(this, "错误", "系统不支持托盘图标");
+        return;
+    }
+
+    // 创建托盘菜单
+    trayMenu = new QMenu(this);
+
+    QAction *showAction = new QAction("显示主窗口", this);
+    QAction *quitAction = new QAction("退出程序", this);
+
+    connect(showAction, &QAction::triggered, this, &MainWindow::showWindow);
+    connect(quitAction, &QAction::triggered, this, &MainWindow::quitApplication);
+
+   trayMenu->addAction(showAction);
+    trayMenu->addSeparator();
+    trayMenu->addAction(quitAction);
+
+    // 创建托盘图标
+    trayIcon = new QSystemTrayIcon(this);
+    trayIcon->setIcon(QIcon(":/logo/res/hope.jpg"));  // 你的应用图标
+    trayIcon->setToolTip("WebRTC-Native-Manager");
+    trayIcon->setContextMenu(trayMenu);
+
+    connect(trayIcon, &QSystemTrayIcon::activated,
+            this, &MainWindow::onSystemTrayActivated);
+
+    trayIcon->show();
+}
+
+void MainWindow::onSystemTrayActivated(QSystemTrayIcon::ActivationReason reason)
+{
+    switch (reason) {
+    case QSystemTrayIcon::DoubleClick:    // 双击
+        showWindow();
+        break;
+    default:
+        break;
+    }
+}
+
+void MainWindow::showWindow()
+{
+    show();           // 显示窗口
+    raise();          // 提升到最前
+    activateWindow(); // 激活窗口（任务栏高亮）
+    setWindowState(Qt::WindowActive);  // 从最小化恢复
+}
+
+// ==================== 真正退出 ====================
+void MainWindow::quitApplication()
+{
+    reallyExit = true;  // 设置标志位
+    close();                   // 再次触发 closeEvent，这次会真正退出
+    // 或者直接用：QApplication::quit();
 }
 
 void MainWindow::initializeDeviceLists()
@@ -935,13 +995,24 @@ void MainWindow::onManagerError(const QString& error)
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
-    saveSettings();
+    if(reallyExit){
 
-    if (videoWidget) {
-        videoWidget->close();
+        saveSettings();
+
+        if (videoWidget) {
+
+            videoWidget->close();
+
+        }
+
+        event->accept();
+
+        return;
     }
 
-    event->accept();
+    event->ignore();
+
+    hide();
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)

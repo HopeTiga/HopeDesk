@@ -505,109 +505,6 @@ bool WebRTCManager::initializePeerConnection()
     return true;
 }
 
-void WebRTCManager::convertYUV420ToRGBA32(
-    const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
-    int width, int height, int yStride, int uStride, int vStride,
-    uint8_t* rgbaData)
-{
-    // AVX2 constants for YUV to RGB conversion
-    const __m256 v_to_r = _mm256_set1_ps(1.402f);
-    const __m256 u_to_g = _mm256_set1_ps(0.344f);
-    const __m256 v_to_g = _mm256_set1_ps(0.714f);
-    const __m256 u_to_b = _mm256_set1_ps(1.772f);
-    const __m256 offset = _mm256_set1_ps(128.0f);
-    const __m256 zero = _mm256_setzero_ps();
-    const __m256 max_val = _mm256_set1_ps(255.0f);
-    const __m256i alpha_255 = _mm256_set1_epi32(0xFF000000);  // Alpha channel = 255
-
-    for (int y = 0; y < height; y++) {
-        int x = 0;
-
-        // Process 8 pixels at a time with AVX2
-        for (; x <= width - 8; x += 8) {
-            // Load Y values (8 bytes)
-            __m128i y8 = _mm_loadl_epi64((__m128i*)(yData + y * yStride + x));
-            __m256i y32 = _mm256_cvtepu8_epi32(y8);
-            __m256 yf = _mm256_cvtepi32_ps(y32);
-
-            // Load U and V values (4 values each for YUV420, expanded to 8)
-            alignas(32) uint8_t u_vals[8], v_vals[8];
-            int uvRow = y / 2;
-            for (int i = 0; i < 8; i++) {
-                int uvCol = (x + i) / 2;
-                u_vals[i] = uData[uvRow * uStride + uvCol];
-                v_vals[i] = vData[uvRow * vStride + uvCol];
-            }
-
-            __m128i u8 = _mm_loadl_epi64((__m128i*)u_vals);
-            __m128i v8 = _mm_loadl_epi64((__m128i*)v_vals);
-            __m256i u32 = _mm256_cvtepu8_epi32(u8);
-            __m256i v32 = _mm256_cvtepu8_epi32(v8);
-            __m256 uf = _mm256_cvtepi32_ps(u32);
-            __m256 vf = _mm256_cvtepi32_ps(v32);
-
-            // Adjust U and V
-            uf = _mm256_sub_ps(uf, offset);
-            vf = _mm256_sub_ps(vf, offset);
-
-            // Calculate RGB
-            __m256 rf = _mm256_fmadd_ps(vf, v_to_r, yf);
-            __m256 gf = _mm256_fnmadd_ps(uf, u_to_g, yf);
-            gf = _mm256_fnmadd_ps(vf, v_to_g, gf);
-            __m256 bf = _mm256_fmadd_ps(uf, u_to_b, yf);
-
-            // Clamp to 0-255
-            rf = _mm256_max_ps(zero, _mm256_min_ps(max_val, rf));
-            gf = _mm256_max_ps(zero, _mm256_min_ps(max_val, gf));
-            bf = _mm256_max_ps(zero, _mm256_min_ps(max_val, bf));
-
-            // Convert to int32
-            __m256i ri = _mm256_cvtps_epi32(rf);
-            __m256i gi = _mm256_cvtps_epi32(gf);
-            __m256i bi = _mm256_cvtps_epi32(bf);
-
-            // 直接提取并存储，避免复杂的打包操作
-            alignas(32) int32_t r[8], g[8], b[8];
-            _mm256_store_si256((__m256i*)r, ri);
-            _mm256_store_si256((__m256i*)g, gi);
-            _mm256_store_si256((__m256i*)b, bi);
-
-            // 直接写入RGBA数据
-            uint8_t* dst = rgbaData + (y * width + x) * 4;
-            for (int i = 0; i < 8; i++) {
-                dst[i*4 + 0] = (uint8_t)r[i];  // R
-                dst[i*4 + 1] = (uint8_t)g[i];  // G
-                dst[i*4 + 2] = (uint8_t)b[i];  // B
-                dst[i*4 + 3] = 255;             // A
-            }
-        }
-
-        // Handle remaining pixels with scalar code
-        for (; x < width; x++) {
-            int yIndex = y * yStride + x;
-            int uvIndex = (y / 2) * uStride + (x / 2);
-
-            int Y = yData[yIndex];
-            int U = uData[uvIndex] - 128;
-            int V = vData[uvIndex] - 128;
-
-            int R = Y + (1.402f * V);
-            int G = Y - (0.344f * U) - (0.714f * V);
-            int B = Y + (1.772f * U);
-
-            R = std::max(0, std::min(255, R));
-            G = std::max(0, std::min(255, G));
-            B = std::max(0, std::min(255, B));
-
-            int rgbaIndex = (y * width + x) * 4;
-            rgbaData[rgbaIndex] = R;
-            rgbaData[rgbaIndex + 1] = G;
-            rgbaData[rgbaIndex + 2] = B;
-            rgbaData[rgbaIndex + 3] = 255;
-        }
-    }
-}
-
 void WebRTCManager::writerAsync(std::shared_ptr<WriterData> writerData){
     writerDataQueues.enqueue(writerData);
     if (writerChannel.is_open()) {
@@ -1109,38 +1006,41 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
 
 void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable)
 {
-    if (targetId.empty()) {
-        LOG_ERROR("Target ID not set");
-        return;
-    }
 
-    if (!msquicSocketClient || !msquicSocketClient->isConnected()) {
-        LOG_ERROR("WebSocket not connected");
-        return;
-    }
-
-    if(peerConnection != nullptr){
-        // 避免重复设置状态
-        if (state.load() != WebRTCRemoteState::nullRemote) {
-            LOG_WARNING("State already set, current state: %d", static_cast<int>(state.load()));
-            return;
+    boost::asio::co_spawn(ioContext,[=]()->boost::asio::awaitable<void>{
+        if (targetId.empty()) {
+            LOG_ERROR("Target ID not set");
+            co_return;
         }
 
-        boost::json::object message;
-        message["accountId"] = accountId;
-        message["targetId"] = targetId;
-        message["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
-        message["webRTCRemoteState"] = static_cast<int64_t>(WebRTCRemoteState::masterRemote);
-        message["webrtcModulesType"] = webrtcModulesType;
-        message["webrtcUseLevels"] = webrtcUseLevels;
-        message["codec"] = videoCodec;
-        message["webrtcAudioEnable"] = webrtcAudioEnable;
+        if (!msquicSocketClient || !msquicSocketClient->isConnected()) {
+            LOG_ERROR("WebSocket not connected");
+            co_return;
+        }
 
-        msquicSocketClient->writeJsonAsync(message);
+        if(peerConnection != nullptr){
+            // 避免重复设置状态
+            if (state.load() != WebRTCRemoteState::nullRemote) {
+                LOG_WARNING("State already set, current state: %d", static_cast<int>(state.load()));
+                co_return;
+            }
 
-        LOG_INFO("Request sent to target: %s", targetId.c_str());
-    }
+            boost::json::object message;
+            message["accountId"] = accountId;
+            message["targetId"] = targetId;
+            message["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
+            message["webRTCRemoteState"] = static_cast<int64_t>(WebRTCRemoteState::masterRemote);
+            message["webrtcModulesType"] = webrtcModulesType;
+            message["webrtcUseLevels"] = webrtcUseLevels;
+            message["codec"] = videoCodec;
+            message["webrtcAudioEnable"] = webrtcAudioEnable;
 
+            msquicSocketClient->writeJsonAsync(message);
+
+            LOG_INFO("Request sent to target: %s", targetId.c_str());
+        }
+
+    },boost::asio::detached);
 
 }
 
@@ -1190,28 +1090,32 @@ void WebRTCManager::setVideoFrameCallback(VideoFrameCallback callback)
 void WebRTCManager::disConnect()
 {
 
-    if (msquicSocketClient && msquicSocketClient->isConnected()) {
+    boost::asio::post(ioContext,[this](){
 
-        msquicSocketClient->disconnect();
-    }
+        if (msquicSocketClient && msquicSocketClient->isConnected()) {
 
-    if(state == WebRTCRemoteState::followerRemote){
-        socketRuns = false;
-        followRunning = false;
-
-        if(tcpSocket && tcpSocket->is_open()){
-
-            tcpSocket->close();
+            msquicSocketClient->disconnect();
         }
 
-        WindowsServiceManager::stopService(systemService);
-    }
+        if(state == WebRTCRemoteState::followerRemote){
+            socketRuns = false;
+            followRunning = false;
 
-    this->state == WebRTCRemoteState::nullRemote;
+            if(tcpSocket && tcpSocket->is_open()){
 
-    disConnectHandle();
+                tcpSocket->close();
+            }
 
-    isRemote = false;
+            WindowsServiceManager::stopService(systemService);
+        }
+
+        this->state == WebRTCRemoteState::nullRemote;
+
+        disConnectHandle();
+
+        isRemote = false;
+
+    });
 
 }
 

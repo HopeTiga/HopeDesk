@@ -184,32 +184,32 @@ namespace hope {
             if (!connected.exchange(false)) return;
             if (isClear.exchange(true)) return;
 
-            // 1. 先关掉所有回调源，确保不再进用户代码
-            if (connection) {
-                MsQuic->ConnectionShutdown(connection,
-                                           QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
-                                           0);
-                // 等待 QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE 触发后再 close
-            }
             if (stream) {
                 MsQuic->StreamShutdown(stream,
                                        QUIC_STREAM_SHUTDOWN_FLAG_NONE,
                                        0);
+                stream = nullptr;
             }
+
             if (remoteStream) {
                 MsQuic->StreamShutdown(remoteStream,
                                        QUIC_STREAM_SHUTDOWN_FLAG_NONE,
                                        0);
+                remoteStream = nullptr;
             }
 
-            // 2. 清自己的资源（此时回调不会再进来）
-            onConnectionHandle = nullptr;
-            onDataReceivedHandle = nullptr;
+            if (connection) {
+                MsQuic->ConnectionShutdown(connection,
+                                           QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                                           0);
+                connection = nullptr;
+            }
+
             receivedBuffer.clear();
 
             // 3. 最后才释放/置空
             if (registration) {
-                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
+                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
                 registration = nullptr;
             }
             if (configuration) {
@@ -235,11 +235,6 @@ namespace hope {
         {
             auto* rev = &event->RECEIVE;
 
-            // =================================================================================
-            // 【修复核心】：处理粘包/半包的关键逻辑
-            // 如果缓存区里已经有上一波剩下的数据（哪怕只有一个字节），
-            // 新来的数据必须追加到缓存区后面，不能直接当做新包头处理。
-            // =================================================================================
             if (!receivedBuffer.empty()) {
                 for (uint32_t i = 0; i < rev->BufferCount; ++i) {
                     const auto& buf = rev->Buffers[i];
@@ -249,10 +244,6 @@ namespace hope {
                 return;
             }
 
-            // =================================================================================
-            // 零拷贝优化路径 (Zero-Copy Path)
-            // 只有当缓存区为空，且当前事件只有一个 Buffer 时，尝试直接解析，减少内存拷贝
-            // =================================================================================
             if (rev->BufferCount == 1) {
                 const auto& buf = rev->Buffers[0];
 
@@ -300,13 +291,6 @@ namespace hope {
                 }
             }
 
-            // =================================================================================
-            // 通用路径 (Fallback Path)
-            // 1. BufferCount > 1 (Scatter/Gather I/O)
-            // 2. BufferCount == 1 但数据不足一个完整包
-            // 3. 其他情况
-            // 直接将所有数据追加到 receivedBuffer，然后尝试解析
-            // =================================================================================
             size_t totalBytes = 0;
             for (uint32_t i = 0; i < rev->BufferCount; ++i) {
                 totalBytes += rev->Buffers[i].Length;
@@ -370,13 +354,6 @@ namespace hope {
             if (!connected.exchange(false)) return;
             if (isClear.exchange(true)) return;
 
-            // 1. 关闭所有回调源，确保 msquic 不再进用户代码
-            if (connection) {
-                MsQuic->ConnectionShutdown(connection,
-                                           QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
-                                           0);
-                connection = nullptr;
-            }
             if (stream) {
                 MsQuic->StreamShutdown(stream,
                                        QUIC_STREAM_SHUTDOWN_FLAG_NONE,
@@ -390,6 +367,13 @@ namespace hope {
                 remoteStream = nullptr;
             }
 
+            if (connection) {
+                MsQuic->ConnectionShutdown(connection,
+                                           QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                                           0);
+                connection = nullptr;
+            }
+
             // 2. 清上层回调和缓存
             onConnectionHandle = nullptr;
             onDataReceivedHandle = nullptr;
@@ -397,7 +381,7 @@ namespace hope {
 
             // 3. 最后释放/置空（此时回调已不可能再进来）
             if (registration) {
-                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
+                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
                 registration = nullptr;
             }
             if (configuration) {
@@ -415,6 +399,8 @@ namespace hope {
 
             switch (event->Type) {
             case QUIC_CONNECTION_EVENT_CONNECTED:
+                client->connected.store(true);
+                client->isClear.store(false);
                 if (client->onConnectionHandle) {
                     client->onConnectionHandle(true);
                 }

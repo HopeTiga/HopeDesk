@@ -193,12 +193,7 @@ public:
 
 private:
 
-    // 发送端功能
     bool initializePeerConnection();
-
-    void convertYUV420ToRGBA32(const uint8_t* yData, const uint8_t* uData, const uint8_t* vData,
-                               int width, int height, int yStride, int uStride, int vStride,
-                               uint8_t* rgbData);
 
     void wrtierCoroutineAsync();
 
@@ -209,7 +204,7 @@ private:
     void releaseSource();
 
 private:
-    // 状态变量使用原子类型
+
     std::atomic<WebRTCRemoteState> state;
 
     std::atomic<WebRTCConnetState> connetState;
@@ -258,14 +253,12 @@ private:
 
     std::atomic<bool> isStreaming;
 
-    // 视频参数
     std::atomic<int> videoWidth{1920};
 
     std::atomic<int> videoHeight{1080};
 
     std::atomic<bool> isRemote {false};
 
-    // 服务状态
     std::atomic<bool> remoteServiceRunning{false};
 
     boost::asio::io_context ioContext;

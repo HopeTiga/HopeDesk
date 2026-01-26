@@ -6,6 +6,7 @@
 #include <QListWidgetItem>
 #include <QCloseEvent>
 #include <QLabel>
+#include <QSystemTrayIcon>
 
 namespace Ui {
 class MainWindow;
@@ -54,6 +55,12 @@ namespace hope{
         void onAbout();
         void onSettings();
         void onFullScreen();
+
+        void onSystemTrayActivated(QSystemTrayIcon::ActivationReason reason);
+
+        void showWindow();
+
+        void quitApplication();  // 真正退出
 
         // 视频窗口控制
         void onShowVideoWindow();
@@ -109,32 +116,42 @@ namespace hope{
         // 配置文件加载
         void loadConfigFile();
 
+        void createTrayIcon();
 
     private:
         Ui::MainWindow *ui;
-
         // 主要组件
         VideoWidget* videoWidget;
-        WebRTCManager* manager;
 
+        WebRTCManager* manager;
         // 设置
         QSettings* settings;
 
+        QSystemTrayIcon *trayIcon = nullptr;
+
+        QMenu *trayMenu = nullptr;
         // 状态
         bool isConnected;
-        bool isFullScreen;
-        bool isRemoteConnected;
-        QString lastError;
 
+        bool isFullScreen;
+
+        bool isRemoteConnected;
+
+        QString lastError;
         // 账号列表
         QStringList accountList;
+
         QStringList targetList;
 
+        std::atomic<bool> reallyExit {false};
+
         int reConnectNums;
+
         int reConnectTimes;
 
         // 远程连接超时定时器
         QTimer* remoteConnectionTimer;
+
         static const int REMOTE_CONNECTION_TIMEOUT = 15000;
 
         QLabel* background;
