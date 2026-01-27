@@ -336,58 +336,56 @@ void WebRTCManager::connect(std::string ip)
 
 WebRTCManager::~WebRTCManager()
 {
+    LOG_INFO("Destructing WebRTCManager...");
+
+    // 1. 停止标志位，防止回调继续执行
+    socketRuns = false;
+    followRunning = false;
+
+    // 2. 停止 Windows 服务
     WindowsServiceManager::stopService(systemService);
 
+    // 3. 停止 MsQuic (防止新消息进来)
+    if(msquicSocketClient){
+        msquicSocketClient->disconnect();
+        delete msquicSocketClient;
+        msquicSocketClient = nullptr;
+    }
+
+    // 4. 彻底释放 PeerConnection 和相关资源
     releaseSource();
 
-    if(msquicSocketClient){
+    // 5. [关键] 先释放 Factory，确保它不再使用线程
+    // 显式释放，不要依赖默认析构顺序
+    peerConnectionFactory = nullptr;
 
-        delete msquicSocketClient;
-
-    }
-
-    if (ioContextWorkPtr) {
-
-        ioContextWorkPtr.reset();
-
-    }
-
-    ioContext.stop();
-
-    if(ioContextThread.joinable()){
-
-        ioContextThread.join();
-
-    }
-
+    // 6. 销毁 WebRTC 线程 (只有 Factory 没了，销毁线程才安全)
     if(networkThread){
-
         networkThread->Quit();
-
         networkThread.reset();
-
     }
-
     if(workerThread){
-
         workerThread->Quit();
-
         workerThread.reset();
-
     }
-
     if(signalingThread){
-
         signalingThread->Quit();
-
         signalingThread.reset();
-
     }
 
-    peerConnectionFactory.release();
-
+    // 7. 最后清理 SSL
     webrtc::CleanupSSL();
 
+    // 8. 停止 IO Context
+    if (ioContextWorkPtr) {
+        ioContextWorkPtr.reset();
+    }
+    ioContext.stop();
+    if(ioContextThread.joinable()){
+        ioContextThread.join();
+    }
+
+    LOG_INFO("WebRTCManager Destructed.");
 }
 
 bool WebRTCManager::initializePeerConnection()
@@ -397,10 +395,12 @@ bool WebRTCManager::initializePeerConnection()
         releaseSource();
     }
 
-    webrtc::InitializeSSL();
-
     if (!peerConnectionFactory) {
+
+        webrtc::InitializeSSL();
+
         networkThread = webrtc::Thread::CreateWithSocketServer();
+
         if (!networkThread) {
             LOG_ERROR("Failed to create network thread");
             return false;
@@ -561,8 +561,6 @@ void WebRTCManager::disConnectHandle()
     releaseSource();
 
     WindowsServiceManager::stopService(systemService);
-
-    initializePeerConnection();
 
 }
 
@@ -927,44 +925,39 @@ void WebRTCManager::handleAsioException()
 
 void WebRTCManager::releaseSource()
 {
-    if (videoTrack && videoSinkImpl) {
-        auto videoTrack = static_cast<webrtc::VideoTrackInterface*>(this->videoTrack.get());
-        videoTrack->RemoveSink(videoSinkImpl.get());
-
-        videoSinkImpl.reset();
-    }
-
+    // 1. 先关闭 PeerConnection (阻塞调用，确保信令停止)
     if (peerConnection) {
         peerConnection->Close();
-
     }
 
+    // 2. 停止数据通道
     if (dataChannel) {
-
         dataChannel->Close();
-
+        dataChannel = nullptr;
     }
 
-    peerConnectionObserver.reset();
-
-    dataChannelObserver.reset();
-
-    createOfferObserver = nullptr;
-
-    createAnswerObserver = nullptr;
-
+    // 3. 释放 Track 和 Sender
+    if (videoTrack && videoSinkImpl) {
+        auto vt = static_cast<webrtc::VideoTrackInterface*>(videoTrack.get());
+        vt->RemoveSink(videoSinkImpl.get());
+        videoSinkImpl.reset();
+    }
     videoSender = nullptr;
-
     videoTrack = nullptr;
-
+    audioSender = nullptr;
     audioTrack = nullptr;
 
-    audioSender = nullptr;
-
-    dataChannel = nullptr;
-
+    // 4. [关键] 先销毁 PeerConnection，再销毁 Observer
+    // 这样 PC 销毁时如果想回调 Observer，Observer 还在
     peerConnection = nullptr;
 
+    // 5. 现在可以安全销毁 Observer 了
+    peerConnectionObserver.reset();
+    dataChannelObserver.reset();
+    createOfferObserver = nullptr;
+    createAnswerObserver = nullptr;
+
+    // 6. 清理状态
     isInit = false;
 
     if(channel.is_open()){
@@ -1006,6 +999,12 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
 
 void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable)
 {
+
+    if(peerConnection == nullptr){
+
+        initializePeerConnection();
+
+    }
 
     boost::asio::co_spawn(ioContext,[=]()->boost::asio::awaitable<void>{
         if (targetId.empty()) {
@@ -1109,7 +1108,7 @@ void WebRTCManager::disConnect()
             WindowsServiceManager::stopService(systemService);
         }
 
-        this->state == WebRTCRemoteState::nullRemote;
+        this->state = WebRTCRemoteState::nullRemote;
 
         disConnectHandle();
 
