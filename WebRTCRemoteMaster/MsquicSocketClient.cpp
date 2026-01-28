@@ -19,7 +19,25 @@ namespace hope {
         }
 
         MsquicSocketClient::~MsquicSocketClient() {
+
             clear();
+
+            if (configuration) {
+
+                delete configuration;
+
+                configuration = nullptr;
+
+            }
+
+            if(registration){
+
+                registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,0);
+
+                registration = nullptr;
+
+            }
+
         }
 
         bool MsquicSocketClient::initialize(const std::string& alpn) {
@@ -199,11 +217,6 @@ namespace hope {
 
             receivedBuffer.clear();
 
-            if (configuration) {
-                delete configuration;
-                configuration = nullptr;
-            }
-
         }
 
         void MsquicSocketClient::setOnDataReceivedHandle(std::function<void(boost::json::object&)> handle) {
@@ -365,12 +378,6 @@ namespace hope {
             onConnectionHandle = nullptr;
             onDataReceivedHandle = nullptr;
             receivedBuffer.clear();
-
-            if (configuration) {
-                delete configuration;
-                configuration = nullptr;
-            }
-            // connection/stream 指针留给 msquic 在 SHUTDOWN_COMPLETE 里置 nullptr
         }
 
         QUIC_STATUS QUIC_API MsquicClientConnectionHandle(HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event) {
@@ -405,10 +412,6 @@ namespace hope {
                 LOG_INFO("QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE");
                 client->connected.store(false);
                 MsQuic->ConnectionClose(connection);
-                if (client && client->registration) {
-                    client->registration->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,0);
-                    client->registration = nullptr;
-                }
                 if (client && client->onConnectionHandle) {
                     client->onConnectionHandle(false);
                 }
