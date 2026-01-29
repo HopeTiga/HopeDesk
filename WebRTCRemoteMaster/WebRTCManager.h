@@ -185,6 +185,8 @@ public:
 
     std::function<void()> remoteFailedHandle;
 
+    std::function<void()> resetCursorHandle;
+
     void disConnectHandle();
 
     void setSystemServiceExe(std::string webrtcExe);

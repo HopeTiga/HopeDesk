@@ -250,6 +250,14 @@ void MainWindow::setupWebRTCCallbacks()
             }
         }, Qt::QueuedConnection);
     };
+
+    manager->resetCursorHandle = [this]() {
+        // 务必使用 QueuedConnection 确保在 UI 线程执行
+        QMetaObject::invokeMethod(this, [this]() {
+            // 在 UI 线程调用 Windows API，这是安全的，因为不需要跨线程广播等待
+            SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
+        }, Qt::QueuedConnection);
+    };
 }
 
 
@@ -566,16 +574,27 @@ void MainWindow::onDisconnectClicked()
         remoteConnectionTimer->stop();
     }
 
+    // 1. 先切断回调，防止后台线程继续调用 UI
+    if (manager) {
+        manager->setVideoFrameCallback(nullptr);
+    }
+
+    // 2. 发起异步断开 (后台线程开始清理 WebRTC 资源)
     manager->disConnect();
 
+    // 3. 更新 UI 状态
     onConnectionStateChanged(false);
 
+    // 4. 安全处理 videoWidget
     if (videoWidget) {
+        videoWidget->hide(); // 先隐藏，让用户感觉“关掉了”
+        // videoWidget->close(); // close() 可能会触发额外的事件，hide() 足够了
 
-        videoWidget->close();
-        delete videoWidget;
-        videoWidget = nullptr;
+        // 关键：不要直接 delete，使用 deleteLater()
+        // 这样可以让当前函数执行完，且等待可能的挂起事件处理完后再销毁
+        videoWidget->deleteLater();
 
+        videoWidget = nullptr; // 置空指针，防止后续逻辑误用
     }
 
     ui->showVideoButton->setEnabled(false);

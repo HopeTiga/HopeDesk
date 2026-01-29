@@ -515,7 +515,7 @@ void WebRTCManager::writerAsync(std::shared_ptr<WriterData> writerData){
 void WebRTCManager::disConnectRemote()
 {
 
-    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
+    if(resetCursorHandle) resetCursorHandle();
 
     this->state = WebRTCRemoteState::nullRemote;
 
@@ -526,8 +526,6 @@ void WebRTCManager::disConnectRemote()
     releaseSource();
 
     initializePeerConnection();
-
-    WindowsServiceManager::stopService(systemService);
 
     if(msquicSocketClient && msquicSocketClient->isConnected()){
 
@@ -546,7 +544,7 @@ void WebRTCManager::disConnectRemote()
 
 void WebRTCManager::disConnectHandle()
 {
-    SystemParametersInfo(SPI_SETCURSORS,0,NULL,0);
+    if(resetCursorHandle) resetCursorHandle();
 
     this->state = WebRTCRemoteState::nullRemote;
 
@@ -559,8 +557,6 @@ void WebRTCManager::disConnectHandle()
     }
 
     releaseSource();
-
-    WindowsServiceManager::stopService(systemService);
 
 }
 
@@ -919,7 +915,6 @@ void WebRTCManager::handleAsioException()
 
         WindowsServiceManager::stopService(systemService);
 
-
     }
 }
 
@@ -980,10 +975,7 @@ void WebRTCManager::releaseSource()
         remoteBinaryQueue.pop();
     }
 
-
-    if(state == WebRTCRemoteState::followerRemote){
-        WindowsServiceManager::stopService(systemService);  // ← 也可能在这里阻塞
-    }
+    WindowsServiceManager::stopService(systemService);  // ← 也可能在这里阻塞
 
 }
 
@@ -1097,22 +1089,18 @@ void WebRTCManager::disConnect()
         }
 
         if(state == WebRTCRemoteState::followerRemote){
+
             socketRuns = false;
+
             followRunning = false;
 
             if(tcpSocket && tcpSocket->is_open()){
 
                 tcpSocket->close();
             }
-
-            WindowsServiceManager::stopService(systemService);
         }
 
-        this->state = WebRTCRemoteState::nullRemote;
-
         disConnectHandle();
-
-        isRemote = false;
 
     });
 
