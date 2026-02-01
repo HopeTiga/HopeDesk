@@ -84,6 +84,8 @@ enum class WebRTCRequestState {
     STOPREMOTE = 3,
     START = 4,
     CLOSE = 5,
+    CLOSESYSTEM = 6,
+    SYSTEMREADLY = 7,
 };
 
 struct VideoFrame {
@@ -206,8 +208,6 @@ private:
     void releaseSource();
 
 private:
-
-    std::atomic<WebRTCRemoteState> state;
 
     std::atomic<WebRTCConnetState> connetState;
 

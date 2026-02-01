@@ -15,8 +15,7 @@ namespace hope{
 namespace rtc{
 
 WebRTCManager::WebRTCManager(WebRTCRemoteState state)
-    : state(state)
-    , connetState(WebRTCConnetState::none)
+    : connetState(WebRTCConnetState::none)
     , channel(ioContext)
     , accept(ioContext,boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address_v4("127.0.0.1"),19998))
     , tcpSocket(nullptr)
@@ -118,7 +117,7 @@ void WebRTCManager::connect(std::string ip)
 
         dataStr = boost::json::serialize(json);
 
-        if(this->tcpSocket&& this->state == WebRTCRemoteState::followerRemote && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
+        if(this->tcpSocket && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
 
             std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(),dataStr.size());
 
@@ -152,8 +151,6 @@ void WebRTCManager::connect(std::string ip)
                         // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
                         if(remoteState == WebRTCRemoteState::masterRemote){
 
-                            state = WebRTCRemoteState::followerRemote;
-
                             targetId = std::string(json["accountId"].as_string().c_str());
 
                             this->followData = dataStr;
@@ -182,8 +179,6 @@ void WebRTCManager::connect(std::string ip)
 
                                         initializePeerConnection();
 
-                                        this->state = WebRTCRemoteState::nullRemote;
-
                                         isRemote = false;
 
                                         LOG_INFO("WebRTCManager Offer ReInit");
@@ -198,7 +193,6 @@ void WebRTCManager::connect(std::string ip)
                         }
                         // 对方是followerRemote(发送端)，我们需要成为masterRemote(接收端)
                         else if(remoteState == WebRTCRemoteState::followerRemote){
-                            state = WebRTCRemoteState::masterRemote;
                             targetId = std::string(json["accountId"].as_string().c_str());
                         }
                     }
@@ -256,8 +250,6 @@ void WebRTCManager::connect(std::string ip)
 
                                         initializePeerConnection();
 
-                                        this->state = WebRTCRemoteState::nullRemote;
-
                                         isRemote = false;
 
                                         LOG_INFO("WebRTCManager Answer ReInit");
@@ -307,13 +299,25 @@ void WebRTCManager::connect(std::string ip)
 
                 if(responseState == 200){
 
-                    if(isRemote == false) return;
+                    if(isRemote == false) {
+
+                        boost::json::object request;
+
+                        request["requestType"] = static_cast<int>(WebRTCRequestState::CLOSESYSTEM);
+
+                        request["accountId"] = accountId;
+
+                        request["targetId"] = targetId;
+
+                        msquicSocketClient->writeJsonAsync(request);
+
+                        return;
+
+                    }
 
                     releaseSource();
 
                     initializePeerConnection();
-
-                    this->state = WebRTCRemoteState::nullRemote;
 
                     sendRequestToTarget();
                 }
@@ -322,6 +326,48 @@ void WebRTCManager::connect(std::string ip)
                 if(responseState == 200){
 
                     disConnectHandle();
+
+                }
+
+            }else if(WebRTCRequestState(requestType) == WebRTCRequestState::CLOSESYSTEM){
+
+                if(responseState == 200){
+
+                    if(tcpSocket){
+
+                        socketRuns = false;
+
+                        followRunning = false;
+
+                        if(tcpSocket && tcpSocket->is_open()){
+
+                            tcpSocket->close();
+                        }
+
+                        tcpSocket = nullptr;
+                    }
+
+                    WindowsServiceManager::stopService(systemService);
+
+                    targetId = json["accountId"].as_string().c_str();
+
+                    boost::json::object request;
+
+                    request["requestType"] = static_cast<int>(WebRTCRequestState::SYSTEMREADLY);
+
+                    request["accountId"] = accountId;
+
+                    request["targetId"] = targetId;
+
+                    msquicSocketClient->writeJsonAsync(request);
+
+                }
+
+            }else if(WebRTCRequestState(requestType) == WebRTCRequestState::SYSTEMREADLY){
+
+                if(responseState == 200){
+
+                    sendRequestToTarget();
 
                 }
 
@@ -517,8 +563,6 @@ void WebRTCManager::disConnectRemote()
 
     if(resetCursorHandle) resetCursorHandle();
 
-    this->state = WebRTCRemoteState::nullRemote;
-
     if(isRemote == false) return;
 
     isRemote = false;
@@ -544,16 +588,29 @@ void WebRTCManager::disConnectRemote()
 
 void WebRTCManager::disConnectHandle()
 {
+
+    if(!isRemote.exchange(false)) return;
+
     if(resetCursorHandle) resetCursorHandle();
-
-    this->state = WebRTCRemoteState::nullRemote;
-
-    isRemote = false;
 
     if(disConnectRemoteHandle){
 
         disConnectRemoteHandle();
 
+    }
+
+    if(tcpSocket){
+
+        socketRuns = false;
+
+        followRunning = false;
+
+        if(tcpSocket && tcpSocket->is_open()){
+
+            tcpSocket->close();
+        }
+
+        tcpSocket = nullptr;
     }
 
     releaseSource();
@@ -897,9 +954,21 @@ void WebRTCManager::sendSignalingMessage(boost::json::object& msg) {
 void WebRTCManager::handleAsioException()
 {
 
-    this->state = WebRTCRemoteState::nullRemote;
+    if(!isRemote.exchange(false)) return;
 
-    isRemote = false;
+    if(tcpSocket){
+
+        socketRuns = false;
+
+        followRunning = false;
+
+        if(tcpSocket && tcpSocket->is_open()){
+
+            tcpSocket->close();
+        }
+
+        tcpSocket = nullptr;
+    }
 
     if(msquicSocketClient && msquicSocketClient->isConnected()){
 
@@ -1010,11 +1079,6 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
         }
 
         if(peerConnection != nullptr){
-            // 避免重复设置状态
-            if (state.load() != WebRTCRemoteState::nullRemote) {
-                LOG_WARNING("State already set, current state: %d", static_cast<int>(state.load()));
-                co_return;
-            }
 
             boost::json::object message;
             message["accountId"] = accountId;
@@ -1047,30 +1111,27 @@ void WebRTCManager::setTargetId(const std::string &newTargetId)
 
 void WebRTCManager::writerRemote(unsigned char *data, size_t size)
 {
-    if(state.load() == WebRTCRemoteState::masterRemote){
+    if(!dataChannel) {
 
-        if(!dataChannel) {
+        LOG_ERROR("DataChannel is null");
 
-            LOG_ERROR("DataChannel is null");
-
-            delete reinterpret_cast<void*>(data);
-
-            return;
-        }
-
-        webrtc::CopyOnWriteBuffer buffer(data, size);
-
-        webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
-
-        dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
-
-            delete reinterpret_cast<void*>(data);
-
-        });
+        delete reinterpret_cast<void*>(data);
 
         return;
-
     }
+
+    webrtc::CopyOnWriteBuffer buffer(data, size);
+
+    webrtc::DataBuffer dataBuffer(buffer, true); // true 表示二进制数据
+
+    dataChannel->SendAsync(dataBuffer,[this,data](webrtc::RTCError){
+
+        delete reinterpret_cast<void*>(data);
+
+    });
+
+    return;
+
 }
 
 void WebRTCManager::setVideoFrameCallback(VideoFrameCallback callback)
@@ -1088,7 +1149,7 @@ void WebRTCManager::disConnect()
             msquicSocketClient->disconnect();
         }
 
-        if(state == WebRTCRemoteState::followerRemote){
+        if(tcpSocket){
 
             socketRuns = false;
 
@@ -1098,6 +1159,8 @@ void WebRTCManager::disConnect()
 
                 tcpSocket->close();
             }
+
+            tcpSocket = nullptr;
         }
 
         disConnectHandle();
