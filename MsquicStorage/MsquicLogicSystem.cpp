@@ -27,7 +27,7 @@ namespace hope {
     namespace handle
     {
 
-		MsquicLogicSystem::MsquicLogicSystem(boost::asio::io_context& ioContext) :ioContext(ioContext)
+        MsquicLogicSystem::MsquicLogicSystem(boost::asio::io_context& ioContext) :ioContext(ioContext)
         {
 
         }
@@ -265,7 +265,7 @@ namespace hope {
                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                 };
 
-            msquicHandlers[0] = [self](std::shared_ptr<hope::quic::MsquicData> data )->boost::asio::awaitable<void> {
+            msquicHandlers[0] = [self](std::shared_ptr<hope::quic::MsquicData> data)->boost::asio::awaitable<void> {
 
                 boost::json::object& message = data->json;
 
@@ -369,16 +369,16 @@ namespace hope {
                 };
 
             // 其他 handler 保持原来的转发逻辑，因为它们调用 forwardHandler
-            msquicHandlers[1] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data )->boost::asio::awaitable<void> {
+            msquicHandlers[1] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(data), "REQUEST");
                 };
 
 
-            msquicHandlers[2] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data )->boost::asio::awaitable<void> {
+            msquicHandlers[2] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(data), "RESTART");
                 };
 
-            msquicHandlers[3] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data )->boost::asio::awaitable<void> {
+            msquicHandlers[3] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(data), "STOPREMOTE");
                 };
 
@@ -401,15 +401,15 @@ namespace hope {
                 }
 
                 std::string accountId;
-                
+
                 std::string sessionId;
-                  
+
 
                 if (msquicSocket) {
 
                     accountId = msquicSocket->getAccountId();
 
-					sessionId = msquicSocket->getSessionId();
+                    sessionId = msquicSocket->getSessionId();
 
                 }
                 else if (webrtcSignalSocket) {
@@ -434,6 +434,14 @@ namespace hope {
 
                 co_return;
 
+                };
+
+            msquicHandlers[6] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data)->boost::asio::awaitable<void> {
+                co_await forwardHandler(std::move(data), "CLOSESYSTEM");
+                };
+
+            msquicHandlers[7] = [self, forwardHandler](std::shared_ptr<hope::quic::MsquicData> data)->boost::asio::awaitable<void> {
+                co_await forwardHandler(std::move(data), "SYSTEMREADLY");
                 };
         }
 
