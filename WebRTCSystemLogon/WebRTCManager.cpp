@@ -23,7 +23,6 @@ namespace hope {
 
         WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
             : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
-            state(WebRTCRemoteState::nullRemote),
             connetState(WebRTCConnetState::none),
             peerConnection(nullptr),
             writerChannel(ioContext),
@@ -34,7 +33,7 @@ namespace hope {
             bufferPool(false, 100),
             cursorHooks(nullptr),
             screenCapture(nullptr),
-            hAudioCatch(nullptr){
+            hAudioCatch(nullptr) {
 
             ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
                 boost::asio::make_work_guard(ioContext));
@@ -265,73 +264,67 @@ namespace hope {
                                         if (json.contains("webRTCRemoteState")) {
                                             WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
-                                            if (state.load() == WebRTCRemoteState::nullRemote) {
+                                            if (remoteState == WebRTCRemoteState::masterRemote) {
 
-                                                if (remoteState == WebRTCRemoteState::masterRemote) {
+                                                if (json.contains("codec")) {
+                                                    codec = static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
+                                                }
 
-                                                    state = WebRTCRemoteState::followerRemote;
+                                                if (json.contains("webrtcAudioEnable")) {
 
+                                                    webrtcAudioEnable = json["webrtcAudioEnable"].as_int64();
 
-                                                    if (json.contains("codec")) {
-                                                        codec = static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
-                                                    }
+                                                }
 
-                                                    if (json.contains("webrtcAudioEnable")) {
+                                                if (!initializePeerConnection()) {
+                                                    LOG_ERROR("Failed to initialize peer connection");
+                                                    continue;
+                                                }
 
-                                                        webrtcAudioEnable = json["webrtcAudioEnable"].as_int64();
+                                                int webrtcModulesType = 0;
 
-                                                    }
+                                                int webrtcUseLevels = 0;
 
-                                                    if (!initializePeerConnection()) {
-                                                        LOG_ERROR("Failed to initialize peer connection");
+                                                if (json.contains("webrtcModulesType")) {
+
+                                                    webrtcModulesType = json["webrtcModulesType"].as_int64();
+
+                                                }
+
+                                                if (json.contains("webrtcUseLevels")) {
+
+                                                    webrtcUseLevels = json["webrtcUseLevels"].as_int64();
+
+                                                }
+
+                                                if (!initializeScreenCapture(webrtcModulesType, webrtcUseLevels)) {
+                                                    LOG_ERROR("Failed to initialize ScreenCapture");
+                                                    continue;
+                                                }
+
+                                                if (webrtcAudioEnable == 1) {
+                                                    if (!initializeHAudioCatch()) {
+                                                        LOG_ERROR("Failed to initialize HAudioCatch");
                                                         continue;
-                                                    }
-
-                                                    int webrtcModulesType = 0;
-
-                                                    int webrtcUseLevels = 0;
-
-                                                    if (json.contains("webrtcModulesType")) {
-
-                                                        webrtcModulesType = json["webrtcModulesType"].as_int64();
 
                                                     }
+                                                }
 
-                                                    if (json.contains("webrtcUseLevels")) {
+                                                if (json.contains("accountId")) {
+                                                    targetId = std::string(json["accountId"].as_string().c_str());
+                                                }
 
-                                                        webrtcUseLevels = json["webrtcUseLevels"].as_int64();
+                                                if (json.contains("targetId")) {
+                                                    accountId = std::string(json["targetId"].as_string().c_str());
+                                                }
 
-                                                    }
+                                                if (!isProcessingOffer.exchange(true)) {
+                                                    webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+                                                    options.offer_to_receive_video = true;
+                                                    options.offer_to_receive_audio = false;
 
-                                                    if (!initializeScreenCapture(webrtcModulesType, webrtcUseLevels)) {
-                                                        LOG_ERROR("Failed to initialize ScreenCapture");
-                                                        continue;
-                                                    }
-
-                                                    if (webrtcAudioEnable == 1) {
-                                                        if (!initializeHAudioCatch()) {
-                                                            LOG_ERROR("Failed to initialize HAudioCatch");
-                                                            continue;
-
-                                                        }
-                                                    }
-
-                                                    if (json.contains("accountId")) {
-                                                        targetId = std::string(json["accountId"].as_string().c_str());
-                                                    }
-
-                                                    if (json.contains("targetId")) {
-                                                        accountId = std::string(json["targetId"].as_string().c_str());
-                                                    }
-
-                                                    if (!isProcessingOffer.exchange(true)) {
-                                                        webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-                                                        options.offer_to_receive_video = true;
-                                                        options.offer_to_receive_audio = false;
-
-                                                        createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
-                                                        peerConnection->CreateOffer(createOfferObserver.get(), options);
-                                                    }
+                                                    createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
+                                                    peerConnection->CreateOffer(createOfferObserver.get(), options);
                                                 }
                                             }
                                         }
@@ -639,159 +632,155 @@ namespace hope {
 
             peerConnection = pcResult.MoveValue();
 
-            // 如果是发送端，创建视频源和轨道
-            if (state == WebRTCRemoteState::followerRemote) {
+            videoTrackSourceImpl = webrtc::make_ref_counted<VideoTrackSourceImpl>();
 
-                videoTrackSourceImpl = webrtc::make_ref_counted<VideoTrackSourceImpl>();
+            videoTrack = peerConnectionFactory->CreateVideoTrack(videoTrackSourceImpl, "videoTrack");
 
-                videoTrack = peerConnectionFactory->CreateVideoTrack(videoTrackSourceImpl, "videoTrack");
+            if (!videoTrack) {
 
-                if (!videoTrack) {
+                LOG_ERROR("Failed to create video track");
 
-                    LOG_ERROR("Failed to create video track");
+                return false;
 
-                    return false;
+            }
 
-                }
+            videoTrack->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
 
-                videoTrack->set_content_hint(webrtc::VideoTrackInterface::ContentHint::kFluid);
+            std::vector<webrtc::RtpEncodingParameters> encodings;
 
-                std::vector<webrtc::RtpEncodingParameters> encodings;
+            encodings.push_back(rtpEncodingParameters);
 
-                encodings.push_back(rtpEncodingParameters);
+            std::vector<std::string> streamIds = { "mediaStream" };
 
-                std::vector<std::string> streamIds = { "mediaStream" };
+            auto addTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
 
-                auto addTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
+            if (!addTrackResult.ok()) {
 
-                if (!addTrackResult.ok()) {
+                LOG_ERROR("Failed to add video track: %s", addTrackResult.error().message());
 
-                    LOG_ERROR("Failed to add video track: %s", addTrackResult.error().message());
+                return false;
 
-                    return false;
+            }
 
-                }
+            videoSender = addTrackResult.MoveValue();
 
-                videoSender = addTrackResult.MoveValue();
+            auto transceivers = peerConnection->GetTransceivers();
 
-                auto transceivers = peerConnection->GetTransceivers();
+            for (auto& transceiver : transceivers) {
 
-                for (auto& transceiver : transceivers) {
+                if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
 
-                    if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
+                    webrtc::RtpCapabilities senderCapabilities = peerConnectionFactory->GetRtpSenderCapabilities(
+                        webrtc::MediaType::MEDIA_TYPE_VIDEO);
 
-                        webrtc::RtpCapabilities senderCapabilities = peerConnectionFactory->GetRtpSenderCapabilities(
-                            webrtc::MediaType::MEDIA_TYPE_VIDEO);
+                    senderCapabilities.fec.clear();
 
-                        senderCapabilities.fec.clear();
+                    if (senderCapabilities.codecs.empty()) {
 
-                        if (senderCapabilities.codecs.empty()) {
+                        LOG_WARNING("No video codecs available from factory");
 
-                            LOG_WARNING("No video codecs available from factory");
+                        continue;
 
-                            continue;
+                    }
 
+                    std::vector<webrtc::RtpCodecCapability> preferredCodecs;
+                    // 根据枚举选择优先编解码器
+                    std::string priorityCodec;
+
+                    switch (this->codec) {
+
+                    case WebRTCVideoCodec::VP9: priorityCodec = "VP9"; break;
+
+                    case WebRTCVideoCodec::H264: priorityCodec = "H264"; break;
+
+                    case WebRTCVideoCodec::VP8: priorityCodec = "VP8"; break;
+
+                    case WebRTCVideoCodec::H265: priorityCodec = "H265"; break;
+
+                    case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
+
+                    }
+
+                    LOG_INFO("Attempting to prioritize codec: %s", priorityCodec.c_str());
+
+                    // 首先添加优先编解码器
+                    bool foundPriorityCodec = false;
+
+                    for (const auto& codec : senderCapabilities.codecs) {
+
+                        if (codec.name == priorityCodec) {
+
+                            preferredCodecs.push_back(codec);
+
+                            foundPriorityCodec = true;
+
+                            LOG_INFO("Found and prioritized codec: %s", codec.name.c_str());
+
+                            break;
                         }
+                    }
 
-                        std::vector<webrtc::RtpCodecCapability> preferredCodecs;
-                        // 根据枚举选择优先编解码器
-                        std::string priorityCodec;
+                    if (!foundPriorityCodec) {
 
-                        switch (this->codec) {
+                        LOG_WARNING("Priority codec %s not found in available codecs", priorityCodec.c_str());
 
-                        case WebRTCVideoCodec::VP9: priorityCodec = "VP9"; break;
+                    }
 
-                        case WebRTCVideoCodec::H264: priorityCodec = "H264"; break;
+                    // 添加其他可用编解码器（排除重复项和辅助编解码器）
+                    for (const auto& codec : senderCapabilities.codecs) {
 
-                        case WebRTCVideoCodec::VP8: priorityCodec = "VP8"; break;
+                        if (codec.name != priorityCodec) {
 
-                        case WebRTCVideoCodec::H265: priorityCodec = "H265"; break;
+                            preferredCodecs.push_back(codec);
 
-                        case WebRTCVideoCodec::AV1: priorityCodec = "AV1"; break;
-
-                        }
-
-                        LOG_INFO("Attempting to prioritize codec: %s", priorityCodec.c_str());
-
-                        // 首先添加优先编解码器
-                        bool foundPriorityCodec = false;
-
-                        for (const auto& codec : senderCapabilities.codecs) {
-
-                            if (codec.name == priorityCodec) {
-
-                                preferredCodecs.push_back(codec);
-
-                                foundPriorityCodec = true;
-
-                                LOG_INFO("Found and prioritized codec: %s", codec.name.c_str());
-
-                                break;
-                            }
-                        }
-
-                        if (!foundPriorityCodec) {
-
-                            LOG_WARNING("Priority codec %s not found in available codecs", priorityCodec.c_str());
-
-                        }
-
-                        // 添加其他可用编解码器（排除重复项和辅助编解码器）
-                        for (const auto& codec : senderCapabilities.codecs) {
-
-                            if (codec.name != priorityCodec) {
-
-                                preferredCodecs.push_back(codec);
-
-                                LOG_INFO("Added additional codec: %s", codec.name.c_str());
-
-                            }
-                        }
-
-                        // 验证是否有编解码器可设置
-                        if (preferredCodecs.empty()) {
-
-                            LOG_ERROR("No valid codecs to set as preferences");
-
-                            continue;
-
-                        }
-
-                        // 设置编解码器偏好
-                        auto result = transceiver->SetCodecPreferences(preferredCodecs);
-
-                        if (result.ok()) {
-
-                            LOG_INFO("Successfully set codec preferences with %d codecs", preferredCodecs.size());
-
-                        }
-                        else {
-
-                            LOG_ERROR("Failed to set codec preferences: %s", result.message());
+                            LOG_INFO("Added additional codec: %s", codec.name.c_str());
 
                         }
                     }
+
+                    // 验证是否有编解码器可设置
+                    if (preferredCodecs.empty()) {
+
+                        LOG_ERROR("No valid codecs to set as preferences");
+
+                        continue;
+
+                    }
+
+                    // 设置编解码器偏好
+                    auto result = transceiver->SetCodecPreferences(preferredCodecs);
+
+                    if (result.ok()) {
+
+                        LOG_INFO("Successfully set codec preferences with %d codecs", preferredCodecs.size());
+
+                    }
+                    else {
+
+                        LOG_ERROR("Failed to set codec preferences: %s", result.message());
+
+                    }
                 }
+            }
 
-                webrtc::RtpParameters parameters = videoSender->GetParameters();
+            webrtc::RtpParameters parameters = videoSender->GetParameters();
 
-                if (!parameters.encodings.empty()) {
+            if (!parameters.encodings.empty()) {
 
-                    parameters.encodings[0] = rtpEncodingParameters;
+                parameters.encodings[0] = rtpEncodingParameters;
 
-                }
-                else {
-                    parameters.encodings = encodings;
-                }
+            }
+            else {
+                parameters.encodings = encodings;
+            }
 
-                parameters.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
+            parameters.degradation_preference = webrtc::DegradationPreference::MAINTAIN_FRAMERATE;
 
-                auto setParamsResult = videoSender->SetParameters(parameters);
+            auto setParamsResult = videoSender->SetParameters(parameters);
 
-                if (!setParamsResult.ok()) {
-                    LOG_ERROR("Failed to set RTP parameters: %s", setParamsResult.message());
-                    return false;
-                }
+            if (!setParamsResult.ok()) {
+                LOG_ERROR("Failed to set RTP parameters: %s", setParamsResult.message());
+                return false;
             }
 
             if (webrtcAudioEnable == 1) {
@@ -827,7 +816,7 @@ namespace hope {
 
             dataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
 
-            dataChannelObserver->setOnDataHandle(std::bind(&WebRTCManager::handleDataChannelData,this, std::placeholders::_1, std::placeholders::_2));
+            dataChannelObserver->setOnDataHandle(std::bind(&WebRTCManager::handleDataChannelData, this, std::placeholders::_1, std::placeholders::_2));
 
             dataChannel->RegisterObserver(dataChannelObserver.get());
 
@@ -874,7 +863,7 @@ namespace hope {
 
                     }
                     else if (levels == CaptureLevels::PRO) {
-                  
+
                         buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
 
                     }

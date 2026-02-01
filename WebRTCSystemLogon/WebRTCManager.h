@@ -224,8 +224,6 @@ namespace hope {
 
             std::atomic<bool> isInit{ false };
 
-            std::atomic<WebRTCRemoteState> state;
-
             std::atomic<WebRTCConnetState> connetState;
 
             std::shared_ptr<ScreenCapture> screenCapture;
