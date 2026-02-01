@@ -54,22 +54,9 @@ namespace hope {
 
         void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
             switch (newState) {
-            case webrtc::PeerConnectionInterface::kIceConnectionConnected:
+            case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
+
                 LOG_INFO("ICE connection established");
-                break;
-            case webrtc::PeerConnectionInterface::kIceConnectionFailed:
-                LOG_ERROR("ICE connection failed");
-                break;
-            default:
-                break;
-            }
-        }
-
-        void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
-            switch (newState) {
-            case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected: {
-
-                LOG_INFO("Peer connection established");
 
                 auto localDesc = manager->peerConnection->local_description();
                 if (localDesc) {
@@ -108,9 +95,13 @@ namespace hope {
 
                 break;
             }
-            case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
 
-                LOG_ERROR("Peer connection failed");
+            case webrtc::PeerConnectionInterface::kIceConnectionFailed:
+                LOG_ERROR("ICE connection failed");
+                break;
+            case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
+
+                LOG_INFO("ICE connection disconnected");
 
                 boost::json::object json;
 
@@ -121,6 +112,25 @@ namespace hope {
                 std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
 
                 manager->writerAsync(data);
+
+                break;
+            }
+            default:
+                break;
+            }
+        }
+
+        void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
+            switch (newState) {
+            case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected: {
+
+                LOG_INFO("Peer connection established");
+
+                break;
+            }
+            case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed: {
+
+                LOG_ERROR("Peer connection failed");
 
                 break;
             }
