@@ -175,6 +175,20 @@ void WebRTCManager::connect(std::string ip)
 
                                     if (!isRemote) {
 
+                                        if(tcpSocket){
+
+                                            socketRuns = false;
+
+                                            followRunning = false;
+
+                                            if(tcpSocket && tcpSocket->is_open()){
+
+                                                tcpSocket->close();
+                                            }
+
+                                            tcpSocket = nullptr;
+                                        }
+
                                         releaseSource();
 
                                         initializePeerConnection();
@@ -245,6 +259,20 @@ void WebRTCManager::connect(std::string ip)
                                     co_await steadyTimer.async_wait(boost::asio::use_awaitable);
 
                                     if (!isRemote) {
+
+                                        if(tcpSocket){
+
+                                            socketRuns = false;
+
+                                            followRunning = false;
+
+                                            if(tcpSocket && tcpSocket->is_open()){
+
+                                                tcpSocket->close();
+                                            }
+
+                                            tcpSocket = nullptr;
+                                        }
 
                                         releaseSource();
 
