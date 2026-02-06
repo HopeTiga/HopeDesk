@@ -108,7 +108,7 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
         break;
     case webrtc::PeerConnectionInterface::kIceConnectionDisconnected:{
         LOG_WARNING("ICE connection disconnected");
-        manager->disConnectHandle();
+        manager->disConnectRemoteHandler();
         break;
     }
 

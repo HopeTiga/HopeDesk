@@ -16,13 +16,12 @@ namespace rtc{
 
 WebRTCManager::WebRTCManager(WebRTCRemoteState state)
     : connetState(WebRTCConnetState::none)
-    , channel(ioContext)
     , accept(ioContext,boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address_v4("127.0.0.1"),19998))
     , tcpSocket(nullptr)
     , ioContextWorkPtr(nullptr)
-    , writerChannel(ioContext)
     , msquicSocketClient(nullptr)
     , steadyTimer(ioContext)
+    , peerConnection(nullptr)
 {
 
     ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
@@ -50,8 +49,6 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
             socketRuns = true;
 
             followRunning = true;
-
-            wrtierCoroutineAsync();
 
             receiveCoroutineAysnc();
 
@@ -107,8 +104,6 @@ void WebRTCManager::connect(std::string ip)
 
             msquicSocketConnectedHandle(false);
 
-            disConnectHandle();
-
         }
 
     });
@@ -132,13 +127,13 @@ void WebRTCManager::connect(std::string ip)
             int64_t responseState = json["state"].as_int64();
 
             if(WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER){
+
                 if(responseState == 200){
+
                     connetState = WebRTCConnetState::connect;
+
                     LOG_INFO("%s",json["message"].as_string().c_str());
 
-                    if(!initializePeerConnection()){
-                        LOG_ERROR("initializePeerConnection failed!");
-                    }
                 }
             }else if(WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST){
 
@@ -251,41 +246,6 @@ void WebRTCManager::connect(std::string ip)
                                 peerConnection->CreateAnswer(createAnswerObserver.get(), options);
 
                                 isInit = true;
-
-                                boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
-
-                                    steadyTimer.expires_after(std::chrono::seconds(10));;
-
-                                    co_await steadyTimer.async_wait(boost::asio::use_awaitable);
-
-                                    if (!isRemote) {
-
-                                        if(tcpSocket){
-
-                                            socketRuns = false;
-
-                                            followRunning = false;
-
-                                            if(tcpSocket && tcpSocket->is_open()){
-
-                                                tcpSocket->close();
-                                            }
-
-                                            tcpSocket = nullptr;
-                                        }
-
-                                        releaseSource();
-
-                                        initializePeerConnection();
-
-                                        isRemote = false;
-
-                                        LOG_INFO("WebRTCManager Answer ReInit");
-
-                                    }
-                                },boost::asio::detached);
-
-
                             }
 
                         } else if(type == "candidate"){
@@ -353,7 +313,7 @@ void WebRTCManager::connect(std::string ip)
 
                 if(responseState == 200){
 
-                    disConnectHandle();
+                    disConnectRemoteHandler();
 
                 }
 
@@ -464,10 +424,6 @@ WebRTCManager::~WebRTCManager()
 
 bool WebRTCManager::initializePeerConnection()
 {
-    // Clean up any existing connection first
-    if (peerConnection) {
-        releaseSource();
-    }
 
     if (!peerConnectionFactory) {
 
@@ -580,10 +536,15 @@ bool WebRTCManager::initializePeerConnection()
 }
 
 void WebRTCManager::writerAsync(std::shared_ptr<WriterData> writerData){
+
     writerDataQueues.enqueue(writerData);
-    if (writerChannel.is_open()) {
-        writerChannel.try_send(boost::system::error_code{});
+
+    if(!writerCoroutineRuns.exchange(true)){
+
+        boost::asio::co_spawn(ioContext,writerCoroutineAsync(),boost::asio::detached);
+
     }
+
 }
 
 void WebRTCManager::disConnectRemote()
@@ -614,18 +575,14 @@ void WebRTCManager::disConnectRemote()
 
 }
 
-void WebRTCManager::disConnectHandle()
+void WebRTCManager::disConnectRemoteHandler()
 {
-
-    if(!isRemote.exchange(false)) return;
 
     if(resetCursorHandle) resetCursorHandle();
 
-    if(disConnectRemoteHandle){
+    if(isRemote == false) return;
 
-        disConnectRemoteHandle();
-
-    }
+    isRemote = false;
 
     if(tcpSocket){
 
@@ -642,6 +599,39 @@ void WebRTCManager::disConnectHandle()
     }
 
     releaseSource();
+
+    initializePeerConnection();
+
+    if(disConnectRemoteHandle){
+
+        disConnectRemoteHandle();
+
+    }
+
+}
+
+void WebRTCManager::disConnectHandle()
+{
+
+    if(resetCursorHandle) resetCursorHandle();
+
+    if(tcpSocket){
+
+        socketRuns = false;
+
+        followRunning = false;
+
+        if(tcpSocket && tcpSocket->is_open()){
+
+            tcpSocket->close();
+        }
+
+        tcpSocket = nullptr;
+    }
+
+    releaseSource();
+
+    initializePeerConnection();
 
 }
 
@@ -794,72 +784,30 @@ void WebRTCManager::handleCursor(const unsigned char *data, size_t size)
     }
 }
 
-void WebRTCManager::wrtierCoroutineAsync()
+boost::asio::awaitable<void> WebRTCManager::writerCoroutineAsync()
 {
-    boost::asio::co_spawn(ioContext, [this]() -> boost::asio::awaitable<void> {
-        try {
-            for (;;) {
+    try {
 
-                std::shared_ptr<WriterData> nowNode = nullptr;
-                while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
-                    try {
+        std::shared_ptr<WriterData> writeData = nullptr;
 
-                        co_await boost::asio::async_write(*this->tcpSocket,
-                                                          boost::asio::buffer(nowNode->data, nowNode->size),
-                                                          boost::asio::use_awaitable);
+        while(writerDataQueues.try_dequeue(writeData) && socketRuns.load()){
 
-                    } catch (const boost::system::system_error& e) {
-                        // 检查特定错误
-                        if (e.code() == boost::asio::error::broken_pipe ||
-                            e.code() == boost::asio::error::connection_reset ||
-                            e.code() == boost::asio::error::connection_aborted) {
-                            LOG_ERROR("Connection lost, exiting writer coroutine");
-                            co_return;
-                        }
-                    } catch (const std::exception& e) {
-                        LOG_ERROR("Unexpected error sending data: %s" , e.what());
-                    }
-                }
+            co_await boost::asio::async_write(*tcpSocket,boost::asio::buffer(writeData->data,writeData->size),boost::asio::use_awaitable);
 
-                if (!socketRuns) {
-                    // 处理剩余的队列数据
-                    std::shared_ptr<WriterData> nowNode = nullptr;
-
-                    while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
-                        try {
-                            co_await boost::asio::async_write(*this->tcpSocket,
-                                                              boost::asio::buffer(nowNode->data, nowNode->size),
-                                                              boost::asio::use_awaitable);
-                        }
-                        catch (const boost::system::system_error& e) {
-                            break; // 发送失败，退出循环
-                        }
-                        catch (const std::exception& e) {
-                            break;
-                        }
-
-                    }
-                    co_return; // 退出协程
-                }else{
-                    co_await this->writerChannel.async_receive(boost::asio::use_awaitable);
-                }
-
-            }
-        } catch (const std::exception& e) {
-            LOG_ERROR("Writer coroutine unhandled exception: %s",e.what());
-        } catch (...) {
-            LOG_ERROR("Writer coroutine unknown exception");
         }
-        co_return;
-    }, [this](std::exception_ptr p) {
-                              try {
-                                  if (p) {
-                                      std::rethrow_exception(p);
-                                  }
-                              } catch (const std::exception& e) {
-                                  LOG_ERROR("Writer coroutine exception: %s",e.what());
-                              }
-                          });
+
+        writerCoroutineRuns.store(false);
+
+    } catch (const std::exception& e) {
+
+        LOG_ERROR("Writer coroutine unhandled exception: %s",e.what());
+
+    } catch (...) {
+
+        LOG_ERROR("Writer coroutine unknown exception");
+
+    }
+    co_return;
 }
 
 void WebRTCManager::receiveCoroutineAysnc()
@@ -932,7 +880,7 @@ void WebRTCManager::receiveCoroutineAysnc()
 
             }else if(WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::CLOSE){
 
-                disConnectHandle();
+                disConnectRemoteHandler();
 
                 continue;
             }
@@ -1017,7 +965,7 @@ void WebRTCManager::handleAsioException()
 
 void WebRTCManager::releaseSource()
 {
-    // 1. 先关闭 PeerConnection (阻塞调用，确保信令停止)
+
     if (peerConnection) {
         peerConnection->Close();
     }
@@ -1039,8 +987,6 @@ void WebRTCManager::releaseSource()
     audioSender = nullptr;
     audioTrack = nullptr;
 
-    // 4. [关键] 先销毁 PeerConnection，再销毁 Observer
-    // 这样 PC 销毁时如果想回调 Observer，Observer 还在
     peerConnection = nullptr;
 
     // 5. 现在可以安全销毁 Observer 了
@@ -1052,21 +998,9 @@ void WebRTCManager::releaseSource()
     // 6. 清理状态
     isInit = false;
 
-    if(channel.is_open()){
-
-        channel.try_send(boost::system::error_code{});
-
-    }
-
-    if(writerChannel.is_open()){
-
-        writerChannel.try_send(boost::system::error_code{});
-    }
-
     while (!trackFrameQueues.empty()) {
         trackFrameQueues.pop();
     }
-
 
     while (!remoteBinaryQueue.empty()) {
         remoteBinaryQueue.pop();
@@ -1121,6 +1055,39 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
             msquicSocketClient->writeJsonAsync(message);
 
             LOG_INFO("Request sent to target: %s", targetId.c_str());
+
+            boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
+
+                steadyTimer.expires_after(std::chrono::seconds(10));;
+
+                co_await steadyTimer.async_wait(boost::asio::use_awaitable);
+
+                if (!isRemote) {
+
+                    if(tcpSocket){
+
+                        socketRuns = false;
+
+                        followRunning = false;
+
+                        if(tcpSocket && tcpSocket->is_open()){
+
+                            tcpSocket->close();
+                        }
+
+                        tcpSocket = nullptr;
+                    }
+
+                    releaseSource();
+
+                    initializePeerConnection();
+
+                    isRemote = false;
+
+                    LOG_INFO("WebRTCManager SendRequestToTarget ReInit");
+
+                }
+            },boost::asio::detached);
         }
 
     },boost::asio::detached);
@@ -1189,6 +1156,12 @@ void WebRTCManager::disConnect()
             }
 
             tcpSocket = nullptr;
+        }
+
+        if(disConnectRemoteHandle){
+
+            disConnectRemoteHandle();
+
         }
 
         disConnectHandle();

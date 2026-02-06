@@ -48,7 +48,6 @@
 #include "CreateDescriptionObserverImpl.h"
 
 #include <boost/asio.hpp>
-#include <boost/asio/experimental/channel.hpp>
 #include <boost/beast.hpp>
 #include <boost/json.hpp>
 
@@ -199,13 +198,15 @@ private:
 
     bool initializePeerConnection();
 
-    void wrtierCoroutineAsync();
+    boost::asio::awaitable<void> writerCoroutineAsync();
 
     void receiveCoroutineAysnc();
 
     void handleAsioException();
 
     void releaseSource();
+
+    void disConnectRemoteHandler();
 
 private:
 
@@ -265,8 +266,6 @@ private:
 
     boost::asio::io_context ioContext;
 
-    boost::asio::experimental::channel<void(boost::system::error_code)> channel;
-
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> ioContextWorkPtr;
 
     std::thread ioContextThread;
@@ -283,11 +282,11 @@ private:
 
     std::unique_ptr<boost::asio::ip::tcp::socket> tcpSocket;
 
-    boost::asio::experimental::channel<void(boost::system::error_code)> writerChannel;
-
     moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
 
     std::atomic<bool> socketRuns{false};
+
+    std::atomic<bool> writerCoroutineRuns {false};
 
     std::string followData;
 
