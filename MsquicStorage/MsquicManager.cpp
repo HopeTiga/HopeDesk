@@ -2,10 +2,8 @@
 
 #include <boost/asio.hpp>
 
-#include "MsquicSignalServer.h"
+#include "MsquicServer.h"
 #include "MsquicSocket.h"
-
-#include "MsquicData.h"
 
 #include "Utils.h"
 
@@ -13,10 +11,10 @@ namespace hope {
 
 	namespace quic {
 	
-		MsquicManager::MsquicManager(size_t channelIndex, boost::asio::io_context& ioContext, MsquicSignalServer* msquicSignalServer)
+		MsquicManager::MsquicManager(size_t channelIndex, boost::asio::io_context& ioContext,MsquicServer * msquicServer) 
 			: channelIndex(channelIndex)
 			, ioContext(ioContext)
-			, msquicSignalServer(msquicSignalServer)
+			, msquicServer(msquicServer)
 			, localRouteCache([](std::string) -> int {
 			return -1;
 				}, 100)
@@ -28,8 +26,9 @@ namespace hope {
 
 		MsquicManager::~MsquicManager()
 		{
+			actorSocketMappingIndex.clear();
 
-			msquicSocketMap.clear();
+			msquicSocketInterfaceMap.clear();
 
 		}
 
@@ -38,17 +37,17 @@ namespace hope {
 			return logicSystem;
 		}
 
-
         void MsquicManager::removeConnection(std::string accountId, std::string sessionId)
         {
             LOG_INFO("Remove MsquicSocket Request: Account=%s, SessionId=%s", accountId.c_str(), sessionId.c_str());
 
-            auto it = msquicSocketMap.find(accountId);
+            auto it = msquicSocketInterfaceMap.find(accountId);
 
-            if (it == msquicSocketMap.end()) {
+            if (it == msquicSocketInterfaceMap.end()) {
                 LOG_WARNING("Connection already removed or not found: %s", accountId.c_str());
                 return;
             }
+
 
             std::shared_ptr<MsquicSocketInterface> currentSocket = it->second;
 
@@ -56,29 +55,27 @@ namespace hope {
                 LOG_WARNING("Race Condition Detected! Ignore remove request. "
                     "Account: %s, RequestSessionId: %s, CurrentMapSessionId: %s",
                     accountId.c_str(), sessionId.c_str(), currentSocket->getSessionId().c_str());
-                return; 
+                return;
             }
 
-            msquicSocketMap.erase(it);
+            msquicSocketInterfaceMap.erase(it);
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            int myChannelIndex = this->channelIndex;
-
-            msquicSignalServer->postTaskAsync(mapChannelIndex, [accountId, myChannelIndex](std::shared_ptr<MsquicManager> manager) -> boost::asio::awaitable<void> {
+            msquicServer->postTaskAsync(mapChannelIndex, [accountId](std::shared_ptr<MsquicManager> manager) -> boost::asio::awaitable<void> {
 
                 auto itIndex = manager->actorSocketMappingIndex.find(accountId);
+
                 if (itIndex != manager->actorSocketMappingIndex.end()) {
-                    if (itIndex->second == myChannelIndex) {
-                        manager->actorSocketMappingIndex.erase(itIndex);
-                        LOG_INFO("Global Index Removed: %s", accountId.c_str());
-                    }
-                    else {
-                        LOG_WARNING("Global Index Mismatch (Race Condition), skip remove. Account: %s, Index points to: %d, Request from: %d",
-                            accountId.c_str(), itIndex->second, myChannelIndex);
-                    }
+
+                    manager->actorSocketMappingIndex.erase(itIndex);
+
+                    LOG_INFO("Global Index Removed: %s", accountId.c_str());
+
                 }
+
                 co_return;
+
                 });
         }
 
