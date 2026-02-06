@@ -25,7 +25,6 @@ namespace hope {
             : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
             connetState(WebRTCConnetState::none),
             peerConnection(nullptr),
-            writerChannel(ioContext),
             winLogon(nullptr),
             keyMouseSim(nullptr),
             codec(codec),
@@ -168,288 +167,11 @@ namespace hope {
         }
 
         void WebRTCManager::socketEventLoop() {
+
             socketRuns = true;
 
-            // 读取协程
-            boost::asio::co_spawn(ioContext, [this]() -> boost::asio::awaitable<void> {
-                try {
-                    char headerBuffer[8];
-                    size_t headerSize = sizeof(int64_t);
-
-                    while (socketRuns) {
-                        std::memset(headerBuffer, 0, headerSize);
-
-                        // 接收消息头
-                        size_t headerRead = 0;
-                        while (headerRead < headerSize) {
-                            try {
-                                size_t n = co_await this->tcpSocket->async_read_some(
-                                    boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
-                                    boost::asio::use_awaitable);
-
-                                if (n == 0) {
-                                    co_return;
-                                }
-
-                                headerRead += n;
-                            }
-                            catch (const boost::system::system_error& e) {
-                                LOG_ERROR("Socket read error: %s", e.what());
-                                co_return;
-                            }
-                        }
-
-                        int64_t rawBodyLength = 0;
-                        fastCopy(&rawBodyLength, headerBuffer, sizeof(int64_t));
-                        int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
-
-                        if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
-                            LOG_ERROR("Invalid body length: %d", bodyLength);
-                            co_return;
-                        }
-
-                        size_t bodySize = static_cast<size_t>(bodyLength);
-
-                        std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]);
-                        if (!bodyBuffer) {
-                            LOG_ERROR("Failed to allocate buffer");
-                            co_return;
-                        }
-                        std::memset(bodyBuffer.get(), 0, bodySize + 1);
-
-                        // 接收消息体
-                        size_t bodyRead = 0;
-                        while (bodyRead < bodySize) {
-                            try {
-                                size_t n = co_await this->tcpSocket->async_read_some(
-                                    boost::asio::buffer(bodyBuffer.get() + bodyRead, bodySize - bodyRead),
-                                    boost::asio::use_awaitable);
-
-                                if (n == 0) {
-                                    co_return;
-                                }
-
-                                bodyRead += n;
-                            }
-                            catch (const boost::system::system_error& e) {
-                                LOG_ERROR("Socket read error: %s", e.what());
-                                co_return;
-                            }
-                        }
-
-                        std::string bodyStr(bodyBuffer.get(), bodySize);
-
-                        // 解析JSON
-                        try {
-                            boost::json::object json = boost::json::parse(bodyStr).as_object();
-
-                            if (json.contains("requestType")) {
-                                int64_t requestType = json["requestType"].as_int64();
-
-                                if (!json.contains("state")) {
-                                    continue;
-                                }
-
-                                int64_t responseState = json["state"].as_int64();
-
-                                if (WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER)
-                                {
-
-                                    ConfigManager::Instance().Load(json["webrtcManagerPath"].as_string().c_str() + std::string("/config.ini"));
-
-                                }
-
-                                else if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
-                                    if (responseState == 200) {
-                                        if (json.contains("webRTCRemoteState")) {
-                                            WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
-
-                                            if (remoteState == WebRTCRemoteState::masterRemote) {
-
-                                                if (json.contains("codec")) {
-                                                    codec = static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
-                                                }
-
-                                                if (json.contains("webrtcAudioEnable")) {
-
-                                                    webrtcAudioEnable = json["webrtcAudioEnable"].as_int64();
-
-                                                }
-
-                                                if (!initializePeerConnection()) {
-                                                    LOG_ERROR("Failed to initialize peer connection");
-                                                    continue;
-                                                }
-
-                                                int webrtcModulesType = 0;
-
-                                                int webrtcUseLevels = 0;
-
-                                                if (json.contains("webrtcModulesType")) {
-
-                                                    webrtcModulesType = json["webrtcModulesType"].as_int64();
-
-                                                }
-
-                                                if (json.contains("webrtcUseLevels")) {
-
-                                                    webrtcUseLevels = json["webrtcUseLevels"].as_int64();
-
-                                                }
-
-                                                if (!initializeScreenCapture(webrtcModulesType, webrtcUseLevels)) {
-                                                    LOG_ERROR("Failed to initialize ScreenCapture");
-                                                    continue;
-                                                }
-
-                                                if (webrtcAudioEnable == 1) {
-                                                    if (!initializeHAudioCatch()) {
-                                                        LOG_ERROR("Failed to initialize HAudioCatch");
-                                                        continue;
-
-                                                    }
-                                                }
-
-                                                if (json.contains("accountId")) {
-                                                    targetId = std::string(json["accountId"].as_string().c_str());
-                                                }
-
-                                                if (json.contains("targetId")) {
-                                                    accountId = std::string(json["targetId"].as_string().c_str());
-                                                }
-
-                                                if (!isProcessingOffer.exchange(true)) {
-                                                    webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-                                                    options.offer_to_receive_video = true;
-                                                    options.offer_to_receive_audio = false;
-
-                                                    createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
-                                                    peerConnection->CreateOffer(createOfferObserver.get(), options);
-                                                }
-                                            }
-                                        }
-
-                                        if (json.contains("type")) {
-                                            std::string type(json["type"].as_string().c_str());
-
-                                            if (type == "answer") {
-                                                if (!isInit.load()) {
-                                                    std::string sdp(json["sdp"].as_string().c_str());
-                                                    processAnswer(sdp);
-
-                                                    isInit = true;
-                                                    isProcessingOffer = false;
-                                                }
-                                            }
-                                            else if (type == "candidate") {
-                                                std::string candidateStr(json["candidate"].as_string().c_str());
-                                                std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
-                                                int lineIndex = json.contains("mlineIndex") ? json["mlineIndex"].as_int64() : 0;
-
-                                                if (peerConnection) {
-                                                    processIceCandidate(candidateStr, mid, lineIndex);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        catch (const std::exception& e) {
-                            LOG_ERROR("JSON parse error: %s", e.what());
-                        }
-                    }
-                }
-                catch (const std::exception& e) {
-                    LOG_ERROR("Reader coroutine error: %s", e.what());
-                }
-
-                co_return;
-
-                }, [this](std::exception_ptr p) {
-                    try {
-                        if (p) {
-                            std::rethrow_exception(p);
-                        }
-                    }
-                    catch (const std::exception& e) {
-                        LOG_ERROR("Reader coroutine exception: %s", e.what());
-                    }
-                    });
-
-                // 写入协程
-                boost::asio::co_spawn(ioContext, [this]() -> boost::asio::awaitable<void> {
-                    try {
-                        for (;;) {
-
-                            std::shared_ptr<WriterData> nowNode = nullptr;
-
-                            while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
-
-                                try {
-                                    co_await boost::asio::async_write(*this->tcpSocket,
-                                        boost::asio::buffer(nowNode->data, nowNode->size),
-                                        boost::asio::use_awaitable);
-
-                                }
-                                catch (const boost::system::system_error& e) {
-
-                                    LOG_ERROR("Socket write error: %s", e.what());
-
-                                    break;
-
-                                }
-                            }
-
-                            if (!socketRuns) {
-
-                                std::shared_ptr<WriterData> nowNode = nullptr;
-
-                                while (this->writerDataQueues.try_dequeue(nowNode) && nowNode != nullptr) {
-                                    try {
-                                        co_await boost::asio::async_write(*this->tcpSocket,
-                                            boost::asio::buffer(nowNode->data, nowNode->size),
-                                            boost::asio::use_awaitable);
-                                    }
-                                    catch (const std::exception& e) {
-                                        break;
-                                    }
-                                }
-
-                                co_return;
-                            }
-                            else {
-
-                                co_await this->writerChannel.async_receive(boost::asio::use_awaitable);
-
-                            }
-
-                        }
-                    }
-                    catch (const std::exception& e) {
-
-                        LOG_ERROR("Writer coroutine error: %s", e.what());
-
-                    }
-
-                    co_return;
-
-                    }, [this](std::exception_ptr p) {
-                        try {
-
-                            if (p) {
-
-                                std::rethrow_exception(p);
-
-                            }
-
-                        }
-                        catch (const std::exception& e) {
-
-                            LOG_ERROR("Writer coroutine exception: %s", e.what());
-
-                        }
-                        });
+            boost::asio::co_spawn(ioContext,receiveCoroutine(),boost::asio::detached);
+           
         }
 
         inline void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
@@ -462,11 +184,13 @@ namespace hope {
 
             writerDataQueues.enqueue(data);
 
-            if (writerChannel.is_open()) {
-
-                writerChannel.try_send(boost::system::error_code{});
+            if (!writerCoroutineRuns.exchange(true)) {
+            
+                boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
 
             }
+
+         
         }
 
         bool WebRTCManager::initializePeerConnection() {
@@ -1047,6 +771,231 @@ namespace hope {
             }
         }
 
+        boost::asio::awaitable<void> WebRTCManager::receiveCoroutine()
+        {
+            try {
+                char headerBuffer[8];
+                size_t headerSize = sizeof(int64_t);
+
+                while (socketRuns) {
+                    std::memset(headerBuffer, 0, headerSize);
+
+                    // 接收消息头
+                    size_t headerRead = 0;
+                    while (headerRead < headerSize) {
+                        try {
+                            size_t n = co_await this->tcpSocket->async_read_some(
+                                boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
+                                boost::asio::use_awaitable);
+
+                            if (n == 0) {
+                                co_return;
+                            }
+
+                            headerRead += n;
+                        }
+                        catch (const boost::system::system_error& e) {
+                            LOG_ERROR("Socket read error: %s", e.what());
+                            co_return;
+                        }
+                    }
+
+                    int64_t rawBodyLength = 0;
+                    fastCopy(&rawBodyLength, headerBuffer, sizeof(int64_t));
+                    int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
+
+                    if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
+                        LOG_ERROR("Invalid body length: %d", bodyLength);
+                        co_return;
+                    }
+
+                    size_t bodySize = static_cast<size_t>(bodyLength);
+
+                    std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]);
+                    if (!bodyBuffer) {
+                        LOG_ERROR("Failed to allocate buffer");
+                        co_return;
+                    }
+                    std::memset(bodyBuffer.get(), 0, bodySize + 1);
+
+                    // 接收消息体
+                    size_t bodyRead = 0;
+                    while (bodyRead < bodySize) {
+                        try {
+                            size_t n = co_await this->tcpSocket->async_read_some(
+                                boost::asio::buffer(bodyBuffer.get() + bodyRead, bodySize - bodyRead),
+                                boost::asio::use_awaitable);
+
+                            if (n == 0) {
+                                co_return;
+                            }
+
+                            bodyRead += n;
+                        }
+                        catch (const boost::system::system_error& e) {
+                            LOG_ERROR("Socket read error: %s", e.what());
+                            co_return;
+                        }
+                    }
+
+                    std::string bodyStr(bodyBuffer.get(), bodySize);
+
+                    // 解析JSON
+                    try {
+                        boost::json::object json = boost::json::parse(bodyStr).as_object();
+
+                        if (json.contains("requestType")) {
+                            int64_t requestType = json["requestType"].as_int64();
+
+                            if (!json.contains("state")) {
+                                continue;
+                            }
+
+                            int64_t responseState = json["state"].as_int64();
+
+                            if (WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER)
+                            {
+
+                                ConfigManager::Instance().Load(json["webrtcManagerPath"].as_string().c_str() + std::string("/config.ini"));
+
+                            }
+
+                            else if (WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST) {
+                                if (responseState == 200) {
+                                    if (json.contains("webRTCRemoteState")) {
+                                        WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
+
+                                        if (remoteState == WebRTCRemoteState::masterRemote) {
+
+                                            if (json.contains("codec")) {
+                                                codec = static_cast<WebRTCVideoCodec>(json["codec"].as_int64());
+                                            }
+
+                                            if (json.contains("webrtcAudioEnable")) {
+
+                                                webrtcAudioEnable = json["webrtcAudioEnable"].as_int64();
+
+                                            }
+
+                                            if (!initializePeerConnection()) {
+                                                LOG_ERROR("Failed to initialize peer connection");
+                                                continue;
+                                            }
+
+                                            int webrtcModulesType = 0;
+
+                                            int webrtcUseLevels = 0;
+
+                                            if (json.contains("webrtcModulesType")) {
+
+                                                webrtcModulesType = json["webrtcModulesType"].as_int64();
+
+                                            }
+
+                                            if (json.contains("webrtcUseLevels")) {
+
+                                                webrtcUseLevels = json["webrtcUseLevels"].as_int64();
+
+                                            }
+
+                                            if (!initializeScreenCapture(webrtcModulesType, webrtcUseLevels)) {
+                                                LOG_ERROR("Failed to initialize ScreenCapture");
+                                                continue;
+                                            }
+
+                                            if (webrtcAudioEnable == 1) {
+                                                if (!initializeHAudioCatch()) {
+                                                    LOG_ERROR("Failed to initialize HAudioCatch");
+                                                    continue;
+
+                                                }
+                                            }
+
+                                            if (json.contains("accountId")) {
+                                                targetId = std::string(json["accountId"].as_string().c_str());
+                                            }
+
+                                            if (json.contains("targetId")) {
+                                                accountId = std::string(json["targetId"].as_string().c_str());
+                                            }
+
+                                            if (!isProcessingOffer.exchange(true)) {
+                                                webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+                                                options.offer_to_receive_video = true;
+                                                options.offer_to_receive_audio = false;
+
+                                                createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
+                                                peerConnection->CreateOffer(createOfferObserver.get(), options);
+                                            }
+                                        }
+                                    }
+
+                                    if (json.contains("type")) {
+                                        std::string type(json["type"].as_string().c_str());
+
+                                        if (type == "answer") {
+                                            if (!isInit.load()) {
+                                                std::string sdp(json["sdp"].as_string().c_str());
+                                                processAnswer(sdp);
+
+                                                isInit = true;
+                                                isProcessingOffer = false;
+                                            }
+                                        }
+                                        else if (type == "candidate") {
+                                            std::string candidateStr(json["candidate"].as_string().c_str());
+                                            std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
+                                            int lineIndex = json.contains("mlineIndex") ? json["mlineIndex"].as_int64() : 0;
+
+                                            if (peerConnection) {
+                                                processIceCandidate(candidateStr, mid, lineIndex);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (const std::exception& e) {
+                        LOG_ERROR("JSON parse error: %s", e.what());
+                    }
+                }
+            }
+            catch (const std::exception& e) {
+                LOG_ERROR("Reader coroutine error: %s", e.what());
+            }
+
+            co_return;
+        }
+
+        boost::asio::awaitable<void> WebRTCManager::writerCoroutine()
+        {
+            try {
+
+                std::shared_ptr<WriterData> writeData = nullptr;
+
+                while (writerDataQueues.try_dequeue(writeData) && socketRuns.load()) {
+
+                    co_await boost::asio::async_write(*tcpSocket, boost::asio::buffer(writeData->data, writeData->size), boost::asio::use_awaitable);
+
+                }
+
+                writerCoroutineRuns.store(false);
+
+            }
+            catch (const std::exception& e) {
+
+                LOG_ERROR("Writer coroutine unhandled exception: %s", e.what());
+
+            }
+            catch (...) {
+
+                LOG_ERROR("Writer coroutine unknown exception");
+
+            }
+            co_return;
+        }
+
         WebRTCManager::~WebRTCManager() {
             Cleanup();
         }
@@ -1129,10 +1078,6 @@ namespace hope {
             socketRuns = false;
 
             releaseSource();
-
-            if (writerChannel.is_open()) {
-                writerChannel.close();
-            }
 
             if (tcpSocket && tcpSocket->is_open()) {
                 boost::system::error_code ec;

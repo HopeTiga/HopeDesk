@@ -178,6 +178,10 @@ namespace hope {
                 return encoding;
             }
 
+            boost::asio::awaitable<void> receiveCoroutine();
+
+			boost::asio::awaitable<void> writerCoroutine();
+
         private:
 
             std::string accountId;
@@ -240,9 +244,9 @@ namespace hope {
 
             std::unique_ptr<boost::asio::ip::tcp::socket> tcpSocket;
 
-            boost::asio::experimental::channel<void(boost::system::error_code)> writerChannel;
-
             moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
+
+            std::atomic<bool> writerCoroutineRuns{ false };
 
             std::unique_ptr<WinLogon> winLogon;
 
