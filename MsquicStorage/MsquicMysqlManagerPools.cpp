@@ -50,6 +50,14 @@ namespace hope {
 
 			}
 
+			std::shared_ptr<MsquicMysqlManager> msquicMysqlManger;
+
+			while (transactionMysqlManagers.try_dequeue(msquicMysqlManger)) {
+
+				msquicMysqlManger = nullptr;
+
+			}
+
 		}
 
 		boost::asio::awaitable<MsquicMysqlManagerPools::ScopedMysqlConnection> MsquicMysqlManagerPools::getTransactionMysqlManager()
@@ -59,6 +67,16 @@ namespace hope {
 			try {
 
 				msquicMysqlManager = co_await transactionChannels->async_receive(boost::asio::use_awaitable);
+
+				if (!msquicMysqlManager->getConnetionStatus()) {
+				
+					if (!co_await msquicMysqlManager->checkAndReconnect()) {
+					
+						LOG_WARNING("MsquicMysqlManagerPools::getTransactionMysqlManager: Reconnected to MySQL DisConnected");
+
+					}
+
+				}
 			}
 			catch (const boost::system::system_error& e) {
 

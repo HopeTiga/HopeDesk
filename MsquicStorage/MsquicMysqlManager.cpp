@@ -49,7 +49,7 @@ namespace hope {
                     }
                     catch (const std::exception& e) {
                         self->isConnected = false;
-                        LOG_ERROR("MySQL Connection failed: %s", e.what());
+                        LOG_ERROR("MySQL Connection failed: %s" , e.what());
                     }
                 }
                 else {
@@ -75,6 +75,11 @@ namespace hope {
             heartbeatRunning = false;
             heartbeatTimer.cancel();
             LOG_DEBUG("MySQL heartbeat stopped");
+        }
+
+        bool MsquicMysqlManager::getConnetionStatus()
+        {
+            return isConnected;
         }
 
         void MsquicMysqlManager::doHeartbeat() {
@@ -115,7 +120,7 @@ namespace hope {
                 LOG_DEBUG("MySQL heartbeat executed successfully");
             }
             catch (const std::exception& e) {
-                LOG_WARNING("MySQL heartbeat failed: %s", e.what());
+                LOG_WARNING("MySQL heartbeat failed: %s" ,e.what());
                 isConnected = false;
 
                 // 心跳失败后立即尝试重连
@@ -150,7 +155,7 @@ namespace hope {
                 co_return true;
             }
             catch (const std::exception& e) {
-                LOG_ERROR("MySQL reconnection failed: %s", e.what());
+                LOG_ERROR("MySQL reconnection failed: %s" , e.what());
                 isConnected = false;
                 co_return false;
             }

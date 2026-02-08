@@ -23,15 +23,23 @@ namespace hope {
             std::shared_ptr<boost::mysql::any_connection> getConnection();
 
             void startHeartbeat(std::chrono::seconds interval = std::chrono::seconds(300)); // 默认5分钟
+
             void stopHeartbeat();
 
-        private:
-            void doHeartbeat();
-            boost::asio::awaitable<void> executeHeartbeat();
+            bool getConnetionStatus();
+
             boost::asio::awaitable<bool> checkAndReconnect();
 
+        private:
+
+            void doHeartbeat();
+
+            boost::asio::awaitable<void> executeHeartbeat();
+
             boost::asio::io_context& ioContext;
+
             boost::asio::ssl::context sslContext;
+
             boost::asio::steady_timer heartbeatTimer;
 
             std::shared_ptr<boost::mysql::any_connection> mysqlConnection;
