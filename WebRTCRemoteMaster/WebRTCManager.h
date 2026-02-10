@@ -272,6 +272,8 @@ private:
 
     boost::asio::steady_timer steadyTimer;
 
+    boost::asio::steady_timer reloadTimer;
+
     boost::asio::ip::tcp::acceptor accept;
 
     std::queue<std::vector<std::byte>> remoteBinaryQueue;
@@ -285,8 +287,6 @@ private:
     moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
 
     std::atomic<bool> socketRuns{false};
-
-    std::atomic<bool> writerCoroutineRuns {false};
 
     std::string followData;
 

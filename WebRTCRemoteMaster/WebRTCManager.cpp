@@ -21,6 +21,7 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
     , ioContextWorkPtr(nullptr)
     , msquicSocketClient(nullptr)
     , steadyTimer(ioContext)
+    , reloadTimer(ioContext)
     , peerConnection(nullptr)
 {
 
@@ -33,6 +34,8 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
     msquicSocketClient = new hope::quic::MsquicSocketClient(ioContext);
 
     msquicSocketClient->initialize();
+
+    steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
 
     boost::asio::co_spawn(ioContext,[this]()->boost::asio::awaitable<void>{
 
@@ -51,6 +54,8 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
             followRunning = true;
 
             receiveCoroutineAysnc();
+
+            boost::asio::co_spawn(ioContext,writerCoroutineAsync(),boost::asio::detached);
 
             std::string registerStr = "{\"requestType\":0,\"webrtcManagerPath\":\"" + ConfigManager::Instance().GetString("WebRTC.WebRTCConfigPath") + "\",\"state\":200}";
 
@@ -164,9 +169,9 @@ void WebRTCManager::connect(std::string ip)
 
                                 boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
 
-                                    steadyTimer.expires_after(std::chrono::seconds(10));;
+                                    reloadTimer.expires_after(std::chrono::seconds(10));;
 
-                                    co_await steadyTimer.async_wait(boost::asio::use_awaitable);
+                                    co_await reloadTimer.async_wait(boost::asio::use_awaitable);
 
                                     if (!isRemote) {
 
@@ -175,6 +180,8 @@ void WebRTCManager::connect(std::string ip)
                                             socketRuns = false;
 
                                             followRunning = false;
+
+                                            steadyTimer.cancel();
 
                                             if(tcpSocket && tcpSocket->is_open()){
 
@@ -326,6 +333,8 @@ void WebRTCManager::connect(std::string ip)
                         socketRuns = false;
 
                         followRunning = false;
+
+                        steadyTimer.cancel();
 
                         if(tcpSocket && tcpSocket->is_open()){
 
@@ -539,11 +548,7 @@ void WebRTCManager::writerAsync(std::shared_ptr<WriterData> writerData){
 
     writerDataQueues.enqueue(writerData);
 
-    if(!writerCoroutineRuns.exchange(true)){
-
-        boost::asio::co_spawn(ioContext,writerCoroutineAsync(),boost::asio::detached);
-
-    }
+    steadyTimer.cancel();
 
 }
 
@@ -553,6 +558,22 @@ void WebRTCManager::disConnectRemote()
     if(resetCursorHandle) resetCursorHandle();
 
     if(isRemote == false) return;
+
+    if(tcpSocket){
+
+        socketRuns = false;
+
+        followRunning = false;
+
+        steadyTimer.cancel();
+
+        if(tcpSocket && tcpSocket->is_open()){
+
+            tcpSocket->close();
+        }
+
+        tcpSocket = nullptr;
+    }
 
     isRemote = false;
 
@@ -589,6 +610,8 @@ void WebRTCManager::disConnectRemoteHandler()
         socketRuns = false;
 
         followRunning = false;
+
+        steadyTimer.cancel();
 
         if(tcpSocket && tcpSocket->is_open()){
 
@@ -788,15 +811,26 @@ boost::asio::awaitable<void> WebRTCManager::writerCoroutineAsync()
 {
     try {
 
-        std::shared_ptr<WriterData> writeData = nullptr;
+        while(socketRuns.load()){
 
-        while(writerDataQueues.try_dequeue(writeData) && socketRuns.load()){
+            std::shared_ptr<WriterData> writeData = nullptr;
 
-            co_await boost::asio::async_write(*tcpSocket,boost::asio::buffer(writeData->data,writeData->size),boost::asio::use_awaitable);
+            while(writerDataQueues.try_dequeue(writeData)){
+
+                co_await boost::asio::async_write(*tcpSocket,boost::asio::buffer(writeData->data,writeData->size),boost::asio::use_awaitable);
+
+            }
+
+            if (!socketRuns.load()) break;
+
+            steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
+
+            boost::system::error_code ec;
+
+            co_await steadyTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
         }
 
-        writerCoroutineRuns.store(false);
 
     } catch (const std::exception& e) {
 
@@ -938,6 +972,8 @@ void WebRTCManager::handleAsioException()
 
         followRunning = false;
 
+        steadyTimer.cancel();
+
         if(tcpSocket && tcpSocket->is_open()){
 
             tcpSocket->close();
@@ -1058,9 +1094,9 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
 
             boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
 
-                steadyTimer.expires_after(std::chrono::seconds(10));;
+                reloadTimer.expires_after(std::chrono::seconds(10));;
 
-                co_await steadyTimer.async_wait(boost::asio::use_awaitable);
+                co_await reloadTimer.async_wait(boost::asio::use_awaitable);
 
                 if (!isRemote) {
 
@@ -1069,6 +1105,8 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
                         socketRuns = false;
 
                         followRunning = false;
+
+                        steadyTimer.cancel();
 
                         if(tcpSocket && tcpSocket->is_open()){
 
@@ -1149,6 +1187,8 @@ void WebRTCManager::disConnect()
             socketRuns = false;
 
             followRunning = false;
+
+            steadyTimer.cancel();
 
             if(tcpSocket && tcpSocket->is_open()){
 
