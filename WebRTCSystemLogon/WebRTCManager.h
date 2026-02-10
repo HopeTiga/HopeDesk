@@ -246,7 +246,7 @@ namespace hope {
 
             moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
 
-            std::atomic<bool> writerCoroutineRuns{ false };
+            boost::asio::steady_timer steadyTimer;
 
             std::unique_ptr<WinLogon> winLogon;
 
