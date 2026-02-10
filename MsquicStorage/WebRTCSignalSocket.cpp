@@ -18,11 +18,14 @@ namespace hope {
             , registrationTimer(ioContext)
             , webSocket(ioContext)
             , channelIndex(channelIndex)
-            , msquicManager(msquicManager) {
+            , msquicManager(msquicManager)
+            , steadyTimer(ioContext){
 
             boost::uuids::random_generator gen;
 
             sessionId = boost::uuids::to_string(gen());
+
+            steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
 
         }
 
@@ -165,6 +168,8 @@ namespace hope {
 
         void WebRTCSignalSocket::runEventLoop() {
 
+            webSocketRuns.store(true);
+
             boost::asio::co_spawn(ioContext, reviceCoroutine(), [self = shared_from_this()](std::exception_ptr p) {
 
                 if (p) {
@@ -184,6 +189,8 @@ namespace hope {
 
 
                 });
+
+            boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
 
             webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                 boost::beast::role_type::server));
@@ -207,6 +214,8 @@ namespace hope {
         void WebRTCSignalSocket::closeSocket() {
 
             boost::system::error_code ec;
+
+            steadyTimer.cancel();
 
             webSocket.next_layer().cancel(ec);
 
@@ -245,8 +254,6 @@ namespace hope {
         }
 
         boost::asio::awaitable<void> WebRTCSignalSocket::reviceCoroutine() {
-
-			webSocketRuns.store(true);
 
             while (webSocketRuns) {
 
@@ -287,13 +294,23 @@ namespace hope {
 
                 std::string str;
 
-                while (writerQueues.try_dequeue(str) && webSocketRuns.load()) {
+                while (webSocketRuns.load()) {
 
-                    co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
+                    while (writerQueues.try_dequeue(str)) {
+
+                        co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
+
+                    }
+
+                    if (!webSocketRuns.load()) break;
+
+                    steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
+
+                    boost::system::error_code ec;
+
+                    co_await steadyTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
                 }
-
-                writerCoroutineRuns.store(false);
 
             }
             catch (const std::exception& e) {
@@ -330,12 +347,7 @@ namespace hope {
 
             writerQueues.enqueue(std::move(str));
 
-            if (!writerCoroutineRuns) {
-
-                writerCoroutineRuns = true;
-
-                boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
-            }
+            steadyTimer.cancel();
 
         }
 
@@ -345,12 +357,7 @@ namespace hope {
 
             writerQueues.enqueue(std::move(str));
 
-            if (!writerCoroutineRuns) {
-
-                writerCoroutineRuns = true;
-
-                boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
-            }
+            steadyTimer.cancel();
 
         }
 

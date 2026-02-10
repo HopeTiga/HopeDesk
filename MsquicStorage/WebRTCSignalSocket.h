@@ -81,6 +81,8 @@ namespace hope {
 
 			boost::asio::ip::tcp::resolver resolver;
 
+			boost::asio::steady_timer steadyTimer;
+
 			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
 
 			std::atomic<bool> webSocketRuns{ false };
@@ -98,8 +100,6 @@ namespace hope {
 			std::atomic<bool> isHandleDisConnect{ false };
 
 			std::atomic<bool> isDeleted{ false };
-
-			std::atomic<bool> writerCoroutineRuns{ false };
 
 			std::string sessionId;
 
