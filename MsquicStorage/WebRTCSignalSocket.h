@@ -6,7 +6,7 @@
 #include <boost/json.hpp>
 
 #include "MsquicSocketInterface.h"
-#include "SpinLock.h"
+#include "concurrentqueue.h"
 
 
 namespace hope {
@@ -67,7 +67,7 @@ namespace hope {
 
 			boost::asio::awaitable<void> reviceCoroutine();
 
-			boost::asio::awaitable<void> flushWriteQueues();
+			boost::asio::awaitable<void> writerCoroutine();
 
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,int idle = 0, int intvl = 3, int probes = 3);
 
@@ -81,11 +81,9 @@ namespace hope {
 
 			boost::asio::ip::tcp::resolver resolver;
 
-			std::vector<std::string> writeQueues;
+			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
 
-			hope::utils::SpinLock spinLock;
-
-			std::atomic<bool> isWriting{ false };
+			std::atomic<bool> webSocketRuns{ false };
 
 			std::atomic<bool> isStop{ false };
 
@@ -100,6 +98,8 @@ namespace hope {
 			std::atomic<bool> isHandleDisConnect{ false };
 
 			std::atomic<bool> isDeleted{ false };
+
+			std::atomic<bool> writerCoroutineRuns{ false };
 
 			std::string sessionId;
 

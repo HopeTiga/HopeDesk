@@ -239,12 +239,16 @@ namespace hope {
                 }
             }
 
+			webSocketRuns.store(false);
+
             LOG_INFO("WebRTCSignalSocket is close");
         }
 
         boost::asio::awaitable<void> WebRTCSignalSocket::reviceCoroutine() {
 
-            while (!isStop) {
+			webSocketRuns.store(true);
+
+            while (webSocketRuns) {
 
                 boost::beast::flat_buffer buffer;
 
@@ -278,55 +282,31 @@ namespace hope {
 
         }
 
-        boost::asio::awaitable<void> WebRTCSignalSocket::flushWriteQueues() {
-
-            std::vector <std::string> localQueues;
-
-            localQueues.reserve(16);
-
+        boost::asio::awaitable<void> WebRTCSignalSocket::writerCoroutine() {
             try {
 
-                while (true) {
+                std::string str;
 
-                    spinLock.lock();
+                while (writerQueues.try_dequeue(str) && webSocketRuns.load()) {
 
-                    if (writeQueues.empty()) {
+                    co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
 
-                        isWriting = false;
-
-                        spinLock.unlock();
-
-                        co_return;
-
-                    }
-
-                    localQueues.swap(writeQueues);
-
-                    spinLock.unlock();
-
-                    for (std::string& str : localQueues) {
-
-                        co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
-
-                    }
-
-                    localQueues.clear();
                 }
+
+                writerCoroutineRuns.store(false);
+
             }
-            catch (std::exception& e) {
+            catch (const std::exception& e) {
 
-                LOG_ERROR("WebRTCSignalSocket::FlushWriteQueue Write Error: %s", e.what());
+                LOG_ERROR("Writer coroutine unhandled exception: %s", e.what());
 
-                isWriting = false;
+            }
+            catch (...) {
 
-                writeQueues.clear();
+                LOG_ERROR("Writer coroutine unknown exception");
 
-                destroy();
-
-            };
-
+            }
             co_return;
-
         }
 
         void WebRTCSignalSocket::writeAsync(unsigned char* data, size_t size)
@@ -343,42 +323,33 @@ namespace hope {
             }
         }
 
+
         void WebRTCSignalSocket::writeAsync(std::string str) {
 
             if (isStop) return;
 
-            spinLock.lock();
+            writerQueues.enqueue(std::move(str));
 
-            writeQueues.emplace_back(std::move(str));
+            if (!writerCoroutineRuns) {
 
-            spinLock.unlock();
+                writerCoroutineRuns = true;
 
-            if (!isWriting) {
-            
-                isWriting = true;
-
-                boost::asio::co_spawn(ioContext, flushWriteQueues(), boost::asio::detached);
-
+                boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
             }
-           
+
         }
 
         void WebRTCSignalSocket::writeAsyncMove(std::string && str) {
 
             if (isStop) return;
 
-            spinLock.lock();
+            writerQueues.enqueue(std::move(str));
 
-            writeQueues.emplace_back(std::move(str));
+            if (!writerCoroutineRuns) {
 
-            spinLock.unlock();
+                writerCoroutineRuns = true;
 
-            if (!isWriting) {
-
-                isWriting = true;
-
-                boost::asio::co_spawn(ioContext, flushWriteQueues(), boost::asio::detached);
-
+                boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
             }
 
         }
