@@ -32,8 +32,7 @@ namespace hope {
             bufferPool(false, 100),
             cursorHooks(nullptr),
             screenCapture(nullptr),
-            hAudioCatch(nullptr),
-            steadyTimer(ioContext){
+            hAudioCatch(nullptr) {
 
             ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
                 boost::asio::make_work_guard(ioContext));
@@ -41,8 +40,6 @@ namespace hope {
             ioContextThread = std::move(std::thread([this]() {
                 this->ioContext.run();
                 }));
-
-            steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
 
             boost::asio::co_spawn(ioContext, [this]()-> boost::asio::awaitable<void> {
 
@@ -173,10 +170,8 @@ namespace hope {
 
             socketRuns = true;
 
-            boost::asio::co_spawn(ioContext,receiveCoroutine(),boost::asio::detached);
+            boost::asio::co_spawn(ioContext, receiveCoroutine(), boost::asio::detached);
 
-            boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
-           
         }
 
         inline void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
@@ -189,7 +184,12 @@ namespace hope {
 
             writerDataQueues.enqueue(data);
 
-            steadyTimer.cancel();
+            if (!writerCoroutineRuns.exchange(true)) {
+
+                boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
+
+            }
+
 
         }
 
@@ -972,27 +972,15 @@ namespace hope {
         {
             try {
 
-                while (socketRuns.load()) {
-                
-                    std::shared_ptr<WriterData> writeData = nullptr;
+                std::shared_ptr<WriterData> writeData = nullptr;
 
-                    while (writerDataQueues.try_dequeue(writeData) && socketRuns.load()) {
+                while (writerDataQueues.try_dequeue(writeData) && socketRuns.load()) {
 
-                        co_await boost::asio::async_write(*tcpSocket, boost::asio::buffer(writeData->data, writeData->size), boost::asio::use_awaitable);
-
-                    }
-
-                    if (!socketRuns.load()) break;
-
-                    steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
-
-                    boost::system::error_code ec;
-
-                    co_await steadyTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+                    co_await boost::asio::async_write(*tcpSocket, boost::asio::buffer(writeData->data, writeData->size), boost::asio::use_awaitable);
 
                 }
 
-               
+                writerCoroutineRuns.store(false);
 
             }
             catch (const std::exception& e) {
@@ -1021,6 +1009,10 @@ namespace hope {
 
             if (hAudioCatch) {
                 hAudioCatch.reset();
+            }
+
+            if (rtcStatsCollectorHandle) {
+                rtcStatsCollectorHandle = nullptr;
             }
 
             // Close peer connection

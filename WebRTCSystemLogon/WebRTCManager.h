@@ -44,6 +44,7 @@
 #include "DataChannelObserverImpl.h"
 #include "SetDescriptionObserverImpl.h"
 #include "CreateDescriptionObserverImpl.h"
+#include "RTCStatsCollectorHandle.h"
 
 // Project includes
 #include "concurrentqueue.h"
@@ -76,6 +77,9 @@ namespace hope {
             STOPREMOTE = 3,
             START = 4,
             CLOSE = 5,
+            CLOSESYSTEM = 6,
+            SYSTEMREADLY = 7,
+			STATS = 8
         };
 
         enum class WebRTCVideoCodec {
@@ -180,7 +184,7 @@ namespace hope {
 
             boost::asio::awaitable<void> receiveCoroutine();
 
-			boost::asio::awaitable<void> writerCoroutine();
+            boost::asio::awaitable<void> writerCoroutine();
 
         private:
 
@@ -224,6 +228,8 @@ namespace hope {
 
             webrtc::scoped_refptr<AudioDeviceModuleImpl> audioDeviceModuleImpl;
 
+            webrtc::scoped_refptr<RTCStatsCollectorHandle> rtcStatsCollectorHandle;
+
             webrtc::VideoFrameBufferPool bufferPool;
 
             std::atomic<bool> isInit{ false };
@@ -246,7 +252,7 @@ namespace hope {
 
             moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
 
-            boost::asio::steady_timer steadyTimer;
+            std::atomic<bool> writerCoroutineRuns{ false };
 
             std::unique_ptr<WinLogon> winLogon;
 

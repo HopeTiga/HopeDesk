@@ -57,7 +57,7 @@ namespace hope {
             case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
 
                 LOG_INFO("ICE connection established");
-
+            
                 auto localDesc = manager->peerConnection->local_description();
                 if (localDesc) {
                     std::string sdp;
@@ -92,6 +92,26 @@ namespace hope {
                 std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
 
                 manager->writerAsync(data);
+
+                manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
+
+                manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = [this](int connectionType) {
+                    
+                    boost::json::object json;
+
+                    json["requestType"] = static_cast<int64_t>(WebRTCRequestState::STATS);
+
+                    json["connectionType"] = connectionType;
+
+                    std::string jsonStr = boost::json::serialize(json);
+
+                    std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
+
+                    manager->writerAsync(data);
+
+                    };
+
+                manager->peerConnection->GetStats(manager->rtcStatsCollectorHandle.get());
 
                 break;
             }
