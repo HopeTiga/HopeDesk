@@ -47,6 +47,7 @@ SOURCES += \
     MsQuicApi.cpp \
     MsquicSocketClient.cpp \
     PeerConnectionObserverImpl.cpp \
+    RTCStatsCollectorHandle.cpp \
     SetDescriptionObserverImpl.cpp \
     Utils.cpp \
     interceptionhook.cpp \
@@ -67,6 +68,7 @@ HEADERS += \
     MsQuicApi.h \
     MsquicSocketClient.h \
     PeerConnectionObserverImpl.h \
+    RTCStatsCollectorHandle.h \
     SetDescriptionObserverImpl.h \
     Utils.h \
     WindowsServiceManager.h \

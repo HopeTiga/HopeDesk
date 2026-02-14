@@ -917,6 +917,16 @@ void WebRTCManager::receiveCoroutineAysnc()
                 disConnectRemoteHandler();
 
                 continue;
+            }else if(WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::STATS){
+
+                int type = json["connectionType"].as_int64();
+
+                if(onRTCStatsCollectorHandle){
+
+                    onRTCStatsCollectorHandle(type);
+
+                }
+
             }
 
             if(msquicSocketClient && msquicSocketClient->isConnected()){
@@ -1030,6 +1040,7 @@ void WebRTCManager::releaseSource()
     dataChannelObserver.reset();
     createOfferObserver = nullptr;
     createAnswerObserver = nullptr;
+    rtcStatsCollectorHandle = nullptr;
 
     // 6. 清理状态
     isInit = false;

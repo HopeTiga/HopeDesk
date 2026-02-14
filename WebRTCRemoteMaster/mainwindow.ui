@@ -1013,6 +1013,118 @@ QComboBox::down-arrow {
           </layout>
          </widget>
         </item>
+<item>
+ <widget class="QWidget" name="connectionStatusWidget" native="true">
+  <property name="minimumSize">
+   <size>
+    <width>0</width>
+    <height>36</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>16777215</width>
+    <height>36</height>
+   </size>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QWidget#connectionStatusWidget {
+    background: transparent;
+}</string>
+  </property>
+  <layout class="QHBoxLayout" name="horizontalLayout_status">
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <item>
+    <spacer name="horizontalSpacer_status_left">
+     <property name="orientation">
+      <enum>Qt::Orientation::Horizontal</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>40</width>
+       <height>20</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item>
+    <widget class="QLabel" name="connectionTypeBadge">
+     <property name="minimumSize">
+      <size>
+       <width>120</width>
+       <height>28</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>140</width>
+       <height>28</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QLabel {
+    background: rgba(160,174,192,0.2);
+    border: 1px solid rgba(160,174,192,0.4);
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #718096;
+}
+QLabel[status="connected-p2p"] {
+    background: rgba(72,187,120,0.15);
+    border-color: rgba(72,187,120,0.4);
+    color: #276749;
+}
+QLabel[status="connected-relay"] {
+    background: rgba(237,137,54,0.15);
+    border-color: rgba(237,137,54,0.4);
+    color: #9C4221;
+}
+QLabel[status="connecting"] {
+    background: rgba(66,153,225,0.15);
+    border-color: rgba(66,153,225,0.4);
+    color: #2B6CB0;
+}</string>
+     </property>
+     <property name="text">
+      <string>未连接</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignmentFlag::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="horizontalSpacer_status_right">
+     <property name="orientation">
+      <enum>Qt::Orientation::Horizontal</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>40</width>
+       <height>20</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+</item>
         <item>
          <spacer name="verticalSpacer_2">
           <property name="orientation">
@@ -1038,7 +1150,7 @@ QComboBox::down-arrow {
      <x>0</x>
      <y>0</y>
      <width>1200</width>
-     <height>21</height>
+     <height>25</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu">

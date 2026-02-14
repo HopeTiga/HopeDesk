@@ -118,6 +118,8 @@ namespace hope{
 
         void createTrayIcon();
 
+        void updateConnectionTypeBadge();
+
     private:
         Ui::MainWindow *ui;
         // 主要组件

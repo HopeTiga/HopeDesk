@@ -46,6 +46,7 @@
 #include "DataChannelObserverImpl.h"
 #include "SetDescriptionObserverImpl.h"
 #include "CreateDescriptionObserverImpl.h"
+#include "RTCStatsCollectorHandle.h"
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -85,6 +86,7 @@ enum class WebRTCRequestState {
     CLOSE = 5,
     CLOSESYSTEM = 6,
     SYSTEMREADLY = 7,
+    STATS = 8
 };
 
 struct VideoFrame {
@@ -188,6 +190,8 @@ public:
 
     std::function<void()> resetCursorHandle;
 
+    std::function<void(int)> onRTCStatsCollectorHandle;
+
     void disConnectHandle();
 
     void setSystemServiceExe(std::string webrtcExe);
@@ -247,6 +251,8 @@ private:
     webrtc::scoped_refptr<CreateAnswerObserverImpl> createAnswerObserver;
 
     std::unique_ptr<VideoTrackSinkImpl> videoSinkImpl;
+
+    webrtc::scoped_refptr<RTCStatsCollectorHandle> rtcStatsCollectorHandle;
 
     std::atomic<bool> isInit{false};
 

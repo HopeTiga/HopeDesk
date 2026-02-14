@@ -162,6 +162,16 @@ void MainWindow::setupWebRTCCallbacks()
 
             ui->sendRequestButton->setEnabled(ui->deviceListWidget->currentItem() != nullptr);
 
+            // 远程连接失败后，重置连接类型标签为服务器连接状态
+            if (isConnected) {
+                ui->connectionTypeBadge->setProperty("status", "connecting");
+                ui->connectionTypeBadge->setText("已连接");
+            } else {
+                ui->connectionTypeBadge->setProperty("status", "idle");
+                ui->connectionTypeBadge->setText("未连接");
+            }
+            updateConnectionTypeBadge();
+
             QString targetId = ui->deviceListWidget->currentItem() ?
                                    ui->deviceListWidget->currentItem()->text() : "未知";
             ui->remoteStatusLabel->setText(QString("无法连接到 %1：对方可能不在线或拒绝了连接").arg(targetId));
@@ -189,12 +199,23 @@ void MainWindow::setupWebRTCCallbacks()
                 this->onConnectionStateChanged(true);
                 this->reConnectNums = 0;
                 LOG_INFO("MsquicServer Connected successfully.");
+
+                // 连接成功，但尚未知道连接类型
+                ui->connectionTypeBadge->setProperty("status", "connecting");
+                ui->connectionTypeBadge->setText("已连接");
+                updateConnectionTypeBadge();
             } else {
                 if (!hasEverConnected) {
                     this->ui->connectButton->setEnabled(true);
                     this->ui->connectButton->setText("连接服务器");
                     this->ui->connectionStatusLabel->setText("连接异常");
                     this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("error"));
+
+                    // 初始连接失败
+                    ui->connectionTypeBadge->setProperty("status", "disconnected");
+                    ui->connectionTypeBadge->setText("连接失败");
+                    updateConnectionTypeBadge();
+
                     LOG_INFO("Initial connection failed.");
                 } else {
                     this->isConnected = false;
@@ -206,6 +227,11 @@ void MainWindow::setupWebRTCCallbacks()
                     this->ui->connectionStatusLabel->setText(
                         QString("连接断开，将在15秒后进行第%1次重连...").arg(this->reConnectNums));
                     this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
+
+                    // 断开重连状态
+                    ui->connectionTypeBadge->setProperty("status", "reconnecting");
+                    ui->connectionTypeBadge->setText("重连中");
+                    updateConnectionTypeBadge();
 
                     if (statusBar()) {
                         statusBar()->showMessage(QString("将在15秒后进行第%1次重连").arg(this->reConnectNums));
@@ -222,6 +248,12 @@ void MainWindow::setupWebRTCCallbacks()
                                 this->ui->connectionStatusLabel->setText(
                                     QString("正在进行第%1次重连...").arg(this->reConnectNums));
                                 this->ui->connectionStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
+
+                                // 重连状态
+                                ui->connectionTypeBadge->setProperty("status", "reconnecting");
+                                ui->connectionTypeBadge->setText("重连中");
+                                updateConnectionTypeBadge();
+
                                 if (statusBar()) {
                                     statusBar()->showMessage("正在重连...");
                                 }
@@ -242,6 +274,12 @@ void MainWindow::setupWebRTCCallbacks()
                                 this->ui->connectButton->setEnabled(true);
                                 this->ui->connectButton->setText("连接服务器");
                                 this->reConnectNums = 0;
+
+                                // 重置为未连接状态
+                                ui->connectionTypeBadge->setProperty("status", "idle");
+                                ui->connectionTypeBadge->setText("未连接");
+                                updateConnectionTypeBadge();
+
                                 LOG_INFO("Config incomplete, stop retry.");
                             }
                         }
@@ -251,6 +289,7 @@ void MainWindow::setupWebRTCCallbacks()
         }, Qt::QueuedConnection);
     };
 
+
     manager->resetCursorHandle = [this]() {
         // 务必使用 QueuedConnection 确保在 UI 线程执行
         QMetaObject::invokeMethod(this, [this]() {
@@ -258,8 +297,29 @@ void MainWindow::setupWebRTCCallbacks()
             SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
         }, Qt::QueuedConnection);
     };
+
+    manager->onRTCStatsCollectorHandle = [this](int connectionType) {
+        QMetaObject::invokeMethod(this, [this, connectionType]() {
+            if (connectionType == 0) { // P2P
+                ui->connectionTypeBadge->setProperty("status", "connected-p2p");
+                ui->connectionTypeBadge->setText(" ⚡ 直连 ");
+            } else { // TURN/Relay
+                ui->connectionTypeBadge->setProperty("status", "connected-relay");
+                ui->connectionTypeBadge->setText(" 🔄 中继 ");
+            }
+            updateConnectionTypeBadge();
+        }, Qt::QueuedConnection);
+    };
+
 }
 
+void MainWindow::updateConnectionTypeBadge()
+{
+    // 强制刷新样式
+    ui->connectionTypeBadge->style()->unpolish(ui->connectionTypeBadge);
+    ui->connectionTypeBadge->style()->polish(ui->connectionTypeBadge);
+    ui->connectionTypeBadge->update();
+}
 
 void MainWindow::loadConfigFile()
 {
@@ -410,8 +470,13 @@ void MainWindow::setupConnections()
 
 void MainWindow::applyModernStyles()
 {
-    // 主窗口样式已经在UI文件中定义
-    // 这里可以添加额外的样式设置
+
+    ui->connectionTypeBadge->setProperty("status", "idle");
+
+    ui->connectionTypeBadge->setText("未连接");
+
+    updateConnectionTypeBadge();
+
 }
 
 void MainWindow::loadSettings()
@@ -528,8 +593,6 @@ void MainWindow::createVideoWidget()
     });
 }
 
-// ========== 槽函数实现 ==========
-
 void MainWindow::onConnectClicked()
 {
     if (isConnected || accountList.isEmpty()) {
@@ -549,6 +612,11 @@ void MainWindow::onConnectClicked()
         showErrorMessage("连接错误", "请先添加并选择一个账号");
         return;
     }
+
+    // 更新连接类型标签为连接中状态
+    ui->connectionTypeBadge->setProperty("status", "connecting");
+    ui->connectionTypeBadge->setText("连接中");
+    updateConnectionTypeBadge();
 
     manager->setAccountId(currentAccount.toStdString());
 
@@ -582,18 +650,18 @@ void MainWindow::onDisconnectClicked()
     // 2. 发起异步断开 (后台线程开始清理 WebRTC 资源)
     manager->disConnect();
 
-    // 3. 更新 UI 状态
+    // 3. 更新连接类型标签
+    ui->connectionTypeBadge->setProperty("status", "disconnected");
+    ui->connectionTypeBadge->setText("断开中");
+    updateConnectionTypeBadge();
+
+    // 4. 更新 UI 状态
     onConnectionStateChanged(false);
 
-    // 4. 安全处理 videoWidget
+    // 5. 安全处理 videoWidget
     if (videoWidget) {
-        videoWidget->hide(); // 先隐藏，让用户感觉“关掉了”
-        // videoWidget->close(); // close() 可能会触发额外的事件，hide() 足够了
-
-        // 关键：不要直接 delete，使用 deleteLater()
-        // 这样可以让当前函数执行完，且等待可能的挂起事件处理完后再销毁
+        videoWidget->hide(); // 先隐藏，让用户感觉"关掉了"
         videoWidget->deleteLater();
-
         videoWidget = nullptr; // 置空指针，防止后续逻辑误用
     }
 
@@ -601,6 +669,13 @@ void MainWindow::onDisconnectClicked()
     ui->hideVideoButton->setEnabled(false);
     ui->disconnectRemoteButton->setEnabled(false);
     isRemoteConnected = false;
+
+    // 更新连接类型标签为未连接状态
+    QTimer::singleShot(500, [this]() {
+        ui->connectionTypeBadge->setProperty("status", "idle");
+        ui->connectionTypeBadge->setText("未连接");
+        updateConnectionTypeBadge();
+    });
 }
 
 void MainWindow::onAccountChanged(int index)
@@ -645,6 +720,11 @@ void MainWindow::onSendRequestClicked()
     ui->remoteStatusLabel->setText(QString("正在向 %1 发送连接请求...").arg(targetId));
     ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
 
+    // 发送请求时显示"请求中"
+    ui->connectionTypeBadge->setProperty("status", "connecting");
+    ui->connectionTypeBadge->setText("请求中");
+    updateConnectionTypeBadge();
+
     ui->sendRequestButton->setEnabled(false);
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
     manager->sendRequestToTarget(this->webrtcModulesType,this->webrtcLevels,this->videoCodec,this->webrtcAudioEnable);
@@ -665,6 +745,17 @@ void MainWindow::onDisconnectRemoteControl()
         if (manager) {
             manager->disConnectRemote();
         }
+
+        // 远程连接断开后，重置连接类型标签为服务器连接状态
+        if (isConnected) {
+            ui->connectionTypeBadge->setProperty("status", "connecting");
+            ui->connectionTypeBadge->setText("已连接");
+        } else {
+            ui->connectionTypeBadge->setProperty("status", "idle");
+            ui->connectionTypeBadge->setText("未连接");
+        }
+        updateConnectionTypeBadge();
+
         ui->remoteStatusLabel->setText("已主动断开被控制");
         ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("success"));
         ui->disconnectRemoteButton->setText("断开远程连接");
@@ -674,6 +765,17 @@ void MainWindow::onDisconnectRemoteControl()
         if (manager) {
             manager->disConnectRemote();
         }
+
+        // 远程连接断开后，重置连接类型标签为服务器连接状态
+        if (isConnected) {
+            ui->connectionTypeBadge->setProperty("status", "connecting");
+            ui->connectionTypeBadge->setText("已连接");
+        } else {
+            ui->connectionTypeBadge->setProperty("status", "idle");
+            ui->connectionTypeBadge->setText("未连接");
+        }
+        updateConnectionTypeBadge();
+
         ui->remoteStatusLabel->setText("已主动断开远程操控");
         ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
     }
@@ -705,6 +807,9 @@ void MainWindow::onRemoteControlStarted()
     ui->disconnectRemoteButton->setText("断开被控制");
     ui->sendRequestButton->setEnabled(false);
 
+    // 注意：这里不需要更新连接类型标签
+    // 被控制的状态不需要在连接类型标签中显示
+
     ui->remoteStatusLabel->setText("正在被远程控制中");
     ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("warning"));
 
@@ -728,6 +833,16 @@ void MainWindow::onRemoteDisconnectedByPeer()
     ui->disconnectRemoteButton->setText("断开远程连接");
     ui->sendRequestButton->setEnabled(ui->deviceListWidget->currentItem() != nullptr);
 
+    // 远程连接被对方断开后，重置连接类型标签为服务器连接状态
+    if (isConnected) {
+        ui->connectionTypeBadge->setProperty("status", "connecting");
+        ui->connectionTypeBadge->setText("已连接");
+    } else {
+        ui->connectionTypeBadge->setProperty("status", "idle");
+        ui->connectionTypeBadge->setText("未连接");
+    }
+    updateConnectionTypeBadge();
+
     ui->remoteStatusLabel->setText("远程连接已被对方断开");
     ui->remoteStatusLabel->setStyleSheet(createStatusLabelStyle("info"));
 
@@ -747,6 +862,16 @@ void MainWindow::onRemoteConnectionTimeout()
     qDebug() << "Remote connection timeout";
 
     ui->sendRequestButton->setEnabled(ui->deviceListWidget->currentItem() != nullptr);
+
+    // 远程连接超时后，重置连接类型标签为服务器连接状态
+    if (isConnected) {
+        ui->connectionTypeBadge->setProperty("status", "connecting");
+        ui->connectionTypeBadge->setText("已连接");
+    } else {
+        ui->connectionTypeBadge->setProperty("status", "idle");
+        ui->connectionTypeBadge->setText("未连接");
+    }
+    updateConnectionTypeBadge();
 
     QString targetId = ui->deviceListWidget->currentItem() ?
                            ui->deviceListWidget->currentItem()->text() : "未知";
@@ -871,10 +996,20 @@ void MainWindow::onConnectionStateChanged(bool connected)
     updateConnectionState(connected);
 
     if (connected) {
+        // 连接成功但还未确定连接类型
+        // 注意：这里只在服务器连接成功时显示"已连接"
+        ui->connectionTypeBadge->setProperty("status", "connecting");
+        ui->connectionTypeBadge->setText("已连接");
+        updateConnectionTypeBadge();
         statusBar()->showMessage("已连接到服务器");
         updateTargetList();  // 连接后从服务器获取设备列表
     } else {
+        // 断开连接时重置为idle状态
+        ui->connectionTypeBadge->setProperty("status", "idle");
+        ui->connectionTypeBadge->setText("未连接");
+        updateConnectionTypeBadge();
         statusBar()->showMessage("连接已断开");
+
         // 断开连接时重新初始化设备列表（显示未连接提示）
         initializeDeviceLists();
 
@@ -1008,6 +1143,11 @@ void MainWindow::onManagerError(const QString& error)
     if (isConnected) {
         showErrorMessage("连接错误", error);
     }
+
+    // 更新连接类型标签为错误状态
+    ui->connectionTypeBadge->setProperty("status", "disconnected");
+    ui->connectionTypeBadge->setText("连接错误");
+    updateConnectionTypeBadge();
 
     updateConnectionState(false);
 }
