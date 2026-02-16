@@ -415,9 +415,7 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> acquiredTexture;
             if (FAILED(desktopResource.As(&acquiredTexture))) return false;
 
-            d3dContext->CopyResource(sharedTexture.Get(), acquiredTexture.Get());
-
-            return processFrame(sharedTexture.Get());
+            return processFrame(acquiredTexture.Get());
         }
 
         bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
