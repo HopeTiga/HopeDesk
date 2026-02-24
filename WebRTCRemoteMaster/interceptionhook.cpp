@@ -104,6 +104,15 @@ void InterceptionHook::stopCapture()
 
     LOG_INFO("Stopping capture...");
     running = false;
+    // ===== 关键：发送虚拟输入事件唤醒 interception_wait() =====
+    if (context) {
+        // 方法1：发送一个虚拟键盘事件唤醒等待
+        INPUT input = {};
+        input.type = INPUT_KEYBOARD;
+        input.ki.wVk = VK_SPACE;  // Scroll Lock，影响小
+        input.ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
+        SendInput(1, &input, sizeof(INPUT));
+    }
 
     // Wait for thread to finish
     if (captureThread.joinable()) {

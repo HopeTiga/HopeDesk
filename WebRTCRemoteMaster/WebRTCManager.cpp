@@ -217,43 +217,40 @@ void WebRTCManager::connect(std::string ip)
                         std::string type(json["type"].as_string().c_str());
 
                         if(type == "offer"){
-                            // 只有当我们不是发起者时才响应offer
-                            if(!isInit.load()){
-                                if(json.contains("accountId")){
-                                    targetId = std::string(json["accountId"].as_string().c_str());
-                                }
-
-                                std::string sdp(json["sdp"].as_string().c_str());
-
-                                if(!peerConnection) {
-                                    LOG_ERROR("PeerConnection is null, cannot process offer");
-                                    return;
-                                }
-
-                                // 创建远程描述
-                                webrtc::SdpParseError error;
-                                std::unique_ptr<webrtc::SessionDescriptionInterface> remoteDesc(
-                                    webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
-
-                                if(!remoteDesc) {
-                                    LOG_ERROR("Failed to parse offer SDP: %s" ,error.description.c_str());
-                                    return;
-                                }
-
-                                peerConnection->SetRemoteDescription(
-                                    SetRemoteDescriptionObserver::Create().get(),
-                                    remoteDesc.release()
-                                    );
-
-                                // 创建并发送answer
-                                webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-
-                                createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
-
-                                peerConnection->CreateAnswer(createAnswerObserver.get(), options);
-
-                                isInit = true;
+                            if(json.contains("accountId")){
+                                targetId = std::string(json["accountId"].as_string().c_str());
                             }
+
+                            std::string sdp(json["sdp"].as_string().c_str());
+
+                            if(!peerConnection) {
+                                LOG_ERROR("PeerConnection is null, cannot process offer");
+                                return;
+                            }
+
+                            // 创建远程描述
+                            webrtc::SdpParseError error;
+                            std::unique_ptr<webrtc::SessionDescriptionInterface> remoteDesc(
+                                webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
+
+                            if(!remoteDesc) {
+                                LOG_ERROR("Failed to parse offer SDP: %s" ,error.description.c_str());
+                                return;
+                            }
+
+                            peerConnection->SetRemoteDescription(
+                                SetRemoteDescriptionObserver::Create().get(),
+                                remoteDesc.release()
+                                );
+
+                            // 创建并发送answer
+                            webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+
+                            createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
+
+                            peerConnection->CreateAnswer(createAnswerObserver.get(), options);
+
+                            isInit = true;
 
                         } else if(type == "candidate"){
                             std::string candidateStr(json["candidate"].as_string().c_str());
