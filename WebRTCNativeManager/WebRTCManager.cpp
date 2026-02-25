@@ -250,8 +250,6 @@ void WebRTCManager::connect(std::string ip)
 
                             peerConnection->CreateAnswer(createAnswerObserver.get(), options);
 
-                            isInit = true;
-
                         } else if(type == "candidate"){
                             std::string candidateStr(json["candidate"].as_string().c_str());
                             std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
@@ -555,22 +553,6 @@ void WebRTCManager::disConnectRemote()
     if(resetCursorHandle) resetCursorHandle();
 
     if(isRemote == false) return;
-
-    if(tcpSocket){
-
-        socketRuns = false;
-
-        followRunning = false;
-
-        steadyTimer.cancel();
-
-        if(tcpSocket && tcpSocket->is_open()){
-
-            tcpSocket->close();
-        }
-
-        tcpSocket = nullptr;
-    }
 
     isRemote = false;
 
@@ -1039,15 +1021,20 @@ void WebRTCManager::releaseSource()
     createAnswerObserver = nullptr;
     rtcStatsCollectorHandle = nullptr;
 
-    // 6. 清理状态
-    isInit = false;
+    if(tcpSocket){
 
-    while (!trackFrameQueues.empty()) {
-        trackFrameQueues.pop();
-    }
+        socketRuns = false;
 
-    while (!remoteBinaryQueue.empty()) {
-        remoteBinaryQueue.pop();
+        followRunning = false;
+
+        steadyTimer.cancel();
+
+        if(tcpSocket && tcpSocket->is_open()){
+
+            tcpSocket->close();
+        }
+
+        tcpSocket = nullptr;
     }
 
     WindowsServiceManager::stopService(systemService);  // ← 也可能在这里阻塞

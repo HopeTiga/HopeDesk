@@ -105,23 +105,11 @@ void InterceptionHook::stopCapture()
     LOG_INFO("Stopping capture...");
     running = false;
 
-    if (context) {
-        INPUT input[2] = {};
-        input[0].type = INPUT_KEYBOARD;
-        input[0].ki.wVk = VK_SPACE;
-        input[0].ki.dwFlags = 0;  // KEYDOWN
-
-        input[1].type = INPUT_KEYBOARD;
-        input[1].ki.wVk = VK_SPACE;
-        input[1].ki.dwFlags = KEYEVENTF_KEYUP;  // KEYUP
-
-        SendInput(2, input, sizeof(INPUT));
-    }
-
     // Wait for thread to finish
     if (captureThread.joinable()) {
         captureThread.join();
     }
+
 
     // Destroy context
     if (context) {
@@ -159,7 +147,7 @@ void InterceptionHook::captureThreadFunc()
     InterceptionStroke stroke;
 
     while (running) {
-        device = interception_wait(context);
+        device = interception_wait_with_timeout(context,3000);
         if (!running) break;
         if (device == 0) continue;
         if (interception_receive(context, device, &stroke, 1) <= 0) continue;

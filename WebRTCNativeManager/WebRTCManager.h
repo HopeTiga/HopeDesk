@@ -254,8 +254,6 @@ private:
 
     webrtc::scoped_refptr<RTCStatsCollectorHandle> rtcStatsCollectorHandle;
 
-    std::atomic<bool> isInit{false};
-
     std::atomic<bool> followRunning{false};
 
     std::atomic<bool> shouldStop{false};
@@ -282,11 +280,7 @@ private:
 
     boost::asio::ip::tcp::acceptor accept;
 
-    std::queue<std::vector<std::byte>> remoteBinaryQueue;
-
     std::function<void(std::shared_ptr<VideoFrame>)> videoFrameCallback;
-
-    std::queue<std::vector<std::byte>> trackFrameQueues;
 
     std::unique_ptr<boost::asio::ip::tcp::socket> tcpSocket;
 
