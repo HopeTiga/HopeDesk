@@ -333,15 +333,15 @@ void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
     }
 
     // Normalize coordinates to 0-65535 range
-    int normalizedX = (x << 16) / screenWidth;
-    int normalizedY = (y << 16) / screenHeight;
+    uint32_t normalizedX = (x << 16) / screenWidth;
+    uint32_t normalizedY = (y << 16) / screenHeight;
 
 #pragma pack(push,1)
     struct MouseButton {
         short type;
         short buttonId;
-        int x;
-        int y;
+        uint32_t x;
+        uint32_t y;
     };
 #pragma pack(pop)
 
@@ -357,17 +357,16 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
     struct MouseMove              // 6 字节
     {
         short  type;              // 0
-        uint16_t x;               // 屏幕绝对像素
-        uint16_t y;
+        uint32_t x;               // 屏幕绝对像素
+        uint32_t y;
     };
 #pragma pack(pop)
 
     // 边界保护
-    uint16_t ux = static_cast<uint16_t>(std::clamp(x, 0, screenWidth));
+    uint32_t normalizedX = (x << 16) / screenWidth;
+    uint32_t normalizedY = (y << 16) / screenHeight;
 
-    uint16_t uy = static_cast<uint16_t>(std::clamp(y, 0, screenHeight));
-
-    MouseMove* pkt = new MouseMove{0, ux, uy};
+    MouseMove* pkt = new MouseMove{0, normalizedX, normalizedY};
 
     manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
 }
