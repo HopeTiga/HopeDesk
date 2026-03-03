@@ -322,7 +322,13 @@ namespace hope {
 
             config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
-            config.set_dscp(true);
+            config.set_dscp(false);
+
+            uint32_t flags = webrtc::PORTALLOCATOR_ENABLE_SHARED_SOCKET |
+                webrtc::PORTALLOCATOR_ENABLE_IPV6 |
+                webrtc::PORTALLOCATOR_DISABLE_TCP;
+
+            config.set_port_allocator_flags(flags);
 
             webrtc::PeerConnectionInterface::IceServer stunServer;
 
@@ -701,20 +707,20 @@ namespace hope {
 
             switch (eventType) {
             case 0: { // Mouse move
-                if (size < sizeof(short) + 2 * sizeof(uint16_t)) return;
+                if (size < sizeof(short) + 2 * sizeof(uint32_t)) return;
 
 #pragma pack(push,1)
                 struct MouseMove              // 6 字节
                 {
                     short  type;              // 0
-                    uint16_t x;               // 屏幕绝对像素
-                    uint16_t y;
+                    uint32_t x;               // 屏幕绝对像素
+                    uint32_t y;
                 };
 #pragma pack(pop)
 
                 const MouseMove* mouseMove = reinterpret_cast<const MouseMove*>(data);
 
-                keyMouseSim->MouseMove(mouseMove->x, mouseMove->y, true);
+                keyMouseSim->MouseMove(mouseMove->x, mouseMove->y, true, true);
 
                 break;
             }

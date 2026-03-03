@@ -105,7 +105,7 @@ namespace hope {
             }
         }
 
-        bool KeyMouseSimulator::MouseMove(int x, int y, bool absolute) {
+        bool KeyMouseSimulator::MouseMove(int x, int y, bool absolute, bool preNormalized) {
             if (!interceptionContext || isDestroying) {
                 LOG_ERROR("Invalid context or destroying");
                 return false;
@@ -116,12 +116,19 @@ namespace hope {
 
                 if (absolute) {
                     mousestroke.flags = INTERCEPTION_MOUSE_MOVE_ABSOLUTE;
-                    thread_local static const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-                    thread_local static const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
-                    // 使用位运算：(x << 16) / screenWidth
-                    mousestroke.x = (x << 16) / screenWidth;
-                    mousestroke.y = (y << 16) / screenHeight;
+                    if (preNormalized) {
+                        // 直接透传归一化值 (0-65535)
+                        mousestroke.x = x;
+                        mousestroke.y = y;
+                    }
+                    else {
+                        // 像素坐标转归一化
+                        thread_local static const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+                        thread_local static const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+                        mousestroke.x = (x << 16) / screenWidth;
+                        mousestroke.y = (y << 16) / screenHeight;
+                    }
                 }
                 else {
                     mousestroke.flags = INTERCEPTION_MOUSE_MOVE_RELATIVE;
@@ -133,7 +140,6 @@ namespace hope {
                 mousestroke.rolling = 0;
                 mousestroke.information = 0;
 
-                // 直接转换，不需要 memcpy
                 int result = interception_send(interceptionContext, interceptionMouse,
                     reinterpret_cast<InterceptionStroke*>(&mousestroke), 1);
 

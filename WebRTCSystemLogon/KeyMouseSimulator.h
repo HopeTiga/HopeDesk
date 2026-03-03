@@ -7,8 +7,8 @@
 #include "Utils.h"
 
 namespace hope {
-	namespace rtc {
-	
+    namespace rtc {
+
         class KeyMouseSimulator {
         private:
             InterceptionContext interceptionContext;
@@ -30,7 +30,7 @@ namespace hope {
             // 初始化
             bool Initialize();
             // 鼠标操作
-            bool MouseMove(int x, int y, bool absolute = true);
+            bool MouseMove(int x, int y, bool absolute = true, bool preNormalized = false);
             bool MouseButtonDown(int buttonType, int x = -1, int y = -1);
             bool MouseButtonUp(int buttonType);
             bool MouseWheel(int wheelDelta);
@@ -48,5 +48,5 @@ namespace hope {
         };
 
 
-	}
+    }
 }
