@@ -725,12 +725,25 @@ void MainWindow::quitApplication() {
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     if (reallyExit) {
-        if(videoWidget) delete videoWidget;
+        if(videoWidget) {
+            delete videoWidget;
+            videoWidget = nullptr;
+        }
+        if (trayIcon) {
+            trayIcon->hide();
+            delete trayIcon;
+            trayIcon = nullptr;
+        }
         if(manager) {
             delete manager;
             manager = nullptr;
         }
+        if (reconnectTimer) reconnectTimer->stop();
+        if (remoteConnectionTimer) remoteConnectionTimer->stop();
+
         event->accept();
+
+        QTimer::singleShot(0, qApp, &QApplication::quit);
     } else {
         event->ignore();
         hide();
