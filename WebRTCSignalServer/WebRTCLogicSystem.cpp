@@ -88,11 +88,10 @@ namespace hope {
             auto self = shared_from_this();
 
             // ==================== Forward Handler ====================
-            std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::string)> forwardHandler =
-                [self](std::shared_ptr<WebRTCSignalData> data, std::string requestTypeStr)->boost::asio::awaitable<void> {
-
+            std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::string)> forwardHandler = [self](std::shared_ptr<WebRTCSignalData> data, std::string requestTypeStr)->boost::asio::awaitable<void> {
                 boost::json::object message = data->json;
-                auto webrtcSignalSocketInterface = data->webrtcSignalSocket.get();
+
+                auto webrtcSignalSocket = data->webrtcSignalSocket;
                 int64_t requestTypeValue = message["requestType"].as_int64();
 
                 if (!message.contains("accountId") || !message.contains("targetId")) {
@@ -104,7 +103,7 @@ namespace hope {
                 std::string targetId = message["targetId"].as_string().c_str();
                 std::shared_ptr<WebRTCSignalSocket> targetSocket = nullptr;
 
-                // 1. 本地直接查找
+                // 1. 查找目标连接 (使用哈希锁)
                 {
                     auto it = data->webrtcSignalManager->webrtcSocketMap.find(targetId);
                     if (it != data->webrtcSignalManager->webrtcSocketMap.end()) {
@@ -112,101 +111,145 @@ namespace hope {
                     }
                 }
 
-                // 2. 本地未找到，需要跨 Manager 查找
+                // 2. 处理目标未找到 (404)
                 if (!targetSocket) {
                     tbb::concurrent_lru_cache<std::string, int>::handle handles = data->webrtcSignalManager->localRouteCache[targetId];
-                    auto senderManager = data->webrtcSignalManager->shared_from_this();
+                    auto self = data->webrtcSignalManager->shared_from_this();
 
-                    auto doGlobalLookup = [=](std::shared_ptr<WebRTCSignalManager> initiatorManager) {
-                        int mapChannelIndex = initiatorManager->hasher(targetId) % initiatorManager->hashSize;
+                    if (handles.value() == -1) {
+                        int mapChannelIndex = data->webrtcSignalManager->hasher(targetId) % data->webrtcSignalManager->hashSize;
 
-                        initiatorManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> indexManager)->boost::asio::awaitable<void> {
-                            if (indexManager->actorSocketMappingIndex.find(targetId) != indexManager->actorSocketMappingIndex.end()) {
-                                int targetChannelIndex = indexManager->actorSocketMappingIndex[targetId];
+                        data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                            if (manager->actorSocketMappingIndex.find(targetId) != manager->actorSocketMappingIndex.end()) {
+                                int targetChannelIndex = manager->actorSocketMappingIndex[targetId];
 
-                                data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> destManager)->boost::asio::awaitable<void> {
-                                    if (destManager->webrtcSocketMap.find(targetId) != destManager->webrtcSocketMap.end()) {
-                                        if (tbb::concurrent_lru_cache<std::string, int>::handle h = initiatorManager->localRouteCache[targetId]) {
-                                            h.value() = destManager->channelIndex;
+                                self->webrtcSignalServer->postTaskAsync(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                                    if (manager->webrtcSocketMap.find(targetId) != manager->webrtcSocketMap.end()) {
+                                        if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId]) {
+                                            handles.value() = manager->channelIndex;
                                         }
-
-                                        std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = destManager->webrtcSocketMap[targetId];
+                                        std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                         boost::json::object forwardMessage = message;
                                         forwardMessage["state"] = 200;
-                                        forwardMessage["message"] = "webrtcSignalServer forward";
+                                        forwardMessage["message"] = "MsquicServer forward";
 
                                         co_await targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
-                                        LOG_INFO("Request forward (Global): %s -> %s (Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
+                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                        co_return;
                                     }
                                     else {
                                         boost::json::object response;
                                         response["requestType"] = requestTypeValue;
                                         response["state"] = 404;
-                                        response["message"] = "Target socket not found (Stale Index)";
-                                        co_await data->webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
-                                        LOG_WARNING("Request forward Not Found: %s -> %s (Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
+                                        response["message"] = "TargetId is not register";
+
+                                        co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+
+                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                        co_return;
                                     }
-                                    co_return;
                                     });
                             }
                             else {
                                 boost::json::object response;
                                 response["requestType"] = requestTypeValue;
                                 response["state"] = 404;
-                                response["message"] = "Target not registered";
-                                co_await data->webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+                                response["message"] = "TargetId is not register";
 
-                                LOG_WARNING("Request forward Not Register: %s -> %s (Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
+                                co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+
+                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                co_return;
                             }
-                            co_return;
                             });
-                        };
-
-                    if (handles.value() == -1) {
-                        doGlobalLookup(senderManager);
                     }
                     else {
-                        int cachedChannelIndex = handles.value();
-                        data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(cachedChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> cachedManager)->boost::asio::awaitable<void> {
-                            if (cachedManager->webrtcSocketMap.find(targetId) != cachedManager->webrtcSocketMap.end()) {
-                                if (tbb::concurrent_lru_cache<std::string, int>::handle h = senderManager->localRouteCache[targetId]) {
-                                    h.value() = cachedManager->channelIndex;
+                        data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(handles.value(), [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                            if (manager->webrtcSocketMap.find(targetId) != manager->webrtcSocketMap.end()) {
+                                if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId]) {
+                                    handles.value() = manager->channelIndex;
                                 }
-
-                                std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = cachedManager->webrtcSocketMap[targetId];
-
+                                std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                 boost::json::object forwardMessage = message;
-
                                 forwardMessage["state"] = 200;
-
-                                forwardMessage["message"] = "webrtcSignalServer forward";
+                                forwardMessage["message"] = "MsquicServer forward";
 
                                 co_await targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
-                                LOG_INFO("Request forward (Cache Hit): %s -> %s (Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
+                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                co_return;
                             }
                             else {
-                                tbb::concurrent_lru_cache<std::string, int>::handle handles = senderManager->localRouteCache[targetId];
+
+                                tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId];
 
                                 handles.value() = -1;
 
-                                LOG_WARNING("Cache Stale for %s (Cached: %d). Fallback to Global Lookup.", targetId.c_str(), cachedManager->channelIndex);
+                                int mapChannelIndex = data->webrtcSignalManager->hasher(targetId) % data->webrtcSignalManager->hashSize;
 
-                                doGlobalLookup(senderManager);
+                                data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                                    if (manager->actorSocketMappingIndex.find(targetId) != manager->actorSocketMappingIndex.end()) {
+                                        int targetChannelIndex = manager->actorSocketMappingIndex[targetId];
 
+                                        self->webrtcSignalServer->postTaskAsync(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                                            if (manager->webrtcSocketMap.find(targetId) != manager->webrtcSocketMap.end()) {
+                                                if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId]) {
+                                                    handles.value() = manager->channelIndex;
+                                                }
+                                                std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
+                                                boost::json::object forwardMessage = message;
+                                                forwardMessage["state"] = 200;
+                                                forwardMessage["message"] = "MsquicServer forward";
+
+             
+                                                co_await targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
+
+                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                                co_return;
+                                            }
+                                            else {
+                                                boost::json::object response;
+                                                response["requestType"] = requestTypeValue;
+                                                response["state"] = 404;
+                                                response["message"] = "TargetId is not register";
+
+           
+                                                co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+
+                                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                                co_return;
+                                            }
+                                            });
+                                    }
+                                    else {
+                                        boost::json::object response;
+                                        response["requestType"] = requestTypeValue;
+                                        response["state"] = 404;
+                                        response["message"] = "TargetId is not register";
+
+                                        co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+
+                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                        co_return;
+                                    }
+                                    });
                             }
-                            co_return;
                             });
                     }
                     co_return;
                 }
 
+                // 3. 转发消息
                 boost::json::object forwardMessage = message;
+
                 forwardMessage["state"] = 200;
+
                 forwardMessage["message"] = "webrtcSignalServer forward";
+
                 co_await targetSocket->asyncWrite(boost::json::serialize(forwardMessage));
-                LOG_INFO("Request forward (Local): %s -> %s (Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
+
+                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                 };
 
 
