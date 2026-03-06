@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ImportGroup Label="PropertySheets" />
+  <PropertyGroup Label="UserMacros">
+    <TCMALLOC_AGGRESSIVE_DECOMMIT>true</TCMALLOC_AGGRESSIVE_DECOMMIT>
+    <TCMALLOC_RELEASE_RATE>10.0</TCMALLOC_RELEASE_RATE>
+  </PropertyGroup>
+  <PropertyGroup>
+    <IncludePath>E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\interception;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\webrtc;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\boost;$(IncludePath)</IncludePath>
+    <LibraryWPath>$(LibraryWPath)</LibraryWPath>
+    <LibraryPath>E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\tcmalloc;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\interception\x64;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\webrtc;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\boost;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalDependencies>webrtc.lib;interception.lib;libtcmalloc_minimal.lib;ws2_32.lib;mswsock.lib;wtsapi32.lib;d3d11.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;windowscodecs.lib;gdiplus.lib;dwmapi.lib;windowsapp.lib;runtimeobject.lib;userenv.lib;Wtsapi32.lib;Advapi32.lib;winmm.lib;msdmo.lib;dmoguids.lib;wmcodecdspuuid.lib;strmiids.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ForceSymbolReferences>_tcmalloc</ForceSymbolReferences>
+    </Link>
+    <ClCompile>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+    </ClCompile>
+    <ClCompile>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+    <ClCompile>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+    </ClCompile>
+    <ClCompile>
+      <OmitFramePointers>false</OmitFramePointers>
+      <StructMemberAlignment>8Bytes</StructMemberAlignment>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+      <Optimization>Full</Optimization>
+      <DisableSpecificWarnings>4146;4996</DisableSpecificWarnings>
+      <PreprocessorDefinitions>WEBRTC_WIN;WEBRTC_ARCH_LITTLE_ENDIAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <BuildMacro Include="TCMALLOC_AGGRESSIVE_DECOMMIT">
+      <Value>$(TCMALLOC_AGGRESSIVE_DECOMMIT)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+    <BuildMacro Include="TCMALLOC_RELEASE_RATE">
+      <Value>$(TCMALLOC_RELEASE_RATE)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+  </ItemGroup>
+</Project>
