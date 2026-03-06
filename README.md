@@ -94,5 +94,3 @@ HopeDesk 采用 QUIC 与 WebSocket 混合信令，旨在不同场景下发挥各
 - **Web 浏览器操控端**：✅ 完整支持（通过WebSocket + WebRTC，可进行远程控制与桌面观看）
 - **Linux / macOS 被控端**：🗓️ 规划中（将基于统一的架构进行扩展）
 - **移动端（App）**：🗓️ 规划中
-
----
