@@ -204,6 +204,8 @@ void MainWindow::checkLoginStatus() {
 
             // 立即刷新UI (不要再读Settings了，直接用变量)
             updateLocalAccountUI();
+
+            moveToCenter();
         } else {
             // 用户点击了关闭，设为未登录状态
             currentDeviceId = "";
@@ -214,6 +216,8 @@ void MainWindow::checkLoginStatus() {
     } else {
         // 已有账号，刷新UI
         updateLocalAccountUI();
+
+        moveToCenter();
     }
 }
 
@@ -301,6 +305,8 @@ void MainWindow::onUserAvatarClicked() {
         if(isLoginMode && !isSignalConnected) {
             startSignalServerConnection();
         }
+
+        moveToCenter();
     }
 }
 
@@ -431,6 +437,11 @@ void MainWindow::updateNetworkTypeUI(int type) {
         ui->networkTypeBadge->setText("🔄 中继转发");
     }
     ui->networkTypeBadge->style()->polish(ui->networkTypeBadge);
+}
+
+void MainWindow::moveToCenter()
+{
+    move(QGuiApplication::primaryScreen()->availableGeometry().center() - rect().center());
 }
 
 // ---------------- 交互 ----------------

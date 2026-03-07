@@ -94,6 +94,7 @@ private:
     void updateStatusUI(const QString& status, const QString& styleClass);
     void updateNetworkTypeUI(int type);
 
+    void moveToCenter();
 private:
     Ui::MainWindow *ui;
     VideoWidget* videoWidget;
