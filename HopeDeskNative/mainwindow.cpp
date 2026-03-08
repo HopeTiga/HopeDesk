@@ -74,7 +74,6 @@ MainWindow::MainWindow(QWidget* parent)
                     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
                     ui->networkTypeBadge->setVisible(false);
                     if(videoWidget) { videoWidget->hide(); videoWidget->deleteLater(); videoWidget = nullptr; }
-                    this->showNormal(); this->activateWindow();
 
                     if(manager) manager->disConnectRemote();
 
@@ -661,7 +660,6 @@ void MainWindow::onRemoteControlStarted()
     ui->btnStartControl->setEnabled(true);
     ui->remoteStatusLabel->setText("⚠️ 正在被远程控制中");
     ui->remoteStatusLabel->setStyleSheet("color: #EF4444; font-weight: bold;");
-    if(!this->isMinimized()) this->showMinimized();
 }
 
 void MainWindow::onRemoteDisconnectedByPeer()
@@ -674,8 +672,6 @@ void MainWindow::onRemoteDisconnectedByPeer()
     ui->networkTypeBadge->setVisible(false);
 
     if (videoWidget) videoWidget->hide();
-    this->showNormal();
-    this->activateWindow();
 }
 
 void MainWindow::onRemoteConnectionTimeout()

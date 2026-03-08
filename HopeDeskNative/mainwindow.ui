@@ -15,11 +15,11 @@
   </property>
   <property name="styleSheet">
    <string notr="true">
-/* 全局设定 */
+/* 全局设定 - ToDesk 风格蓝白主题 */
 QMainWindow {
-    background-color: #1E1F22;
-    color: #FFFFFF;
-    font-family: &quot;Microsoft YaHei UI&quot;, &quot;Segoe UI&quot;, sans-serif;
+    background-color: #F5F7FA;
+    color: #333333;
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
 }
 QWidget { outline: none; }
 
@@ -31,11 +31,11 @@ QScrollBar:vertical {
     margin: 0px;
 }
 QScrollBar::handle:vertical {
-    background: #3F4148;
+    background: #D0D8E0;
     min-height: 20px;
     border-radius: 3px;
 }
-QScrollBar::handle:vertical:hover { background: #505259; }
+QScrollBar::handle:vertical:hover { background: #B0BCC8; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
 
 /* 通用去边框 */
@@ -43,10 +43,11 @@ QFrame { border: none; }
 
 /* 提示框 */
 QToolTip {
-    background-color: #2B2D30;
-    color: #FFFFFF;
-    border: 1px solid #4C4D52;
+    background-color: #FFFFFF;
+    color: #333333;
+    border: 1px solid #E1E8ED;
     padding: 5px;
+    border-radius: 4px;
 }
 </string>
   </property>
@@ -84,13 +85,13 @@ QToolTip {
       <property name="styleSheet">
        <string notr="true">
 QWidget#sideBar {
-    /* 侧边栏微渐变 */
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2B2D30, stop:1 #212226);
-    border-right: 1px solid #1A1B1E;
+    /* 侧边栏淡蓝白渐变 */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #EBF3FF, stop:1 #F5F9FF);
+    border-right: 1px solid #D6E3F0;
 }
 QPushButton {
     background-color: transparent;
-    color: #9CA3AF;
+    color: #5A6C7D;
     text-align: left;
     padding-left: 24px;
     border: none;
@@ -100,22 +101,22 @@ QPushButton {
     border-left: 3px solid transparent;
 }
 QPushButton:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    color: #FFFFFF;
+    background-color: rgba(0, 114, 255, 0.08);
+    color: #00B4FF;
 }
 QPushButton:checked {
-    background-color: rgba(51, 122, 255, 0.1);
-    color: #409EFF;
+    background-color: rgba(0, 114, 255, 0.12);
+    color: #00B4FF;
     font-weight: bold;
-    border-left: 3px solid #409EFF;
+    border-left: 3px solid #00B4FF;
 }
 QLabel#userNameLabel {
-    color: #E5E7EB;
+    color: #2C3E50;
     font-weight: bold;
     font-size: 14px;
 }
 QLabel#userStatusLabel {
-    color: #10B981; /* 在线绿色 */
+    color: #52C41A;
     font-size: 11px;
 }
 </string>
@@ -145,7 +146,7 @@ QLabel#userStatusLabel {
           </size>
          </property>
          <property name="styleSheet">
-          <string notr="true">padding-left: 24px; font-size: 20px; font-weight: 900; color: #FFFFFF; font-family: &quot;Arial&quot;; letter-spacing: 1px;</string>
+          <string notr="true">padding-left: 24px; font-size: 22px; font-weight: 900; color: #00B4FF; font-family: "Arial"; letter-spacing: 1px;</string>
          </property>
          <property name="text">
           <string>HopeDesk</string>
@@ -230,11 +231,11 @@ QLabel#userStatusLabel {
          <property name="styleSheet">
           <string notr="true">
 QFrame#userFrame {
-    border-top: 1px solid #33353A;
+    border-top: 1px solid #D6E3F0;
     background: transparent;
 }
 QFrame#userFrame:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(0, 114, 255, 0.05);
 }</string>
          </property>
          <layout class="QHBoxLayout" name="horizontalLayout_User">
@@ -260,7 +261,7 @@ QFrame#userFrame:hover {
             </property>
             <property name="styleSheet">
              <string notr="true">
-background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4F46E5, stop:1 #7C3AED); 
+background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00B4FF, stop:1 #00B4FF); 
 border-radius: 19px; 
 color: white; 
 font-weight: bold; 
@@ -309,47 +310,53 @@ font-size: 16px;</string>
       <widget class="QWidget" name="pageHome">
        <layout class="QVBoxLayout" name="verticalLayout_Home">
         <property name="spacing">
-         <number>30</number>
+         <number>20</number>
         </property>
         <property name="leftMargin">
-         <number>40</number>
+         <number>35</number>
         </property>
         <property name="topMargin">
-         <number>40</number>
+         <number>30</number>
         </property>
         <property name="rightMargin">
-         <number>40</number>
+         <number>35</number>
         </property>
         <property name="bottomMargin">
-         <number>40</number>
+         <number>30</number>
         </property>
         <item>
          <widget class="QWidget" name="containerMyDevice" native="true">
           <property name="styleSheet">
-           <string notr="true">background: transparent; </string>
+           <string notr="true">
+QWidget#containerMyDevice {
+    background-color: #FFFFFF;
+    border-radius: 12px;
+    border: 1px solid #E1E8ED;
+}
+QLabel { background: transparent; }</string>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_My">
            <property name="spacing">
-            <number>15</number>
+            <number>12</number>
            </property>
            <property name="leftMargin">
-            <number>0</number>
+            <number>24</number>
            </property>
            <property name="topMargin">
-            <number>0</number>
+            <number>20</number>
            </property>
            <property name="rightMargin">
-            <number>0</number>
+            <number>24</number>
            </property>
            <property name="bottomMargin">
-            <number>0</number>
+            <number>20</number>
            </property>
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_MyHeader">
              <item>
               <widget class="QLabel" name="labelTitleMy">
                <property name="styleSheet">
-                <string notr="true">color: #9CA3AF; font-size: 14px;</string>
+                <string notr="true">color: #8C9AA8; font-size: 14px;</string>
                </property>
                <property name="text">
                 <string>本机识别码</string>
@@ -377,8 +384,8 @@ font-size: 16px;</string>
                <property name="styleSheet">
                 <string notr="true">
     QLabel {
-        background-color: #374151;
-        color: #D1D5DB;
+        background-color: #F0F4F8;
+        color: #5A6C7D;
         border-radius: 4px;
         padding: 4px 8px;
         font-size: 11px;
@@ -386,14 +393,14 @@ font-size: 16px;</string>
         margin-right: 10px;
     }
     QLabel[type=&quot;p2p&quot;] {
-        background-color: rgba(16, 185, 129, 0.2);
-        color: #10B981;
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background-color: rgba(82, 196, 26, 0.15);
+        color: #52C41A;
+        border: 1px solid rgba(82, 196, 26, 0.3);
     }
     QLabel[type=&quot;relay&quot;] {
-        background-color: rgba(245, 158, 11, 0.2);
-        color: #F59E0B;
-        border: 1px solid rgba(245, 158, 11, 0.3);
+        background-color: rgba(255, 161, 22, 0.15);
+        color: #FFA116;
+        border: 1px solid rgba(255, 161, 22, 0.3);
     }</string>
                </property>
                <property name="text">
@@ -405,9 +412,9 @@ font-size: 16px;</string>
               <widget class="QLabel" name="connectionStatusLabel">
                <property name="styleSheet">
                 <string notr="true">
-color: #10B981; 
+color: #52C41A; 
 font-size: 12px; 
-background: rgba(16, 185, 129, 0.1); 
+background: rgba(82, 196, 26, 0.1); 
 padding: 4px 8px; 
 border-radius: 4px;</string>
                </property>
@@ -429,8 +436,8 @@ border-radius: 4px;</string>
                 <string notr="true">
 font-size: 40px; 
 font-weight: bold; 
-color: #F3F4F6; 
-font-family: &quot;Segoe UI&quot;, &quot;Roboto&quot;, monospace;
+color: #00B4FF; 
+font-family: "Segoe UI", "Roboto", monospace;
 letter-spacing: 2px;</string>
                </property>
                <property name="text">
@@ -447,12 +454,12 @@ letter-spacing: 2px;</string>
                 <string notr="true">
 QPushButton { 
     border: none; 
-    color: #6B7280; 
+    color: #8C9AA8; 
     font-size: 14px; 
     padding-top: 10px;
 }
 QPushButton:hover { 
-    color: #60A5FA; 
+    color: #00B4FF; 
 }</string>
                </property>
                <property name="text">
@@ -481,28 +488,34 @@ QPushButton:hover {
         <item>
          <widget class="QWidget" name="containerRemote" native="true">
           <property name="styleSheet">
-           <string notr="true">background: transparent;</string>
+           <string notr="true">
+QWidget#containerRemote {
+    background-color: #FFFFFF;
+    border-radius: 12px;
+    border: 1px solid #E1E8ED;
+}
+QLabel { background: transparent; }</string>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_Remote">
            <property name="spacing">
-            <number>15</number>
+            <number>12</number>
            </property>
            <property name="leftMargin">
-            <number>0</number>
+            <number>24</number>
            </property>
            <property name="topMargin">
-            <number>0</number>
+            <number>20</number>
            </property>
            <property name="rightMargin">
-            <number>0</number>
+            <number>24</number>
            </property>
            <property name="bottomMargin">
-            <number>0</number>
+            <number>20</number>
            </property>
            <item>
             <widget class="QLabel" name="labelTitleRemote">
              <property name="styleSheet">
-              <string notr="true">color: #9CA3AF; font-size: 14px;</string>
+              <string notr="true">color: #8C9AA8; font-size: 14px;</string>
              </property>
              <property name="text">
               <string>连接远程设备</string>
@@ -525,21 +538,21 @@ QPushButton:hover {
                <property name="styleSheet">
                 <string notr="true">
 QLineEdit {
-    background-color: #2B2D30;
-    border: 1px solid #3F4148;
+    background-color: #F5F7FA;
+    border: 1px solid #D6E3F0;
     border-top-left-radius: 8px;
     border-bottom-left-radius: 8px;
-    color: #FFFFFF;
+    color: #333333;
     font-size: 20px;
     padding-left: 18px;
     font-weight: 500;
 }
 QLineEdit:focus {
-    border: 1px solid #3B82F6;
-    background-color: #32343A;
+    border: 1px solid #00B4FF;
+    background-color: #FFFFFF;
 }
 QLineEdit:hover {
-    background-color: #32343A;
+    background-color: #FFFFFF;
 }</string>
                </property>
                <property name="placeholderText">
@@ -564,8 +577,8 @@ QLineEdit:hover {
                <property name="styleSheet">
                 <string notr="true">
 QPushButton {
-    /* 渐变按钮增加质感 */
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B82F6, stop:1 #2563EB);
+    /* ToDesk 风格蓝色渐变按钮 */
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00B4FF, stop:1 #00B4FF);
     color: white;
     border-top-right-radius: 8px;
     border-bottom-right-radius: 8px;
@@ -574,14 +587,14 @@ QPushButton {
     border: none;
 }
 QPushButton:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #60A5FA, stop:1 #3B82F6);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #338CFF, stop:1 #33C3FF);
 }
 QPushButton:pressed {
-    background: #1D4ED8;
+    background: #0056CC;
 }
 QPushButton:disabled {
-    background-color: #374151;
-    color: #6B7280;
+    background-color: #D6E3F0;
+    color: #A0B0C0;
 }</string>
                </property>
                <property name="text">
@@ -594,7 +607,7 @@ QPushButton:disabled {
            <item>
             <widget class="QLabel" name="remoteStatusLabel">
              <property name="styleSheet">
-              <string notr="true">color: #6B7280; font-size: 12px; margin-top: 5px;</string>
+              <string notr="true">color: #8C9AA8; font-size: 12px; margin-top: 5px;</string>
              </property>
              <property name="text">
               <string>安全加密传输 | 支持剪贴板 | 无感低延迟</string>
@@ -615,97 +628,133 @@ QPushButton:disabled {
           <property name="sizeHint" stdset="0">
            <size>
             <width>20</width>
-            <height>40</height>
+            <height>15</height>
            </size>
           </property>
          </spacer>
         </item>
         <item>
-         <layout class="QHBoxLayout" name="horizontalLayout_HistoryHeader">
-          <item>
-           <widget class="QLabel" name="labelRecentTitle">
-            <property name="styleSheet">
-             <string notr="true">font-size: 15px; font-weight: bold; color: #E5E7EB;</string>
-            </property>
-            <property name="text">
-             <string>历史会话</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="horizontalSpacer_4">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-          <item>
-           <widget class="QPushButton" name="btnClearHistory">
-            <property name="cursor">
-             <cursorShape>PointingHandCursor</cursorShape>
-            </property>
-            <property name="toolTip">
-             <string>清空历史记录</string>
-            </property>
-            <property name="styleSheet">
-             <string notr="true">
-QPushButton { color: #6B7280; border: none; font-size: 12px; }
-QPushButton:hover { color: #EF4444; }</string>
-            </property>
-            <property name="text">
-             <string>🗑 清空</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <widget class="QListWidget" name="recentListWidget">
+         <widget class="QWidget" name="containerHistory" native="true">
           <property name="styleSheet">
            <string notr="true">
+QWidget#containerHistory {
+    background-color: #FFFFFF;
+    border-radius: 12px;
+    border: 1px solid #E1E8ED;
+}
+QLabel { background: transparent; }</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_History">
+           <property name="spacing">
+            <number>10</number>
+           </property>
+           <property name="leftMargin">
+            <number>20</number>
+           </property>
+           <property name="topMargin">
+            <number>16</number>
+           </property>
+           <property name="rightMargin">
+            <number>20</number>
+           </property>
+           <property name="bottomMargin">
+            <number>16</number>
+           </property>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_HistoryHeader">
+             <item>
+              <widget class="QLabel" name="labelRecentTitle">
+               <property name="styleSheet">
+                <string notr="true">font-size: 15px; font-weight: bold; color: #2C3E50;</string>
+               </property>
+               <property name="text">
+                <string>历史会话</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="horizontalSpacer_4">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnClearHistory">
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="toolTip">
+                <string>清空历史记录</string>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">
+QPushButton { color: #8C9AA8; border: none; font-size: 12px; }
+QPushButton:hover { color: #FF4D4F; }</string>
+               </property>
+               <property name="text">
+                <string>🗑 清空</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QListWidget" name="recentListWidget">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>80</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">
 QListWidget {
     background-color: transparent;
     border: none;
     outline: none;
 }
 QListWidget::item {
-    background-color: #2B2D30;
+    background-color: #F5F7FA;
     border-radius: 8px;
-    color: #F3F4F6;
+    color: #2C3E50;
     margin-right: 12px;
     margin-bottom: 5px;
-    border: 1px solid #374151;
+    border: 1px solid #E1E8ED;
 }
 QListWidget::item:hover {
-    background-color: #32343A;
-    border-color: #4B5563;
+    background-color: #EBF3FF;
+    border-color: #00B4FF;
 }
 QListWidget::item:selected {
-    border: 1px solid #3B82F6;
-    background-color: #2B2D30;
+    border: 1px solid #00B4FF;
+    background-color: #F0F7FF;
 }</string>
-          </property>
-          <property name="flow">
-           <enum>QListView::Flow::LeftToRight</enum>
-          </property>
-          <property name="isWrapping" stdset="0">
-           <bool>true</bool>
-          </property>
-          <property name="resizeMode">
-           <enum>QListView::ResizeMode::Adjust</enum>
-          </property>
-          <property name="spacing">
-           <number>0</number>
-          </property>
-          <property name="viewMode">
-           <enum>QListView::ViewMode::IconMode</enum>
-          </property>
+             </property>
+             <property name="flow">
+              <enum>QListView::Flow::LeftToRight</enum>
+             </property>
+             <property name="isWrapping" stdset="0">
+              <bool>true</bool>
+             </property>
+             <property name="resizeMode">
+              <enum>QListView::ResizeMode::Adjust</enum>
+             </property>
+             <property name="spacing">
+              <number>0</number>
+             </property>
+             <property name="viewMode">
+              <enum>QListView::ViewMode::IconMode</enum>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </widget>
         </item>
        </layout>
@@ -738,10 +787,10 @@ QListWidget::item:selected {
           <property name="styleSheet">
            <string notr="true">
 QListWidget {
-    background: #232428;
+    background: #F5F7FA;
     border: none;
-    border-right: 1px solid #2C2E33;
-    color: #9CA3AF;
+    border-right: 1px solid #D6E3F0;
+    color: #5A6C7D;
     font-size: 13px;
     padding-top: 20px;
     outline: none;
@@ -753,13 +802,13 @@ QListWidget::item {
     border-radius: 4px;
 }
 QListWidget::item:hover {
-    background: #2E3035;
-    color: #FFFFFF;
+    background: #EBF3FF;
+    color: #00B4FF;
 }
 QListWidget::item:selected {
-    background: #374151;
-    color: #FFFFFF;
-    border-left: 3px solid #3B82F6;
+    background: #E0EFFF;
+    color: #00B4FF;
+    border-left: 3px solid #00B4FF;
 }
 </string>
           </property>
@@ -789,13 +838,13 @@ QListWidget::item:selected {
              </size>
             </property>
             <property name="styleSheet">
-             <string notr="true">background: #1E1F22; border-bottom: 1px solid #2C2E33;</string>
+             <string notr="true">background: #FFFFFF; border-bottom: 1px solid #E1E8ED;</string>
             </property>
             <layout class="QHBoxLayout" name="horizontalLayout_DevTool">
              <item>
               <widget class="QLabel" name="labelDevTitle">
                <property name="styleSheet">
-                <string notr="true">color: #E5E7EB; font-weight: bold; font-size: 14px; margin-left: 10px;</string>
+                <string notr="true">color: #2C3E50; font-weight: bold; font-size: 14px; margin-left: 10px;</string>
                </property>
                <property name="text">
                 <string>设备列表</string>
@@ -823,13 +872,13 @@ QListWidget::item:selected {
                <property name="styleSheet">
                 <string notr="true">
 QPushButton { 
-    color: #3B82F6; 
-    border: 1px solid #3B82F6; 
+    color: #00B4FF; 
+    border: 1px solid #00B4FF; 
     border-radius: 4px; 
     padding: 4px 10px; 
     font-size: 12px;
 }
-QPushButton:hover { background: rgba(59, 130, 246, 0.1); }</string>
+QPushButton:hover { background: rgba(0, 114, 255, 0.1); }</string>
                </property>
                <property name="text">
                 <string>+ 添加设备</string>
@@ -844,26 +893,26 @@ QPushButton:hover { background: rgba(59, 130, 246, 0.1); }</string>
             <property name="styleSheet">
              <string notr="true">
 QListWidget {
-    background: #1E1F22;
+    background: #F5F7FA;
     border: none;
     outline: none;
     padding: 10px;
 }
 QListWidget::item {
     height: 60px;
-    color: #F3F4F6;
-    border-bottom: 1px solid #2C2E33;
+    color: #2C3E50;
+    border-bottom: 1px solid #E1E8ED;
     padding-left: 5px;
 }
 QListWidget::item:hover {
-    background: #26282D;
+    background: #FFFFFF;
     border-radius: 6px;
     border-bottom: 1px solid transparent;
 }
 QListWidget::item:selected {
-    background: #2B2D30;
+    background: #F0F7FF;
     border-radius: 6px;
-    border: 1px solid #3B82F6;
+    border: 1px solid #00B4FF;
 }
 </string>
             </property>
@@ -876,24 +925,24 @@ QListWidget::item:selected {
       <widget class="QWidget" name="pageSettings">
        <layout class="QVBoxLayout" name="verticalLayout_Settings">
         <property name="spacing">
-         <number>20</number>
+         <number>15</number>
         </property>
         <property name="leftMargin">
-         <number>50</number>
+         <number>35</number>
         </property>
         <property name="topMargin">
-         <number>50</number>
+         <number>30</number>
         </property>
         <property name="rightMargin">
-         <number>50</number>
+         <number>35</number>
         </property>
         <property name="bottomMargin">
-         <number>50</number>
+         <number>30</number>
         </property>
         <item>
          <widget class="QLabel" name="labelSettingsTitle">
           <property name="styleSheet">
-           <string notr="true">font-size: 20px; font-weight: bold; color: #FFFFFF; margin-bottom: 15px;</string>
+           <string notr="true">font-size: 20px; font-weight: bold; color: #2C3E50; margin-bottom: 10px;</string>
           </property>
           <property name="text">
            <string>通用设置</string>
@@ -905,12 +954,12 @@ QListWidget::item:selected {
           <property name="styleSheet">
            <string notr="true">
 QFrame#frameSettingCard {
-    background-color: #26282D;
-    border-radius: 8px;
-    padding: 20px;
+    background-color: #FFFFFF;
+    border-radius: 12px;
+    border: 1px solid #E1E8ED;
 }
 QCheckBox {
-    color: #DCDCDC;
+    color: #333333;
     font-size: 14px;
     spacing: 10px;
 }
@@ -918,41 +967,52 @@ QCheckBox::indicator {
     width: 16px;
     height: 16px;
     border-radius: 3px;
-    border: 1px solid #606266;
+    border: 1px solid #D6E3F0;
     background: transparent;
 }
 QCheckBox::indicator:checked {
-    background-color: #409EFF;
-    border-color: #409EFF;
+    background-color: #00B4FF;
+    border-color: #00B4FF;
 }
 QLabel {
-    color: #DCDCDC;
+    color: #333333;
     font-size: 14px;
 }
 QComboBox {
-    background-color: #313338;
-    border: 1px solid #45474D;
+    background-color: #F5F7FA;
+    border: 1px solid #D6E3F0;
     border-radius: 4px;
     padding: 5px 10px;
-    color: #FFFFFF;
+    color: #333333;
     font-size: 13px;
     min-width: 120px;
 }
 QComboBox:hover {
-    border: 1px solid #606266;
+    border: 1px solid #00B4FF;
 }
 QComboBox::drop-down {
     border: none;
     width: 20px;
-}
-</string>
+}</string>
           </property>
           <layout class="QGridLayout" name="gridLayout_Settings">
+           <property name="leftMargin">
+            <number>24</number>
+           </property>
+           <property name="topMargin">
+            <number>20</number>
+           </property>
+           <property name="rightMargin">
+            <number>24</number>
+           </property>
+           <property name="bottomMargin">
+            <number>20</number>
+           </property>
            <property name="horizontalSpacing">
             <number>20</number>
            </property>
            <property name="verticalSpacing">
-            <number>25</number>
+            <number>18</number>
            </property>
            <item row="0" column="0">
             <widget class="QLabel" name="labelMode">
@@ -1053,7 +1113,7 @@ QComboBox::drop-down {
            <item row="3" column="0" colspan="3">
             <widget class="Line" name="line_Set1">
              <property name="styleSheet">
-              <string notr="true">background: #36373C;</string>
+              <string notr="true">background: #E1E8ED;</string>
              </property>
              <property name="orientation">
               <enum>Qt::Orientation::Horizontal</enum>
