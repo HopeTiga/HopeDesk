@@ -32,8 +32,6 @@ namespace hope {
             // Run message loop in a separate thread
             hookThread = std::thread(&CursorHooks::hookThreadProc, this);
 
-            // Wait for hook installation to complete
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
         void CursorHooks::stopHooks()

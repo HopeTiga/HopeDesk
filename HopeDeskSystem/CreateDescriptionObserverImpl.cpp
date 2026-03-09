@@ -12,7 +12,6 @@ namespace hope {
         void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
             if (!desc) {
                 LOG_ERROR("CreateOffer success callback received null description");
-                manager->isProcessingOffer = false;
                 return;
             }
 
@@ -63,7 +62,6 @@ namespace hope {
 
         void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
             LOG_ERROR("CreateOffer failed: %s" , error.message());
-            manager->isProcessingOffer = false;
         }
 
         // CreateAnswerObserverImpl实现

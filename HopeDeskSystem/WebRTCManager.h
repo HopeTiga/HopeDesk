@@ -150,12 +150,6 @@ namespace hope {
 
             void releaseSource();
 
-        public:
-
-            std::function<void(void)> stopProcessCallBack;
-
-            std::atomic<bool> isProcessingOffer{ false }; // Add flag to prevent simultaneous offers
-
         private:
 
             void socketEventLoop();
@@ -232,8 +226,6 @@ namespace hope {
 
             webrtc::VideoFrameBufferPool bufferPool;
 
-            std::atomic<bool> isInit{ false };
-
             std::atomic<WebRTCConnetState> connetState;
 
             std::shared_ptr<ScreenCapture> screenCapture;
@@ -250,9 +242,9 @@ namespace hope {
 
             std::unique_ptr<boost::asio::ip::tcp::socket> tcpSocket;
 
-            moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
+            boost::asio::steady_timer webrtcSteadyTimer;
 
-            std::atomic<bool> writerCoroutineRuns{ false };
+            moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
 
             std::unique_ptr<WinLogon> winLogon;
 

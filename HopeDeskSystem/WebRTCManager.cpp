@@ -23,6 +23,7 @@ namespace hope {
 
         WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
             : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
+            webrtcSteadyTimer(ioContext),
             connetState(WebRTCConnetState::none),
             peerConnection(nullptr),
             winLogon(nullptr),
@@ -40,6 +41,8 @@ namespace hope {
             ioContextThread = std::move(std::thread([this]() {
                 this->ioContext.run();
                 }));
+
+            webrtcSteadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
 
             boost::asio::co_spawn(ioContext, [this]()-> boost::asio::awaitable<void> {
 
@@ -105,7 +108,6 @@ namespace hope {
         void WebRTCManager::processOffer(const std::string& sdp) {
             if (sdp.empty()) {
                 LOG_ERROR("Received empty SDP offer");
-                isInit = false;
                 return;
             }
 
@@ -123,14 +125,12 @@ namespace hope {
             }
             else {
                 LOG_ERROR("Failed to parse offer: %s", error.description);
-                isInit = false;
             }
         }
 
         void WebRTCManager::processAnswer(const std::string& sdp) {
             if (sdp.empty()) {
                 LOG_ERROR("Received empty SDP answer");
-                isInit = false;
                 return;
             }
 
@@ -144,7 +144,6 @@ namespace hope {
             }
             else {
                 LOG_ERROR("Failed to parse answer: %s", error.description.c_str());
-                isInit = false;
             }
         }
 
@@ -172,6 +171,8 @@ namespace hope {
 
             boost::asio::co_spawn(ioContext, receiveCoroutine(), boost::asio::detached);
 
+            boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
+
         }
 
         inline void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
@@ -182,14 +183,11 @@ namespace hope {
 
             }
 
+            LOG_INFO("writerAsync:%s",data->data + 8);
+
             writerDataQueues.enqueue(data);
 
-            if (!writerCoroutineRuns.exchange(true)) {
-
-                boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
-
-            }
-
+            webrtcSteadyTimer.cancel();
 
         }
 
@@ -719,7 +717,7 @@ namespace hope {
 
                 const MouseMove* mouseMove = reinterpret_cast<const MouseMove*>(data);
 
-                keyMouseSim->MouseMove(mouseMove->x, mouseMove->y, true,true);
+                keyMouseSim->MouseMove(mouseMove->x, mouseMove->y, true, true);
 
                 break;
             }
@@ -924,14 +922,12 @@ namespace hope {
                                                 accountId = std::string(json["targetId"].as_string().c_str());
                                             }
 
-                                            if (!isProcessingOffer.exchange(true)) {
-                                                webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-                                                options.offer_to_receive_video = true;
-                                                options.offer_to_receive_audio = false;
+                                            webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
+                                            options.offer_to_receive_video = true;
+                                            options.offer_to_receive_audio = false;
 
-                                                createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
-                                                peerConnection->CreateOffer(createOfferObserver.get(), options);
-                                            }
+                                            createOfferObserver = CreateOfferObserverImpl::Create(this, peerConnection);
+                                            peerConnection->CreateOffer(createOfferObserver.get(), options);
                                         }
                                     }
 
@@ -939,13 +935,8 @@ namespace hope {
                                         std::string type(json["type"].as_string().c_str());
 
                                         if (type == "answer") {
-                                            if (!isInit.load()) {
-                                                std::string sdp(json["sdp"].as_string().c_str());
-                                                processAnswer(sdp);
-
-                                                isInit = true;
-                                                isProcessingOffer = false;
-                                            }
+                                            std::string sdp(json["sdp"].as_string().c_str());
+                                            processAnswer(sdp);
                                         }
                                         else if (type == "candidate") {
                                             std::string candidateStr(json["candidate"].as_string().c_str());
@@ -977,15 +968,25 @@ namespace hope {
         {
             try {
 
-                std::shared_ptr<WriterData> writeData = nullptr;
+                while (socketRuns) {
+                
+                    std::shared_ptr<WriterData> writeData = nullptr;
 
-                while (writerDataQueues.try_dequeue(writeData) && socketRuns.load()) {
+                    while (writerDataQueues.try_dequeue(writeData)) {
 
-                    co_await boost::asio::async_write(*tcpSocket, boost::asio::buffer(writeData->data, writeData->size), boost::asio::use_awaitable);
+                        co_await boost::asio::async_write(*tcpSocket, boost::asio::buffer(writeData->data, writeData->size), boost::asio::use_awaitable);
+
+                    }
+
+                    if (!socketRuns.load()) break;
+
+                    webrtcSteadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
+
+                    boost::system::error_code ec;
+
+                    co_await webrtcSteadyTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
                 }
-
-                writerCoroutineRuns.store(false);
 
             }
             catch (const std::exception& e) {
@@ -1077,10 +1078,7 @@ namespace hope {
                 peerConnectionFactory = nullptr;
             }
 
-            // Reset state flags
-            isInit = false;
-
-            isProcessingOffer = false;
+            webrtcSteadyTimer.cancel();
         }
 
         void WebRTCManager::Cleanup() {

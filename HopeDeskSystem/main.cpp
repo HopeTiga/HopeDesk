@@ -102,11 +102,6 @@ void RunSystemLoop() {
 
     LOG_INFO("RunSystemLoop start");
 
-    webrtcManager->stopProcessCallBack = [&ioContext, sessionId, &webrtcManager]() mutable {
-        LOG_INFO("[SUBPROCESS] SessionID: %d - Stopping WebRTC Remote and exiting...", sessionId);
-        ioContext.stop();
-        };
-
     ioContext.run();
 }
 
