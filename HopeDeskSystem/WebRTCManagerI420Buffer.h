@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <api/video/i420_buffer.h>
 
 namespace hope {
@@ -8,7 +9,7 @@ namespace hope {
 
         class WebRTCManagerI420Buffer : public webrtc::I420BufferInterface {
         public:
-            WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag,int stride);
+            WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::function<void()> handle, int stride);
             ~WebRTCManagerI420Buffer() override;
 
             int width() const override;
@@ -31,7 +32,7 @@ namespace hope {
             int strideV;
             int bufferWidth;
             int bufferHeight;
-            std::atomic<bool>* releaseFlag;
+            std::function<void()> handle;
         };
 
     } // namespace rtc

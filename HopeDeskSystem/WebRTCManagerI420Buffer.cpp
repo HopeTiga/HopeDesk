@@ -3,8 +3,8 @@
 namespace hope {
     namespace rtc {
 
-        WebRTCManagerI420Buffer::WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag, int stride)
-            : bufferWidth(width), bufferHeight(height), releaseFlag(releaseFlag) {
+        WebRTCManagerI420Buffer::WebRTCManagerI420Buffer(const uint8_t* data, int width, int height, std::function<void()> handle, int stride)
+            : bufferWidth(width), bufferHeight(height), handle(handle) {
 
             // 如果传入的 stride 是 0 (防御性编程)，则回退到 width
             if (stride == 0) stride = width;
@@ -33,8 +33,8 @@ namespace hope {
 
         WebRTCManagerI420Buffer::~WebRTCManagerI420Buffer() {
             // Signal ScreenCapture that this buffer is free to use
-            if (releaseFlag) {
-                releaseFlag->store(false);
+            if (handle) {
+                handle();
             }
         }
 

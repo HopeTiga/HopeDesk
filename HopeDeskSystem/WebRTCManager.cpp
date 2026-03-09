@@ -577,24 +577,23 @@ namespace hope {
 
             screenCapture->setConfig(config);
 
-            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag, int stride, CaptureLevels levels) {
+            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::function<void()> handle, int stride, CaptureLevels levels) {
                 if (!videoTrackSourceImpl || !data) {
-                    if (releaseFlag) releaseFlag->store(false);
                     return;
                 }
 
                 webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer;
 
-                if (releaseFlag) {
+                if (handle) {
 
                     if (levels == CaptureLevels::GPU) {
 
-                        buffer = webrtc::make_ref_counted<WebRTCManagerI420Buffer>(data, width, height, releaseFlag, stride);
+                        buffer = webrtc::make_ref_counted<WebRTCManagerI420Buffer>(data, width, height, std::move(handle), stride);
 
                     }
                     else if (levels == CaptureLevels::PRO) {
 
-                        buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
+                        buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, std::move(handle), stride);
 
                     }
 

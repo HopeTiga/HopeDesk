@@ -12,7 +12,7 @@
 #include <memory>
 #include "WinLogon.h"
 #include "Utils.h"
-
+#include "concurrentqueue.h"
 
 namespace hope {
 
@@ -22,15 +22,20 @@ namespace hope {
 
         struct YuvStagingBuffer {
             Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
-            std::atomic<bool> isBusy{ false };
             uint8_t* mappedData = nullptr; 
             D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
+            bool isMapped = false;
         };
 
         struct Nv12TextureBuffer {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> buffer;
-            std::atomic<bool> isBusy{ false };
             D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
+            bool isMapped = false;
+        };
+
+        struct FramePool {
+            moodycamel::ConcurrentQueue<std::shared_ptr<YuvStagingBuffer>> yuvQueue;
+            moodycamel::ConcurrentQueue<std::shared_ptr<Nv12TextureBuffer>> nv12Queue;
         };
 
         enum class CaptureLevels {
@@ -53,7 +58,8 @@ namespace hope {
                 bool enableDirtyRects = true;
             };
 
-            using DataHandle = std::function<void(const uint8_t*, int, int, std::atomic<bool>*,int, CaptureLevels)>;
+            using ReleaseHandle = std::function<void()>;
+            using DataHandle = std::function<void(const uint8_t*, int, int, ReleaseHandle, int, CaptureLevels)>;
 
             ScreenCapture();
             ~ScreenCapture();
@@ -116,16 +122,9 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> proVideoProcessorEnum;
             Microsoft::WRL::ComPtr<ID3D11Texture2D> proOutputTex;
 
-            YuvStagingBuffer yuvStagingBuffers[YUV_BUFFERS];
-            std::vector<std::unique_ptr<YuvStagingBuffer>> emergencyBuffers;
+            std::shared_ptr<FramePool> framePool;
 
-            Nv12TextureBuffer nv12TextureBuffers[YUV_BUFFERS];
-            std::vector<std::unique_ptr<Nv12TextureBuffer>> emergencyNv12Buffers;
-
-            int currentYuvIdx = 0;
             int currentTexture = 0;
-
-            int currentProIdx = 0;
 
             std::unique_ptr<struct DirtyRegionTracker> dirtyTracker;
             std::unique_ptr<WinLogon> winLogonSwitcher;

@@ -8,11 +8,11 @@ namespace hope {
         WebRTCManagerNV12Buffer::WebRTCManagerNV12Buffer(const uint8_t* data,
             int width,
             int height,
-            std::atomic<bool>* releaseFlag,
+            std::function<void()> handle,
             int stride)
             : bufferWidth(width),
             bufferHeight(height),
-            releaseFlag(releaseFlag) {
+            handle(handle) {
 
             strideY = (stride > 0) ? stride : width;
 
@@ -25,8 +25,8 @@ namespace hope {
         }
 
         WebRTCManagerNV12Buffer::~WebRTCManagerNV12Buffer() {
-            if (releaseFlag)
-                releaseFlag->store(false);
+            if (handle)
+                handle();
         }
 
         /* ============= NV12BufferInterface ============= */

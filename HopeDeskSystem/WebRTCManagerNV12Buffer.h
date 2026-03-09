@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <api/video/video_frame_buffer.h>
 
 namespace hope {
@@ -13,7 +14,7 @@ namespace hope {
             WebRTCManagerNV12Buffer(const uint8_t* data,
                 int width,
                 int height,
-                std::atomic<bool>* releaseFlag,
+                std::function<void()> handle,
                 int stride);
 
             ~WebRTCManagerNV12Buffer() override;
@@ -39,7 +40,8 @@ namespace hope {
             int strideUV;
             int bufferWidth;
             int bufferHeight;
-            std::atomic<bool>* releaseFlag;
+
+            std::function<void()> handle;
         };
 
     }  // namespace rtc
