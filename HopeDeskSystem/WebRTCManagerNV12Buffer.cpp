@@ -1,6 +1,8 @@
 #include "WebRTCManagerNV12Buffer.h"
 #include <api/video/i420_buffer.h>  // for I420Buffer::Create
 
+#include "Utils.h"
+
 namespace hope {
     namespace rtc {
 
@@ -8,11 +10,11 @@ namespace hope {
         WebRTCManagerNV12Buffer::WebRTCManagerNV12Buffer(const uint8_t* data,
             int width,
             int height,
-            std::function<void()> handle,
+            std::atomic<bool>* releaseFlag,
             int stride)
             : bufferWidth(width),
             bufferHeight(height),
-            handle(handle) {
+            releaseFlag(releaseFlag) {
 
             strideY = (stride > 0) ? stride : width;
 
@@ -25,8 +27,12 @@ namespace hope {
         }
 
         WebRTCManagerNV12Buffer::~WebRTCManagerNV12Buffer() {
-            if (handle)
-                handle();
+            if (releaseFlag) {
+            
+                releaseFlag->store(false);
+
+            }
+               
         }
 
         /* ============= NV12BufferInterface ============= */

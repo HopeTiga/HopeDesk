@@ -55,7 +55,7 @@ namespace hope {
             }
 
             if (config.levels == CaptureLevels::PRO) {
-            
+
                 if (!initializeProcessor()) {
 
                     LOG_WARNING("PRO Converter init failed, falling back to CPU BGRA");
@@ -64,7 +64,7 @@ namespace hope {
 
                 }
                 else {
-                
+
                     config.uselevels = CaptureLevels::PRO;
 
                 }
@@ -107,7 +107,7 @@ namespace hope {
                 break;
             }
 
-             LOG_INFO("CaptureLevels: %s", levels.c_str());
+            LOG_INFO("CaptureLevels: %s", levels.c_str());
 
             return true;
         }
@@ -234,10 +234,6 @@ namespace hope {
                 d3dDevice->CreateTexture2D(&desc, nullptr, &stagingTextures[i]);
             }
 
-            if (!framePool) {
-                framePool = std::make_shared<FramePool>();
-            }
-
             return true;
         }
 
@@ -312,13 +308,10 @@ namespace hope {
             bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
             bufferDesc.MiscFlags = 0;
 
-            // 一次性建立 buffer * 3 的倍数的帧进队列
-            for (int i = 0; i < YUV_BUFFERS * 3; i++) {
-                auto newBuf = std::make_shared<YuvStagingBuffer>();
-                if (FAILED(d3dDevice->CreateBuffer(&bufferDesc, nullptr, &newBuf->buffer))) return false;
-                newBuf->isMapped = false;
-                newBuf->mappedData = nullptr;
-                framePool->yuvQueue.enqueue(newBuf);
+            for (int i = 0; i < YUV_BUFFERS; i++) {
+                if (FAILED(d3dDevice->CreateBuffer(&bufferDesc, nullptr, &yuvStagingBuffers[i].buffer))) return false;
+                yuvStagingBuffers[i].isBusy = false;
+                yuvStagingBuffers[i].mappedData = nullptr;
             }
 
             struct Constants { UINT w; UINT h; UINT ySize; UINT uvSize; };
@@ -363,10 +356,10 @@ namespace hope {
             UINT flags = 0;
             if (FAILED(proVideoProcessorEnum->CheckVideoProcessorFormat(DXGI_FORMAT_NV12, &flags))) return false;
             if ((flags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT) == 0) {
-                return false; // Կ֧ VP  NV12
+                return false; // ���Կ���֧�� VP ��� NV12
             }
 
-            // 3.  Processor
+            // 3. ���� Processor
             if (FAILED(proVideoDevice->CreateVideoProcessor(proVideoProcessorEnum.Get(), 0, &proVideoProcessor))) return false;
 
             D3D11_TEXTURE2D_DESC texDesc = {};
@@ -381,21 +374,20 @@ namespace hope {
 
             if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &proOutputTex))) return false;
 
-            // 3. ؼʼ CPU ضõ Staging 
+            // 3. ���ؼ�����ʼ�� CPU �ض��õ� Staging ��
             texDesc.Usage = D3D11_USAGE_STAGING;
-            texDesc.BindFlags = 0; // Staging Ҫ BindFlags
+            texDesc.BindFlags = 0; // Staging �������Ҫ BindFlags
             texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            texDesc.MiscFlags = 0; // ֮ǰ Flags
+            texDesc.MiscFlags = 0; // ���֮ǰ�� Flags
 
-            // 一次性建立 buffer * 3 的倍数的帧进队列
-            for (int i = 0; i < YUV_BUFFERS * 3; i++) {
-                auto newBuf = std::make_shared<Nv12TextureBuffer>();
-                if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &newBuf->buffer))) {
+            for (int i = 0; i < YUV_BUFFERS; i++) {
+                // Ϊÿ���ز�λ����һ�� Staging Texture
+                if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &nv12TextureBuffers[i].buffer))) {
                     LOG_ERROR("Failed to create Pro staging texture %d", i);
                     return false;
                 }
-                newBuf->isMapped = false;
-                framePool->nv12Queue.enqueue(newBuf);
+                nv12TextureBuffers[i].isBusy = false;
+                nv12TextureBuffers[i].mappedSubresource.pData = nullptr;
             }
 
             return true;
@@ -441,7 +433,7 @@ namespace hope {
             if (FAILED(d3dContext->Map(stagingTextures[currentTexture].Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
 
             if (dataHandle) {
-                // CPU 模式完全同步调用，回调传 nullptr
+
                 dataHandle(reinterpret_cast<const uint8_t*>(mapped.pData), config.width, config.height, nullptr, mapped.RowPitch, CaptureLevels::CPU);
             }
             d3dContext->Unmap(stagingTextures[currentTexture].Get(), 0);
@@ -450,7 +442,7 @@ namespace hope {
         }
 
         bool ScreenCapture::processFrameGPU(ID3D11Texture2D* texture) {
-            if (!texture || !d3dContext || !yuvComputeShader || !framePool) return false;
+            if (!texture || !d3dContext || !yuvComputeShader) return false;
 
             D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
             srvDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -475,17 +467,19 @@ namespace hope {
             ID3D11ShaderResourceView* nullSRV = nullptr;
             d3dContext->CSSetShaderResources(0, 1, &nullSRV);
 
-            std::shared_ptr<YuvStagingBuffer> targetBuffer;
+            YuvStagingBuffer* targetBuffer = &yuvStagingBuffers[currentYuvIdx];
 
-            // 直接尝试出列，没有可用的就丢帧直接跳过
-            if (!framePool->yuvQueue.try_dequeue(targetBuffer)) {
-                return true;
+            if (targetBuffer->isBusy.load()) {
+                int retries = 0;
+                while (targetBuffer->isBusy.load() && retries < YUV_BUFFERS) {
+                    currentYuvIdx = (currentYuvIdx + 1) % YUV_BUFFERS;
+                    targetBuffer = &yuvStagingBuffers[currentYuvIdx];
+                    retries++;
+                }
             }
 
-            // 在主线程执行安全的 Unmap
-            if (targetBuffer->isMapped) {
+            if (targetBuffer->mappedData) {
                 d3dContext->Unmap(targetBuffer->buffer.Get(), 0);
-                targetBuffer->isMapped = false;
                 targetBuffer->mappedData = nullptr;
             }
 
@@ -493,33 +487,27 @@ namespace hope {
 
             if (SUCCEEDED(d3dContext->Map(targetBuffer->buffer.Get(), 0, D3D11_MAP_READ, 0, &targetBuffer->mappedSubresource))) {
                 targetBuffer->mappedData = static_cast<uint8_t*>(targetBuffer->mappedSubresource.pData);
-                targetBuffer->isMapped = true;
+
+                targetBuffer->isBusy.store(true);
 
                 if (dataHandle) {
-                    // 使用 weak_ptr 控制生命周期，析构时切断
-                    std::weak_ptr<FramePool> weakPool = framePool;
-                    auto releaseCb = [weakPool, targetBuffer]() {
-                        if (auto pool = weakPool.lock()) {
-                            pool->yuvQueue.enqueue(targetBuffer);
-                        }
-                    };
-                    dataHandle(targetBuffer->mappedData, config.width, config.height, releaseCb, config.width, CaptureLevels::GPU);
+                    dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy, config.width, CaptureLevels::GPU);
                 }
                 else {
-                    framePool->yuvQueue.enqueue(targetBuffer);
+                    d3dContext->Unmap(targetBuffer->buffer.Get(), 0);
+                    targetBuffer->mappedData = nullptr;
+                    targetBuffer->isBusy.store(false);
                 }
             }
-            else {
-                framePool->yuvQueue.enqueue(targetBuffer);
-            }
+
+            currentYuvIdx = (currentYuvIdx + 1) % YUV_BUFFERS;
 
             return true;
         }
 
         bool ScreenCapture::processFramePro(ID3D11Texture2D* texture)
         {
-            if (!framePool) return false;
-            // 1.  VideoProcessor ͼ (View)
+            // 1. ���� VideoProcessor ��ͼ (View)
             D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputDesc = {};
             inputDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
             inputDesc.Texture2D.MipSlice = 0;
@@ -529,54 +517,61 @@ namespace hope {
             D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputDesc = {};
             outputDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
             Microsoft::WRL::ComPtr<ID3D11VideoProcessorOutputView> outputView;
-            //  proOutputTex  Default Usage (GPU)
+            // ����� proOutputTex �� Default Usage (GPU��)
             if (FAILED(proVideoDevice->CreateVideoProcessorOutputView(proOutputTex.Get(), proVideoProcessorEnum.Get(), &outputDesc, &outputView))) return false;
 
-            // 2. ִӲת (RGBA -> NV12)
+            // 2. ִ��Ӳ��ת�� (RGBA -> NV12)
             D3D11_VIDEO_PROCESSOR_STREAM stream = {};
             stream.Enable = TRUE;
             stream.pInputSurface = inputView.Get();
             HRESULT hr = proVideoContext->VideoProcessorBlt(proVideoProcessor.Get(), outputView.Get(), 0, 1, &stream);
             if (FAILED(hr)) return false;
 
-            std::shared_ptr<Nv12TextureBuffer> targetFrame;
+            Nv12TextureBuffer* targetFrame = &nv12TextureBuffers[currentProIdx];
 
-            // 同样直接尝试出列
-            if (!framePool->nv12Queue.try_dequeue(targetFrame)) {
-                return true;
+            if (targetFrame->isBusy.load()) {
+
+                int retries = 0;
+                while (targetFrame->isBusy.load() && retries < YUV_BUFFERS) {
+                    currentProIdx = (currentProIdx + 1) % YUV_BUFFERS;
+                    targetFrame = &nv12TextureBuffers[currentProIdx];
+                    retries++;
+                }
+
             }
 
-            if (targetFrame->isMapped) {
+            if (targetFrame->mappedSubresource.pData) {
                 d3dContext->Unmap(targetFrame->buffer.Get(), 0);
-                targetFrame->isMapped = false;
                 targetFrame->mappedSubresource.pData = nullptr;
             }
 
             d3dContext->CopyResource(targetFrame->buffer.Get(), proOutputTex.Get());
 
             if (SUCCEEDED(d3dContext->Map(targetFrame->buffer.Get(), 0, D3D11_MAP_READ, 0, &targetFrame->mappedSubresource))) {
-                
-                targetFrame->isMapped = true;
+
+                targetFrame->isBusy.store(true);
 
                 if (dataHandle) {
-                    std::weak_ptr<FramePool> weakPool = framePool;
-                    auto releaseCb = [weakPool, targetFrame]() {
-                        if (auto pool = weakPool.lock()) {
-                            pool->nv12Queue.enqueue(targetFrame);
-                        }
-                    };
+
                     dataHandle(reinterpret_cast<const uint8_t*>(targetFrame->mappedSubresource.pData),
-                        config.width, config.height, releaseCb, targetFrame->mappedSubresource.RowPitch, CaptureLevels::PRO);
+                        config.width, config.height, &targetFrame->isBusy, targetFrame->mappedSubresource.RowPitch, CaptureLevels::PRO);
+
                 }
                 else {
-                    framePool->nv12Queue.enqueue(targetFrame);
+                    d3dContext->Unmap(targetFrame->buffer.Get(), 0);
+                    targetFrame->mappedSubresource.pData = nullptr;
+                    targetFrame->isBusy.store(false);
                 }
 
             }
             else {
-                framePool->nv12Queue.enqueue(targetFrame);
+                d3dContext->Unmap(targetFrame->buffer.Get(), 0);
+                targetFrame->mappedSubresource.pData = nullptr;
+                targetFrame->isBusy.store(false);
             }
-        
+
+            currentProIdx = (currentProIdx + 1) % YUV_BUFFERS;
+
             return true;
         }
 
@@ -653,11 +648,6 @@ namespace hope {
         }
 
         void ScreenCapture::releaseResourceDXGI() {
-            // 切断 WebRTC 等其他线程的队列连结，这步非常关键
-            if (framePool) {
-                framePool.reset(); 
-            }
-
             dxgiDuplication.Reset();
 
             for (auto& st : stagingTextures) st.Reset();
@@ -672,7 +662,17 @@ namespace hope {
             proVideoContext.Reset();
             proVideoProcessor.Reset();
             proVideoProcessorEnum.Reset();
-            proOutputTex.Reset(); 
+            proOutputTex.Reset();
+
+            for (int i = 0; i < YUV_BUFFERS; i++) {
+                yuvStagingBuffers[i].buffer.Reset();
+                yuvStagingBuffers[i].mappedData = nullptr;
+                yuvStagingBuffers[i].isBusy = false;
+
+                nv12TextureBuffers[i].buffer.Reset();
+                nv12TextureBuffers[i].isBusy = false;
+                nv12TextureBuffers[i].mappedSubresource.pData = nullptr;
+            }
         }
     }
 }

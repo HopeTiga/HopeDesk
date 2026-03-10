@@ -12,35 +12,30 @@
 #include <memory>
 #include "WinLogon.h"
 #include "Utils.h"
-#include "concurrentqueue.h"
+
 
 namespace hope {
 
     namespace rtc {
 
-        static constexpr int YUV_BUFFERS = 8; 
+        static constexpr int YUV_BUFFERS = 24;
 
         struct YuvStagingBuffer {
             Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
-            uint8_t* mappedData = nullptr; 
+            std::atomic<bool> isBusy{ false };
+            uint8_t* mappedData = nullptr;
             D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
-            bool isMapped = false;
         };
 
         struct Nv12TextureBuffer {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> buffer;
+            std::atomic<bool> isBusy{ false };
             D3D11_MAPPED_SUBRESOURCE mappedSubresource{};
-            bool isMapped = false;
-        };
-
-        struct FramePool {
-            moodycamel::ConcurrentQueue<std::shared_ptr<YuvStagingBuffer>> yuvQueue;
-            moodycamel::ConcurrentQueue<std::shared_ptr<Nv12TextureBuffer>> nv12Queue;
         };
 
         enum class CaptureLevels {
 
-            CPU = 1,
+            CPU = 0,
 
             GPU = 1,
 
@@ -58,8 +53,7 @@ namespace hope {
                 bool enableDirtyRects = true;
             };
 
-            using ReleaseHandle = std::function<void()>;
-            using DataHandle = std::function<void(const uint8_t*, int, int, ReleaseHandle, int, CaptureLevels)>;
+            using DataHandle = std::function<void(const uint8_t*, int, int, std::atomic<bool>*, int, CaptureLevels)>;
 
             ScreenCapture();
             ~ScreenCapture();
@@ -122,9 +116,14 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> proVideoProcessorEnum;
             Microsoft::WRL::ComPtr<ID3D11Texture2D> proOutputTex;
 
-            std::shared_ptr<FramePool> framePool;
+            YuvStagingBuffer yuvStagingBuffers[YUV_BUFFERS];
 
+            Nv12TextureBuffer nv12TextureBuffers[YUV_BUFFERS];
+
+            int currentYuvIdx = 0;
             int currentTexture = 0;
+
+            int currentProIdx = 0;
 
             std::unique_ptr<struct DirtyRegionTracker> dirtyTracker;
             std::unique_ptr<WinLogon> winLogonSwitcher;

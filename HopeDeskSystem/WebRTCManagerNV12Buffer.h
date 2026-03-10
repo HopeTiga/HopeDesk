@@ -14,7 +14,7 @@ namespace hope {
             WebRTCManagerNV12Buffer(const uint8_t* data,
                 int width,
                 int height,
-                std::function<void()> handle,
+                std::atomic<bool>* releaseFlag,
                 int stride);
 
             ~WebRTCManagerNV12Buffer() override;
@@ -41,7 +41,7 @@ namespace hope {
             int bufferWidth;
             int bufferHeight;
 
-            std::function<void()> handle;
+            std::atomic<bool>* releaseFlag;
         };
 
     }  // namespace rtc
