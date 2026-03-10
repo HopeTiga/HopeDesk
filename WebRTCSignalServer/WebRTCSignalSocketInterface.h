@@ -10,16 +10,6 @@ namespace hope {
 		{
 			WebSocket = 0
 		};
-	
-		enum class LogicSocketType
-		{
-			WebRTCUserSocket = 0,
-			CloudGameServerSocket = 1,
-			CloudGameProcessSocket = 2,
-			CloudDeviceSocket = 3,
-			CloudDeviceProcessSocket = 4
-		};
-
 
 		class WebRTCSignalSocketInterface {
 
@@ -27,11 +17,9 @@ namespace hope {
 
 			virtual ~WebRTCSignalSocketInterface() = default;
 
-			virtual void writeAsync(unsigned char* data, size_t size) = 0;
+			virtual void asyncWrite(unsigned char* data, size_t size) = 0;
 
-			virtual void writeAsync(std::string str) = 0;
-
-			virtual void writeAsync(std::string str,std::function<void()> func) = 0;
+			virtual void asyncWrite(std::string str) = 0;
 
 			virtual void setLogicSocketType(LogicSocketType type) = 0;
 

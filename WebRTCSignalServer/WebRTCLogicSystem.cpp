@@ -131,9 +131,9 @@ namespace hope {
                                         std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                         boost::json::object forwardMessage = message;
                                         forwardMessage["state"] = 200;
-                                        forwardMessage["message"] = "MsquicServer forward";
+                                        forwardMessage["message"] = "webrtcSignalServer forward";
 
-                                        co_await targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
+                                        targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
                                         LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                                         co_return;
@@ -144,7 +144,7 @@ namespace hope {
                                         response["state"] = 404;
                                         response["message"] = "TargetId is not register";
 
-                                        co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+                                        webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
                                         LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                                         co_return;
@@ -157,9 +157,10 @@ namespace hope {
                                 response["state"] = 404;
                                 response["message"] = "TargetId is not register";
 
-                                co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+                                webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
                                 LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                
                                 co_return;
                             }
                             });
@@ -173,9 +174,9 @@ namespace hope {
                                 std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                 boost::json::object forwardMessage = message;
                                 forwardMessage["state"] = 200;
-                                forwardMessage["message"] = "MsquicServer forward";
+                                forwardMessage["message"] = "webrtcSignalServer forward";
 
-                                co_await targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
+                                targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
                                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                                 co_return;
@@ -200,13 +201,14 @@ namespace hope {
                                                 std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                                 boost::json::object forwardMessage = message;
                                                 forwardMessage["state"] = 200;
-                                                forwardMessage["message"] = "MsquicServer forward";
+                                                forwardMessage["message"] = "webrtcSignalServer forward";
 
-             
-                                                co_await targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
+                                                targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
                                                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                                
                                                 co_return;
+
                                             }
                                             else {
                                                 boost::json::object response;
@@ -215,7 +217,7 @@ namespace hope {
                                                 response["message"] = "TargetId is not register";
 
            
-                                                co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+                                                webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
                                                 LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                                                 co_return;
@@ -228,7 +230,7 @@ namespace hope {
                                         response["state"] = 404;
                                         response["message"] = "TargetId is not register";
 
-                                        co_await webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+                                        webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
                                         LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                                         co_return;
@@ -247,7 +249,7 @@ namespace hope {
 
                 forwardMessage["message"] = "webrtcSignalServer forward";
 
-                co_await targetSocket->asyncWrite(boost::json::serialize(forwardMessage));
+                targetSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
                 };
@@ -266,15 +268,14 @@ namespace hope {
                 
                     response["state"] = 400;
                     response["message"] = "Missing accountId in registration request";
-                    co_await data->webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
-					data->webrtcSignalSocket->closeSocket();
+                    data->webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+
                     LOG_WARNING("Registration Failed: Missing accountId");
 					co_return;
 
                 }
 
 				std::string accountId = message["accountId"].as_string().c_str();
-
 
                 data->webrtcSignalSocket->setAccountId(accountId);
 
@@ -288,7 +289,7 @@ namespace hope {
 
                 response["accountId"] = accountId;
 
-                co_await data->webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
+                data->webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
                 LOG_INFO("User Register Successful : %s (channelIndex: %d)", accountId.c_str(), data->webrtcSignalManager->channelIndex);
 

@@ -5,7 +5,6 @@
 #include <boost/beast/websocket/ssl.hpp> 
 #include <boost/beast.hpp>
 #include <boost/json.hpp>
-
 #ifdef _WIN32
 #include <winsock2.h>      // Windows Socket API
 #include <ws2tcpip.h>      // Windows Socket 扩展
@@ -24,9 +23,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #endif
-
 #include "WebRTCSignalSocketInterface.h"
-
 #include "concurrentqueue.h"
 
 namespace hope {
@@ -45,7 +42,7 @@ namespace hope {
 
 			static boost::asio::ssl::context& getSslContext();
 
-			WebRTCSignalSocket(boost::asio::io_context& ioContext, WebRTCSignalManager * webrtcSignalManager);
+			WebRTCSignalSocket(boost::asio::io_context& ioContext, WebRTCSignalManager* webrtcSignalManager);
 
 			~WebRTCSignalSocket();
 
@@ -61,7 +58,9 @@ namespace hope {
 
 			void clear();
 
-			boost::asio::awaitable<void> asyncWrite(std::string str);
+			virtual void asyncWrite(unsigned char* data, size_t size);
+
+			void asyncWrite(std::string str);
 
 			void setAccountId(const std::string& accountId);
 
@@ -69,7 +68,11 @@ namespace hope {
 
 			void setRegistered(bool isRegistered);
 
+			void setGameType(std::string gameType);
+
 			void destroy();
+
+			std::string getGameType();
 
 			std::string getSessionId();
 
@@ -91,19 +94,23 @@ namespace hope {
 
 			boost::asio::awaitable<void> reviceCoroutine();
 
-			void setTcpKeepAlive(boost::asio::ip::tcp::socket & socket,
-				int idle = 0, int intvl =3, int probes = 3);
+			boost::asio::awaitable<void> writerCoroutine();
 
-
+			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
+				int idle = 0, int intvl = 3, int probes = 3);
 		private:
 
-			WebRTCSignalManager * webrtcSignalManager;
+			WebRTCSignalManager* webrtcSignalManager;
 
 			boost::asio::io_context& ioContext;
 
 			boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> webSocket;
 
 			boost::asio::ip::tcp::resolver resolver;
+
+			boost::asio::steady_timer steadyTimer;
+
+			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
 
 			std::atomic<bool> webSocketRuns{ false };
 
@@ -125,15 +132,12 @@ namespace hope {
 
 			std::string sessionId;
 
-			LogicSocketType logicSocketType;
-
 			static boost::asio::ssl::context sslContext;
 
 		private:
 
 			std::function<void(std::string, std::string)> onDisConnectHandle;
+
 		};
-
 	}
-
 }
