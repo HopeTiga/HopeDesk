@@ -183,8 +183,6 @@ namespace hope {
 
             }
 
-            LOG_INFO("writerAsync:%s",data->data + 8);
-
             writerDataQueues.enqueue(data);
 
             webrtcSteadyTimer.cancel();
@@ -972,7 +970,7 @@ namespace hope {
                 
                     std::shared_ptr<WriterData> writeData = nullptr;
 
-                    while (writerDataQueues.try_dequeue(writeData)) {
+                    while (writerDataQueues.try_dequeue(writeData) && writeData) {
 
                         co_await boost::asio::async_write(*tcpSocket, boost::asio::buffer(writeData->data, writeData->size), boost::asio::use_awaitable);
 
