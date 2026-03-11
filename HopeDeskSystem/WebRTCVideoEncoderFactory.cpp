@@ -2,6 +2,7 @@
 
 #include <media/engine/simulcast_encoder_adapter.h>
 
+#include "NvencAV1Encoder.h"
 #include "Utils.h"
 
 namespace hope {
@@ -15,6 +16,14 @@ namespace hope {
 
         std::unique_ptr<webrtc::VideoEncoder> WebRTCVideoEncoderFactory::Create(const webrtc::Environment& env, const webrtc::SdpVideoFormat& format)
         {
+
+            if ((format.name == "AV1" || format.name == "av1") && webrtcEnableNvidia == 1) {
+     
+                LOG_INFO("NvencAV1Encoder");
+
+                return std::make_unique<NvencAV1Encoder>();
+
+            }
 
             if (format.IsCodecInList(
                 internalEncoderFactory->GetSupportedFormats())) {

@@ -11,9 +11,9 @@
 #include <api/field_trials.h>
 #include <third_party/libyuv/include/libyuv.h>
 
-#include "WebRTCVideoEncoderFactory.h"
 #include "WebRTCManagerI420Buffer.h"
 #include "WebRTCManagerNV12Buffer.h"
+#include "WebRTCD3D11TextureBuffer.h"
 #include "ConfigManager.h"
 
 
@@ -278,6 +278,10 @@ namespace hope {
 
                 std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
 
+                std::unique_ptr<WebRTCVideoEncoderFactory> webrtcVideoEncoderFactoryUnique = std::make_unique<WebRTCVideoEncoderFactory>();
+
+                webrtcVideoEncoderFactory = webrtcVideoEncoderFactoryUnique.get();
+
                 peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
                     networkThread.get(),
                     workerThread.get(),
@@ -285,7 +289,7 @@ namespace hope {
                     audioDeviceModuleImpl,
                     webrtc::CreateBuiltinAudioEncoderFactory(),
                     webrtc::CreateBuiltinAudioDecoderFactory(),
-                    std::make_unique<WebRTCVideoEncoderFactory>(),
+                    std::move(webrtcVideoEncoderFactoryUnique),
                     webrtc::CreateBuiltinVideoDecoderFactory(),
                     nullptr,
                     nullptr,
@@ -573,6 +577,36 @@ namespace hope {
 
             screenCapture->setConfig(config);
 
+            if (webrtcEnableNvidia == 1) {
+            
+                screenCapture->setGpuDataHandle([this](ID3D11Texture2D* texture,
+                    HANDLE sharedHandle,
+                    int width, int height,
+                    std::atomic<bool>* isBusy,
+                    CaptureLevels level
+                    ) {
+
+                        if (!videoTrackSourceImpl || !texture) {
+
+                            return;
+                        }
+
+                        webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer;
+
+                        buffer = webrtc::make_ref_counted<WebRTCD3D11TextureBuffer>(texture, sharedHandle, width, height, isBusy);
+
+                        webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
+                            .set_video_frame_buffer(buffer)
+                            .set_rotation(webrtc::kVideoRotation_0)
+                            .set_timestamp_us(webrtc::TimeMicros())
+                            .build();
+
+                        videoTrackSourceImpl->PushFrame(frame);
+
+                    });
+
+            }
+
             screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag , int stride, CaptureLevels levels) {
                 
                 if (!videoTrackSourceImpl || !data) {
@@ -584,16 +618,7 @@ namespace hope {
 
                 if (releaseFlag) {
 
-                    if (levels == CaptureLevels::GPU) {
-
-                        buffer = webrtc::make_ref_counted<WebRTCManagerI420Buffer>(data, width, height, releaseFlag, stride);
-
-                    }
-                    else if (levels == CaptureLevels::PRO) {
-
-                        buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
-
-                    }
+                    buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
 
                 }
                 else {
@@ -880,9 +905,21 @@ namespace hope {
 
                                             }
 
+                                            if (json.contains("webrtcEnableNvidia")){
+
+                                                webrtcEnableNvidia = json["webrtcEnableNvidia"].as_int64();
+
+                                            }
+
                                             if (!initializePeerConnection()) {
                                                 LOG_ERROR("Failed to initialize peer connection");
                                                 continue;
+                                            }
+
+                                            if (webrtcVideoEncoderFactory) {
+
+                                                webrtcVideoEncoderFactory->webrtcEnableNvidia = webrtcEnableNvidia;
+
                                             }
 
                                             int webrtcModulesType = 0;
@@ -1077,6 +1114,8 @@ namespace hope {
             if (peerConnectionFactory) {
                 peerConnectionFactory = nullptr;
             }
+
+            webrtcVideoEncoderFactory = nullptr;
 
             webrtcSteadyTimer.cancel();
         }

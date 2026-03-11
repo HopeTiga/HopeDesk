@@ -35,7 +35,12 @@ namespace hope {
 
 			std::vector<webrtc::SdpVideoFormat> GetImplementations() const override;
 
+		public:
+
+			int webrtcEnableNvidia = 0;
+
 		private:
+
 			const std::unique_ptr<VideoEncoderFactory> internalEncoderFactory;
 
 		};

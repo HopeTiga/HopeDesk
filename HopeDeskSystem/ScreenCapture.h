@@ -1,9 +1,9 @@
 #pragma once
 
 #include <d3d11.h>
-#include <d3d11_1.h> // 新增
+#include <d3d11_1.h> 
 #include <dxgi1_2.h>
-#include <dxgi1_5.h> // 新增
+#include <dxgi1_5.h> 
 #include <wrl/client.h>
 #include <thread>
 #include <atomic>
@@ -13,9 +13,7 @@
 #include "WinLogon.h"
 #include "Utils.h"
 
-
 namespace hope {
-
     namespace rtc {
 
         static constexpr int YUV_BUFFERS = 24;
@@ -34,13 +32,9 @@ namespace hope {
         };
 
         enum class CaptureLevels {
-
             CPU = 0,
-
             GPU = 1,
-
             PRO = 2
-
         };
 
         class ScreenCapture {
@@ -55,6 +49,14 @@ namespace hope {
 
             using DataHandle = std::function<void(const uint8_t*, int, int, std::atomic<bool>*, int, CaptureLevels)>;
 
+            using GpuDataHandle = std::function<void(
+                ID3D11Texture2D* texture,
+                HANDLE sharedHandle,
+                int width, int height,
+                std::atomic<bool>* isBusy,
+                CaptureLevels level
+                )>;
+
             ScreenCapture();
             ~ScreenCapture();
 
@@ -63,6 +65,7 @@ namespace hope {
             void stopCapture();
             void setConfig(CaptureConfig c) { config = c; }
             void setDataHandle(DataHandle dh) { dataHandle = dh; }
+            void setGpuDataHandle(GpuDataHandle dh) { gpuDataHandle = dh; }
 
         private:
             void captureThreadFunc();
@@ -87,6 +90,10 @@ namespace hope {
             std::atomic<bool> capturing{ false };
             std::thread captureThread;
             DataHandle dataHandle;
+            GpuDataHandle gpuDataHandle;
+
+            // 智能状态机：当前环境是否支持 4090 硬件零拷贝
+            bool canZeroCopy = false;
 
             Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
@@ -101,8 +108,14 @@ namespace hope {
             Microsoft::WRL::ComPtr<IDXGIOutputDuplication> dxgiDuplication;
 
             Microsoft::WRL::ComPtr<ID3D11Texture2D> sharedTexture;
-            Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[YUV_BUFFERS]; // For CPU Path
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[YUV_BUFFERS];
             HANDLE sharedHandle = nullptr;
+
+            // 仅在 canZeroCopy == true 时启用的专属硬件池
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> hwSharedTextures[YUV_BUFFERS];
+            HANDLE hwSharedHandles[YUV_BUFFERS] = { nullptr };
+            std::atomic<bool> hwSharedBusy[YUV_BUFFERS];
+            int currentHwSharedIdx = 0;
 
             Microsoft::WRL::ComPtr<ID3D11ComputeShader> yuvComputeShader;
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvOutputBuffer;
@@ -110,19 +123,17 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Buffer> yuvConstantBuffer;
             D3D11_BUFFER_DESC bufferDesc;
 
-            Microsoft::WRL::ComPtr<ID3D11VideoDevice> proVideoDevice; //Pro path
+            Microsoft::WRL::ComPtr<ID3D11VideoDevice> proVideoDevice;
             Microsoft::WRL::ComPtr<ID3D11VideoContext> proVideoContext;
             Microsoft::WRL::ComPtr<ID3D11VideoProcessor> proVideoProcessor;
             Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> proVideoProcessorEnum;
             Microsoft::WRL::ComPtr<ID3D11Texture2D> proOutputTex;
 
             YuvStagingBuffer yuvStagingBuffers[YUV_BUFFERS];
-
             Nv12TextureBuffer nv12TextureBuffers[YUV_BUFFERS];
 
             int currentYuvIdx = 0;
             int currentTexture = 0;
-
             int currentProIdx = 0;
 
             std::unique_ptr<struct DirtyRegionTracker> dirtyTracker;
