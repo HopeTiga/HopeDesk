@@ -156,7 +156,7 @@ public:
     WebRTCManager& operator=(const WebRTCManager&) = delete;
 
 public:
-    void sendRequestToTarget(int webrtcModulesType = 0,int webrtcUseLevels = 2,int videoCodec = 4,int webrtcAudioEnable = 0);
+    void sendRequestToTarget(int webrtcModulesType = 0,int webrtcUseLevels = 2,int videoCodec = 4,int webrtcAudioEnable = 0,int webrtcEnableNvidia = 0);
 
     void connect(std::string ip);
 

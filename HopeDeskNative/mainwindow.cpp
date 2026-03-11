@@ -640,7 +640,7 @@ void MainWindow::onBtnConnectClicked()
 
     manager->setTargetId(targetId.toStdString());
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    manager->sendRequestToTarget(webrtcModulesType, webrtcLevels, videoCodec, webrtcAudioEnable);
+    manager->sendRequestToTarget(webrtcModulesType, webrtcLevels, videoCodec, webrtcAudioEnable,webrtcEnableNvidia);
 }
 
 void MainWindow::onBtnCopyCodeClicked()
@@ -760,6 +760,18 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 void MainWindow::onSystemTrayActivated(QSystemTrayIcon::ActivationReason reason) {
     if (reason == QSystemTrayIcon::DoubleClick) showWindow();
 }
+
+void MainWindow::on_checkHwAccel_checkStateChanged(const Qt::CheckState &state)
+{
+    if(state != Qt::Unchecked) {
+        webrtcEnableNvidia = 1;
+
+    } else {
+
+        webrtcEnableNvidia = 0;
+    }
+}
+
 
     } // namespace rtc
 } // namespace hope

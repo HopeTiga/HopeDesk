@@ -75,6 +75,8 @@ private Q_SLOTS:
     void onAudioChecked(bool checked);
     void onAutoStartChecked(bool checked);
 
+    void on_checkHwAccel_checkStateChanged(const Qt::CheckState &arg1);
+
 private:
     void setupUI();
     void setupSignalSlots();
@@ -130,6 +132,7 @@ private:
     int webrtcLevels = 2;
     int videoCodec = 4;
     int webrtcAudioEnable = 0;
+    int webrtcEnableNvidia = 0;
 };
 
 }

@@ -19,7 +19,7 @@
 QMainWindow {
     background-color: #F5F7FA;
     color: #333333;
-    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-family: &quot;Microsoft YaHei UI&quot;, &quot;Segoe UI&quot;, sans-serif;
 }
 QWidget { outline: none; }
 
@@ -146,7 +146,7 @@ QLabel#userStatusLabel {
           </size>
          </property>
          <property name="styleSheet">
-          <string notr="true">padding-left: 24px; font-size: 22px; font-weight: 900; color: #00B4FF; font-family: "Arial"; letter-spacing: 1px;</string>
+          <string notr="true">padding-left: 24px; font-size: 22px; font-weight: 900; color: #00B4FF; font-family: &quot;Arial&quot;; letter-spacing: 1px;</string>
          </property>
          <property name="text">
           <string>HopeDesk</string>
@@ -305,7 +305,7 @@ font-size: 16px;</string>
     <item>
      <widget class="QStackedWidget" name="mainStackedWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>2</number>
       </property>
       <widget class="QWidget" name="pageHome">
        <layout class="QVBoxLayout" name="verticalLayout_Home">
@@ -437,7 +437,7 @@ border-radius: 4px;</string>
 font-size: 40px; 
 font-weight: bold; 
 color: #00B4FF; 
-font-family: "Segoe UI", "Roboto", monospace;
+font-family: &quot;Segoe UI&quot;, &quot;Roboto&quot;, monospace;
 letter-spacing: 2px;</string>
                </property>
                <property name="text">
@@ -1110,7 +1110,24 @@ QComboBox::drop-down {
              </item>
             </widget>
            </item>
-           <item row="3" column="0" colspan="3">
+           <item row="3" column="0">
+            <widget class="QLabel" name="labelHwAccel">
+             <property name="text">
+              <string>硬件加速</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QCheckBox" name="checkHwAccel">
+             <property name="text">
+              <string>启用 NVENC/QuickSync 硬件编码加速</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="0" colspan="3">
             <widget class="Line" name="line_Set1">
              <property name="styleSheet">
               <string notr="true">background: #E1E8ED;</string>

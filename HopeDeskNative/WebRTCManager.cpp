@@ -1325,7 +1325,7 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
-void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable)
+void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable,int webrtcEnableNvidia)
 {
 
     if(peerConnection == nullptr){
@@ -1356,6 +1356,7 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
             message["webrtcUseLevels"] = webrtcUseLevels;
             message["codec"] = videoCodec;
             message["webrtcAudioEnable"] = webrtcAudioEnable;
+            message["webrtcEnableNvidia"] = webrtcEnableNvidia;
 
             webrtcAsyncWrite(boost::json::serialize(message));
 
