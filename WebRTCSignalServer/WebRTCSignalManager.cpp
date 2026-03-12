@@ -58,14 +58,6 @@ namespace hope {
                 return;
             }
 
-            if (currentSocket->getLogicSocketType() == LogicSocketType::CloudDeviceSocket) {
-                boost::json::object json;
-                json["requestType"] = static_cast<int>(22);
-                json["accountId"] = accountId;
-                std::shared_ptr<WebRTCSignalData> data = std::make_shared<WebRTCSignalData>(std::move(json), nullptr, this);
-                this->logicSystem->postTaskAsync(std::move(data));
-            }
-
             webrtcSocketMap.erase(it);
 
             currentSocket->closeSocket();

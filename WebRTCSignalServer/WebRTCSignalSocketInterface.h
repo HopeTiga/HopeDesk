@@ -21,10 +21,6 @@ namespace hope {
 
 			virtual void asyncWrite(std::string str) = 0;
 
-			virtual void setLogicSocketType(LogicSocketType type) = 0;
-
-			virtual LogicSocketType getLogicSocketType() = 0;
-
 			virtual std::string getSessionId() = 0;
 
 			virtual std::string getRemoteAddress() = 0;

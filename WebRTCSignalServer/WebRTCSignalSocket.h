@@ -68,17 +68,9 @@ namespace hope {
 
 			void setRegistered(bool isRegistered);
 
-			void setGameType(std::string gameType);
-
 			void destroy();
 
-			std::string getGameType();
-
 			std::string getSessionId();
-
-			void setLogicSocketType(LogicSocketType type);
-
-			LogicSocketType getLogicSocketType();
 
 			std::string getRemoteAddress();
 
