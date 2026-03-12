@@ -81,6 +81,10 @@ namespace hope {
 
             std::thread encoderThread;
             std::atomic<bool> isEncoding{ false };
+
+            webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retainedBuffers[MAX_BUFFER_COUNT];
+
+            std::mutex nvencApiMutex;
         };
     }
 }
