@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QWindow>
+#include <QMetaObject>
 #include <algorithm>
 #include "Utils.h"
 
@@ -23,18 +24,17 @@ VideoWidget::VideoWidget(QWidget* parent)
     , fullScreenButton(nullptr)
     , sidebar(nullptr)
     , sidebarExitButton(nullptr)
-    , mouseCheckTimer(nullptr)
     , hideTimer(nullptr)
     , sidebarAnimation(nullptr)
     , isFullScreenMode(false)
     , sidebarVisible(false)
     , interceptionHook(nullptr)
 {
-    // 强制关闭 VSync 以获得最低延迟（注意：可能会有画面撕裂，但延迟最低）
+    // 强制关闭 VSync 以获得最低延迟
     qputenv("QSG_RENDER_LOOP", "basic");
     qputenv("QT_QSG_NO_VSYNC", "1");
 
-    LOG_INFO("VideoWidget init (Low Latency Mode)");
+    LOG_INFO("VideoWidget init (Extreme Low Latency Mode)");
 
     QIcon windowIcon(":/logo/res/hope.png");
     if (!windowIcon.isNull()) {
@@ -44,6 +44,8 @@ VideoWidget::VideoWidget(QWidget* parent)
     setMinimumSize(320, 240);
     setFocusPolicy(Qt::StrongFocus);
     setFocus();
+
+    // 开启鼠标追踪，依赖事件驱动而非定时器轮询
     setMouseTracking(true);
     setAttribute(Qt::WA_AcceptTouchEvents);
 
@@ -65,11 +67,14 @@ VideoWidget::VideoWidget(QWidget* parent)
 VideoWidget::~VideoWidget()
 {
     LOG_INFO("VideoWidget destruction");
-    // 析构前清空引用
-    {
-        std::lock_guard<std::mutex> lock(frameMutex);
-        currentFrame.reset();
-    }
+
+    // 析构前无锁清空引用
+    VideoFrame* f1 = currentFramePtr.exchange(nullptr);
+    if (f1) delete f1;
+
+    VideoFrame* f2 = frameToReleasePtr.exchange(nullptr);
+    if (f2) delete f2;
+
     savePipelineCache();
 }
 
@@ -153,7 +158,6 @@ void VideoWidget::createTextures()
 
     LOG_INFO("Allocating fixed YUV textures: %dx%d", sizeY.width(), sizeY.height());
 
-    // 创建单套纹理
     videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, sizeY, 1));
     videoTextureY->create();
 
@@ -234,27 +238,42 @@ void VideoWidget::clearDisplay()
 {
     LOG_INFO("Clearing display");
     hasVideo = false;
-    {
-        std::lock_guard<std::mutex> lock(frameMutex);
-        currentFrame.reset();
-    }
+
+    // 无锁清除
+    VideoFrame* f = currentFramePtr.exchange(nullptr);
+    if (f) delete f;
+
     update();
 }
 
-// --- 极低延迟核心：Mailbox 模式 ---
+// --- 极低延迟核心：完全无锁化 + 垃圾回收模式 ---
 void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 {
     if (!frame || !frame->buffer) return;
 
-    {
-        // 加锁，直接覆盖当前帧，不管上一帧有没有被渲染
-        // 这就是去掉了所有缓冲队列，只保留“最新”的一帧
-        std::lock_guard<std::mutex> lock(frameMutex);
-        currentFrame = frame;
+    // 1. 新建当前帧的对象拷贝（浅拷贝，仅保留引用计数）
+    VideoFrame* newFrame = new VideoFrame(*frame);
+
+    // 2. 【无锁交换】偷换指针，新进旧出
+    VideoFrame* oldFrame = currentFramePtr.exchange(newFrame, std::memory_order_acq_rel);
+    if (oldFrame) {
+        // 如果渲染线程没来得及消费上一帧（网络投递太快），直接把旧帧丢弃，保证零拥塞
+        delete oldFrame;
     }
 
-    if (QWindow* w = windowHandle())
-        w->requestUpdate();
+    // 3. 【清空垃圾桶】回收渲染线程用完的"废弃帧"
+    // 把析构耗时转移到本网络线程，避免卡顿 RHI 渲染线程
+    VideoFrame* toRelease = frameToReleasePtr.exchange(nullptr, std::memory_order_acq_rel);
+    if (toRelease) {
+        delete toRelease;
+    }
+
+    // 4. 请求刷新画面
+    if (QWindow* w = windowHandle()) {
+        w->requestUpdate(); // 核心：极速且线程安全
+    } else {
+        QMetaObject::invokeMethod(this, [this]() { this->update(); }, Qt::QueuedConnection);
+    }
 }
 
 // --- 渲染线程 ---
@@ -267,16 +286,12 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         return;
     }
 
-    std::shared_ptr<VideoFrame> frameToRender = nullptr;
-
-    // 1. 快速取出当前帧的引用，减少锁占用时间
-    {
-        std::lock_guard<std::mutex> lock(frameMutex);
-        frameToRender = currentFrame;
-    }
+    // 1. 【无锁获取】取出最新的帧
+    VideoFrame* frameToRender = currentFramePtr.exchange(nullptr, std::memory_order_acq_rel);
 
     QVector2D currentUVScale(1.0f, 1.0f);
 
+    // 如果取出到了新帧，才执行 PCIe 上传（避免关闭 VSync 时的无脑重复上传）
     if (frameToRender && frameToRender->buffer) {
         QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
 
@@ -328,13 +343,13 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         }
 
         cb->resourceUpdate(batch);
-        frameCount++; // 统计FPS
+        frameCount++; // 统计真实送显的有效帧数
     }
 
     const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
     cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, nullptr);
 
-    // 4. 绘制
+    // 4. 绘制（无论有没有新帧都进行绘制，复用显存数据）
     if (hasVideo && srb) {
         const QSize outputSize = renderTarget()->pixelSize();
         cb->setGraphicsPipeline(pipeline.get());
@@ -345,6 +360,15 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         cb->draw(6);
     }
     cb->endPass();
+
+    // 5. 【无锁回收】把本轮画完的图扔进垃圾桶，给网络线程处理，保护渲染线程极速退出
+    if (frameToRender) {
+        VideoFrame* oldRelease = frameToReleasePtr.exchange(frameToRender, std::memory_order_acq_rel);
+        if (oldRelease) {
+            // 如果上一个垃圾还没被网络线程收走，兜底 delete 避免内存泄漏
+            delete oldRelease;
+        }
+    }
 }
 
 void VideoWidget::releaseResources()
@@ -490,16 +514,10 @@ void VideoWidget::initializeControls()
     sidebarAnimation->setDuration(250);
     sidebarAnimation->setEasingCurve(QEasingCurve::OutCubic);
 
-    mouseCheckTimer = new QTimer(this);
-    mouseCheckTimer->setInterval(50);
-    connect(mouseCheckTimer, &QTimer::timeout, this, &VideoWidget::checkMousePosition);
-
     hideTimer = new QTimer(this);
     hideTimer->setSingleShot(true);
     hideTimer->setInterval(HIDE_DELAY);
     connect(hideTimer, &QTimer::timeout, this, &VideoWidget::hideSidebar);
-
-    mouseCheckTimer->start();
 
     sidebar->setVisible(true);
     sidebarVisible = true;
@@ -581,30 +599,24 @@ void VideoWidget::onExitFullScreenClicked()
     exitFullScreen();
 }
 
-void VideoWidget::checkMousePosition()
+// 采用事件驱动机制响应鼠标移动，替代高频定时器
+void VideoWidget::mouseMoveEvent(QMouseEvent* event)
 {
-    QPoint globalMousePos = QCursor::pos();
-    QPoint localMousePos = mapFromGlobal(globalMousePos);
+    QRhiWidget::mouseMoveEvent(event);
 
-    bool mouseInWindow = (localMousePos.x() >= 0 && localMousePos.x() <= width() &&
-                          localMousePos.y() >= 0 && localMousePos.y() <= height());
+    QPoint localMousePos = event->pos();
 
-    if (mouseInWindow) {
-        bool shouldShowSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_TRIGGER_ZONE);
-        bool mouseInSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_WIDTH &&
-                               localMousePos.y() >= sidebar->y() &&
-                               localMousePos.y() <= sidebar->y() + sidebar->height());
+    // 判断鼠标是否处于触发区域
+    bool shouldShowSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_TRIGGER_ZONE);
+    bool mouseInSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_WIDTH &&
+                           localMousePos.y() >= sidebar->y() &&
+                           localMousePos.y() <= sidebar->y() + sidebar->height());
 
-        if (shouldShowSidebar || mouseInSidebar) {
-            if (!sidebarVisible) {
-                showSidebar();
-            }
-            hideTimer->stop();
-        } else if (sidebarVisible) {
-            if (!hideTimer->isActive()) {
-                hideTimer->start();
-            }
+    if (shouldShowSidebar || mouseInSidebar) {
+        if (!sidebarVisible) {
+            showSidebar();
         }
+        hideTimer->stop();
     } else if (sidebarVisible) {
         if (!hideTimer->isActive()) {
             hideTimer->start();
@@ -667,5 +679,5 @@ void VideoWidget::leaveEvent(QEvent* event)
     SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
 }
 
-}
-}
+} // namespace rtc
+} // namespace hope

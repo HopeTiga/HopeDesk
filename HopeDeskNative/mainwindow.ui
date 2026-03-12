@@ -1119,11 +1119,17 @@ QComboBox::drop-down {
            </item>
            <item row="3" column="1">
             <widget class="QCheckBox" name="checkHwAccel">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
+             <property name="mouseTracking">
+              <bool>true</bool>
+             </property>
              <property name="text">
               <string>启用 NVENC/QuickSync 硬件编码加速</string>
              </property>
              <property name="checked">
-              <bool>true</bool>
+              <bool>false</bool>
              </property>
             </widget>
            </item>

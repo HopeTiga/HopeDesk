@@ -4,9 +4,9 @@
 #include <QPushButton>
 #include <QWidget>
 #include <QPropertyAnimation>
+#include <QMouseEvent> // 用于事件驱动的鼠标追踪
 #include <memory>
 #include <atomic>
-#include <mutex>
 #include <QElapsedTimer>
 #include <rhi/qrhi.h>
 #include <rhi/qshader.h>
@@ -47,7 +47,6 @@ public:
     void setWebRTCManager(WebRTCManager* manager);
 
 Q_SIGNALS:
-
     void disConnectRemote();
 
 protected:
@@ -58,12 +57,13 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     void enterEvent(QEnterEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override; // 重写鼠标移动事件
+    void closeEvent(QCloseEvent *event) override;
 
 private Q_SLOTS:
     void updateFPS();
     void onFullScreenClicked();
     void onExitFullScreenClicked();
-    void checkMousePosition();
     void hideSidebar();
 
 private:
@@ -96,9 +96,9 @@ private:
     std::unique_ptr<QRhiTexture> videoTextureV;
     std::unique_ptr<QRhiShaderResourceBindings> srb;
 
-    // --- 极低延迟核心 ---
-    std::mutex frameMutex; // 保护 m_currentFrame
-    std::shared_ptr<VideoFrame> currentFrame; // 当前待渲染的帧
+    // --- 极低延迟核心：无锁化双指针 ---
+    std::atomic<VideoFrame*> currentFramePtr{nullptr};   // 当前待渲染的最新帧
+    std::atomic<VideoFrame*> frameToReleasePtr{nullptr}; // 渲染完毕后丢弃的"垃圾桶"帧
 
     // 视频信息
     std::atomic<int> videoWidth{640};
@@ -114,7 +114,6 @@ private:
     QPushButton* fullScreenButton;
     QWidget* sidebar;
     QPushButton* sidebarExitButton;
-    QTimer* mouseCheckTimer;
     QTimer* hideTimer;
     QPropertyAnimation* sidebarAnimation;
 
@@ -146,10 +145,6 @@ private:
 
     // 固定大纹理 (1080P)
     const QSize MAX_TEXTURE_SIZE = QSize(1920, 1080);
-
-    // QWidget interface
-protected:
-    void closeEvent(QCloseEvent *event);
 };
 
 }
