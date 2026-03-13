@@ -160,12 +160,12 @@ namespace hope {
             encodeConfig.rcParams.maxBitRate = bitrateBps;
 
             // 云游戏优化：关闭AQ，减少编码耗时，优先保证延迟
-            encodeConfig.rcParams.enableAQ = 1;
-            encodeConfig.rcParams.aqStrength = 8;
+            encodeConfig.rcParams.enableAQ = 0;
+            encodeConfig.rcParams.aqStrength = 0;
 
             // 云游戏优化：关闭lookahead，降低延迟
-            encodeConfig.rcParams.enableLookahead = 0;
-            encodeConfig.rcParams.lookaheadDepth = 0;
+            encodeConfig.rcParams.enableLookahead = 1;
+            encodeConfig.rcParams.lookaheadDepth = 8;
 
             // 云游戏关键优化：不自动插入IDR帧，避免码率尖峰
             // 只在用户强制请求关键帧时（如场景切换）才插入

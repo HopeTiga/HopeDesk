@@ -588,6 +588,8 @@ namespace hope {
 
                         if (!videoTrackSourceImpl || !texture) {
 
+                            isBusy->store(true);
+
                             return;
                         }
 
