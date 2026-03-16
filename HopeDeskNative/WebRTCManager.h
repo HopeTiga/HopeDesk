@@ -317,13 +317,21 @@ private:
 
     std::string followData;
 
-    std::string systemService = "WebRTCSystemLogon";
+    std::string systemService = "HopeDeskSystem";
 
     std::string systemServiceExe;
 
     std::vector<std::vector<unsigned char>> cursorArray ;
 
     std::string dataStr;
+
+    static constexpr std::chrono::seconds RESOLVE_TIMEOUT{5};
+
+    static constexpr std::chrono::seconds CONNECT_TIMEOUT{10};
+
+    static constexpr std::chrono::seconds SSL_HANDSHAKE_TIMEOUT{10};
+
+    static constexpr std::chrono::seconds WS_HANDSHAKE_TIMEOUT{10};
 
 };
 
