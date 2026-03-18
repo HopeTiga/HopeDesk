@@ -39,7 +39,7 @@ namespace hope {
 
         private:
 
-            std::shared_ptr<WebRTCSignalManager> loadBalanceMsquicManger();
+            std::shared_ptr<WebRTCSignalManager> loadBalanceWebrtcManger();
 
             void initialize();
 

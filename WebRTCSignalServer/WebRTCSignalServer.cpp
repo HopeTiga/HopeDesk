@@ -36,7 +36,7 @@ namespace hope {
 
                 while (runAccepct.load()) {
 
-                    std::shared_ptr<WebRTCSignalManager> manager = loadBalanceMsquicManger();
+                    std::shared_ptr<WebRTCSignalManager> manager = loadBalanceWebrtcManger();
 
                     std::shared_ptr<hope::core::WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<hope::core::WebRTCSignalSocket>(hope::iocp::AsioProactors::getInstance()->getIoCompletePorts().second, manager.get());
 
@@ -115,7 +115,7 @@ namespace hope {
         }
 
 
-        std::shared_ptr<WebRTCSignalManager> WebRTCSignalServer::loadBalanceMsquicManger()
+        std::shared_ptr<WebRTCSignalManager> WebRTCSignalServer::loadBalanceWebrtcManger()
         {
             size_t index = managerIndex.fetch_add(1) % size;
 
