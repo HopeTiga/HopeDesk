@@ -7,7 +7,7 @@
 ## 🚀 核心亮点
 
 - **稳健高效的信令架构**：采用以**WebSocket为核心的稳健信令架构**。利用WebSocket技术实现高兼容性的连接建立、会话管理与穿透，在提供无与伦比的跨平台与防火墙穿透能力的同时，确保连接的稳定与可靠。
-- **卓越视觉体验**：采用高效屏幕捕获与**AV1软件编码**，提供高清流畅画面。**已集成基于NVIDIA NVENC的硬件编码支持**，为远程运行大型3D游戏、专业设计软件提供强大的性能支撑，显著提升画质与流畅度。
+- **卓越视觉体验**：采用高效屏幕捕获与**AV1软件编码**，提供高清流畅画面。**已集成基于NVIDIA NVENC的硬件编码支持**，为远程运行大型3A游戏、专业设计软件提供强大的性能支撑，显著提升画质与流畅度。
 - **系统级沉浸操控**：通过驱动级输入技术实现零延迟键鼠映射，完美支持UAC安全桌面，支持**远程畅玩各类大型游戏**，提供沉浸式体验。
 - **自适应网络连接**：优先建立P2P直连传输，结合智能路由选择，确保在任何网络环境下都能获得稳定、低延迟的连接。
 
@@ -45,6 +45,55 @@ graph TD
 **信令层工作流**：
 1. 客户端通过**WebSocket**建立稳定、兼容的信令连接。
 2. 所有业务逻辑基于统一的会话管理层进行，实现信令传输与业务逻辑的解耦，简化系统设计，提升可维护性。
+
+---
+
+## 🚀 快速开始（使用配置）
+
+### 前提条件
+- Windows 操作系统（被控端）
+- 已获取 HopeDesk 完整发布包（`HopeDesk-release` 与 `HopeDeskNative-release`）
+
+### 步骤 1：安装驱动级输入支持
+为实现系统级沉浸操控，需先安装输入驱动：
+1.  在 `HopeDeskNative-release` 目录下，以**管理员身份**打开命令行。
+2.  执行命令：`install-interception.exe /install`
+3.  **重启电脑**使驱动生效。
+
+### 步骤 2：配置被控端 (Host)
+1.  导航至 `HopeDeskNative-release` 目录，找到并编辑 `config.ini` 文件。
+2.  根据您的实际部署路径，配置核心文件位置与基础信息，关键配置项如下：
+
+    ```ini
+    [WebRTC]
+    ; 配置 HopeDeskSystem.exe 的路径（相对于 config.ini 所在目录或绝对路径）
+    WebRTCEXE=../HopeDeskSystem-release/HopeDeskSystem.exe
+    ; 系统服务名称，可保持默认
+    WebRTCService=HopeDeskSystem
+    ; HopeDeskSystem 相关配置文件所在目录
+    WebRTCConfigPath=../HopeDeskSystem-release/
+
+    [Stun]
+    ; STUN 服务器地址，用于NAT穿透
+    Host=stun:121.5.37.53:3478
+
+    [Turn]
+    ; TURN 中继服务器地址，用于无法直连时的备选传输
+    Host=turn:121.5.37.53:3478
+    Username=HopeTiga
+    Password=dy913140924
+
+    [WebRTCSignalServer]
+    ; 信令服务器地址
+    Host=121.5.37.53
+    Port=8088
+    ```
+
+    **注意**：请确保 `WebRTCEXE` 和 `WebRTCConfigPath` 指向的路径在您的系统中真实有效。STUN/TURN 及信令服务器配置为示例，请根据实际可用服务进行替换。
+
+### 步骤 3：启动与连接
+1.  运行 `HopeDeskNative-release` 目录下的主程序（或服务）作为被控端。
+2.  在操控端（Windows Qt客户端或Web浏览器）输入被控端生成的连接码或ID，即可建立远程连接。
 
 ---
 
@@ -92,7 +141,7 @@ HopeDesk 采用以 WebSocket 为核心的稳健信令架构，旨在各类生产
 - **Web 浏览器操控端**：✅ 完整支持（通过WebSocket + WebRTC，可进行远程控制与桌面观看）
 - **Linux / macOS 被控端**：🗓️ 规划中（将基于统一的架构进行扩展）
 - **移动端（App）**：🗓️ 规划中
-  
+
 ---
 
 ## ⚠️ 重要声明
