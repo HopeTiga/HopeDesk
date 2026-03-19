@@ -2,7 +2,6 @@
 #include "WebRTCD3D11TextureBuffer.h"
 #include <api/video/encoded_image.h>
 #include <api/video/video_frame.h>
-#include <rtc_base/logging.h>
 #include <third_party/libyuv/include/libyuv.h>
 
 #include "Utils.h"
@@ -130,7 +129,6 @@ namespace hope {
 
             // 云游戏优化：P1最快预设，牺牲10%码率效率换取最低延迟
             initParams.presetGUID = NV_ENC_PRESET_P1_GUID;
-
             // 云游戏优化：超低延迟调优
             initParams.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
 
@@ -143,7 +141,7 @@ namespace hope {
             initParams.enablePTD = 0;
             initParams.enableEncodeAsync = 1; // 异步模式
 
-            LOG_INFO("[NVENC] 配置编码参数 (AV1, P1, CBR, 超低延迟, 无IDR)...");
+            LOG_INFO("[NVENC] 配置编码参数 (AV1, P1, 低延迟CBR, 保留Lookahead, 无IDR)...");
             NV_ENC_PRESET_CONFIG presetConfig;
             memset(&presetConfig, 0, sizeof(presetConfig));
             presetConfig.version = NV_ENC_PRESET_CONFIG_VER;
@@ -154,35 +152,37 @@ namespace hope {
 
             encodeConfig = presetConfig.presetCfg;
 
-            // 云游戏优化：CBR保证码率稳定，避免网络波动
+            // 进阶低延迟 CBR 码率控制
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
-            encodeConfig.rcParams.maxBitRate = bitrateBps;
+            // MaxBitrate 设置为平均码率的 1.15 倍，防止极速运动时直接糊成马赛克，同时避免网络拥塞
+            encodeConfig.rcParams.maxBitRate = static_cast<uint32_t>(bitrateBps * 1.15);
 
-            // 云游戏优化：关闭AQ，减少编码耗时，优先保证延迟
+            // 强制限制 VBV Buffer 极小，迫使 NVENC 严守每一帧的体积 (假设60fps，半秒缓存)
+            encodeConfig.rcParams.vbvBufferSize = bitrateBps / (60 / 2);
+            encodeConfig.rcParams.vbvInitialDelay = encodeConfig.rcParams.vbvBufferSize;
+
+            // 云游戏优化：关闭AQ，减少编码耗时
             encodeConfig.rcParams.enableAQ = 0;
             encodeConfig.rcParams.aqStrength = 0;
 
-            // 云游戏优化：关闭lookahead，降低延迟
+            // 按你的要求保留 Lookahead 以拯救画质
             encodeConfig.rcParams.enableLookahead = 1;
             encodeConfig.rcParams.lookaheadDepth = 8;
 
             // 云游戏关键优化：不自动插入IDR帧，避免码率尖峰
-            // 只在用户强制请求关键帧时（如场景切换）才插入
             encodeConfig.encodeCodecConfig.av1Config.idrPeriod = NVENC_INFINITE_GOPLENGTH;
-            encodeConfig.encodeCodecConfig.av1Config.repeatSeqHdr = 1; // 每个关键帧重复序列头
+            encodeConfig.encodeCodecConfig.av1Config.repeatSeqHdr = 1;
 
-            // 云游戏优化：启用渐进式帧内刷新（替代IDR），分散码率波动
-            encodeConfig.encodeCodecConfig.av1Config.enableIntraRefresh = 1;
-            encodeConfig.encodeCodecConfig.av1Config.intraRefreshPeriod = 60;  // 每60帧一个刷新周期
-            encodeConfig.encodeCodecConfig.av1Config.intraRefreshCnt = 10;     // 每周期刷新10帧，分散码率
+            // 关闭帧内刷新，交由 WebRTC 的丢包反馈机制 (PLI/FIR) 触发 forceKeyFrame，防止 WebRTC 花屏
+            encodeConfig.encodeCodecConfig.av1Config.enableIntraRefresh = 0;
 
             // 云游戏优化：最小参考帧，降低编码延迟
             encodeConfig.encodeCodecConfig.av1Config.maxNumRefFramesInDPB = 2;
             encodeConfig.encodeCodecConfig.av1Config.numFwdRefs = NV_ENC_NUM_REF_FRAMES_AUTOSELECT;
-            encodeConfig.encodeCodecConfig.av1Config.numBwdRefs = NV_ENC_NUM_REF_FRAMES_AUTOSELECT; // AV1无B帧
+            encodeConfig.encodeCodecConfig.av1Config.numBwdRefs = NV_ENC_NUM_REF_FRAMES_AUTOSELECT;
 
-            // 告诉解码端：这是 PC 的全范围色彩 (0-255)，不要做色彩压缩
+            // 告诉解码端：这是 PC 的全范围色彩
             encodeConfig.encodeCodecConfig.av1Config.colorPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT709;
             encodeConfig.encodeCodecConfig.av1Config.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_BT709;
             encodeConfig.encodeCodecConfig.av1Config.matrixCoefficients = NV_ENC_VUI_MATRIX_COEFFS_BT709;
@@ -239,7 +239,7 @@ namespace hope {
             isEncoding = true;
             encoderThread = std::thread(&NvencAV1Encoder::ProcessOutput, this);
 
-            LOG_INFO("[NVENC] 初始化完全成功 (异步模式, P1, CBR, 无IDR, 帧内刷新)");
+            LOG_INFO("[NVENC] 初始化完全成功");
             return true;
         }
 
@@ -266,13 +266,14 @@ namespace hope {
             int bufIdx = -1;
             {
                 std::unique_lock<std::mutex> lock(encodeMutex);
+
+                // 队列满时绝不等待，主动静默丢帧保延迟
                 if (pendingQueue.size() >= MAX_BUFFER_COUNT) {
-                    queueCond.wait_for(lock, std::chrono::milliseconds(5),
-                        [this] { return pendingQueue.size() < MAX_BUFFER_COUNT || !isEncoding; });
+                    return WEBRTC_VIDEO_CODEC_OK;
                 }
-                if (!isEncoding || pendingQueue.size() >= MAX_BUFFER_COUNT) {
-                    LOG_INFO("[NVENC] 编码队列满，丢弃帧");
-                    return WEBRTC_VIDEO_CODEC_OK; // 建议改成 OK 并静默丢弃，避免 WebRTC 触发降级重启编码器
+
+                if (!isEncoding) {
+                    return WEBRTC_VIDEO_CODEC_OK;
                 }
 
                 bufIdx = currentBufferIdx;
@@ -280,8 +281,7 @@ namespace hope {
                 encodeWidths[bufIdx] = width;
                 encodeHeights[bufIdx] = height;
 
-                // 【核心优化1】：延长 VideoFrameBuffer 的生命周期！
-                // 只要这个指针不置空，WebRTCD3D11TextureBuffer 就不会析构，采集端就不会覆盖这个纹理
+                // 延长 VideoFrameBuffer 的生命周期
                 retainedBuffers[bufIdx] = buffer;
             }
 
@@ -310,7 +310,7 @@ namespace hope {
             NVENCSTATUS status = NV_ENC_SUCCESS;
 
             {
-                // 【核心优化2】：保护所有的 NVENC API 调用（除了 LockBitstream）
+                // 保护所有的 NVENC API 调用（除了 LockBitstream）
                 std::lock_guard<std::mutex> apiLock(nvencApiMutex);
 
                 if (isNative) {
@@ -477,7 +477,7 @@ namespace hope {
                 }
 
                 {
-                    // 【核心优化2】：Unmap 也必须加锁，不能和 Map/Encode 并发执行
+                    // Unmap 必须加锁，不能和 Map/Encode 并发执行
                     std::lock_guard<std::mutex> apiLock(nvencApiMutex);
                     if (mappedInputBuffers[bufIdx]) {
                         nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedInputBuffers[bufIdx]);
@@ -485,16 +485,20 @@ namespace hope {
                     }
                 }
 
+                // 用局部变量接管智能指针的生命周期，移出临界区，彻底消除锁竞争
+                webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frameToRelease;
                 {
                     std::unique_lock<std::mutex> lock(encodeMutex);
 
-                    // 【核心优化1】：GPU 读取完毕，彻底解绑释放资源
-                    // 此时 WebRTCD3D11TextureBuffer 才会执行析构，采集端才会开始录制下一帧，完美实现 60FPS 平滑流转！
+                    // 转移所有权
+                    frameToRelease = retainedBuffers[bufIdx];
                     retainedBuffers[bufIdx] = nullptr;
 
                     pendingQueue.pop();
                     queueCond.notify_all();
                 }
+                // 此时离开作用域，frameToRelease 析构。
+                // 这触发 WebRTCD3D11TextureBuffer 释放及 hwSharedBusy 解锁，完全无锁！
             }
         }
 
