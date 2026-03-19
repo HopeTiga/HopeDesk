@@ -180,62 +180,45 @@ namespace hope {
         }
         void WebRTCSignalSocket::clear() {
 
-            if (isStop.exchange(true) == false) {
+            LOG_INFO("Stop connect...");
 
-                LOG_INFO("Stop connect...");
-
-                closeSocket();
-
-            }
+            closeSocket();
 
         }
 
         void WebRTCSignalSocket::closeSocket() {
 
-            boost::system::error_code ec;
-
-            steadyTimer.cancel();
-
-            auto& tcpSock = webSocket.next_layer().next_layer();
-
-            tcpSock.cancel(ec);
-
-            if (ec) {
-
-                LOG_ERROR("WebRTCSignalSocket::closeSocket() can't cancel Socket: %s", ec.message().c_str());
-
-            }
-
-            registrationTimer.cancel();
-            // WebSocket 关闭帧
-            if (webSocket.is_open()) {
-                try {
-                    webSocket.close(boost::beast::websocket::close_code::normal, ec);
-                }
-                catch (const std::exception& e) {
-                    LOG_ERROR("WebRTCSignalSocket::closeSocket() close WebSocket failed: %s", e.what());
-                }
-            }
-            // SSL 关闭
-            if (webSocket.next_layer().next_layer().is_open()) {
-
-                webSocket.next_layer().shutdown(ec);
-
-                webSocket.next_layer().next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-
-                webSocket.next_layer().next_layer().close(ec);
-
-                if (ec && ec != boost::asio::error::not_connected) {
-
-                    LOG_ERROR("WebRTCSignalSocket::closeSocket() close Tcp Socket failed: %s", ec.message().c_str());
-
-                }
+            if (isStop.exchange(true)) {
+                return;
             }
 
             webSocketRuns.store(false);
 
-            LOG_INFO("WebRTCSignalSocket is close");
+            boost::system::error_code ec;
 
+            steadyTimer.cancel();
+
+            registrationTimer.cancel();
+
+            auto& tcpSock = webSocket.next_layer().next_layer();
+
+            if (tcpSock.is_open()) {
+
+                tcpSock.cancel(ec);
+                if (ec) {
+                    LOG_ERROR("WebRTCSignalSocket::closeSocket() cancel failed: %s", ec.message().c_str());
+                }
+                tcpSock.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+
+                // 强行回收系统文件句柄
+                tcpSock.close(ec);
+
+                if (ec && ec != boost::asio::error::not_connected) {
+                    LOG_ERROR("WebRTCSignalSocket::closeSocket() force close failed: %s", ec.message().c_str());
+                }
+            }
+
+            LOG_INFO("WebRTCSignalSocket is immediately closed and resources are freed");
         }
 
         boost::asio::awaitable<void> WebRTCSignalSocket::reviceCoroutine() {
