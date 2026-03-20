@@ -194,31 +194,31 @@ namespace hope {
 
             webSocketRuns.store(false);
 
-            boost::system::error_code ec;
+            boost::asio::post(ioContext, [self = shared_from_this()]() {
+                boost::system::error_code ec;
 
-            steadyTimer.cancel();
+                self->steadyTimer.cancel();
+                self->registrationTimer.cancel();
 
-            registrationTimer.cancel();
+                auto& tcpSock = self->webSocket.next_layer().next_layer();
 
-            auto& tcpSock = webSocket.next_layer().next_layer();
+                if (tcpSock.is_open()) {
 
-            if (tcpSock.is_open()) {
+                    tcpSock.cancel(ec);
+                    if (ec) {
+                        LOG_ERROR("WebRTCSignalSocket::closeSocket() cancel failed: %s", ec.message().c_str());
+                    }
+                    tcpSock.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
 
-                tcpSock.cancel(ec);
-                if (ec) {
-                    LOG_ERROR("WebRTCSignalSocket::closeSocket() cancel failed: %s", ec.message().c_str());
+                    tcpSock.close(ec);
+
+                    if (ec && ec != boost::asio::error::not_connected) {
+                        LOG_ERROR("WebRTCSignalSocket::closeSocket() force close failed: %s", ec.message().c_str());
+                    }
                 }
-                tcpSock.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
 
-                // 强行回收系统文件句柄
-                tcpSock.close(ec);
-
-                if (ec && ec != boost::asio::error::not_connected) {
-                    LOG_ERROR("WebRTCSignalSocket::closeSocket() force close failed: %s", ec.message().c_str());
-                }
-            }
-
-            LOG_INFO("WebRTCSignalSocket is immediately closed and resources are freed");
+                LOG_INFO("WebRTCSignalSocket is immediately closed and resources are freed");
+                });
         }
 
         boost::asio::awaitable<void> WebRTCSignalSocket::reviceCoroutine() {
@@ -341,7 +341,11 @@ namespace hope {
         void WebRTCSignalSocket::asyncWrite(std::string str) {
             if (isStop) return;
             writerQueues.enqueue(std::move(str));
-            steadyTimer.cancel();
+            boost::asio::post(ioContext, [self = shared_from_this()]() {
+                if (!self->isStop) {
+                    self->steadyTimer.cancel();
+                }
+                });
 
         }
 
