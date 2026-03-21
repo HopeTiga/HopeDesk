@@ -159,17 +159,9 @@ namespace hope {
             // MaxBitrate 设置为平均码率的 1.15 倍，防止极速运动时直接糊成马赛克，同时避免网络拥塞
             encodeConfig.rcParams.maxBitRate = static_cast<uint32_t>(bitrateBps * 1.15);
 
-            // 强制限制 VBV Buffer 极小，迫使 NVENC 严守每一帧的体积 (假设60fps，半秒缓存)
-            encodeConfig.rcParams.vbvBufferSize = bitrateBps / (60 / 2);
-            encodeConfig.rcParams.vbvInitialDelay = encodeConfig.rcParams.vbvBufferSize;
-
             // 云游戏优化：关闭AQ，减少编码耗时
             encodeConfig.rcParams.enableAQ = 0;
             encodeConfig.rcParams.aqStrength = 0;
-
-            // 按你的要求保留 Lookahead 以拯救画质
-            encodeConfig.rcParams.enableLookahead = 1;
-            encodeConfig.rcParams.lookaheadDepth = 8;
 
             // 云游戏关键优化：不自动插入IDR帧，避免码率尖峰
             encodeConfig.encodeCodecConfig.av1Config.idrPeriod = NVENC_INFINITE_GOPLENGTH;
@@ -554,26 +546,7 @@ namespace hope {
         }
 
         void NvencAV1Encoder::SetRates(const RateControlParameters& parameters) {
-            uint32_t bitrate = parameters.bitrate.get_sum_bps();
-            if (!nvencSession || bitrate == 0) return;
 
-            uint32_t currentBitrate = encodeConfig.rcParams.averageBitRate;
-            if (abs((long long)bitrate - (long long)currentBitrate) < (currentBitrate * 0.05)) {
-                return;
-            }
-
-            encodeConfig.rcParams.averageBitRate = bitrate;
-            encodeConfig.rcParams.maxBitRate = bitrate;
-
-            NV_ENC_RECONFIGURE_PARAMS reconfig;
-            memset(&reconfig, 0, sizeof(reconfig));
-            reconfig.version = NV_ENC_RECONFIGURE_PARAMS_VER;
-            reconfig.reInitEncodeParams = initParams;
-            reconfig.reInitEncodeParams.encodeConfig = &encodeConfig;
-
-            // 此操作必须用前面提到的 nvencApiMutex 保护起来！
-            std::lock_guard<std::mutex> apiLock(nvencApiMutex);
-            nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfig);
         }
 
 
@@ -581,7 +554,7 @@ namespace hope {
             EncoderInfo info;
             info.supports_native_handle = true;
             info.is_hardware_accelerated = true;
-            info.implementation_name = "NVENC_AV1_ASYNC";
+            info.implementation_name = "NVENCAV1";
             return info;
         }
     }

@@ -114,11 +114,8 @@ namespace hope {
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
             encodeConfig.rcParams.maxBitRate = static_cast<uint32_t>(bitrateBps * 1.15);
-            encodeConfig.rcParams.vbvBufferSize = bitrateBps / (60 / 2);
-            encodeConfig.rcParams.vbvInitialDelay = encodeConfig.rcParams.vbvBufferSize;
+
             encodeConfig.rcParams.enableAQ = 0;
-            encodeConfig.rcParams.enableLookahead = 1;
-            encodeConfig.rcParams.lookaheadDepth = 8;
 
             // HEVC ר������
             encodeConfig.encodeCodecConfig.hevcConfig.idrPeriod = NVENC_INFINITE_GOPLENGTH;
@@ -445,32 +442,14 @@ namespace hope {
         }
 
         void NvencH265Encoder::SetRates(const RateControlParameters& parameters) {
-            uint32_t bitrate = parameters.bitrate.get_sum_bps();
-            if (!nvencSession || bitrate == 0) return;
 
-            uint32_t currentBitrate = encodeConfig.rcParams.averageBitRate;
-            if (abs((long long)bitrate - (long long)currentBitrate) < (currentBitrate * 0.05)) {
-                return;
-            }
-
-            encodeConfig.rcParams.averageBitRate = bitrate;
-            encodeConfig.rcParams.maxBitRate = bitrate;
-
-            NV_ENC_RECONFIGURE_PARAMS reconfig;
-            memset(&reconfig, 0, sizeof(reconfig));
-            reconfig.version = NV_ENC_RECONFIGURE_PARAMS_VER;
-            reconfig.reInitEncodeParams = initParams;
-            reconfig.reInitEncodeParams.encodeConfig = &encodeConfig;
-
-            std::lock_guard<std::mutex> apiLock(nvencApiMutex);
-            nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfig);
         }
 
         webrtc::VideoEncoder::EncoderInfo NvencH265Encoder::GetEncoderInfo() const {
             EncoderInfo info;
             info.supports_native_handle = true;
             info.is_hardware_accelerated = true;
-            info.implementation_name = "NvencH265Async";
+            info.implementation_name = "NVENCH265";
             return info;
         }
     }
