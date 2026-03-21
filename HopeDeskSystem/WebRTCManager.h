@@ -39,6 +39,7 @@
 #include <boost/json.hpp>
 
 #include "WebRTCVideoEncoderFactory.h"
+#include "WebRTCVideoDecoderFactory.h"
 #include "PeerConnectionObserverImpl.h"
 #include "VideoTrackSourceImpl.h"
 #include "AudioDeviceModuleImpl.h"
@@ -147,7 +148,7 @@ namespace hope {
 
             void processIceCandidate(const std::string& candidate, const std::string& mid, int lineIndex);
 
-            void writerAsync(std::shared_ptr<WriterData> data);
+            void asyncWrite(std::shared_ptr<WriterData> data);
 
             void releaseSource();
 
@@ -228,6 +229,8 @@ namespace hope {
             webrtc::VideoFrameBufferPool bufferPool;
 
             WebRTCVideoEncoderFactory * webrtcVideoEncoderFactory;
+
+            WebRTCVideoDecoderFactory* webrtcVideoDecoderFactory;
 
             std::atomic<WebRTCConnetState> connetState;
 

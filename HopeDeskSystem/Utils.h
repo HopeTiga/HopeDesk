@@ -128,4 +128,5 @@ inline void fastCopy(void* dst, const void* src, size_t size) {
     }
 }
 
+
 #endif // UTILS_H

@@ -102,7 +102,7 @@ namespace hope {
             std::string msgStr = boost::json::serialize(fullMsg);
             auto data = std::make_shared<WriterData>(const_cast<char*>(msgStr.c_str()), msgStr.size());
 
-            writerAsync(data);
+            asyncWrite(data);
         }
 
         void WebRTCManager::processOffer(const std::string& sdp) {
@@ -175,7 +175,7 @@ namespace hope {
 
         }
 
-        inline void WebRTCManager::writerAsync(std::shared_ptr<WriterData> data) {
+        inline void WebRTCManager::asyncWrite(std::shared_ptr<WriterData> data) {
 
             if (!data) {
 
@@ -282,6 +282,10 @@ namespace hope {
 
                 webrtcVideoEncoderFactory = webrtcVideoEncoderFactoryUnique.get();
 
+                std::unique_ptr<WebRTCVideoDecoderFactory> webrtcVideoDecoderFactoryUnique = std::make_unique<WebRTCVideoDecoderFactory>();
+
+                webrtcVideoDecoderFactory = webrtcVideoDecoderFactoryUnique.get();
+
                 peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
                     networkThread.get(),
                     workerThread.get(),
@@ -290,7 +294,7 @@ namespace hope {
                     webrtc::CreateBuiltinAudioEncoderFactory(),
                     webrtc::CreateBuiltinAudioDecoderFactory(),
                     std::move(webrtcVideoEncoderFactoryUnique),
-                    webrtc::CreateBuiltinVideoDecoderFactory(),
+                    std::move(webrtcVideoDecoderFactoryUnique),
                     nullptr,
                     nullptr,
                     nullptr,
@@ -1117,12 +1121,11 @@ namespace hope {
                 peerConnectionFactory = nullptr;
             }
 
-            webrtcVideoEncoderFactory = nullptr;
-
             webrtcSteadyTimer.cancel();
         }
 
         void WebRTCManager::Cleanup() {
+
             socketRuns = false;
 
             releaseSource();
@@ -1145,6 +1148,10 @@ namespace hope {
                 ioContextThread.join();
 
             }
+
+            webrtcVideoEncoderFactory = nullptr;
+
+            webrtcVideoDecoderFactory = nullptr;
 
             if (networkThread) {
 

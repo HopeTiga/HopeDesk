@@ -91,7 +91,7 @@ namespace hope {
 
                 std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
 
-                manager->writerAsync(data);
+                manager->asyncWrite(data);
 
                 manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
 
@@ -107,7 +107,7 @@ namespace hope {
 
                     std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
 
-                    manager->writerAsync(data);
+                    manager->asyncWrite(data);
 
                     };
 
@@ -131,7 +131,7 @@ namespace hope {
 
                 std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
 
-                manager->writerAsync(data);
+                manager->asyncWrite(data);
 
                 break;
             }

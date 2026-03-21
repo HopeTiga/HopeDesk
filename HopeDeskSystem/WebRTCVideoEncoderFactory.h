@@ -1,11 +1,4 @@
 #pragma once
-#define WEBRTC_WIN 1
-#define RTC_DISABLE_LOGGING
-#pragma warning(push)
-#pragma warning(disable: 4146)
-#include <system_wrappers/include/clock.h>
-#include <rtc_base/numerics/divide_round.h>
-#pragma warning(pop)
 #include "api/environment/environment.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
@@ -24,8 +17,6 @@ namespace hope {
 			WebRTCVideoEncoderFactory();
 
 			std::unique_ptr<webrtc::VideoEncoder> Create(const webrtc::Environment& env,const webrtc::SdpVideoFormat& format) override;
-
-			std::vector<webrtc::SdpVideoFormat> GetSupportedFormats();
 
 			webrtc::VideoEncoderFactory::CodecSupport QueryCodecSupport(
 				const webrtc::SdpVideoFormat& format,
