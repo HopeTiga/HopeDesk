@@ -44,10 +44,13 @@ SOURCES += \
     AudioDeviceModuleImpl.cpp \
     CreateDescriptionObserverImpl.cpp \
     DataChannelObserverImpl.cpp \
+    De265Decoder.cpp \
     PeerConnectionObserverImpl.cpp \
     RTCStatsCollectorHandle.cpp \
     SetDescriptionObserverImpl.cpp \
     Utils.cpp \
+    WebRTCVideoDecoderFactory.cpp \
+    WebRTCVideoEncoderFactory.cpp \
     interceptionhook.cpp \
     interceptionhook.cpp \
     main.cpp \
@@ -64,10 +67,13 @@ HEADERS += \
     CreateDescriptionObserverImpl.h \
     CustomDialogs.h \
     DataChannelObserverImpl.h \
+    De265Decoder.h \
     PeerConnectionObserverImpl.h \
     RTCStatsCollectorHandle.h \
     SetDescriptionObserverImpl.h \
     Utils.h \
+    WebRTCVideoDecoderFactory.h \
+    WebRTCVideoEncoderFactory.h \
     WindowsServiceManager.h \
     interceptionhook.h \
     interceptionhook.h \
@@ -84,6 +90,7 @@ win32 {
     INCLUDEPATH += $$PWD/include/webrtc
     INCLUDEPATH += $$PWD/include/interception
     INCLUDEPATH += $$PWD/include/openssl
+    INCLUDEPATH += $$PWD/include/libde265
 
     # 库路径
     LIBS += -L$$PWD/lib/boost/
@@ -91,9 +98,12 @@ win32 {
     LIBS += -L$$PWD/lib/openssl/
     LIBS += -L$$PWD/lib/interception/x64/
     LIBS += -L$$PWD/lib/tcmalloc/
+    LIBS += -L$$PWD/lib/libde265/
 
     # WebRTC相关库
     LIBS += -lwebrtc
+
+    LIBS += -lde265
 
     LIBS += -linterception
 
