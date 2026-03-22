@@ -27,7 +27,7 @@ namespace hope {
             x265Param->sourceHeight = codecSettings->height;
             x265Param->fpsNum = 60;
             x265Param->fpsDenom = 1;
-            x265Param->searchMethod = X265_DIA_SEARCH;
+            x265Param->searchMethod = X265_HEX_SEARCH;
             x265Param->rc.rateControlMode = X265_RC_CRF;
 
             x265Param->lookaheadDepth = 0;      // 关键！默认可能有20-40帧延迟
@@ -47,6 +47,20 @@ namespace hope {
             x265Param->bEnableWeightedBiPred = 0;
 
             x265Param->maxNumReferences = 2;
+
+            x265Param->bEnableLoopFilter = 0;  // 或者保持开启，设为0节省少量时间
+
+            // 6. 限制帧间预测模式（关键优化！）
+            x265Param->limitModes = 1;  // 限制模式选择，加速决策
+
+            // 7. 使用更快的运动估计子像素精度
+            x265Param->subpelRefine = 0;  // 0=最快，2=平衡，4=质量优先
+
+            // 8. 禁用早期跳过检测的复杂分析
+            x265Param->bEnableEarlySkip = 1;  // 启用早期跳过
+
+            // 9. 禁用RDO优化（大幅提速，明显降质）
+            x265Param->rdLevel = 0;  
 
             x265EncoderInstance = x265_encoder_open(x265Param);
             if (!x265EncoderInstance) {
