@@ -60,7 +60,7 @@ namespace hope {
             x265Param->bEnableEarlySkip = 1;  // 启用早期跳过
 
             // 9. 禁用RDO优化（大幅提速，明显降质）
-            x265Param->rdLevel = 0;  
+            //x265Param->rdLevel = 0;  
 
             x265EncoderInstance = x265_encoder_open(x265Param);
             if (!x265EncoderInstance) {

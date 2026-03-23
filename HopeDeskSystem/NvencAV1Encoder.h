@@ -51,7 +51,7 @@ namespace hope {
             std::unordered_map<HANDLE, RegisteredResource> resourceCache;
 
             // 异步模式需要多几个 Buffer 以形成真正的并行管线，提升性能
-            static const int MAX_BUFFER_COUNT = 4;
+            static const int MAX_BUFFER_COUNT = 12;
             NV_ENC_OUTPUT_PTR bitstreamBuffers[MAX_BUFFER_COUNT] = { nullptr };
             NV_ENC_INPUT_PTR sysMemBuffers[MAX_BUFFER_COUNT] = { nullptr };
 
