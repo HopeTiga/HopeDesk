@@ -14,7 +14,6 @@
 #include "Nvenc.h"
 
 namespace hope {
-
     namespace rtc {
 
         class NvencAV1Encoder : public webrtc::VideoEncoder {
@@ -34,7 +33,7 @@ namespace hope {
         private:
             bool InitD3D11();
             bool InitNvenc(int width, int height, uint32_t bitrateBps);
-            void ProcessOutput(); // 异步获取编码结果的工作线程
+            void ProcessOutput(); // 异步处理线程
 
             webrtc::EncodedImageCallback* encodedImageCallback = nullptr;
 
@@ -48,32 +47,34 @@ namespace hope {
             NV_ENC_INITIALIZE_PARAMS initParams = { NV_ENC_INITIALIZE_PARAMS_VER };
             NV_ENC_CONFIG encodeConfig = { NV_ENC_CONFIG_VER };
 
+            struct RegisteredResource {
+                Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
+                NV_ENC_REGISTERED_PTR registeredPtr;
+                NV_ENC_BUFFER_FORMAT format;
+            };
             std::unordered_map<HANDLE, RegisteredResource> resourceCache;
 
-            // 异步模式需要多几个 Buffer 以形成真正的并行管线，提升性能
-            static const int MAX_BUFFER_COUNT = 12;
+            static const int MAX_BUFFER_COUNT = 24;
             NV_ENC_OUTPUT_PTR bitstreamBuffers[MAX_BUFFER_COUNT] = { nullptr };
             NV_ENC_INPUT_PTR sysMemBuffers[MAX_BUFFER_COUNT] = { nullptr };
-
-            // 异步需要用到的事件句柄与资源记录
             HANDLE asyncEvents[MAX_BUFFER_COUNT] = { nullptr };
-            NV_ENC_INPUT_PTR mappedInputBuffers[MAX_BUFFER_COUNT] = { nullptr };
-            uint32_t rtpTimestamps[MAX_BUFFER_COUNT] = { 0 };
-            int64_t captureTimes[MAX_BUFFER_COUNT] = { 0 };
-            int encodeWidths[MAX_BUFFER_COUNT];   // 新增：保存宽度
-            int encodeHeights[MAX_BUFFER_COUNT];  // 新增：保存高度
 
-            int currentBufferIdx = 0;
+            // 核心任务结构体，带有显式构造函数，避开 VideoFrame 无默认构造的问题
+            struct EncodeTask {
+                webrtc::VideoFrame frame;
+                bool forceKeyFrame;
+
+                EncodeTask(const webrtc::VideoFrame& f, bool key)
+                    : frame(f), forceKeyFrame(key) {
+                }
+            };
 
             std::mutex encodeMutex;
             std::condition_variable queueCond;
-            std::queue<int> pendingQueue; // 记录等待拿流的 Buffer 下标
+            std::queue<EncodeTask> taskQueue;
 
             std::thread encoderThread;
             std::atomic<bool> isEncoding{ false };
-
-            webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retainedBuffers[MAX_BUFFER_COUNT];
-
             std::mutex nvencApiMutex;
         };
     }

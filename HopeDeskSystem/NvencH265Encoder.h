@@ -1,36 +1,20 @@
-#pragma once
+﻿#pragma once
+
 #include "api/video_codecs/video_encoder.h"
 #include <modules/video_coding/include/video_codec_interface.h>
 #include <modules/video_coding/include/video_error_codes.h>
+
 #include <unordered_map>
 #include <mutex>
-#include <queue>
 #include <thread>
-#include <condition_variable>
 #include <atomic>
+#include <queue>
+#include <condition_variable>
 
 #include "Nvenc.h"
 
 namespace hope {
     namespace rtc {
-
-        struct RegisteredResource {
-            Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
-            NV_ENC_REGISTERED_PTR registeredPtr;
-            NV_ENC_BUFFER_FORMAT format;
-        };
-
-        struct PendingTask {
-            int bufIdx;
-            webrtc::VideoFrame frame;
-            NV_ENC_INPUT_PTR mappedInput;
-            bool forceKeyFrame;
-
-            // ���ӹ��캯���Խ�� VideoFrame û��Ĭ�Ϲ��캯��������
-            PendingTask(int idx, const webrtc::VideoFrame& f, NV_ENC_INPUT_PTR input, bool key)
-                : bufIdx(idx), frame(f), mappedInput(input), forceKeyFrame(key) {
-            }
-        };
 
         class NvencH265Encoder : public webrtc::VideoEncoder {
         public:
@@ -49,7 +33,7 @@ namespace hope {
         private:
             bool InitD3D11();
             bool InitNvenc(int width, int height, uint32_t bitrateBps);
-            void FetchThreadFunc();
+            void ProcessOutput(); // 异步获取编码结果的工作线程
 
             webrtc::EncodedImageCallback* encodedImageCallback = nullptr;
 
@@ -63,22 +47,38 @@ namespace hope {
             NV_ENC_INITIALIZE_PARAMS initParams = { NV_ENC_INITIALIZE_PARAMS_VER };
             NV_ENC_CONFIG encodeConfig = { NV_ENC_CONFIG_VER };
 
+            struct RegisteredResource {
+                Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
+                NV_ENC_REGISTERED_PTR registeredPtr;
+                NV_ENC_BUFFER_FORMAT format;
+            };
             std::unordered_map<HANDLE, RegisteredResource> resourceCache;
 
-            static const int MaxBufferCount = 12;
-            NV_ENC_OUTPUT_PTR bitstreamBuffers[MaxBufferCount] = { nullptr };
-            NV_ENC_INPUT_PTR sysMemBuffers[MaxBufferCount] = { nullptr };
-            NV_ENC_INPUT_PTR mappedInputBuffers[MaxBufferCount] = { nullptr };
-            HANDLE completionEvents[MaxBufferCount] = { nullptr };
+            // 🔥 [修复] 将深度从 12 降低到 3。
+            // 异步模式下 3 个 Buffer 已经足够实现流水线并行，过多的缓存会导致画面延迟甚至跳帧。
+            static const int MAX_BUFFER_COUNT = 24;
+            NV_ENC_OUTPUT_PTR bitstreamBuffers[MAX_BUFFER_COUNT] = { nullptr };
+            NV_ENC_INPUT_PTR sysMemBuffers[MAX_BUFFER_COUNT] = { nullptr };
+
+            HANDLE asyncEvents[MAX_BUFFER_COUNT] = { nullptr };
+            NV_ENC_INPUT_PTR mappedInputBuffers[MAX_BUFFER_COUNT] = { nullptr };
+            uint32_t rtpTimestamps[MAX_BUFFER_COUNT] = { 0 };
+            int64_t captureTimes[MAX_BUFFER_COUNT] = { 0 };
+            int encodeWidths[MAX_BUFFER_COUNT];
+            int encodeHeights[MAX_BUFFER_COUNT];
 
             int currentBufferIdx = 0;
-            std::mutex nvencApiMutex;
-            std::mutex queueMutex;
-            std::condition_variable queueCv;
-            std::queue<PendingTask> pendingTaskQueue;
 
-            std::thread fetchThread;
-            std::atomic<bool> isRunning{ false };
+            std::mutex encodeMutex;
+            std::condition_variable queueCond;
+            std::queue<int> pendingQueue;
+
+            std::thread encoderThread;
+            std::atomic<bool> isEncoding{ false };
+
+            webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retainedBuffers[MAX_BUFFER_COUNT];
+
+            std::mutex nvencApiMutex;
         };
     }
 }
