@@ -79,12 +79,12 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
 
             std::shared_ptr<WriterData> registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
 
-            writerAsync(registerData);
+            asyncWrite(registerData);
 
             // 发送初始数据
             std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
 
-            writerAsync(writerData);
+            asyncWrite(writerData);
 
         }
 
@@ -233,6 +233,10 @@ WebRTCManager::~WebRTCManager()
 
     peerConnectionFactory = nullptr;
 
+    webrtcVideoEncoderFactory = nullptr;
+
+    webrtcVideoDecoderFactory = nullptr;
+
     if(networkThread){
         networkThread->Quit();
         networkThread.reset();
@@ -312,6 +316,14 @@ bool WebRTCManager::initializePeerConnection()
 
         std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
 
+        std::unique_ptr<WebRTCVideoEncoderFactory> webrtcVideoEncoderFactoryUnique = std::make_unique<WebRTCVideoEncoderFactory>();
+
+        webrtcVideoEncoderFactory = webrtcVideoEncoderFactoryUnique.get();
+
+        std::unique_ptr<WebRTCVideoDecoderFactory> webrtcVideoDecoderFactoryUnique = std::make_unique<WebRTCVideoDecoderFactory>();
+
+        webrtcVideoDecoderFactory = webrtcVideoDecoderFactoryUnique.get();
+
         peerConnectionFactory = webrtc::CreatePeerConnectionFactory(
             networkThread.get(),
             workerThread.get(),
@@ -319,8 +331,8 @@ bool WebRTCManager::initializePeerConnection()
             nullptr,
             webrtc::CreateBuiltinAudioEncoderFactory(),
             webrtc::CreateBuiltinAudioDecoderFactory(),
-            webrtc::CreateBuiltinVideoEncoderFactory(),
-            webrtc::CreateBuiltinVideoDecoderFactory(),
+            std::move(webrtcVideoEncoderFactoryUnique),
+            std::move(webrtcVideoDecoderFactoryUnique),
             nullptr,
             nullptr,
             nullptr,
@@ -344,7 +356,7 @@ bool WebRTCManager::initializePeerConnection()
 
     config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
-    config.set_dscp(false);
+    config.set_dscp(true);
 
     uint32_t flags = webrtc::PORTALLOCATOR_ENABLE_SHARED_SOCKET |
                      webrtc::PORTALLOCATOR_ENABLE_IPV6 |
@@ -383,7 +395,7 @@ bool WebRTCManager::initializePeerConnection()
     return true;
 }
 
-void WebRTCManager::writerAsync(std::shared_ptr<WriterData> writerData){
+void WebRTCManager::asyncWrite(std::shared_ptr<WriterData> writerData){
 
     writerDataQueues.enqueue(writerData);
 
@@ -569,7 +581,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
                 std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(),dataStr.size());
 
-                writerAsync(writerData);
+                asyncWrite(writerData);
 
                 continue;
             }

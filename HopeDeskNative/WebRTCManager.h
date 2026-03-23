@@ -39,7 +39,8 @@
 #include <modules/audio_device/include/audio_device.h>
 #include <api/enable_media_with_defaults.h>
 
-
+#include "WebRTCVideoEncoderFactory.h"
+#include "WebRTCVideoDecoderFactory.h"
 #include "PeerConnectionObserverImpl.h"
 #include "VideoTrackSinkImpl.h"
 #include "AudioDeviceModuleImpl.h"
@@ -178,7 +179,7 @@ public:
 
     void writerRemote(unsigned char* data, size_t size);
 
-    void writerAsync(std::shared_ptr<WriterData> writerData);
+    void asyncWrite(std::shared_ptr<WriterData> writerData);
 
     void webrtcAsyncWrite(std::string str);
 
@@ -268,6 +269,10 @@ private:
     std::unique_ptr<VideoTrackSinkImpl> videoSinkImpl;
 
     webrtc::scoped_refptr<RTCStatsCollectorHandle> rtcStatsCollectorHandle;
+
+    WebRTCVideoEncoderFactory * webrtcVideoEncoderFactory;
+
+    WebRTCVideoDecoderFactory* webrtcVideoDecoderFactory;
 
     std::atomic<bool> followRunning{false};
 
