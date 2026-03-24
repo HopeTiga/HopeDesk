@@ -54,24 +54,24 @@ namespace hope {
             };
             std::unordered_map<HANDLE, RegisteredResource> resourceCache;
 
-            static const int MAX_BUFFER_COUNT = 24;
+            static const int MAX_BUFFER_COUNT = 3;
             NV_ENC_OUTPUT_PTR bitstreamBuffers[MAX_BUFFER_COUNT] = { nullptr };
             NV_ENC_INPUT_PTR sysMemBuffers[MAX_BUFFER_COUNT] = { nullptr };
             HANDLE asyncEvents[MAX_BUFFER_COUNT] = { nullptr };
 
-            // 核心任务结构体，带有显式构造函数，避开 VideoFrame 无默认构造的问题
-            struct EncodeTask {
-                webrtc::VideoFrame frame;
-                bool forceKeyFrame;
+            // 像 H265 一样，使用数组缓存每一帧的状态
+            int encodeWidths[MAX_BUFFER_COUNT] = { 0 };
+            int encodeHeights[MAX_BUFFER_COUNT] = { 0 };
+            uint32_t rtpTimestamps[MAX_BUFFER_COUNT] = { 0 };
+            int64_t captureTimes[MAX_BUFFER_COUNT] = { 0 };
+            NV_ENC_INPUT_PTR mappedInputBuffers[MAX_BUFFER_COUNT] = { nullptr };
+            webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retainedBuffers[MAX_BUFFER_COUNT];
 
-                EncodeTask(const webrtc::VideoFrame& f, bool key)
-                    : frame(f), forceKeyFrame(key) {
-                }
-            };
+            int currentBufferIdx = 0;
 
             std::mutex encodeMutex;
             std::condition_variable queueCond;
-            std::queue<EncodeTask> taskQueue;
+            std::queue<int> pendingQueue; // 只存索引
 
             std::thread encoderThread;
             std::atomic<bool> isEncoding{ false };

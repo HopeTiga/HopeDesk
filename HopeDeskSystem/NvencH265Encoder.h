@@ -56,7 +56,7 @@ namespace hope {
 
             // 🔥 [修复] 将深度从 12 降低到 3。
             // 异步模式下 3 个 Buffer 已经足够实现流水线并行，过多的缓存会导致画面延迟甚至跳帧。
-            static const int MAX_BUFFER_COUNT = 24;
+            static const int MAX_BUFFER_COUNT = 3;
             NV_ENC_OUTPUT_PTR bitstreamBuffers[MAX_BUFFER_COUNT] = { nullptr };
             NV_ENC_INPUT_PTR sysMemBuffers[MAX_BUFFER_COUNT] = { nullptr };
 

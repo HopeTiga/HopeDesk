@@ -13,7 +13,7 @@ namespace hope {
 
         NvencH265Encoder::NvencH265Encoder() {
             LOG_INFO("[NVENC] ==========================================");
-            LOG_INFO("[NVENC] NvencH265Encoder 构造函数 - 防糊防卡优化版");
+            LOG_INFO("[NVENC] NvencH265Encoder 构造函数");
             LOG_INFO("[NVENC] ==========================================");
         }
 
@@ -141,10 +141,6 @@ namespace hope {
 
             encodeConfig = presetConfig.presetCfg;
 
-            // ==========================================
-            // 🔥 核心画质与防卡顿优化区
-            // ==========================================
-
             // 1. 码率控制优化
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
@@ -155,7 +151,7 @@ namespace hope {
             encodeConfig.rcParams.enableMinQP = 1;
             encodeConfig.rcParams.enableMaxQP = 1;
             encodeConfig.rcParams.minQP = { 25, 25, 25 }; // 最小 QP (I, P, B)
-            encodeConfig.rcParams.maxQP = { 38, 38, 38 }; // 核心：限制最大 QP，最大 28 能保证文字边缘依然锐利
+            encodeConfig.rcParams.maxQP = { 33, 33, 33 }; // 核心：限制最大 QP，最大 28 能保证文字边缘依然锐利
 
             // 3. 开启自适应量化 (Adaptive Quantization) 增强静态和文字细节
             encodeConfig.rcParams.enableAQ = 0;
@@ -178,6 +174,8 @@ namespace hope {
 
             encodeConfig.encodeCodecConfig.hevcConfig.tier = NV_ENC_TIER_HEVC_MAIN;
             encodeConfig.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_41;
+            encodeConfig.encodeCodecConfig.hevcConfig.outputBufferingPeriodSEI = 0;
+            encodeConfig.encodeCodecConfig.hevcConfig.outputPictureTimingSEI = 0;
 
             initParams.encodeConfig = &encodeConfig;
 
