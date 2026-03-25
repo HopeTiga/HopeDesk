@@ -46,6 +46,13 @@ namespace hope {
                 return nullptr;
             }
 
+            void FreeSharedSlot() {
+                if (releaseFlag && releaseFlag->load()) {
+                    releaseFlag->store(false);
+                    releaseFlag = nullptr; // 置空，防止析构函数重复触发
+                }
+            }
+
         private:
             ID3D11Texture2D* texture;
             HANDLE sharedHandle;

@@ -123,7 +123,6 @@ namespace hope {
             Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
             Microsoft::WRL::ComPtr<IDXGIAdapter1> targetAdapter;
             canZeroCopy = false;
-
             // ==================== 智能兼容探测 ====================
             // 1. 如果意图使用硬件编码，尝试寻找"挂载了显示器的 NVIDIA 显卡"
             if (gpuDataHandle) {
@@ -238,7 +237,7 @@ namespace hope {
             desc.SampleDesc.Count = 1;
             desc.Usage = D3D11_USAGE_DEFAULT;
             desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-            desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+            desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
 
             if (FAILED(d3dDevice->CreateTexture2D(&desc, nullptr, &sharedTexture))) return false;
 
@@ -442,33 +441,43 @@ namespace hope {
         }
 
         bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
-            // 智能分流 1：如果处于纯物理主机(带屏幕)，直接投递给 NVENC 硬件进行真正的 0 拷贝编码
             if (canZeroCopy && gpuDataHandle) {
+                // 无论锁没锁，每一帧进来都必须尝试移动到下一个槽位
                 int hwIdx = currentHwSharedIdx;
+                currentHwSharedIdx = (currentHwSharedIdx + 1) % YUV_BUFFERS;
+
                 if (!hwSharedBusy[hwIdx].load()) {
-                    d3dContext->CopyResource(hwSharedTextures[hwIdx].Get(), texture);
-                    hwSharedBusy[hwIdx].store(true);
-                    
-                    gpuDataHandle(
-                        hwSharedTextures[hwIdx].Get(),
-                        hwSharedHandles[hwIdx],
-                        config.width, config.height,
-                        &hwSharedBusy[hwIdx],
-                        config.uselevels
-                    );
-                    
-                    currentHwSharedIdx = (currentHwSharedIdx + 1) % YUV_BUFFERS;
+                    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;
+                    if (SUCCEEDED(hwSharedTextures[hwIdx].As(&km))) {
+                        if (km->AcquireSync(0, INFINITE) == S_OK) { 
+                            d3dContext->CopyResource(hwSharedTextures[hwIdx].Get(), texture);
+
+                            d3dContext->Flush();
+                            km->ReleaseSync(0); // 【核心修复】：将 1 改为 0！
+
+                            hwSharedBusy[hwIdx].store(true);
+                            gpuDataHandle(
+                                hwSharedTextures[hwIdx].Get(),
+                                hwSharedHandles[hwIdx],
+                                config.width, config.height,
+                                &hwSharedBusy[hwIdx],
+                                config.uselevels
+                            );
+                        }
+                        else {
+                            // 此时 hwIdx 锁着，但 currentHwSharedIdx 已经加了，下一帧会看 hwIdx + 1
+                            LOG_INFO("[ScreenCapture] 槽位 %d 被占用，尝试跳过", hwIdx);
+                        }
+                    }
                 }
-                return true; 
+                return true;
             }
 
-            // 智能分流 2：如果是向日葵远控环境或无显示器矿机，降级走到传统的软件 PRO/GPU/CPU 兼容流
             if (dataHandle) {
                 if (config.uselevels == CaptureLevels::PRO) return processFramePro(texture);
                 else if (config.uselevels == CaptureLevels::GPU && yuvComputeShader) return processFrameGPU(texture);
                 return processFrameCPU(texture);
             }
-
             return true;
         }
 

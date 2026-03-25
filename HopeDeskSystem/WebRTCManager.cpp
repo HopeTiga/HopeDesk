@@ -326,7 +326,7 @@ namespace hope {
 
             config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
-            config.set_dscp(false);
+            config.set_dscp(true);
 
             uint32_t flags = webrtc::PORTALLOCATOR_ENABLE_SHARED_SOCKET |
                 webrtc::PORTALLOCATOR_ENABLE_IPV6 |
@@ -582,7 +582,7 @@ namespace hope {
             screenCapture->setConfig(config);
 
             if (webrtcEnableNvidia == 1) {
-            
+                LOG_INFO("webrtcEnableNvidia");
                 screenCapture->setGpuDataHandle([this](ID3D11Texture2D* texture,
                     HANDLE sharedHandle,
                     int width, int height,

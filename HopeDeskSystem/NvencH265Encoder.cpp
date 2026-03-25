@@ -1,7 +1,6 @@
 #include "NvencH265Encoder.h"
 #include "WebRTCD3D11TextureBuffer.h"
 #include <api/video/encoded_image.h>
-#include <api/video/video_frame.h>
 #include <third_party/libyuv/include/libyuv.h>
 #include <dxgi.h>
 #include "Utils.h"
@@ -11,346 +10,189 @@ namespace hope {
 
         typedef NVENCSTATUS(NVENCAPI* PNVENCODEAPICREATEINSTANCE)(NV_ENCODE_API_FUNCTION_LIST*);
 
-        NvencH265Encoder::NvencH265Encoder() {
-            LOG_INFO("[NVENC] ==========================================");
-            LOG_INFO("[NVENC] NvencH265Encoder 构造函数");
-            LOG_INFO("[NVENC] ==========================================");
-        }
+        NvencH265Encoder::NvencH265Encoder() {}
+        NvencH265Encoder::~NvencH265Encoder() { Release(); }
 
-        NvencH265Encoder::~NvencH265Encoder() {
-            Release();
-        }
-
-        int NvencH265Encoder::InitEncode(const webrtc::VideoCodec* codecSettings,
-            const webrtc::VideoEncoder::Settings& settings) {
-
-            if (!codecSettings) {
-                LOG_INFO("[NVENC] InitEncode 失败: codecSettings 为空");
-                return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
-            }
-
-            int width = codecSettings->width;
-            int height = codecSettings->height;
-            uint32_t targetBitrateBps = codecSettings->startBitrate * 100;
-
-            LOG_INFO("[NVENC] InitEncode 开始 - 分辨率: %dx%d, 目标码率: %u bps", width, height, targetBitrateBps);
-
-            if (!InitD3D11()) {
-                LOG_INFO("[NVENC] InitEncode 停止: D3D11 初始化未通过");
-                return WEBRTC_VIDEO_CODEC_ERROR;
-            }
-            if (!InitNvenc(width, height, targetBitrateBps)) {
-                LOG_INFO("[NVENC] InitEncode 停止: NVENC 初始化未通过");
-                return WEBRTC_VIDEO_CODEC_ERROR;
-            }
-
-            LOG_INFO("[NVENC] InitEncode 流程执行完毕");
+        int NvencH265Encoder::InitEncode(const webrtc::VideoCodec* codecSettings, const webrtc::VideoEncoder::Settings& settings) {
+            if (!codecSettings || codecSettings->codecType != webrtc::kVideoCodecH265) return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+            widths = codecSettings->width;
+            heights = codecSettings->height;
+            if (!InitD3D11()) return WEBRTC_VIDEO_CODEC_ERROR;
+            // 采用原 H265 的码率倍率 * 1000
+            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 1000)) return WEBRTC_VIDEO_CODEC_ERROR;
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
         bool NvencH265Encoder::InitD3D11() {
             if (d3dDevice) return true;
-
-            Microsoft::WRL::ComPtr<IDXGIFactory1> dxgiFactory;
-            if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory)))) return false;
-
+            Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+            CreateDXGIFactory1(IID_PPV_ARGS(&factory));
             Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
-            Microsoft::WRL::ComPtr<IDXGIAdapter1> targetAdapter;
-
-            for (UINT i = 0; dxgiFactory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
-                DXGI_ADAPTER_DESC1 desc;
-                adapter->GetDesc1(&desc);
-                if (desc.VendorId == 0x10DE) { // NVIDIA
-                    targetAdapter = adapter;
-                    break;
-                }
+            for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+                DXGI_ADAPTER_DESC1 desc; adapter->GetDesc1(&desc);
+                if (desc.VendorId == 0x10DE) break;
             }
-
-            if (!targetAdapter) {
-                LOG_INFO("[NVENC] 错误: 未能在系统中找到 NVIDIA 显卡");
-                return false;
-            }
-
-            HRESULT hr = D3D11CreateDevice(
-                targetAdapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr,
-                D3D11_CREATE_DEVICE_VIDEO_SUPPORT, nullptr, 0,
-                D3D11_SDK_VERSION, &d3dDevice, nullptr, &d3dContext
-            );
-
-            if (FAILED(hr)) {
-                LOG_INFO("[NVENC] D3D11CreateDevice 失败, hr=0x%08X", hr);
-                return false;
-            }
-            return true;
+            D3D11CreateDevice(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+                nullptr, 0, D3D11_SDK_VERSION, &d3dDevice, nullptr, &d3dContext);
+            return !!d3dDevice;
         }
 
         bool NvencH265Encoder::InitNvenc(int width, int height, uint32_t bitrateBps) {
             nvVideoCodecHandle = LoadLibrary(TEXT("nvEncodeAPI64.dll"));
-            if (!nvVideoCodecHandle) {
-                LOG_INFO("[NVENC] 无法定位驱动文件");
-                return false;
-            }
-
-            PNVENCODEAPICREATEINSTANCE nvEncodeAPICreateInstance =
-                (PNVENCODEAPICREATEINSTANCE)GetProcAddress(nvVideoCodecHandle, "NvEncodeAPICreateInstance");
-
-            if (!nvEncodeAPICreateInstance) return false;
-
-            memset(&nvencFuncs, 0, sizeof(nvencFuncs));
+            if (!nvVideoCodecHandle) return false;
+            auto createIdx = (PNVENCODEAPICREATEINSTANCE)GetProcAddress(nvVideoCodecHandle, "NvEncodeAPICreateInstance");
             nvencFuncs.version = NV_ENCODE_API_FUNCTION_LIST_VER;
-            if (nvEncodeAPICreateInstance(&nvencFuncs) != NV_ENC_SUCCESS) {
-                return false;
-            }
+            createIdx(&nvencFuncs);
 
-            NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS sessionParams;
-            memset(&sessionParams, 0, sizeof(sessionParams));
-            sessionParams.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
-            sessionParams.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
+            NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS sessionParams = { NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER };
             sessionParams.device = d3dDevice.Get();
+            sessionParams.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
             sessionParams.apiVersion = NVENCAPI_VERSION;
+            nvencFuncs.nvEncOpenEncodeSessionEx(&sessionParams, &nvencSession);
 
-            if (nvencFuncs.nvEncOpenEncodeSessionEx(&sessionParams, &nvencSession) != NV_ENC_SUCCESS) {
-                return false;
-            }
-
-            memset(&initParams, 0, sizeof(initParams));
+            // --- H265 配置参数 ---
             initParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
             initParams.encodeGUID = NV_ENC_CODEC_HEVC_GUID;
-
-            // 🔥 [修复] 从 P1 升级为 P2，稍微增加一点画质预算，延迟增加微乎其微
-            initParams.presetGUID = NV_ENC_PRESET_P1_GUID;
+            initParams.presetGUID = NV_ENC_PRESET_P2_GUID; // 保持你要求的 P2 预设，提升文字清晰度
             initParams.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
-
             initParams.encodeWidth = width;
             initParams.encodeHeight = height;
+
             initParams.darWidth = width;
             initParams.darHeight = height;
-            initParams.frameRateNum = 60;
+            initParams.frameRateNum = 144;
             initParams.frameRateDen = 1;
-
             initParams.enablePTD = 1;
-            initParams.enableEncodeAsync = 1;
+            initParams.enableEncodeAsync = 0;
 
-            NV_ENC_PRESET_CONFIG presetConfig;
-            memset(&presetConfig, 0, sizeof(presetConfig));
-            presetConfig.version = NV_ENC_PRESET_CONFIG_VER;
-            presetConfig.presetCfg.version = NV_ENC_CONFIG_VER;
-
-            nvencFuncs.nvEncGetEncodePresetConfigEx(nvencSession, initParams.encodeGUID,
-                initParams.presetGUID, initParams.tuningInfo, &presetConfig);
-
+            NV_ENC_PRESET_CONFIG presetConfig = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
+            nvencFuncs.nvEncGetEncodePresetConfigEx(nvencSession, initParams.encodeGUID, initParams.presetGUID, initParams.tuningInfo, &presetConfig);
             encodeConfig = presetConfig.presetCfg;
 
-            // 1. 码率控制优化
+            // --- H265 高清修复核心参数 ---
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
-            encodeConfig.rcParams.maxBitRate = static_cast<uint32_t>(bitrateBps * 1.2);
-            encodeConfig.rcParams.multiPass = NV_ENC_MULTI_PASS_DISABLED; // 开启 1/4 分辨率两次编码，极大改善移动时文字模糊
-
-            // 2. QP 限制控制（防止编码器在画面剧烈变动时为了保码率把画面压成马赛克）
+            encodeConfig.rcParams.maxBitRate = bitrateBps;
+            encodeConfig.rcParams.enableAQ = 0;              // 关闭自适应量化
             encodeConfig.rcParams.enableMinQP = 1;
             encodeConfig.rcParams.enableMaxQP = 1;
-            encodeConfig.rcParams.minQP = { 25, 25, 25 }; // 最小 QP (I, P, B)
-            encodeConfig.rcParams.maxQP = { 33, 33, 33 }; // 核心：限制最大 QP，最大 28 能保证文字边缘依然锐利
+            encodeConfig.rcParams.minQP = { 25, 25, 25 };    // 允许更低压缩率
+            encodeConfig.rcParams.maxQP = { 38, 38, 38 };
 
-            // 3. 开启自适应量化 (Adaptive Quantization) 增强静态和文字细节
-            encodeConfig.rcParams.enableAQ = 0;
-
-            // 4. 超低延迟必须禁用的项
-            encodeConfig.rcParams.lookaheadDepth = 0;
-            encodeConfig.rcParams.disableIadapt = 1;
-            encodeConfig.rcParams.disableBadapt = 1;
-
-            // 5. IPPP 结构
             encodeConfig.frameIntervalP = 1;
-            encodeConfig.encodeCodecConfig.hevcConfig.maxNumRefFramesInDPB = 1;
+            encodeConfig.gopLength = NVENC_INFINITE_GOPLENGTH;
 
-            // 6. 🔥 解决周期性卡顿：禁用周期性大 I 帧，启用帧内刷新 (Intra Refresh)
-            encodeConfig.encodeCodecConfig.hevcConfig.idrPeriod = NVENC_INFINITE_GOPLENGTH;
+            // --- HEVC 专属配置 ---
             encodeConfig.encodeCodecConfig.hevcConfig.repeatSPSPPS = 1;
+            encodeConfig.encodeCodecConfig.hevcConfig.idrPeriod = encodeConfig.gopLength;
             encodeConfig.encodeCodecConfig.hevcConfig.enableIntraRefresh = 1;
-            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshPeriod = 60; // 假设60帧为一周期，每帧刷新一部分
-            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshCnt = 10;    // 刷新持续的帧数
-
-            encodeConfig.encodeCodecConfig.hevcConfig.tier = NV_ENC_TIER_HEVC_MAIN;
-            encodeConfig.encodeCodecConfig.hevcConfig.level = NV_ENC_LEVEL_HEVC_41;
-            encodeConfig.encodeCodecConfig.hevcConfig.outputBufferingPeriodSEI = 0;
-            encodeConfig.encodeCodecConfig.hevcConfig.outputPictureTimingSEI = 0;
+            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshPeriod = 144;
+            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshCnt = 5;
 
             initParams.encodeConfig = &encodeConfig;
 
+            // 初始化编码器
             if (nvencFuncs.nvEncInitializeEncoder(nvencSession, &initParams) != NV_ENC_SUCCESS) {
-                LOG_INFO("[NVENC] nvEncInitializeEncoder 失败");
                 return false;
             }
 
-            for (int i = 0; i < MAX_BUFFER_COUNT; i++) {
-                NV_ENC_CREATE_BITSTREAM_BUFFER bsParams;
-                memset(&bsParams, 0, sizeof(bsParams));
-                bsParams.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
-                if (nvencFuncs.nvEncCreateBitstreamBuffer(nvencSession, &bsParams) == NV_ENC_SUCCESS) {
-                    bitstreamBuffers[i] = bsParams.bitstreamBuffer;
-                }
+            outputDelay = 0;
+            bufCount = 4;
 
-                NV_ENC_CREATE_INPUT_BUFFER allocInput;
-                memset(&allocInput, 0, sizeof(allocInput));
-                allocInput.version = NV_ENC_CREATE_INPUT_BUFFER_VER;
-                allocInput.width = width;
-                allocInput.height = height;
-                allocInput.memoryHeap = NV_ENC_MEMORY_HEAP_SYSMEM_CACHED;
-                allocInput.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
+            for (uint32_t i = 0; i < bufCount; i++) {
+                NvBitstream bs;
+                NV_ENC_CREATE_BITSTREAM_BUFFER bsParam = { NV_ENC_CREATE_BITSTREAM_BUFFER_VER };
+                nvencFuncs.nvEncCreateBitstreamBuffer(nvencSession, &bsParam);
+                bs.ptr = bsParam.bitstreamBuffer;
+                bitstreams.push_back(bs);
 
-                if (nvencFuncs.nvEncCreateInputBuffer(nvencSession, &allocInput) == NV_ENC_SUCCESS) {
-                    sysMemBuffers[i] = allocInput.inputBuffer;
-                }
+                NvInputTexture it;
+                D3D11_TEXTURE2D_DESC desc = { (UINT)width, (UINT)height, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, {1,0}, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET, 0, 0 };
+                d3dDevice->CreateTexture2D(&desc, nullptr, &it.tex);
 
-                asyncEvents[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
-                NV_ENC_EVENT_PARAMS eventParams;
-                memset(&eventParams, 0, sizeof(eventParams));
-                eventParams.version = NV_ENC_EVENT_PARAMS_VER;
-                eventParams.completionEvent = asyncEvents[i];
-                nvencFuncs.nvEncRegisterAsyncEvent(nvencSession, &eventParams);
+                NV_ENC_REGISTER_RESOURCE reg = { NV_ENC_REGISTER_RESOURCE_VER };
+                reg.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX;
+                reg.resourceToRegister = it.tex.Get();
+                reg.width = width; reg.height = height;
+                reg.bufferFormat = NV_ENC_BUFFER_FORMAT_ARGB;
+                nvencFuncs.nvEncRegisterResource(nvencSession, &reg);
+                it.regPtr = reg.registeredResource;
+                inputPool.push_back(it);
             }
-
-            isEncoding = true;
-            encoderThread = std::thread(&NvencH265Encoder::ProcessOutput, this);
-
             return true;
         }
 
-        int NvencH265Encoder::Encode(const webrtc::VideoFrame& frame,
-            const std::vector<webrtc::VideoFrameType>* frameTypes) {
-
-            if (!nvencSession || !encodedImageCallback) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
-
-            bool forceKeyFrame = false;
-            if (frameTypes) {
-                for (auto type : *frameTypes) {
-                    if (type == webrtc::VideoFrameType::kVideoFrameKey) {
-                        forceKeyFrame = true; // 即使开了 Intra Refresh，WebRTC 强制请求时仍需给它一个 IDR
-                        break;
-                    }
-                }
-            }
+        int NvencH265Encoder::Encode(const webrtc::VideoFrame& frame, const std::vector<webrtc::VideoFrameType>* frameTypes) {
+            std::lock_guard<std::mutex> lock(nvencApiMutex);
+            if (!nvencSession) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 
             auto buffer = frame.video_frame_buffer();
-            bool isNative = (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative);
-            int width = buffer->width();
-            int height = buffer->height();
+            uint32_t idx = nextBitstream;
 
-            int bufIdx = -1;
-            {
-                std::unique_lock<std::mutex> lock(encodeMutex);
-                // 🔥 [修复] 简化队列防卡：只要满了直接静默丢帧。保证发出的永远是最新的画面。
-                if (pendingQueue.size() >= MAX_BUFFER_COUNT) {
-                    return WEBRTC_VIDEO_CODEC_OK;
+            NV_ENC_PIC_PARAMS params = { NV_ENC_PIC_PARAMS_VER };
+            params.inputTimeStamp = frame.render_time_ms();
+            params.inputWidth = buffer->width();
+            params.inputHeight = buffer->height();
+            params.outputBitstream = bitstreams[idx].ptr;
+            params.pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
+            if (frameTypes && !frameTypes->empty() && (*frameTypes)[0] == webrtc::VideoFrameType::kVideoFrameKey) {
+                params.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
+            }
+
+            NV_ENC_MAP_INPUT_RESOURCE map = { NV_ENC_MAP_INPUT_RESOURCE_VER };
+            NV_ENC_INPUT_PTR swInputBuffer = nullptr;
+
+            if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative) {
+                auto* d3dBuffer = static_cast<WebRTCD3D11TextureBuffer*>(buffer.get());
+                HANDLE h = d3dBuffer->GetSharedHandle();
+
+                auto& cached = resourceCache[h];
+                if (!cached.tex) {
+                    d3dDevice->OpenSharedResource(h, IID_PPV_ARGS(&cached.tex));
+                    cached.tex.As(&cached.km);
                 }
 
-                bufIdx = currentBufferIdx;
-                currentBufferIdx = (currentBufferIdx + 1) % MAX_BUFFER_COUNT;
-                encodeWidths[bufIdx] = width;
-                encodeHeights[bufIdx] = height;
+                if (cached.km && cached.km->AcquireSync(0, INFINITE) == S_OK) {
+                    d3dContext->CopyResource(inputPool[idx].tex.Get(), cached.tex.Get());
+                    d3dContext->Flush();
+                    cached.km->ReleaseSync(0);
+                    d3dBuffer->FreeSharedSlot();
+                }
 
-                retainedBuffers[bufIdx] = buffer;
+                map.registeredResource = inputPool[idx].regPtr;
+                nvencFuncs.nvEncMapInputResource(nvencSession, &map);
+
+                params.inputBuffer = map.mappedResource;
+                params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
             }
+            else {
+                int width = buffer->width();
+                int height = buffer->height();
 
-            NV_ENC_PIC_PARAMS picParams;
-            memset(&picParams, 0, sizeof(picParams));
-            picParams.version = NV_ENC_PIC_PARAMS_VER;
-            picParams.inputWidth = width;
-            picParams.inputHeight = height;
-            picParams.outputBitstream = bitstreamBuffers[bufIdx];
-            picParams.pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
-            picParams.inputTimeStamp = frame.render_time_ms();
-            picParams.completionEvent = asyncEvents[bufIdx];
+                NV_ENC_CREATE_INPUT_BUFFER createInput = { NV_ENC_CREATE_INPUT_BUFFER_VER };
+                createInput.width = width;
+                createInput.height = height;
+                createInput.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
+                nvencFuncs.nvEncCreateInputBuffer(nvencSession, &createInput);
+                swInputBuffer = createInput.inputBuffer;
 
-            if (forceKeyFrame) {
-                picParams.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
-            }
+                NV_ENC_LOCK_INPUT_BUFFER lockInput = { NV_ENC_LOCK_INPUT_BUFFER_VER };
+                lockInput.inputBuffer = swInputBuffer;
+                nvencFuncs.nvEncLockInputBuffer(nvencSession, &lockInput);
 
-            rtpTimestamps[bufIdx] = frame.rtp_timestamp();
-            captureTimes[bufIdx] = frame.render_time_ms();
+                if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNV12) {
+                    auto nv12 = buffer->GetNV12();
+                    if (nv12) {
+                        uint8_t* dstY = (uint8_t*)lockInput.bufferDataPtr;
+                        uint8_t* dstUV = dstY + (height * lockInput.pitch);
 
-            NV_ENC_MAP_INPUT_RESOURCE mapRes;
-            memset(&mapRes, 0, sizeof(mapRes));
-            mapRes.version = NV_ENC_MAP_INPUT_RESOURCE_VER;
-
-            NVENCSTATUS status = NV_ENC_SUCCESS;
-
-            {
-                std::lock_guard<std::mutex> apiLock(nvencApiMutex);
-
-                if (isNative) {
-                    auto* d3dBuffer = static_cast<WebRTCD3D11TextureBuffer*>(buffer.get());
-                    HANDLE sharedHandle = d3dBuffer->GetSharedHandle();
-                    auto it = resourceCache.find(sharedHandle);
-
-                    if (it == resourceCache.end()) {
-                        Microsoft::WRL::ComPtr<ID3D11Texture2D> sharedTex;
-                        if (FAILED(d3dDevice->OpenSharedResource(sharedHandle, IID_PPV_ARGS(&sharedTex)))) {
-                            retainedBuffers[bufIdx] = nullptr;
-                            return WEBRTC_VIDEO_CODEC_ERROR;
-                        }
-
-                        D3D11_TEXTURE2D_DESC desc;
-                        sharedTex->GetDesc(&desc);
-
-                        NV_ENC_BUFFER_FORMAT fmt = (desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM) ?
-                            NV_ENC_BUFFER_FORMAT_ARGB : NV_ENC_BUFFER_FORMAT_NV12;
-
-                        NV_ENC_REGISTER_RESOURCE reg;
-                        memset(&reg, 0, sizeof(reg));
-                        reg.version = NV_ENC_REGISTER_RESOURCE_VER;
-                        reg.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX;
-                        reg.resourceToRegister = sharedTex.Get();
-                        reg.width = desc.Width;
-                        reg.height = desc.Height;
-                        reg.bufferFormat = fmt;
-                        reg.bufferUsage = NV_ENC_INPUT_IMAGE;
-
-                        if (nvencFuncs.nvEncRegisterResource(nvencSession, &reg) != NV_ENC_SUCCESS) {
-                            retainedBuffers[bufIdx] = nullptr;
-                            return WEBRTC_VIDEO_CODEC_ERROR;
-                        }
-
-                        resourceCache[sharedHandle] = { sharedTex, reg.registeredResource, fmt };
-                        it = resourceCache.find(sharedHandle);
+                        libyuv::CopyPlane(nv12->DataY(), nv12->StrideY(), dstY, lockInput.pitch, width, height);
+                        libyuv::CopyPlane(nv12->DataUV(), nv12->StrideUV(), dstUV, lockInput.pitch, width, height / 2);
                     }
-
-                    mapRes.registeredResource = it->second.registeredPtr;
-                    if (nvencFuncs.nvEncMapInputResource(nvencSession, &mapRes) != NV_ENC_SUCCESS) {
-                        retainedBuffers[bufIdx] = nullptr;
-                        return WEBRTC_VIDEO_CODEC_ERROR;
-                    }
-
-                    picParams.inputBuffer = mapRes.mappedResource;
-                    picParams.bufferFmt = mapRes.mappedBufferFmt;
-                    picParams.inputPitch = 0;
-                    mappedInputBuffers[bufIdx] = mapRes.mappedResource;
                 }
                 else {
-                    mappedInputBuffers[bufIdx] = nullptr;
-
-                    NV_ENC_LOCK_INPUT_BUFFER lockInput = { NV_ENC_LOCK_INPUT_BUFFER_VER };
-                    lockInput.inputBuffer = sysMemBuffers[bufIdx];
-
-                    if (nvencFuncs.nvEncLockInputBuffer(nvencSession, &lockInput) != NV_ENC_SUCCESS) {
-                        retainedBuffers[bufIdx] = nullptr;
-                        return WEBRTC_VIDEO_CODEC_ERROR;
-                    }
-
-                    if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNV12) {
-                        auto nv12 = buffer->GetNV12();
-                        if (nv12) {
-                            uint8_t* dstY = (uint8_t*)lockInput.bufferDataPtr;
-                            uint8_t* dstUV = dstY + (height * lockInput.pitch);
-
-                            libyuv::CopyPlane(nv12->DataY(), nv12->StrideY(), dstY, lockInput.pitch, width, height);
-                            libyuv::CopyPlane(nv12->DataUV(), nv12->StrideUV(), dstUV, lockInput.pitch, width, height / 2);
-                        }
-                    }
-                    else {
-                        auto i420 = buffer->ToI420();
+                    auto i420 = buffer->ToI420();
+                    if (i420) {
                         uint8_t* dstY = (uint8_t*)lockInput.bufferDataPtr;
                         uint8_t* dstUV = dstY + (height * lockInput.pitch);
 
@@ -363,159 +205,133 @@ namespace hope {
                             width, height
                         );
                     }
-
-                    uint32_t currentPitch = lockInput.pitch;
-                    nvencFuncs.nvEncUnlockInputBuffer(nvencSession, sysMemBuffers[bufIdx]);
-
-                    picParams.inputBuffer = sysMemBuffers[bufIdx];
-                    picParams.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
-                    picParams.inputPitch = currentPitch;
                 }
 
-                status = nvencFuncs.nvEncEncodePicture(nvencSession, &picParams);
-           
-                if (status != NV_ENC_SUCCESS) {
-                    LOG_INFO("[NVENC] nvEncEncodePicture 失败，错误码: %d", status);
-                    if (isNative && mappedInputBuffers[bufIdx]) {
-                        nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedInputBuffers[bufIdx]);
-                        mappedInputBuffers[bufIdx] = nullptr;
-                    }
-                    retainedBuffers[bufIdx] = nullptr;
-                    return WEBRTC_VIDEO_CODEC_ERROR;
-                }
+                nvencFuncs.nvEncUnlockInputBuffer(nvencSession, swInputBuffer);
+
+                params.inputBuffer = swInputBuffer;
+                params.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
             }
 
-            {
-                std::unique_lock<std::mutex> lock(encodeMutex);
-                pendingQueue.push(bufIdx);
-                queueCond.notify_all();
+            dtsList.push_back(frame.render_time_ms());
+            NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
+
+            if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative) {
+                nvencFuncs.nvEncUnmapInputResource(nvencSession, map.mappedResource);
             }
+            else if (swInputBuffer) {
+                nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffer);
+            }
+
+            if (err == NV_ENC_SUCCESS || err == NV_ENC_ERR_NEED_MORE_INPUT) {
+                buffersQueued++;
+                if (++nextBitstream == bufCount) nextBitstream = 0;
+            }
+
+            GetEncodedPacket(false);
 
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
-        void NvencH265Encoder::ProcessOutput() {
-            while (isEncoding) {
-                int bufIdx = -1;
-                {
-                    std::unique_lock<std::mutex> lock(encodeMutex);
-                    queueCond.wait(lock, [this] {
-                        return !pendingQueue.empty() || !isEncoding;
-                        });
-                    if (!isEncoding && pendingQueue.empty()) break;
-                    if (pendingQueue.empty()) continue;
-                    bufIdx = pendingQueue.front();
-                }
+        bool NvencH265Encoder::GetEncodedPacket(bool finalize) {
+            if (!buffersQueued) return true;
+            if (!finalize && buffersQueued <= outputDelay) return true;
 
-                DWORD waitResult = WaitForSingleObject(asyncEvents[bufIdx], INFINITE);
-                if (waitResult == WAIT_TIMEOUT) continue;
-                if (waitResult != WAIT_OBJECT_0) break;
+            uint32_t count = finalize ? buffersQueued : 1;
 
-                NV_ENC_LOCK_BITSTREAM lockBs;
-                memset(&lockBs, 0, sizeof(lockBs));
-                lockBs.version = NV_ENC_LOCK_BITSTREAM_VER;
-                lockBs.outputBitstream = bitstreamBuffers[bufIdx];
-                lockBs.doNotWait = 0;
+            for (uint32_t i = 0; i < count; i++) {
+                NV_ENC_LOCK_BITSTREAM lock = { NV_ENC_LOCK_BITSTREAM_VER };
+                lock.outputBitstream = bitstreams[curBitstream].ptr;
+                lock.doNotWait = false;
 
-                if (nvencFuncs.nvEncLockBitstream(nvencSession, &lockBs) == NV_ENC_SUCCESS) {
-                    webrtc::EncodedImage encodedImage;
-                    encodedImage.SetEncodedData(webrtc::EncodedImageBuffer::Create(
-                        (uint8_t*)lockBs.bitstreamBufferPtr,
-                        lockBs.bitstreamSizeInBytes));
+                if (nvencFuncs.nvEncLockBitstream(nvencSession, &lock) == NV_ENC_SUCCESS) {
 
-                    encodedImage._encodedWidth = encodeWidths[bufIdx];
-                    encodedImage._encodedHeight = encodeHeights[bufIdx];
+                    if (firstPacket) {
+                        uint8_t header_buf[1024]; uint32_t header_size = 0;
+                        NV_ENC_SEQUENCE_PARAM_PAYLOAD payload = { NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER };
+                        payload.spsppsBuffer = header_buf;
+                        payload.inBufferSize = 1024;
+                        payload.outSPSPPSPayloadSize = &header_size;
+                        nvencFuncs.nvEncGetSequenceParams(nvencSession, &payload);
+                        header.assign(header_buf, header_buf + header_size);
+                        firstPacket = false;
+                    }
 
-                    // WebRTC 需要确切知道这一帧是不是关键帧
-                    encodedImage._frameType = (lockBs.pictureType == NV_ENC_PIC_TYPE_IDR || lockBs.pictureType == NV_ENC_PIC_TYPE_INTRA_REFRESH) ?
-                        webrtc::VideoFrameType::kVideoFrameKey :
-                        webrtc::VideoFrameType::kVideoFrameDelta;
+                    webrtc::EncodedImage image;
+                    image.SetEncodedData(webrtc::EncodedImageBuffer::Create((uint8_t*)lock.bitstreamBufferPtr, lock.bitstreamSizeInBytes));
+                    image._encodedWidth = widths;
+                    image._encodedHeight = heights;
+                    image.SetRtpTimestamp(static_cast<uint32_t>(lock.outputTimeStamp * 90));
+                    image.capture_time_ms_ = lock.outputTimeStamp;
+                    image._frameType = (lock.pictureType == NV_ENC_PIC_TYPE_IDR) ? webrtc::VideoFrameType::kVideoFrameKey : webrtc::VideoFrameType::kVideoFrameDelta;
 
-                    encodedImage.SetRtpTimestamp(rtpTimestamps[bufIdx]);
-                    encodedImage.capture_time_ms_ = captureTimes[bufIdx];
+                    int64_t dts = 0;
+                    if (!dtsList.empty()) { dts = dtsList.front(); dtsList.pop_front(); }
 
                     webrtc::CodecSpecificInfo info;
                     info.codecType = webrtc::kVideoCodecH265;
+                    if (encodedImageCallback) encodedImageCallback->OnEncodedImage(image, &info);
 
-                    if (encodedImageCallback) {
-                        encodedImageCallback->OnEncodedImage(encodedImage, &info);
-                    }
-                    nvencFuncs.nvEncUnlockBitstream(nvencSession, bitstreamBuffers[bufIdx]);
+                    nvencFuncs.nvEncUnlockBitstream(nvencSession, bitstreams[curBitstream].ptr);
                 }
 
-                {
-                    std::lock_guard<std::mutex> apiLock(nvencApiMutex);
-                    if (mappedInputBuffers[bufIdx]) {
-                        nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedInputBuffers[bufIdx]);
-                        mappedInputBuffers[bufIdx] = nullptr;
-                    }
-                }
-
-                webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frameToRelease;
-                {
-                    std::unique_lock<std::mutex> lock(encodeMutex);
-                    frameToRelease = retainedBuffers[bufIdx];
-                    retainedBuffers[bufIdx] = nullptr;
-
-                    pendingQueue.pop();
-                    queueCond.notify_all();
-                }
+                if (++curBitstream == bufCount) curBitstream = 0;
+                buffersQueued--;
             }
+            return true;
         }
 
         int NvencH265Encoder::Release() {
-            if (isEncoding) {
-                isEncoding = false;
-                queueCond.notify_all();
-                if (encoderThread.joinable()) {
-                    encoderThread.join();
-                }
-            }
-
+            std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (nvencSession) {
-                for (auto& pair : resourceCache) {
-                    nvencFuncs.nvEncUnregisterResource(nvencSession, pair.second.registeredPtr);
+                NV_ENC_PIC_PARAMS params = { NV_ENC_PIC_PARAMS_VER };
+                params.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
+                nvencFuncs.nvEncEncodePicture(nvencSession, &params);
+                GetEncodedPacket(true);
+
+                for (auto& it : inputPool) {
+                    nvencFuncs.nvEncUnregisterResource(nvencSession, it.regPtr);
+                }
+                for (auto& bs : bitstreams) {
+                    nvencFuncs.nvEncDestroyBitstreamBuffer(nvencSession, bs.ptr);
                 }
                 resourceCache.clear();
-
-                for (int i = 0; i < MAX_BUFFER_COUNT; i++) {
-                    if (asyncEvents[i]) {
-                        NV_ENC_EVENT_PARAMS eventParams;
-                        memset(&eventParams, 0, sizeof(eventParams));
-                        eventParams.version = NV_ENC_EVENT_PARAMS_VER;
-                        eventParams.completionEvent = asyncEvents[i];
-                        nvencFuncs.nvEncUnregisterAsyncEvent(nvencSession, &eventParams);
-                        CloseHandle(asyncEvents[i]);
-                        asyncEvents[i] = nullptr;
-                    }
-                    if (bitstreamBuffers[i]) nvencFuncs.nvEncDestroyBitstreamBuffer(nvencSession, bitstreamBuffers[i]);
-                    if (sysMemBuffers[i]) nvencFuncs.nvEncDestroyInputBuffer(nvencSession, sysMemBuffers[i]);
-                }
                 nvencFuncs.nvEncDestroyEncoder(nvencSession);
                 nvencSession = nullptr;
             }
             if (nvVideoCodecHandle) FreeLibrary(nvVideoCodecHandle);
-            d3dContext.Reset();
-            d3dDevice.Reset();
-
-            std::queue<int> emptyQueue;
-            std::swap(pendingQueue, emptyQueue);
-
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
         int NvencH265Encoder::RegisterEncodeCompleteCallback(webrtc::EncodedImageCallback* callback) {
-            encodedImageCallback = callback;
-            return WEBRTC_VIDEO_CODEC_OK;
+            encodedImageCallback = callback; return WEBRTC_VIDEO_CODEC_OK;
         }
 
         void NvencH265Encoder::SetRates(const RateControlParameters& parameters) {
-            // 如果 WebRTC 请求动态调码率，后续可在此处通过 nvEncReconfigureEncoder 动态下发码率
+            std::lock_guard<std::mutex> lock(nvencApiMutex);
+            if (!nvencSession) return;
+
+            uint32_t targetBitrateBps = parameters.bitrate.get_sum_bps();
+            if (targetBitrateBps == 0) return;
+
+            NV_ENC_RECONFIGURE_PARAMS reconfigParams = { NV_ENC_RECONFIGURE_PARAMS_VER };
+            reconfigParams.resetEncoder = 0;
+            reconfigParams.forceIDR = 0;
+
+            encodeConfig.rcParams.averageBitRate = targetBitrateBps;
+            encodeConfig.rcParams.maxBitRate = targetBitrateBps; // H265 这里不加 1.2 倍系数，遵从你原来的配置
+
+            initParams.encodeConfig = &encodeConfig;
+            reconfigParams.reInitEncodeParams = initParams;
+
+            NVENCSTATUS status = nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfigParams);
+            if (status != NV_ENC_SUCCESS) {
+                // 预留报错占位
+            }
         }
 
         webrtc::VideoEncoder::EncoderInfo NvencH265Encoder::GetEncoderInfo() const {
-            EncoderInfo info;
-            info.supports_native_handle = true;
+            EncoderInfo info; info.supports_native_handle = true;
             info.is_hardware_accelerated = true;
             info.implementation_name = "NVENCH265";
             return info;
