@@ -18,7 +18,9 @@ namespace hope {
             widths = codecSettings->width;
             heights = codecSettings->height;
             if (!InitD3D11()) return WEBRTC_VIDEO_CODEC_ERROR;
-            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000)) return WEBRTC_VIDEO_CODEC_ERROR;
+            // ⭐ 修复点1：WebRTC 传的是 kbps，乘以 1000 才是 bps。
+            // 之前乘以 10000 会导致请求 2Mbps 实际给 20Mbps，带宽直接塞爆，造成视觉上的丢帧。
+            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 1000)) return WEBRTC_VIDEO_CODEC_ERROR;
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
@@ -49,51 +51,47 @@ namespace hope {
             sessionParams.apiVersion = NVENCAPI_VERSION;
             nvencFuncs.nvEncOpenEncodeSessionEx(&sessionParams, &nvencSession);
 
-            // --- 参照 OBS init_encoder_base ---
             initParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
             initParams.encodeGUID = NV_ENC_CODEC_AV1_GUID;
-            initParams.presetGUID = NV_ENC_PRESET_P1_GUID; // OBS: p1
+            initParams.presetGUID = NV_ENC_PRESET_P1_GUID;
             initParams.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
             initParams.encodeWidth = width;
             initParams.encodeHeight = height;
             initParams.darWidth = width;
             initParams.darHeight = height;
-            initParams.frameRateNum = 120;
+            initParams.frameRateNum = 60; // 实时流建议设为 60
             initParams.frameRateDen = 1;
             initParams.enablePTD = 1;
-            initParams.enableEncodeAsync = 0; // 同步提取
+            initParams.enableEncodeAsync = 0;
 
             encodeConfig.rcParams.enableAQ = 1;
-
             encodeConfig.rcParams.enableMinQP = 1;
             encodeConfig.rcParams.enableMaxQP = 1;
             encodeConfig.rcParams.minQP = { 25, 25, 25 };
-            encodeConfig.rcParams.maxQP = { 32, 32, 32 };
+            encodeConfig.rcParams.maxQP = { 38, 38, 38 };
+            encodeConfig.rcParams.enableLookahead = 0;
 
             NV_ENC_PRESET_CONFIG presetConfig = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
             nvencFuncs.nvEncGetEncodePresetConfigEx(nvencSession, initParams.encodeGUID, initParams.presetGUID, initParams.tuningInfo, &presetConfig);
             encodeConfig = presetConfig.presetCfg;
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
-            encodeConfig.rcParams.maxBitRate = bitrateBps * 1.2;
-            encodeConfig.frameIntervalP = 1; // 无B帧以降低延迟，OBS 默认会根据 bf 调整
+            encodeConfig.rcParams.maxBitRate = bitrateBps;
+            encodeConfig.frameIntervalP = 1;
             encodeConfig.gopLength = NVENC_INFINITE_GOPLENGTH;
 
-            // AV1 专属配置 (OBS 风格)
-            encodeConfig.encodeCodecConfig.av1Config.repeatSeqHdr = 1;
+            encodeConfig.encodeCodecConfig.av1Config.repeatSeqHdr = 0;
             encodeConfig.encodeCodecConfig.av1Config.enableIntraRefresh = 1;
             encodeConfig.encodeCodecConfig.av1Config.intraRefreshPeriod = 120;
             encodeConfig.encodeCodecConfig.av1Config.intraRefreshCnt = 6;
             encodeConfig.encodeCodecConfig.av1Config.idrPeriod = encodeConfig.gopLength;
-
             encodeConfig.encodeCodecConfig.av1Config.maxNumRefFramesInDPB = 1;
 
             initParams.encodeConfig = &encodeConfig;
             nvencFuncs.nvEncInitializeEncoder(nvencSession, &initParams);
 
-            // 计算缓冲深度 (参照 OBS)
-            outputDelay = 0; // P1 + ULL + frameIntervalP=1 时延迟为 0
-            bufCount = 8;    // 最小缓冲
+            outputDelay = 0;
+            bufCount = 8;
             mappedResources.resize(bufCount, nullptr);
             swInputBuffers.resize(bufCount, nullptr);
 
@@ -124,11 +122,15 @@ namespace hope {
             std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (!nvencSession) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 
+            GetEncodedPacket(false);
+
             auto buffer = frame.video_frame_buffer();
             uint32_t idx = nextBitstream;
 
             NV_ENC_PIC_PARAMS params = { NV_ENC_PIC_PARAMS_VER };
-            params.inputTimeStamp = frame.render_time_ms();
+
+            params.inputTimeStamp = frame.rtp_timestamp();
+
             params.inputWidth = buffer->width();
             params.inputHeight = buffer->height();
             params.outputBitstream = bitstreams[idx].ptr;
@@ -138,45 +140,34 @@ namespace hope {
             }
 
             NV_ENC_MAP_INPUT_RESOURCE map = { NV_ENC_MAP_INPUT_RESOURCE_VER };
-            NV_ENC_INPUT_PTR swInputBuffer = nullptr;
-
             if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative) {
                 auto* d3dBuffer = static_cast<WebRTCD3D11TextureBuffer*>(buffer.get());
                 HANDLE h = d3dBuffer->GetSharedHandle();
-
                 auto& cached = resourceCache[h];
                 if (!cached.tex) {
                     d3dDevice->OpenSharedResource(h, IID_PPV_ARGS(&cached.tex));
                     cached.tex.As(&cached.km);
                 }
-
                 if (cached.km && cached.km->AcquireSync(0, INFINITE) == S_OK) {
                     d3dContext->CopyResource(inputPool[idx].tex.Get(), cached.tex.Get());
-                    // ⭐ 删除了 d3dContext->Flush(); 避免 D3D 管线强制阻塞
                     cached.km->ReleaseSync(0);
                     d3dBuffer->FreeSharedSlot();
                 }
-
                 map.registeredResource = inputPool[idx].regPtr;
                 nvencFuncs.nvEncMapInputResource(nvencSession, &map);
-
                 params.inputBuffer = map.mappedResource;
                 params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
-
-                // ⭐ 记录资源指针，留到提取码流后安全释放
                 mappedResources[idx] = map.mappedResource;
                 swInputBuffers[idx] = nullptr;
             }
             else {
-                int width = buffer->width();
-                int height = buffer->height();
-
+                // 软件帧路径
                 NV_ENC_CREATE_INPUT_BUFFER createInput = { NV_ENC_CREATE_INPUT_BUFFER_VER };
-                createInput.width = width;
-                createInput.height = height;
+                createInput.width = buffer->width();
+                createInput.height = buffer->height();
                 createInput.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
                 nvencFuncs.nvEncCreateInputBuffer(nvencSession, &createInput);
-                swInputBuffer = createInput.inputBuffer;
+                NV_ENC_INPUT_PTR swInputBuffer = createInput.inputBuffer;
 
                 NV_ENC_LOCK_INPUT_BUFFER lockInput = { NV_ENC_LOCK_INPUT_BUFFER_VER };
                 lockInput.inputBuffer = swInputBuffer;
@@ -184,61 +175,36 @@ namespace hope {
 
                 if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNV12) {
                     auto nv12 = buffer->GetNV12();
-                    if (nv12) {
-                        uint8_t* dstY = (uint8_t*)lockInput.bufferDataPtr;
-                        uint8_t* dstUV = dstY + (height * lockInput.pitch);
-
-                        libyuv::CopyPlane(nv12->DataY(), nv12->StrideY(), dstY, lockInput.pitch, width, height);
-                        libyuv::CopyPlane(nv12->DataUV(), nv12->StrideUV(), dstUV, lockInput.pitch, width, height / 2);
-                    }
+                    libyuv::CopyPlane(nv12->DataY(), nv12->StrideY(), (uint8_t*)lockInput.bufferDataPtr, lockInput.pitch, widths, heights);
+                    libyuv::CopyPlane(nv12->DataUV(), nv12->StrideUV(), (uint8_t*)lockInput.bufferDataPtr + (heights * lockInput.pitch), lockInput.pitch, widths, heights / 2);
                 }
                 else {
                     auto i420 = buffer->ToI420();
-                    if (i420) {
-                        uint8_t* dstY = (uint8_t*)lockInput.bufferDataPtr;
-                        uint8_t* dstUV = dstY + (height * lockInput.pitch);
-
-                        libyuv::I420ToNV12(
-                            i420->DataY(), i420->StrideY(),
-                            i420->DataU(), i420->StrideU(),
-                            i420->DataV(), i420->StrideV(),
-                            dstY, lockInput.pitch,
-                            dstUV, lockInput.pitch,
-                            width, height
-                        );
-                    }
+                    libyuv::I420ToNV12(i420->DataY(), i420->StrideY(), i420->DataU(), i420->StrideU(), i420->DataV(), i420->StrideV(),
+                        (uint8_t*)lockInput.bufferDataPtr, lockInput.pitch, (uint8_t*)lockInput.bufferDataPtr + (heights * lockInput.pitch), lockInput.pitch, widths, heights);
                 }
-
                 nvencFuncs.nvEncUnlockInputBuffer(nvencSession, swInputBuffer);
-
                 params.inputBuffer = swInputBuffer;
                 params.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
-
-                // ⭐ 记录资源指针，留到提取码流后安全释放
                 mappedResources[idx] = nullptr;
                 swInputBuffers[idx] = swInputBuffer;
             }
 
-            dtsList.push_back(frame.render_time_ms());
-
-            // ⭐ 提交编码 (去掉原来这里的 Unmap 和 Destroy)
             NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
-
             if (err == NV_ENC_SUCCESS || err == NV_ENC_ERR_NEED_MORE_INPUT) {
+                // ⭐ 修复点4：dtsList 存入对应的 render_time_ms，用于后续 capture_time_ms_ 回传
+                dtsList.push_back(frame.render_time_ms());
                 buffersQueued++;
                 if (++nextBitstream == bufCount) nextBitstream = 0;
             }
 
             GetEncodedPacket(false);
-
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
         bool NvencAV1Encoder::GetEncodedPacket(bool finalize) {
             if (!buffersQueued) return true;
-            if (!finalize && buffersQueued <= outputDelay) return true;
-
-            uint32_t count = finalize ? buffersQueued : 1;
+            uint32_t count = buffersQueued;
 
             for (uint32_t i = 0; i < count; i++) {
                 NV_ENC_LOCK_BITSTREAM lock = { NV_ENC_LOCK_BITSTREAM_VER };
@@ -246,47 +212,43 @@ namespace hope {
                 lock.doNotWait = false;
 
                 if (nvencFuncs.nvEncLockBitstream(nvencSession, &lock) == NV_ENC_SUCCESS) {
-                    if (firstPacket) {
-                        uint8_t header_buf[1024]; uint32_t header_size = 0;
-                        NV_ENC_SEQUENCE_PARAM_PAYLOAD payload = { NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER };
-                        payload.spsppsBuffer = header_buf;
-                        payload.inBufferSize = 1024;
-                        payload.outSPSPPSPayloadSize = &header_size;
-                        nvencFuncs.nvEncGetSequenceParams(nvencSession, &payload);
-                        header.assign(header_buf, header_buf + header_size);
-                        firstPacket = false;
-                    }
-
                     webrtc::EncodedImage image;
                     image.SetEncodedData(webrtc::EncodedImageBuffer::Create((uint8_t*)lock.bitstreamBufferPtr, lock.bitstreamSizeInBytes));
                     image._encodedWidth = widths;
                     image._encodedHeight = heights;
-                    image.SetRtpTimestamp(static_cast<uint32_t>(lock.outputTimeStamp * 90));
-                    image.capture_time_ms_ = lock.outputTimeStamp;
-                    image._frameType = (lock.pictureType == NV_ENC_PIC_TYPE_IDR) ? webrtc::VideoFrameType::kVideoFrameKey : webrtc::VideoFrameType::kVideoFrameDelta;
 
-                    int64_t dts = 0;
-                    if (!dtsList.empty()) { dts = dtsList.front(); dtsList.pop_front(); }
+                    // ⭐ 修复点5：从 NVENC 原样取回咱们刚才塞进去的 RTP 时间戳。
+                    // 这样 RTP 时间戳永远是单调对齐的，彻底消除跳帧感。
+                    image.SetRtpTimestamp(static_cast<uint32_t>(lock.outputTimeStamp));
+
+                    if (!dtsList.empty()) {
+                        image.capture_time_ms_ = dtsList.front();
+                        dtsList.pop_front();
+                    }
+
+                    image._frameType = (lock.pictureType == NV_ENC_PIC_TYPE_IDR) ? webrtc::VideoFrameType::kVideoFrameKey : webrtc::VideoFrameType::kVideoFrameDelta;
 
                     webrtc::CodecSpecificInfo info;
                     info.codecType = webrtc::kVideoCodecAV1;
+                    info.end_of_picture = true;
                     if (encodedImageCallback) encodedImageCallback->OnEncodedImage(image, &info);
 
                     nvencFuncs.nvEncUnlockBitstream(nvencSession, bitstreams[curBitstream].ptr);
-                }
+                    if (mappedResources[curBitstream]) {
+                        nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedResources[curBitstream]);
+                        mappedResources[curBitstream] = nullptr;
+                    }
+                    if (swInputBuffers[curBitstream]) {
+                        nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffers[curBitstream]);
+                        swInputBuffers[curBitstream] = nullptr;
+                    }
 
-                // ⭐ 关键修复：在这里安全解绑/销毁提取完码流的帧的资源
-                if (mappedResources[curBitstream]) {
-                    nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedResources[curBitstream]);
-                    mappedResources[curBitstream] = nullptr;
+                    if (++curBitstream == bufCount) curBitstream = 0;
+                    buffersQueued--;
                 }
-                if (swInputBuffers[curBitstream]) {
-                    nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffers[curBitstream]);
-                    swInputBuffers[curBitstream] = nullptr;
+                else {
+                    break;
                 }
-
-                if (++curBitstream == bufCount) curBitstream = 0;
-                buffersQueued--;
             }
             return true;
         }
@@ -294,18 +256,14 @@ namespace hope {
         int NvencAV1Encoder::Release() {
             std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (nvencSession) {
-    
                 NV_ENC_PIC_PARAMS params = { NV_ENC_PIC_PARAMS_VER };
                 params.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
                 nvencFuncs.nvEncEncodePicture(nvencSession, &params);
                 GetEncodedPacket(true);
 
-                for (auto& it : inputPool) {
-                    nvencFuncs.nvEncUnregisterResource(nvencSession, it.regPtr);
-                }
-                for (auto& bs : bitstreams) {
-                    nvencFuncs.nvEncDestroyBitstreamBuffer(nvencSession, bs.ptr);
-                }
+                for (auto& it : inputPool) nvencFuncs.nvEncUnregisterResource(nvencSession, it.regPtr);
+                for (auto& bs : bitstreams) nvencFuncs.nvEncDestroyBitstreamBuffer(nvencSession, bs.ptr);
+
                 resourceCache.clear();
                 nvencFuncs.nvEncDestroyEncoder(nvencSession);
                 nvencSession = nullptr;
@@ -321,55 +279,15 @@ namespace hope {
         void NvencAV1Encoder::SetRates(const RateControlParameters& parameters) {
             std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (!nvencSession) return;
-
             uint32_t targetBitrateBps = parameters.bitrate.get_sum_bps();
             if (targetBitrateBps == 0) return;
 
-            // ========== 防抖策略 ==========
-
-            // 1. 计算变化百分比
-            uint32_t currentBitrate = encodeConfig.rcParams.averageBitRate;
-            double changeRatio = (double)targetBitrateBps / currentBitrate;
-
-            // 2. 阈值判断：变化小于 10% 忽略
-            const double MIN_CHANGE_RATIO = 0.9;   // 降低 10% 才响应
-            const double MAX_CHANGE_RATIO = 1.1;     // 增加 10% 才响应
-
-            if (changeRatio > MIN_CHANGE_RATIO && changeRatio < MAX_CHANGE_RATIO) {
-
-                return;
-            }
-
-            // 3. 时间防抖：距离上次调整至少 500ms
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - lastRateChangeTime).count();
-
-            const int64_t MIN_CHANGE_INTERVAL_MS = 500;  // 500ms 内不重复调整
-
-            if (elapsed < MIN_CHANGE_INTERVAL_MS && changeRatio < 2.0 && changeRatio > 0.5) {
-
-                return;
-            }
-
+            // ⭐ 修复点6：Reconfigure 时也要修正码率。
             NV_ENC_RECONFIGURE_PARAMS reconfigParams = { NV_ENC_RECONFIGURE_PARAMS_VER };
-            reconfigParams.resetEncoder = 0;
-            reconfigParams.forceIDR = 0;
-
-            encodeConfig.rcParams.averageBitRate = targetBitrateBps;
-            encodeConfig.rcParams.maxBitRate = static_cast<uint32_t>(targetBitrateBps * 1.2);  // 可以恢复 1.2 倍突发
-
-            initParams.encodeConfig = &encodeConfig;
             reconfigParams.reInitEncodeParams = initParams;
-
-            NVENCSTATUS status = nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfigParams);
-            if (status != NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] 码率重配置失败: %d", status);
-                return;
-            }
-
-            // 记录调整时间
-            lastRateChangeTime = now;
+            reconfigParams.reInitEncodeParams.encodeConfig->rcParams.averageBitRate = targetBitrateBps;
+            reconfigParams.reInitEncodeParams.encodeConfig->rcParams.maxBitRate = targetBitrateBps;
+            nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfigParams);
         }
 
         webrtc::VideoEncoder::EncoderInfo NvencAV1Encoder::GetEncoderInfo() const {
