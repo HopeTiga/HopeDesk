@@ -44,6 +44,8 @@ namespace hope {
             std::vector<NvBitstream> bitstreams;
             std::vector<NvInputTexture> inputPool;
             std::unordered_map<HANDLE, NvInputTexture> resourceCache;
+            std::vector<NV_ENC_INPUT_PTR> mappedResources;
+            std::vector<NV_ENC_INPUT_PTR> swInputBuffers;
 
             // 状态控制 (完全对照 OBS 成员)
             uint32_t bufCount = 0;
@@ -59,6 +61,8 @@ namespace hope {
             std::mutex nvencApiMutex;
             int widths = 0;
             int heights = 0;
+
+            std::chrono::steady_clock::time_point lastRateChangeTime;
         };
     }
 }

@@ -18,9 +18,7 @@ namespace hope {
             widths = codecSettings->width;
             heights = codecSettings->height;
             if (!InitD3D11()) return WEBRTC_VIDEO_CODEC_ERROR;
-            // ⭐ 修复点1：WebRTC 传的是 kbps，乘以 1000 才是 bps。
-            // 之前乘以 10000 会导致请求 2Mbps 实际给 20Mbps，带宽直接塞爆，造成视觉上的丢帧。
-            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 1000)) return WEBRTC_VIDEO_CODEC_ERROR;
+            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000)) return WEBRTC_VIDEO_CODEC_ERROR;
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
@@ -39,18 +37,25 @@ namespace hope {
         }
 
         bool NvencAV1Encoder::InitNvenc(int width, int height, uint32_t bitrateBps) {
+
             nvVideoCodecHandle = LoadLibrary(TEXT("nvEncodeAPI64.dll"));
             if (!nvVideoCodecHandle) return false;
             auto createIdx = (PNVENCODEAPICREATEINSTANCE)GetProcAddress(nvVideoCodecHandle, "NvEncodeAPICreateInstance");
+
+            memset(&nvencFuncs, 0, sizeof(nvencFuncs));
             nvencFuncs.version = NV_ENCODE_API_FUNCTION_LIST_VER;
             createIdx(&nvencFuncs);
 
-            NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS sessionParams = { NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER };
+  
+            NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS sessionParams;
+            memset(&sessionParams, 0, sizeof(sessionParams));
+            sessionParams.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
             sessionParams.device = d3dDevice.Get();
             sessionParams.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
             sessionParams.apiVersion = NVENCAPI_VERSION;
             nvencFuncs.nvEncOpenEncodeSessionEx(&sessionParams, &nvencSession);
 
+            memset(&initParams, 0, sizeof(initParams));
             initParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
             initParams.encodeGUID = NV_ENC_CODEC_AV1_GUID;
             initParams.presetGUID = NV_ENC_PRESET_P1_GUID;
@@ -59,26 +64,40 @@ namespace hope {
             initParams.encodeHeight = height;
             initParams.darWidth = width;
             initParams.darHeight = height;
-            initParams.frameRateNum = 60; // 实时流建议设为 60
+            initParams.frameRateNum = 120;
             initParams.frameRateDen = 1;
             initParams.enablePTD = 1;
             initParams.enableEncodeAsync = 0;
+            initParams.splitEncodeMode = NV_ENC_SPLIT_AUTO_MODE;
 
-            encodeConfig.rcParams.enableAQ = 1;
-            encodeConfig.rcParams.enableMinQP = 1;
-            encodeConfig.rcParams.enableMaxQP = 1;
-            encodeConfig.rcParams.minQP = { 25, 25, 25 };
-            encodeConfig.rcParams.maxQP = { 38, 38, 38 };
-            encodeConfig.rcParams.enableLookahead = 0;
+            NV_ENC_PRESET_CONFIG presetConfig;
+            memset(&presetConfig, 0, sizeof(presetConfig)); 
+            presetConfig.version = NV_ENC_PRESET_CONFIG_VER;
+            presetConfig.presetCfg.version = NV_ENC_CONFIG_VER; 
 
-            NV_ENC_PRESET_CONFIG presetConfig = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
-            nvencFuncs.nvEncGetEncodePresetConfigEx(nvencSession, initParams.encodeGUID, initParams.presetGUID, initParams.tuningInfo, &presetConfig);
+            NVENCSTATUS presetStatus = nvencFuncs.nvEncGetEncodePresetConfigEx(nvencSession, initParams.encodeGUID, initParams.presetGUID, initParams.tuningInfo, &presetConfig);
+
+            if (presetStatus != NV_ENC_SUCCESS) {
+                LOG_ERROR("[NVENC] 获取预设参数失败！错误码: %d", presetStatus);
+                return false;
+            }
+
+            // ================= 6. 复制预设并重写配置 =================
+            memset(&encodeConfig, 0, sizeof(encodeConfig));
             encodeConfig = presetConfig.presetCfg;
+
+            // ⭐ 致命补丁：结构体直接赋值可能会把正确版本号冲掉，手动强行补回！
+            encodeConfig.version = NV_ENC_CONFIG_VER;
+            initParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
+
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
-            encodeConfig.rcParams.maxBitRate = bitrateBps;
+            encodeConfig.rcParams.maxBitRate = bitrateBps * 1.5;
             encodeConfig.frameIntervalP = 1;
             encodeConfig.gopLength = NVENC_INFINITE_GOPLENGTH;
+            encodeConfig.rcParams.enableAQ = 1;              // 关闭自适应量化
+            encodeConfig.rcParams.aqStrength = 8;
+            encodeConfig.rcParams.enableLookahead = 0;
 
             encodeConfig.encodeCodecConfig.av1Config.repeatSeqHdr = 0;
             encodeConfig.encodeCodecConfig.av1Config.enableIntraRefresh = 1;
@@ -86,12 +105,20 @@ namespace hope {
             encodeConfig.encodeCodecConfig.av1Config.intraRefreshCnt = 6;
             encodeConfig.encodeCodecConfig.av1Config.idrPeriod = encodeConfig.gopLength;
             encodeConfig.encodeCodecConfig.av1Config.maxNumRefFramesInDPB = 1;
+            encodeConfig.encodeCodecConfig.av1Config.inputBitDepth = NV_ENC_BIT_DEPTH_8;
+            encodeConfig.encodeCodecConfig.av1Config.outputBitDepth = NV_ENC_BIT_DEPTH_8;
 
             initParams.encodeConfig = &encodeConfig;
-            nvencFuncs.nvEncInitializeEncoder(nvencSession, &initParams);
 
+            NVENCSTATUS initStatus = nvencFuncs.nvEncInitializeEncoder(nvencSession, &initParams);
+            if (initStatus != NV_ENC_SUCCESS) {
+                LOG_ERROR("[NVENC] nvEncInitializeEncoder 惨遭失败, 错误码: %d", initStatus);
+                return false;
+            }
+
+            // ================= 7. 申请 Buffer 池 =================
             outputDelay = 0;
-            bufCount = 8;
+            bufCount = 24;
             mappedResources.resize(bufCount, nullptr);
             swInputBuffers.resize(bufCount, nullptr);
 
@@ -121,8 +148,6 @@ namespace hope {
         int NvencAV1Encoder::Encode(const webrtc::VideoFrame& frame, const std::vector<webrtc::VideoFrameType>* frameTypes) {
             std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (!nvencSession) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
-
-            GetEncodedPacket(false);
 
             auto buffer = frame.video_frame_buffer();
             uint32_t idx = nextBitstream;
@@ -191,19 +216,28 @@ namespace hope {
             }
 
             NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
-            if (err == NV_ENC_SUCCESS || err == NV_ENC_ERR_NEED_MORE_INPUT) {
+            if (err == NV_ENC_SUCCESS) {
                 // ⭐ 修复点4：dtsList 存入对应的 render_time_ms，用于后续 capture_time_ms_ 回传
                 dtsList.push_back(frame.render_time_ms());
                 buffersQueued++;
                 if (++nextBitstream == bufCount) nextBitstream = 0;
             }
+            else {
+            
+                LOG_INFO("err:%d", err);
+
+            }
+
+            
 
             GetEncodedPacket(false);
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
         bool NvencAV1Encoder::GetEncodedPacket(bool finalize) {
+
             if (!buffersQueued) return true;
+
             uint32_t count = buffersQueued;
 
             for (uint32_t i = 0; i < count; i++) {
@@ -279,15 +313,52 @@ namespace hope {
         void NvencAV1Encoder::SetRates(const RateControlParameters& parameters) {
             std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (!nvencSession) return;
+
             uint32_t targetBitrateBps = parameters.bitrate.get_sum_bps();
             if (targetBitrateBps == 0) return;
 
-            // ⭐ 修复点6：Reconfigure 时也要修正码率。
+            uint32_t currentBitrate = encodeConfig.rcParams.averageBitRate;
+            double changeRatio = (double)targetBitrateBps / currentBitrate;
+
+            // 2. 阈值判断：变化小于 10% 忽略
+            const double MIN_CHANGE_RATIO = 0.9;   // 降低 10% 才响应
+            const double MAX_CHANGE_RATIO = 1.1;     // 增加 10% 才响应
+
+            if (changeRatio > MIN_CHANGE_RATIO && changeRatio < MAX_CHANGE_RATIO) {
+
+                return;
+            }
+
+            // 3. 时间防抖：距离上次调整至少 500ms
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - lastRateChangeTime).count();
+
+            const int64_t MIN_CHANGE_INTERVAL_MS = 500;  // 500ms 内不重复调整
+
+            if (elapsed < MIN_CHANGE_INTERVAL_MS && changeRatio < 2.0 && changeRatio > 0.5) {
+
+                return;
+            }
+
             NV_ENC_RECONFIGURE_PARAMS reconfigParams = { NV_ENC_RECONFIGURE_PARAMS_VER };
+            reconfigParams.resetEncoder = 0;
+            reconfigParams.forceIDR = 0;
+
+            encodeConfig.rcParams.averageBitRate = targetBitrateBps;
+            encodeConfig.rcParams.maxBitRate = static_cast<uint32_t>(targetBitrateBps * 1.5);  // 可以恢复 1.2 倍突发
+
+            initParams.encodeConfig = &encodeConfig;
             reconfigParams.reInitEncodeParams = initParams;
-            reconfigParams.reInitEncodeParams.encodeConfig->rcParams.averageBitRate = targetBitrateBps;
-            reconfigParams.reInitEncodeParams.encodeConfig->rcParams.maxBitRate = targetBitrateBps;
-            nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfigParams);
+
+            NVENCSTATUS status = nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfigParams);
+            if (status != NV_ENC_SUCCESS) {
+                LOG_ERROR("[NVENC] 码率重配置失败: %d", status);
+                return;
+            }
+
+            // 记录调整时间
+            lastRateChangeTime = now;
         }
 
         webrtc::VideoEncoder::EncoderInfo NvencAV1Encoder::GetEncoderInfo() const {

@@ -442,32 +442,44 @@ namespace hope {
 
         bool ScreenCapture::processFrame(ID3D11Texture2D* texture) {
             if (canZeroCopy && gpuDataHandle) {
-                // 无论锁没锁，每一帧进来都必须尝试移动到下一个槽位
-                int hwIdx = currentHwSharedIdx;
-                currentHwSharedIdx = (currentHwSharedIdx + 1) % YUV_BUFFERS;
+                int hwIdx = -1;
 
-                if (!hwSharedBusy[hwIdx].load()) {
-                    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;
-                    if (SUCCEEDED(hwSharedTextures[hwIdx].As(&km))) {
-                        if (km->AcquireSync(0, INFINITE) == S_OK) { 
-                            d3dContext->CopyResource(hwSharedTextures[hwIdx].Get(), texture);
+                // 遍历整个环形队列，寻找第一个真正空闲的槽位
+                for (int i = 0; i < YUV_BUFFERS; i++) {
+                    int checkIdx = (currentHwSharedIdx + i) % YUV_BUFFERS;
+                    if (!hwSharedBusy[checkIdx].load()) {
+                        hwIdx = checkIdx;
+                        // 找到后，将全局游标推到下一个位置，为下一帧做准备
+                        currentHwSharedIdx = (checkIdx + 1) % YUV_BUFFERS;
+                        break;
+                    }
+                }
 
-                            d3dContext->Flush();
-                            km->ReleaseSync(0); // 【核心修复】：将 1 改为 0！
+                // 如果 24 个槽位全都被 WebRTC 编码线程卡住了，这才无奈丢帧
+                if (hwIdx == -1) {
+                    LOG_WARNING("[ScreenCapture] 警告：24个硬件零拷贝槽位全满，主动丢弃当前帧！");
+                    return true;
+                }
 
-                            hwSharedBusy[hwIdx].store(true);
-                            gpuDataHandle(
-                                hwSharedTextures[hwIdx].Get(),
-                                hwSharedHandles[hwIdx],
-                                config.width, config.height,
-                                &hwSharedBusy[hwIdx],
-                                config.uselevels
-                            );
-                        }
-                        else {
-                            // 此时 hwIdx 锁着，但 currentHwSharedIdx 已经加了，下一帧会看 hwIdx + 1
-                            LOG_INFO("[ScreenCapture] 槽位 %d 被占用，尝试跳过", hwIdx);
-                        }
+                Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;
+                if (SUCCEEDED(hwSharedTextures[hwIdx].As(&km))) {
+                    if (km->AcquireSync(0, INFINITE) == S_OK) {
+                        d3dContext->CopyResource(hwSharedTextures[hwIdx].Get(), texture);
+
+                        d3dContext->Flush();
+                        km->ReleaseSync(0); // 维持 0 不变
+
+                        hwSharedBusy[hwIdx].store(true);
+                        gpuDataHandle(
+                            hwSharedTextures[hwIdx].Get(),
+                            hwSharedHandles[hwIdx],
+                            config.width, config.height,
+                            &hwSharedBusy[hwIdx],
+                            config.uselevels
+                        );
+                    }
+                    else {
+                        LOG_ERROR("[ScreenCapture] AcquireSync 失败，槽位 %d 锁定异常", hwIdx);
                     }
                 }
                 return true;

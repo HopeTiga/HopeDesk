@@ -19,7 +19,7 @@ namespace hope {
             heights = codecSettings->height;
             if (!InitD3D11()) return WEBRTC_VIDEO_CODEC_ERROR;
             // 采用原 H265 的码率倍率 * 1000
-            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 1000)) return WEBRTC_VIDEO_CODEC_ERROR;
+            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000)) return WEBRTC_VIDEO_CODEC_ERROR;
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
@@ -53,14 +53,14 @@ namespace hope {
             // --- H265 配置参数 ---
             initParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
             initParams.encodeGUID = NV_ENC_CODEC_HEVC_GUID;
-            initParams.presetGUID = NV_ENC_PRESET_P2_GUID; // 保持你要求的 P2 预设，提升文字清晰度
+            initParams.presetGUID = NV_ENC_PRESET_P1_GUID; // 保持你要求的 P2 预设，提升文字清晰度
             initParams.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
             initParams.encodeWidth = width;
             initParams.encodeHeight = height;
 
             initParams.darWidth = width;
             initParams.darHeight = height;
-            initParams.frameRateNum = 144;
+            initParams.frameRateNum = 120;
             initParams.frameRateDen = 1;
             initParams.enablePTD = 1;
             initParams.enableEncodeAsync = 0;
@@ -72,12 +72,10 @@ namespace hope {
             // --- H265 高清修复核心参数 ---
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
-            encodeConfig.rcParams.maxBitRate = bitrateBps;
-            encodeConfig.rcParams.enableAQ = 0;              // 关闭自适应量化
-            encodeConfig.rcParams.enableMinQP = 1;
-            encodeConfig.rcParams.enableMaxQP = 1;
-            encodeConfig.rcParams.minQP = { 25, 25, 25 };    // 允许更低压缩率
-            encodeConfig.rcParams.maxQP = { 38, 38, 38 };
+            encodeConfig.rcParams.maxBitRate = bitrateBps * 1.5;
+            encodeConfig.rcParams.enableAQ = 1;              // 关闭自适应量化
+            encodeConfig.rcParams.aqStrength = 8;
+            encodeConfig.rcParams.enableLookahead = 0;
 
             encodeConfig.frameIntervalP = 1;
             encodeConfig.gopLength = NVENC_INFINITE_GOPLENGTH;
@@ -86,8 +84,8 @@ namespace hope {
             encodeConfig.encodeCodecConfig.hevcConfig.repeatSPSPPS = 1;
             encodeConfig.encodeCodecConfig.hevcConfig.idrPeriod = encodeConfig.gopLength;
             encodeConfig.encodeCodecConfig.hevcConfig.enableIntraRefresh = 1;
-            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshPeriod = 144;
-            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshCnt = 5;
+            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshPeriod = 120;
+            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshCnt = 6;
 
             initParams.encodeConfig = &encodeConfig;
 
@@ -97,8 +95,9 @@ namespace hope {
             }
 
             outputDelay = 0;
-            bufCount = 4;
-
+            bufCount = 24;
+            mappedResources.resize(bufCount, nullptr);
+            swInputBuffers.resize(bufCount, nullptr);
             for (uint32_t i = 0; i < bufCount; i++) {
                 NvBitstream bs;
                 NV_ENC_CREATE_BITSTREAM_BUFFER bsParam = { NV_ENC_CREATE_BITSTREAM_BUFFER_VER };
@@ -154,7 +153,6 @@ namespace hope {
 
                 if (cached.km && cached.km->AcquireSync(0, INFINITE) == S_OK) {
                     d3dContext->CopyResource(inputPool[idx].tex.Get(), cached.tex.Get());
-                    d3dContext->Flush();
                     cached.km->ReleaseSync(0);
                     d3dBuffer->FreeSharedSlot();
                 }
@@ -164,6 +162,10 @@ namespace hope {
 
                 params.inputBuffer = map.mappedResource;
                 params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
+
+                // ⭐ 记录资源指针，留到提取码流后安全释放
+                mappedResources[idx] = map.mappedResource;
+                swInputBuffers[idx] = nullptr;
             }
             else {
                 int width = buffer->width();
@@ -211,17 +213,16 @@ namespace hope {
 
                 params.inputBuffer = swInputBuffer;
                 params.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
+
+                // ⭐ 记录资源指针，留到提取码流后安全释放
+                mappedResources[idx] = nullptr;
+                swInputBuffers[idx] = swInputBuffer;
             }
 
             dtsList.push_back(frame.render_time_ms());
-            NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
 
-            if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative) {
-                nvencFuncs.nvEncUnmapInputResource(nvencSession, map.mappedResource);
-            }
-            else if (swInputBuffer) {
-                nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffer);
-            }
+            // ⭐ 提交编码 (去掉原来这里的 Unmap 和 Destroy)
+            NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
 
             if (err == NV_ENC_SUCCESS || err == NV_ENC_ERR_NEED_MORE_INPUT) {
                 buffersQueued++;
@@ -245,7 +246,6 @@ namespace hope {
                 lock.doNotWait = false;
 
                 if (nvencFuncs.nvEncLockBitstream(nvencSession, &lock) == NV_ENC_SUCCESS) {
-
                     if (firstPacket) {
                         uint8_t header_buf[1024]; uint32_t header_size = 0;
                         NV_ENC_SEQUENCE_PARAM_PAYLOAD payload = { NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER };
@@ -269,10 +269,20 @@ namespace hope {
                     if (!dtsList.empty()) { dts = dtsList.front(); dtsList.pop_front(); }
 
                     webrtc::CodecSpecificInfo info;
-                    info.codecType = webrtc::kVideoCodecH265;
+                    info.codecType = webrtc::kVideoCodecAV1;
                     if (encodedImageCallback) encodedImageCallback->OnEncodedImage(image, &info);
 
                     nvencFuncs.nvEncUnlockBitstream(nvencSession, bitstreams[curBitstream].ptr);
+                }
+
+                // ⭐ 关键修复：在这里安全解绑/销毁提取完码流的帧的资源
+                if (mappedResources[curBitstream]) {
+                    nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedResources[curBitstream]);
+                    mappedResources[curBitstream] = nullptr;
+                }
+                if (swInputBuffers[curBitstream]) {
+                    nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffers[curBitstream]);
+                    swInputBuffers[curBitstream] = nullptr;
                 }
 
                 if (++curBitstream == bufCount) curBitstream = 0;
@@ -314,20 +324,52 @@ namespace hope {
             uint32_t targetBitrateBps = parameters.bitrate.get_sum_bps();
             if (targetBitrateBps == 0) return;
 
+            // ========== 防抖策略 ==========
+
+            // 1. 计算变化百分比
+            uint32_t currentBitrate = encodeConfig.rcParams.averageBitRate;
+            double changeRatio = (double)targetBitrateBps / currentBitrate;
+
+            // 2. 阈值判断：变化小于 10% 忽略
+            const double MIN_CHANGE_RATIO = 0.9;   // 降低 10% 才响应
+            const double MAX_CHANGE_RATIO = 1.1;     // 增加 10% 才响应
+
+            if (changeRatio > MIN_CHANGE_RATIO && changeRatio < MAX_CHANGE_RATIO) {
+       
+                return;
+            }
+
+            // 3. 时间防抖：距离上次调整至少 500ms
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - lastRateChangeTime).count();
+
+            const int64_t MIN_CHANGE_INTERVAL_MS = 500;  // 500ms 内不重复调整
+
+            if (elapsed < MIN_CHANGE_INTERVAL_MS && changeRatio < 2.0 && changeRatio > 0.5) {
+
+                return;
+            }
+
             NV_ENC_RECONFIGURE_PARAMS reconfigParams = { NV_ENC_RECONFIGURE_PARAMS_VER };
             reconfigParams.resetEncoder = 0;
             reconfigParams.forceIDR = 0;
 
             encodeConfig.rcParams.averageBitRate = targetBitrateBps;
-            encodeConfig.rcParams.maxBitRate = targetBitrateBps; // H265 这里不加 1.2 倍系数，遵从你原来的配置
+            encodeConfig.rcParams.maxBitRate = static_cast<uint32_t>(targetBitrateBps * 1.5);  // 可以恢复 1.2 倍突发
 
             initParams.encodeConfig = &encodeConfig;
             reconfigParams.reInitEncodeParams = initParams;
 
             NVENCSTATUS status = nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfigParams);
             if (status != NV_ENC_SUCCESS) {
-                // 预留报错占位
+                LOG_ERROR("[NVENC] 码率重配置失败: %d", status);
+                return;
             }
+
+            // 记录调整时间
+            lastRateChangeTime = now;
+         
         }
 
         webrtc::VideoEncoder::EncoderInfo NvencH265Encoder::GetEncoderInfo() const {
