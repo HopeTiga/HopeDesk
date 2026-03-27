@@ -55,7 +55,8 @@ namespace hope {
                 if (!initializeProcessor()) {
                     LOG_WARNING("PRO Converter init failed, falling back to GPU");
                     config.levels = CaptureLevels::GPU;
-                } else {
+                }
+                else {
                     config.uselevels = CaptureLevels::PRO;
                 }
             }
@@ -65,7 +66,8 @@ namespace hope {
                     LOG_WARNING("GPU Converter init failed, falling back to CPU BGRA");
                     config.levels = CaptureLevels::CPU;
                     config.uselevels = CaptureLevels::CPU;
-                } else {
+                }
+                else {
                     config.uselevels = CaptureLevels::GPU;
                 }
             }
@@ -87,7 +89,7 @@ namespace hope {
             capturing = true;
             captureThread = std::thread([this]() {
                 captureThreadFunc();
-            });
+                });
             return true;
         }
 
@@ -403,9 +405,9 @@ namespace hope {
             if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &proOutputTex))) return false;
 
             texDesc.Usage = D3D11_USAGE_STAGING;
-            texDesc.BindFlags = 0; 
+            texDesc.BindFlags = 0;
             texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            texDesc.MiscFlags = 0; 
+            texDesc.MiscFlags = 0;
 
             for (int i = 0; i < YUV_BUFFERS; i++) {
                 if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &nv12TextureBuffers[i].buffer))) return false;
@@ -426,7 +428,57 @@ namespace hope {
             Microsoft::WRL::ComPtr<IDXGIResource> desktopResource;
             DXGI_OUTDUPL_FRAME_INFO frameInfo;
             hr = dxgiDuplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
-            if (hr == DXGI_ERROR_WAIT_TIMEOUT) return false;
+            if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+                // 1. 硬件零拷贝通道 (NVIDIA)
+                if (canZeroCopy && gpuDataHandle) {
+                    int lastIdx = (currentHwSharedIdx - 1 + YUV_BUFFERS) % YUV_BUFFERS;
+                    if (!hwSharedBusy[lastIdx].load()) { // 确保消费端上一轮已经用完
+                        hwSharedBusy[lastIdx].store(true);
+                        gpuDataHandle(
+                            hwSharedTextures[lastIdx].Get(),
+                            hwSharedHandles[lastIdx],
+                            config.width, config.height,
+                            &hwSharedBusy[lastIdx],
+                            config.uselevels
+                        );
+                    }
+                    return true;
+                }
+
+                // 2. 软件回调通道
+                if (dataHandle) {
+                    if (config.uselevels == CaptureLevels::PRO) {
+                        int lastIdx = (currentProIdx - 1 + YUV_BUFFERS) % YUV_BUFFERS;
+                        Nv12TextureBuffer* targetFrame = &nv12TextureBuffers[lastIdx];
+                        // 指针还在，直接发！
+                        if (targetFrame->mappedSubresource.pData && !targetFrame->isBusy.load()) {
+                            targetFrame->isBusy.store(true);
+                            dataHandle(reinterpret_cast<const uint8_t*>(targetFrame->mappedSubresource.pData),
+                                config.width, config.height, &targetFrame->isBusy,
+                                targetFrame->mappedSubresource.RowPitch, CaptureLevels::PRO);
+                        }
+                    }
+                    else if (config.uselevels == CaptureLevels::GPU && yuvComputeShader) {
+                        int lastIdx = (currentYuvIdx - 1 + YUV_BUFFERS) % YUV_BUFFERS;
+                        YuvStagingBuffer* targetBuffer = &yuvStagingBuffers[lastIdx];
+                        // 指针还在，直接发！
+                        if (targetBuffer->mappedData && !targetBuffer->isBusy.load()) {
+                            targetBuffer->isBusy.store(true);
+                            dataHandle(targetBuffer->mappedData, config.width, config.height,
+                                &targetBuffer->isBusy, config.width, CaptureLevels::GPU);
+                        }
+                    }
+                    else {
+                        int lastIdx = (currentTexture - 1 + YUV_BUFFERS) % YUV_BUFFERS;
+                        D3D11_MAPPED_SUBRESOURCE mapped;
+                        if (SUCCEEDED(d3dContext->Map(stagingTextures[lastIdx].Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+                            dataHandle(reinterpret_cast<const uint8_t*>(mapped.pData), config.width, config.height, nullptr, mapped.RowPitch, CaptureLevels::CPU);
+                            d3dContext->Unmap(stagingTextures[lastIdx].Get(), 0);
+                        }
+                    }
+                }
+                return true;
+            }
             if (FAILED(hr)) { handleCaptureError(hr); return false; }
 
             struct FrameReleaser {
@@ -557,7 +609,8 @@ namespace hope {
 
                 if (dataHandle) {
                     dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy, config.width, CaptureLevels::GPU);
-                } else {
+                }
+                else {
                     d3dContext->Unmap(targetBuffer->buffer.Get(), 0);
                     targetBuffer->mappedData = nullptr;
                     targetBuffer->isBusy.store(false);
@@ -610,12 +663,14 @@ namespace hope {
                 if (dataHandle) {
                     dataHandle(reinterpret_cast<const uint8_t*>(targetFrame->mappedSubresource.pData),
                         config.width, config.height, &targetFrame->isBusy, targetFrame->mappedSubresource.RowPitch, CaptureLevels::PRO);
-                } else {
+                }
+                else {
                     d3dContext->Unmap(targetFrame->buffer.Get(), 0);
                     targetFrame->mappedSubresource.pData = nullptr;
                     targetFrame->isBusy.store(false);
                 }
-            } else {
+            }
+            else {
                 d3dContext->Unmap(targetFrame->buffer.Get(), 0);
                 targetFrame->mappedSubresource.pData = nullptr;
                 targetFrame->isBusy.store(false);
@@ -703,7 +758,7 @@ namespace hope {
             for (auto& st : stagingTextures) st.Reset();
             sharedTexture.Reset();
             sharedHandle = nullptr;
-            
+
             for (int i = 0; i < YUV_BUFFERS; i++) {
                 hwSharedTextures[i].Reset();
                 hwSharedHandles[i] = nullptr;
