@@ -95,15 +95,11 @@ namespace hope {
             encodeConfig.rcParams.maxBitRate = bitrateBps * 1.5;
             encodeConfig.frameIntervalP = 1;
             encodeConfig.gopLength = NVENC_INFINITE_GOPLENGTH;
-            encodeConfig.rcParams.enableAQ = 1;              // 关闭自适应量化
-            encodeConfig.rcParams.aqStrength = 8;
             encodeConfig.rcParams.enableLookahead = 0;
 
             encodeConfig.encodeCodecConfig.av1Config.repeatSeqHdr = 0;
-            encodeConfig.encodeCodecConfig.av1Config.enableIntraRefresh = 1;
-            encodeConfig.encodeCodecConfig.av1Config.intraRefreshPeriod = 120;
-            encodeConfig.encodeCodecConfig.av1Config.intraRefreshCnt = 6;
-            encodeConfig.encodeCodecConfig.av1Config.idrPeriod = encodeConfig.gopLength;
+            encodeConfig.encodeCodecConfig.av1Config.enableIntraRefresh = 0;
+            encodeConfig.encodeCodecConfig.av1Config.idrPeriod = NVENC_INFINITE_GOPLENGTH;
             encodeConfig.encodeCodecConfig.av1Config.maxNumRefFramesInDPB = 1;
             encodeConfig.encodeCodecConfig.av1Config.inputBitDepth = NV_ENC_BIT_DEPTH_8;
             encodeConfig.encodeCodecConfig.av1Config.outputBitDepth = NV_ENC_BIT_DEPTH_8;

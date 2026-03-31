@@ -73,8 +73,7 @@ namespace hope {
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
             encodeConfig.rcParams.maxBitRate = bitrateBps * 1.5;
-            encodeConfig.rcParams.enableAQ = 1;              // 关闭自适应量化
-            encodeConfig.rcParams.aqStrength = 8;
+            encodeConfig.rcParams.enableAQ = 0;              // 关闭自适应量化
             encodeConfig.rcParams.enableLookahead = 0;
 
             encodeConfig.frameIntervalP = 1;
@@ -82,10 +81,8 @@ namespace hope {
 
             // --- HEVC 专属配置 ---
             encodeConfig.encodeCodecConfig.hevcConfig.repeatSPSPPS = 1;
-            encodeConfig.encodeCodecConfig.hevcConfig.idrPeriod = encodeConfig.gopLength;
-            encodeConfig.encodeCodecConfig.hevcConfig.enableIntraRefresh = 1;
-            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshPeriod = 120;
-            encodeConfig.encodeCodecConfig.hevcConfig.intraRefreshCnt = 6;
+            encodeConfig.encodeCodecConfig.hevcConfig.idrPeriod = NVENC_INFINITE_GOPLENGTH;
+            encodeConfig.encodeCodecConfig.hevcConfig.enableIntraRefresh = 0;
 
             initParams.encodeConfig = &encodeConfig;
 
@@ -95,7 +92,7 @@ namespace hope {
             }
 
             outputDelay = 0;
-            bufCount = 24;
+            bufCount = 8;
             mappedResources.resize(bufCount, nullptr);
             swInputBuffers.resize(bufCount, nullptr);
             for (uint32_t i = 0; i < bufCount; i++) {
