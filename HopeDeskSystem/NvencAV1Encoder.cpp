@@ -114,7 +114,7 @@ namespace hope {
 
             // ================= 7. 申请 Buffer 池 =================
             outputDelay = 0;
-            bufCount = 24;
+            bufCount = 8;
             mappedResources.resize(bufCount, nullptr);
             swInputBuffers.resize(bufCount, nullptr);
 
