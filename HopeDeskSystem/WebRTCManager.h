@@ -49,7 +49,7 @@
 #include "RTCStatsCollectorHandle.h"
 
 // Project includes
-#include "concurrentqueue.h"
+#include "AsioConcurrentQueue.h"
 #include "ScreenCapture.h"
 #include "HAudioCatch.h"
 #include "WinLogon.h"
@@ -248,9 +248,7 @@ namespace hope {
 
             std::unique_ptr<boost::asio::ip::tcp::socket> tcpSocket;
 
-            boost::asio::steady_timer webrtcSteadyTimer;
-
-            moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
+            AsioConcurrentQueue<std::shared_ptr<WriterData>> asioConcurrentQueue;
 
             std::unique_ptr<WinLogon> winLogon;
 

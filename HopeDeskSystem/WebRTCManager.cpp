@@ -23,7 +23,7 @@ namespace hope {
 
         WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
             : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
-            webrtcSteadyTimer(ioContext),
+            asioConcurrentQueue(ioContext.get_executor()),
             connetState(WebRTCConnetState::none),
             peerConnection(nullptr),
             winLogon(nullptr),
@@ -41,8 +41,6 @@ namespace hope {
             ioContextThread = std::move(std::thread([this]() {
                 this->ioContext.run();
                 }));
-
-            webrtcSteadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
 
             boost::asio::co_spawn(ioContext, [this]()-> boost::asio::awaitable<void> {
 
@@ -183,9 +181,7 @@ namespace hope {
 
             }
 
-            writerDataQueues.enqueue(data);
-
-            webrtcSteadyTimer.cancel();
+            asioConcurrentQueue.enqueue(std::move(data));
 
         }
 
@@ -1007,40 +1003,34 @@ namespace hope {
             co_return;
         }
 
-        boost::asio::awaitable<void> WebRTCManager::writerCoroutine()
-        {
+        boost::asio::awaitable<void> WebRTCManager::writerCoroutine() {
             try {
-
                 while (socketRuns) {
+                    // 加上 co_await！
+                    std::optional<std::shared_ptr<WriterData>> optional =
+                        co_await asioConcurrentQueue.dequeue();
 
-                    std::shared_ptr<WriterData> writeData = nullptr;
+                    if (optional.has_value()) {
+                        std::shared_ptr<WriterData> writeData = optional.value();
 
-                    while (writerDataQueues.try_dequeue(writeData) && writeData) {
-
-                        co_await boost::asio::async_write(*tcpSocket, boost::asio::buffer(writeData->data, writeData->size), boost::asio::use_awaitable);
-
+                        co_await boost::asio::async_write(
+                            *tcpSocket,
+                            boost::asio::buffer(writeData->data, writeData->size),
+                            boost::asio::use_awaitable
+                        );
+                    }
+                    else {
+                        break;  // 队列关闭
                     }
 
                     if (!socketRuns.load()) break;
-
-                    webrtcSteadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
-
-                    boost::system::error_code ec;
-
-                    co_await webrtcSteadyTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-
                 }
-
             }
             catch (const std::exception& e) {
-
                 LOG_ERROR("Writer coroutine unhandled exception: %s", e.what());
-
             }
             catch (...) {
-
                 LOG_ERROR("Writer coroutine unknown exception");
-
             }
             co_return;
         }
@@ -1121,7 +1111,7 @@ namespace hope {
                 peerConnectionFactory = nullptr;
             }
 
-            webrtcSteadyTimer.cancel();
+            asioConcurrentQueue.close();
         }
 
         void WebRTCManager::Cleanup() {
@@ -1195,6 +1185,7 @@ namespace hope {
 
             webrtc::CleanupSSL();
         }
+
     }
 
 }
