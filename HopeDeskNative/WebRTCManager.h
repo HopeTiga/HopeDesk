@@ -62,7 +62,7 @@
 
 #include "WindowsServiceManager.h"
 #include "Utils.h"
-#include "concurrentqueue.h"
+#include "AsioConcurrentQueue.h"
 
 
 #ifndef NTSTATUS
@@ -298,13 +298,9 @@ private:
 
     boost::asio::ssl::context sslContext{ boost::asio::ssl::context::tlsv12_client };
 
-    moodycamel::ConcurrentQueue<std::string> webrtcDataQueues{ 1 };
+    AsioConcurrentQueue<std::string> webrtcAsioConcurrentQueue;
 
     std::atomic<bool> webrtcSignalSocketRuns{ false };
-
-    boost::asio::steady_timer webrtcSteadyTimer;
-
-    boost::asio::steady_timer steadyTimer;
 
     boost::asio::steady_timer reloadTimer;
 
@@ -316,7 +312,7 @@ private:
 
     std::atomic<bool> writerCoroutineRuns{ false };
 
-    moodycamel::ConcurrentQueue<std::shared_ptr<WriterData>> writerDataQueues{ 1 };
+    AsioConcurrentQueue<std::shared_ptr<WriterData>> asioConcurrentQueue;
 
     std::atomic<bool> socketRuns{false};
 

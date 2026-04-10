@@ -62,6 +62,7 @@ SOURCES += \
 
 # 头文件
 HEADERS += \
+    AsioConcurrentQueue.h \
     AudioDeviceModuleImpl.h \
     ConfigManager.h \
     CreateDescriptionObserverImpl.h \
@@ -112,6 +113,8 @@ win32 {
     LIBS += -llibssl
 
     LIBS += -llibtcmalloc_minimal
+
+    LIBS += -llibboost_sam-vc143-mt-x64-1_89
 
     # Windows系统库
     LIBS += -lws2_32          # Windows Socket 2.0
