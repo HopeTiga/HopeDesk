@@ -24,7 +24,7 @@
 #include <fcntl.h>
 #endif
 #include "WebRTCSignalSocketInterface.h"
-#include "concurrentqueue.h"
+#include "AsioConcurrentQueue.h"
 
 namespace hope {
 
@@ -100,9 +100,7 @@ namespace hope {
 
 			boost::asio::ip::tcp::resolver resolver;
 
-			boost::asio::steady_timer steadyTimer;
-
-			moodycamel::ConcurrentQueue<std::string> writerQueues{ 1 };
+			AsioConcurrentQueue<std::string> asioConcurrentQueue;
 
 			std::atomic<bool> webSocketRuns{ false };
 

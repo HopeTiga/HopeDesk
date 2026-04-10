@@ -6,8 +6,8 @@
     <TCMALLOC_RELEASE_RATE>10.0</TCMALLOC_RELEASE_RATE>
   </PropertyGroup>
   <PropertyGroup>
-    <IncludePath>D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\jwt-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\boost;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\abseil-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\oneTbb;$(IncludePath)</IncludePath>
-    <LibraryPath>D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\abseil-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\boost;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\tcmalloc;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\tbb;$(LibraryPath)</LibraryPath>
+    <IncludePath>D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\openssl;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\jwt-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\boost;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\abseil-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\oneTbb;$(IncludePath)</IncludePath>
+    <LibraryPath>D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\openssl;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\abseil-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\boost;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\tcmalloc;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\tbb;$(LibraryPath)</LibraryPath>
     <_PropertySheetDisplayName>webrtc-signal-server</_PropertySheetDisplayName>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -33,9 +33,13 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <DisableSpecificWarnings>
+      </DisableSpecificWarnings>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>tbb12.lib;libtcmalloc_minimal.lib;absl_graphcycles_internal.lib;absl_kernel_timeout_internal.lib;absl_synchronization.lib;absl_spinlock_wait.lib;absl_strerror.lib;absl_throw_delegate.lib;absl_tracing_internal.lib;absl_base.lib;absl_log_severity.lib;absl_malloc_internal.lib;absl_poison.lib;absl_raw_logging_internal.lib;absl_scoped_set_env.lib;absl_hashtablez_sampler.lib;absl_raw_hash_set.lib;absl_civil_time.lib;absl_time.lib;absl_time_zone.lib;absl_city.lib;absl_hash.lib;absl_stacktrace.lib;absl_symbolize.lib;absl_utf8_for_code_point.lib;absl_borrowed_fixup_buffer.lib;absl_debugging_internal.lib;absl_decode_rust_punycode.lib;absl_demangle_internal.lib;absl_demangle_rust.lib;absl_examine_stack.lib;absl_failure_signal_handler.lib;absl_leak_check.lib;absl_int128.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>tbb12.lib;libcrypto.lib;libssl.lib;libboost_sam-vc143-mt-x64-1_89.lib;libtcmalloc_minimal.lib;absl_graphcycles_internal.lib;absl_kernel_timeout_internal.lib;absl_synchronization.lib;absl_spinlock_wait.lib;absl_strerror.lib;absl_throw_delegate.lib;absl_tracing_internal.lib;absl_base.lib;absl_log_severity.lib;absl_malloc_internal.lib;absl_poison.lib;absl_raw_logging_internal.lib;absl_scoped_set_env.lib;absl_hashtablez_sampler.lib;absl_raw_hash_set.lib;absl_civil_time.lib;absl_time.lib;absl_time_zone.lib;absl_city.lib;absl_hash.lib;absl_stacktrace.lib;absl_symbolize.lib;absl_utf8_for_code_point.lib;absl_borrowed_fixup_buffer.lib;absl_debugging_internal.lib;absl_decode_rust_punycode.lib;absl_demangle_internal.lib;absl_demangle_rust.lib;absl_examine_stack.lib;absl_failure_signal_handler.lib;absl_leak_check.lib;absl_int128.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ForceSymbolReferences>_tcmalloc</ForceSymbolReferences>
     </Link>
   </ItemDefinitionGroup>

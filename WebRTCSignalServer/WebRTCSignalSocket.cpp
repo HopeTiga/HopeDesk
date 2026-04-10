@@ -23,18 +23,18 @@ namespace hope {
 
             sslContext.use_certificate_chain_file(ConfigManager::Instance().GetString("WebRTCSignalServer.certificateFile"));
 
-            
+
             sslContext.use_private_key_file(ConfigManager::Instance().GetString("WebRTCSignalServer.privateKeyFile"), boost::asio::ssl::context::pem);
-        
+
         }
-        
+
         boost::asio::ssl::context& WebRTCSignalSocket::getSslContext()
         {
 
             return sslContext;
 
         }
-       
+
         WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext, WebRTCSignalManager* webrtcSignalManager)
             : ioContext(ioContext)
             , resolver(ioContext)
@@ -42,13 +42,11 @@ namespace hope {
             , webSocket(ioContext, getSslContext())
             , channelIndex(channelIndex)
             , webrtcSignalManager(webrtcSignalManager)
-            , steadyTimer(ioContext) {
+            , asioConcurrentQueue(ioContext.get_executor()) {
 
             boost::uuids::random_generator gen;
 
             sessionId = boost::uuids::to_string(gen());
-
-            steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
 
         }
 
@@ -196,7 +194,7 @@ namespace hope {
 
             boost::system::error_code ec;
 
-            steadyTimer.cancel();
+            asioConcurrentQueue.close();
 
             registrationTimer.cancel();
 
@@ -267,19 +265,18 @@ namespace hope {
 
                 while (webSocketRuns.load()) {
 
-                    while (writerQueues.try_dequeue(str)) {
+                    std::optional<std::string> optional = co_await asioConcurrentQueue.dequeue();
+
+                    if (optional.has_value()) {
+
+                        std::string str = std::move(optional.value());
 
                         co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
 
                     }
+                    else break;
 
                     if (!webSocketRuns.load()) break;
-
-                    steadyTimer.expires_at(std::chrono::steady_clock::time_point::max());
-
-                    boost::system::error_code ec;
-
-                    co_await steadyTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
                 }
             }
@@ -340,8 +337,7 @@ namespace hope {
 
         void WebRTCSignalSocket::asyncWrite(std::string str) {
             if (isStop) return;
-            writerQueues.enqueue(std::move(str));
-            steadyTimer.cancel();
+            asioConcurrentQueue.enqueue(std::move(str));
 
         }
 
