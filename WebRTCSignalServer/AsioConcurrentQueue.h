@@ -18,9 +18,23 @@ namespace hope {
 
             boost::asio::awaitable<std::optional<T>> dequeue() {
 
-                co_await semaphore.async_acquire(boost::asio::use_awaitable);
-
                 T val;
+
+                if (semaphore.try_acquire()) {
+                    // 既然凭证扣减成功，队列里必定有数据（排除 close 的情况）
+                    if (queue.try_dequeue(val)) {
+                        co_return val;
+                    }
+                    else {
+                        // 拿不到说明是 close 塞入的结束信号
+                        if (isClose.load(std::memory_order_acquire)) {
+                            semaphore.release();
+                            co_return std::nullopt;
+                        }
+                    }
+                }
+
+                co_await semaphore.async_acquire(boost::asio::use_awaitable);
 
                 if (queue.try_dequeue(val)) {
                     co_return val;
@@ -39,6 +53,18 @@ namespace hope {
                 if (isClose.compare_exchange_strong(expected, true, std::memory_order_release)) {
                     semaphore.release();
                 }
+            }
+
+            void reset() {
+
+                T val;
+
+                while (queue.try_dequeue(val)) {
+
+                }
+
+                isClose.store(false);
+
             }
 
             bool enqueue(T t) {
