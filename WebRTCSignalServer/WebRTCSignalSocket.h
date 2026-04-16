@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 #include <memory>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -23,6 +24,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #endif
+
+#include <absl/container/flat_hash_map.h>
+
 #include "WebRTCSignalSocketInterface.h"
 #include "AsioConcurrentQueue.h"
 
@@ -80,6 +84,10 @@ namespace hope {
 
 			void setOnDisConnectHandle(std::function<void(std::string, std::string)> handle);
 
+		public:
+
+			absl::flat_hash_map<std::string, int> actorMappingIndex;
+
 		private:
 
 			boost::asio::awaitable<void> registrationTimeout();
@@ -109,8 +117,6 @@ namespace hope {
 			boost::asio::steady_timer registrationTimer; // 计时器成员
 
 			std::atomic<bool> isRegistered{ false }; // 新增：注册状态标志
-
-			int channelIndex;
 
 			std::atomic<bool> isStop{ false };
 

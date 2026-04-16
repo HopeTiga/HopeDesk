@@ -32,6 +32,8 @@ namespace hope {
 
 			void removeConnection(std::string accountId, std::string sessionId, bool needClear = true);
 
+			int getChannelIndex();
+
 		private:
 
 			boost::asio::io_context& ioContext;
@@ -47,8 +49,6 @@ namespace hope {
 			size_t hashSize = std::thread::hardware_concurrency();
 
 			hope::utils::WebRTCHashMap<std::string, int> actorSocketMappingIndex;
-
-			tbb::concurrent_lru_cache<std::string, int> localRouteCache;
 
 			std::hash<std::string> hasher;
 

@@ -17,9 +17,6 @@ namespace hope {
             : channelIndex(channelIndex)
             , ioContext(ioContext)
             , webrtcSignalServer(webrtcSignalServer)
-            , localRouteCache([](std::string) -> int {
-            return -1;
-                }, 100)
         {
             logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(ioContext);
 
@@ -85,6 +82,11 @@ namespace hope {
             }
 
 
+        }
+
+        int WebRTCSignalManager::getChannelIndex()
+        {
+            return channelIndex;
         }
 
     }

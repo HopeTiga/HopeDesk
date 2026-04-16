@@ -13,6 +13,8 @@
 #include <boost/uuid/uuid_generators.hpp> // 生成器  
 #include <boost/uuid/uuid_io.hpp>   
 
+#include <boost/json.hpp>
+
 #include "WebRTCHashMap.h"
 #include "WebRTCHashSet.h"
 
@@ -113,25 +115,31 @@ namespace hope {
 
                 // 2. 处理目标未找到 (404)
                 if (!targetSocket) {
-                    tbb::concurrent_lru_cache<std::string, int>::handle handles = data->webrtcSignalManager->localRouteCache[targetId];
-                    auto self = data->webrtcSignalManager->shared_from_this();
+                    int index = data->webrtcSignalSocket->actorMappingIndex[targetId];
 
-                    if (handles.value() == -1) {
-                        int mapChannelIndex = data->webrtcSignalManager->hasher(targetId) % data->webrtcSignalManager->hashSize;
+                    auto webrtcSignalServer = data->webrtcSignalManager->webrtcSignalServer;
+
+                    int mapChannelIndex = data->webrtcSignalManager->hasher(targetId) % data->webrtcSignalManager->hashSize;
+
+                    std::string accountId = data->webrtcSignalSocket->getAccountId();
+
+                    int channelIndex = data->webrtcSignalManager->getChannelIndex();
+
+                    if (index == -1) {
 
                         data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
                             if (manager->actorSocketMappingIndex.find(targetId) != manager->actorSocketMappingIndex.end()) {
                                 int targetChannelIndex = manager->actorSocketMappingIndex[targetId];
 
-                                self->webrtcSignalServer->postTaskAsync(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                                webrtcSignalServer->postTaskAsync(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
                                     if (manager->webrtcSocketMap.find(targetId) != manager->webrtcSocketMap.end()) {
-                                        if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId]) {
-                                            handles.value() = manager->channelIndex;
-                                        }
+ 
                                         std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                         boost::json::object forwardMessage = message;
                                         forwardMessage["state"] = 200;
                                         forwardMessage["message"] = "webrtcSignalServer forward";
+
+										targetWebrtcSignalSocket->actorMappingIndex[accountId] = channelIndex;
 
                                         targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
@@ -166,11 +174,11 @@ namespace hope {
                             });
                     }
                     else {
-                        data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(handles.value(), [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+
+                        data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(index, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                            
                             if (manager->webrtcSocketMap.find(targetId) != manager->webrtcSocketMap.end()) {
-                                if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId]) {
-                                    handles.value() = manager->channelIndex;
-                                }
+                     
                                 std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                 boost::json::object forwardMessage = message;
                                 forwardMessage["state"] = 200;
@@ -183,26 +191,37 @@ namespace hope {
                             }
                             else {
 
-                                tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId];
+                                webrtcSignalServer->postTaskAsync(channelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                                    
+                                    auto userIt = manager->webrtcSocketMap.find(accountId);
+                                    if (userIt != manager->webrtcSocketMap.end()) {
 
-                                handles.value() = -1;
+                                        auto& socket = userIt->second;
 
-                                int mapChannelIndex = data->webrtcSignalManager->hasher(targetId) % data->webrtcSignalManager->hashSize;
+                                        auto routeIt = socket->actorMappingIndex.find(targetId);
+                                        if (routeIt != socket->actorMappingIndex.end() && routeIt->second == index) {
+
+                                            socket->actorMappingIndex.erase(routeIt);
+                                            LOG_DEBUG("Stale route cache cleared for: %s -> %s", accountId.c_str(), targetId.c_str());
+                                        }
+                                    }
+
+                                    co_return;
+
+                                    });
 
                                 data->webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
                                     if (manager->actorSocketMappingIndex.find(targetId) != manager->actorSocketMappingIndex.end()) {
                                         int targetChannelIndex = manager->actorSocketMappingIndex[targetId];
 
-                                        self->webrtcSignalServer->postTaskAsync(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                                        webrtcSignalServer->postTaskAsync(targetChannelIndex, [=](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
                                             if (manager->webrtcSocketMap.find(targetId) != manager->webrtcSocketMap.end()) {
-                                                if (tbb::concurrent_lru_cache<std::string, int>::handle handles = self->localRouteCache[targetId]) {
-                                                    handles.value() = manager->channelIndex;
-                                                }
+                                       
                                                 std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = manager->webrtcSocketMap[targetId];
                                                 boost::json::object forwardMessage = message;
                                                 forwardMessage["state"] = 200;
                                                 forwardMessage["message"] = "webrtcSignalServer forward";
-
+                                                targetWebrtcSignalSocket->actorMappingIndex[accountId] = channelIndex;
                                                 targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
                                                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
@@ -215,7 +234,6 @@ namespace hope {
                                                 response["requestType"] = requestTypeValue;
                                                 response["state"] = 404;
                                                 response["message"] = "TargetId is not register";
-
            
                                                 webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 

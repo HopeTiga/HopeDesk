@@ -40,7 +40,6 @@ namespace hope {
             , resolver(ioContext)
             , registrationTimer(ioContext)
             , webSocket(ioContext, getSslContext())
-            , channelIndex(channelIndex)
             , webrtcSignalManager(webrtcSignalManager)
             , asioConcurrentQueue(ioContext.get_executor()) {
 
