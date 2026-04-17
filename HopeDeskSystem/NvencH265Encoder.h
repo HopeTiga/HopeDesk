@@ -7,6 +7,9 @@
 #include <mutex>
 #include <deque>
 #include <vector>
+#include <thread>             // 新增
+#include <atomic>             // 新增
+#include <condition_variable> // 新增
 #include "Nvenc.h"
 
 namespace hope {
@@ -27,7 +30,7 @@ namespace hope {
         private:
             bool InitD3D11();
             bool InitNvenc(int width, int height, uint32_t bitrateBps);
-            bool GetEncodedPacket(bool finalize); // 参照 OBS 的 get_encoded_packet
+            void ProcessOutputThread(); // 新增：替代原来的 GetEncodedPacket
 
             webrtc::EncodedImageCallback* encodedImageCallback = nullptr;
             Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
@@ -46,19 +49,26 @@ namespace hope {
             std::unordered_map<HANDLE, NvInputTexture> resourceCache;
             std::vector<NV_ENC_INPUT_PTR> mappedResources;
             std::vector<NV_ENC_INPUT_PTR> swInputBuffers;
+            std::vector<HANDLE> encodeEvents; // 新增：用于异步事件监听
 
-            // 状态控制 (完全对照 OBS 成员)
+            // 状态控制
             uint32_t bufCount = 0;
-            uint32_t curBitstream = 0;   // 当前提取索引
-            uint32_t nextBitstream = 0;  // 下一个下发索引
-            uint32_t buffersQueued = 0;  // 队列中等待的帧数
-            uint32_t outputDelay = 0;    // B帧/Lookahead导致的输出延迟帧数
+            uint32_t curBitstream = 0;
+            uint32_t nextBitstream = 0;
+            uint32_t buffersQueued = 0;
 
             std::deque<int64_t> dtsList;
-            std::vector<uint8_t> header;  // 存储 SPS/PPS/VPS
+            std::vector<uint8_t> header;
             bool firstPacket = true;
 
             std::mutex nvencApiMutex;
+
+            // 新增：异步线程控制
+            std::thread outputThread;
+            std::atomic<bool> isRunning{ false };
+            std::mutex queueMutex;
+            std::condition_variable queueCond;
+
             int widths = 0;
             int heights = 0;
 
