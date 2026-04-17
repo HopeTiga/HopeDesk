@@ -273,8 +273,12 @@ namespace hope {
             NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
 
             if (err == NV_ENC_SUCCESS || err == NV_ENC_ERR_NEED_MORE_INPUT) {
-                buffersQueued++;
-                if (++nextBitstream == bufCount) nextBitstream = 0;
+                {
+                    std::lock_guard<std::mutex> qLock(queueMutex);
+                    buffersQueued++;
+                    if (++nextBitstream == bufCount) nextBitstream = 0;
+                }
+                queueCond.notify_one();
             }
             else {
                 if (mappedResources[idx]) {
