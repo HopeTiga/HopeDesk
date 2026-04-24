@@ -149,7 +149,13 @@ namespace hope {
 
             webSocketRuns.store(true);
 
-            boost::asio::co_spawn(ioContext, reviceCoroutine(), [self = shared_from_this()](std::exception_ptr p) {
+            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void>{
+            
+                co_await self->reviceCoroutine();
+
+                co_return;
+
+            }, [self = shared_from_this()](std::exception_ptr p) {
                 if (p) {
                     try {
 
@@ -169,7 +175,13 @@ namespace hope {
                 }
                 });
 
-            boost::asio::co_spawn(ioContext, writerCoroutine(), boost::asio::detached);
+            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
+
+                co_await self->writerCoroutine();
+
+                co_return;
+
+                }, boost::asio::detached);
 
             webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                 boost::beast::role_type::server));
