@@ -45,20 +45,18 @@ SOURCES += \
     CreateDescriptionObserverImpl.cpp \
     DataChannelObserverImpl.cpp \
     De265Decoder.cpp \
+    InterceptionHook.cpp \
+    MainWindow.cpp \
     PeerConnectionObserverImpl.cpp \
     RTCStatsCollectorHandle.cpp \
     SetDescriptionObserverImpl.cpp \
     Utils.cpp \
+    VideoTrackSinkImpl.cpp \
+    VideoWidget.cpp \
     WebRTCVideoDecoderFactory.cpp \
     WebRTCVideoEncoderFactory.cpp \
-    interceptionhook.cpp \
-    interceptionhook.cpp \
     main.cpp \
-    mainwindow.cpp \
-    videotracksinkimpl.cpp \
-    videowidget.cpp \
     WebRTCManager.cpp \
-    windowshook.cpp
 
 # 头文件
 HEADERS += \
@@ -69,20 +67,18 @@ HEADERS += \
     CustomDialogs.h \
     DataChannelObserverImpl.h \
     De265Decoder.h \
+    InterceptionHook.h \
+    MainWindow.h \
     PeerConnectionObserverImpl.h \
     RTCStatsCollectorHandle.h \
     SetDescriptionObserverImpl.h \
     Utils.h \
+    VideoTrackSinkImpl.h \
+    VideoWidget.h \
     WebRTCVideoDecoderFactory.h \
     WebRTCVideoEncoderFactory.h \
     WindowsServiceManager.h \
-    interceptionhook.h \
-    interceptionhook.h \
-    mainwindow.h \
-    videotracksinkimpl.h \
-    videowidget.h \
     WebRTCManager.h \
-    windowshook.h
 
 # Windows特定配置
 win32 {
