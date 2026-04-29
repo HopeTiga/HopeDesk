@@ -2,7 +2,6 @@
 #include <string>
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalSocket.h"
-#include "WebRTCMysqlManagerPools.h"
 #include "ConfigManager.h"
 
 #include "Utils.h"
@@ -36,8 +35,6 @@ int main() {
 	hope::core::WebRTCSignalServer webrtcSignalServer(ioContext, port);
 
     webrtcSignalServer.run();
-
-    hope::mysql::WebRTCMysqlManagerPools::getInstance();
 
     boost::asio::signal_set signals(ioContext, SIGINT, SIGTERM);
 

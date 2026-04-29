@@ -28,16 +28,9 @@ namespace hope {
     namespace core
     {
 
-        WebRTCLogicSystem::WebRTCLogicSystem(boost::asio::io_context& ioContext) : ioContext(ioContext)
+        WebRTCLogicSystem::WebRTCLogicSystem(boost::asio::io_context& ioContext,int channelIndex):ioContext(ioContext), channelIndex(channelIndex)
         {
-
-
-        }
-
-        void WebRTCLogicSystem::RunEventLoop() {
-
-            initHandlers();
-
+            webrtcMysqlManagerPools = std::make_shared<hope::mysql::WebRTCMysqlManagerPools>(ioContext);
         }
 
         boost::asio::io_context& WebRTCLogicSystem::getIoCompletePorts()
@@ -46,7 +39,11 @@ namespace hope {
         }
 
         WebRTCLogicSystem::~WebRTCLogicSystem() {
+
+            webrtcMysqlManagerPools.reset();
+
             webrtcHandlers.clear();
+
         }
 
         void WebRTCLogicSystem::postTaskAsync(std::shared_ptr<WebRTCSignalData> data) {
@@ -112,7 +109,7 @@ namespace hope {
                         targetSocket = it->second;
                     }
                 }
-
+  
                 // 2. 处理目标未找到 (404)
                 if (!targetSocket) {
                     int index = data->webrtcSignalSocket->actorMappingIndex[targetId];

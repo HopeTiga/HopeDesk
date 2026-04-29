@@ -8,12 +8,14 @@ namespace hope {
 
 	namespace mysql {
 
-		WebRTCMysqlManagerPools::WebRTCMysqlManagerPools(size_t size) :size(size)
+		WebRTCMysqlManagerPools::WebRTCMysqlManagerPools(boost::asio::io_context& ioContext, size_t size)
+			: size(size)
+			, ioContext(ioContext)
 			, transactionChannels(std::make_shared<boost::asio::experimental::concurrent_channel<void(boost::system::error_code, std::shared_ptr<WebRTCMysqlManager>)>>(ioContext, size)) {
 
 			for (int i = 0; i < size; i++) {
 
-				std::shared_ptr<WebRTCMysqlManager> webrtcMysqlManager = std::make_shared<WebRTCMysqlManager>(hope::iocp::AsioProactors::getInstance()->getIoCompletePorts().second);
+				std::shared_ptr<WebRTCMysqlManager> webrtcMysqlManager = std::make_shared<WebRTCMysqlManager>(ioContext);
 
 				webrtcMysqlManager->initConnection(ConfigManager::Instance().GetString("Mysql.ip")
 					, ConfigManager::Instance().GetInt("Mysql.port")
@@ -28,27 +30,9 @@ namespace hope {
 
 			}
 
-			workGuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(ioContext.get_executor());
-
-			ioThread = std::thread([this]() {
-
-				ioContext.run();
-
-				});
-
 		}
 
 		WebRTCMysqlManagerPools::~WebRTCMysqlManagerPools() {
-
-			workGuard.reset();
-
-			ioContext.stop();
-
-			if (ioThread.joinable()) {
-
-				ioThread.join();
-
-			}
 
 			std::shared_ptr<WebRTCMysqlManager> webrtcMysqlManager;
 

@@ -39,34 +39,22 @@ namespace hope {
 					}
 				}
 
-				// 重载 -> 运算符，让你像使用指针一样使用它
 				WebRTCMysqlManager* operator->() { return conn.get(); }
 			};
 
 		public:
 
-			static std::shared_ptr<WebRTCMysqlManagerPools> getInstance() {
-
-				static std::shared_ptr<WebRTCMysqlManagerPools> instance = std::make_shared<WebRTCMysqlManagerPools>();
-
-				return instance;
-			}
-
 			boost::asio::awaitable<WebRTCMysqlManagerPools::ScopedMysqlConnection> getTransactionMysqlManager();
 
 			void returnTransactionMysqlManager(std::shared_ptr<WebRTCMysqlManager> mysqlManager);
 
-			WebRTCMysqlManagerPools(size_t size = std::thread::hardware_concurrency());
+			WebRTCMysqlManagerPools(boost::asio::io_context& ioContext, size_t size = 2);
 
 			~WebRTCMysqlManagerPools();
 
 		private:
 
-			boost::asio::io_context ioContext;
-
-			std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> workGuard;
-
-			std::thread ioThread;
+			boost::asio::io_context& ioContext;
 
 			std::atomic<size_t> size;
 

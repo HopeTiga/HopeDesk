@@ -7,6 +7,8 @@
 
 #include "WebRTCSignalData.h"
 
+#include "AsioProactors.h"
+
 #include "Utils.h"
 
 namespace hope {
@@ -18,9 +20,11 @@ namespace hope {
             , ioContext(ioContext)
             , webrtcSignalServer(webrtcSignalServer)
         {
-            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(ioContext);
 
-            logicSystem->RunEventLoop();
+            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePorts().second,channelIndex);
+
+            logicSystem->initHandlers();
+
         }
 
         WebRTCSignalManager::~WebRTCSignalManager()

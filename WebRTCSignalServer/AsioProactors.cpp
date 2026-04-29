@@ -8,8 +8,8 @@ namespace hope {
 		ioContexts(size), works(size), threads(size), ioPressures(size), isStop(false) {
 
 		for (int i = 0; i < size; i++) {
-			// 使用新的 work guard API
-			auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+
+			std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
 				boost::asio::make_work_guard(ioContexts[i])
 			);
 
@@ -26,16 +26,16 @@ namespace hope {
 	}
 
 	void AsioProactors::stop() {
+
 		isStop = true;
 
 		for (auto& work : works) {
-			// 重置 work guard，这会让 io_context 停止运行
+
 			if (work) {
 				work.reset();
 			}
 		}
 
-		// 明确停止所有 io_context
 		for (auto& context : ioContexts) {
 			context.stop();
 		}
@@ -53,5 +53,11 @@ namespace hope {
 		ioPressures[index]++;
 		return { static_cast<int>(index), ioContexts[index] };
 	}
+
+	boost::asio::io_context& AsioProactors::getIoCompletePort(size_t channelIndex)
+	{
+		return ioContexts[channelIndex];
+	}
+
 	}
 }

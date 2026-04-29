@@ -7,16 +7,11 @@
 
 #include <boost/asio.hpp>
 
+#include "WebRTCMysqlManagerPools.h"
 #include "WebRTCHashMap.h"
 
 
 namespace hope {
-
-	namespace mysql {
-
-		class MsquicMysqlManager;
-
-	}
 
 	namespace core {
 
@@ -27,7 +22,7 @@ namespace hope {
 
 		public:
 
-			WebRTCLogicSystem(boost::asio::io_context& ioContext);
+			WebRTCLogicSystem(boost::asio::io_context& ioContext,int channelIndex);
 
 			~WebRTCLogicSystem();
 
@@ -37,18 +32,19 @@ namespace hope {
 
 			void postTaskAsync(std::shared_ptr<hope::core::WebRTCSignalData> data);
 
-			void RunEventLoop();
-
 			boost::asio::io_context& getIoCompletePorts();
-
-		private:
 
 			void initHandlers();
 
+		private:
+
 			boost::asio::io_context& ioContext;
+
+			int channelIndex;
 
 			hope::utils::WebRTCHashMap<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::core::WebRTCSignalData>)>> webrtcHandlers;
 
+			std::shared_ptr<hope::mysql::WebRTCMysqlManagerPools> webrtcMysqlManagerPools;
 		};
 	}
 
