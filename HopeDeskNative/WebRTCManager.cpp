@@ -1341,14 +1341,14 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
 
 void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable,int webrtcEnableNvidia)
 {
-
-    if(peerConnection == nullptr){
-
-        initializePeerConnection();
-
-    }
-
     boost::asio::co_spawn(ioContext,[=]()->boost::asio::awaitable<void>{
+
+        if(peerConnection == nullptr){
+
+            initializePeerConnection();
+
+        }
+
         if (targetId.empty()) {
             LOG_ERROR("Target ID not set");
             co_return;
