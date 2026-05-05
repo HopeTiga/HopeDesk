@@ -874,8 +874,6 @@ boost::asio::awaitable<void> WebRTCManager::webrtcWriteCoroutine()
 
                 std::string str = std::move(optional.value());
 
-                LOG_INFO("str:%s",str.c_str());
-
                 co_await webSocket->async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
 
             }else break;

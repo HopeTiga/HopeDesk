@@ -4,17 +4,15 @@
 #include <QPushButton>
 #include <QWidget>
 #include <QPropertyAnimation>
-#include <QMouseEvent> // 用于事件驱动的鼠标追踪
+#include <QMouseEvent>
 #include <memory>
 #include <atomic>
 #include <QElapsedTimer>
 #include <rhi/qrhi.h>
 #include <rhi/qshader.h>
 #include <chrono>
-
 #include <api/video/video_frame.h>
 #include <api/video/i420_buffer.h>
-
 #include "windows.h"
 #include "Utils.h"
 #include "InterceptionHook.h"
@@ -33,16 +31,12 @@ public:
     explicit VideoWidget(QWidget* parent = nullptr);
     ~VideoWidget();
 
-    // 接收视频帧（网络线程调用）
     void displayFrame(std::shared_ptr<VideoFrame> frame);
-
     void clearDisplay();
     double getFrameRate() const { return currentFPS; }
-
     void enterFullScreen();
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
-
     void setWebRTCManager(WebRTCManager* manager);
 
 Q_SIGNALS:
@@ -52,11 +46,10 @@ protected:
     void initialize(QRhiCommandBuffer* cb) override;
     void render(QRhiCommandBuffer* cb) override;
     void releaseResources() override;
-
     void resizeEvent(QResizeEvent* event) override;
     void enterEvent(QEnterEvent* event) override;
     void leaveEvent(QEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override; // 重写鼠标移动事件
+    void mouseMoveEvent(QMouseEvent* event) override;
     void closeEvent(QCloseEvent *event) override;
 
 private Q_SLOTS:
@@ -71,16 +64,17 @@ private:
     void showSidebar();
     bool initializeResources(QRhiCommandBuffer* cb);
     void createBuffers();
-    void createTextures();
+    void createTextures(int width, int height);     // 现在接受尺寸
     void createSampler();
     void createShaderResourceBindings();
     void createPipeline();
     QShader getShader(const QString& name);
-
     void loadPipelineCache();
     void savePipelineCache();
 
-private:
+    // 当视频尺寸变化时重建纹理和绑定
+    void ensureTexturesForSize(int width, int height);
+
     WebRTCManager* manager;
     QRhi* rhi = nullptr;
 
@@ -88,18 +82,19 @@ private:
     std::unique_ptr<QRhiBuffer> vertexBuffer;
     std::unique_ptr<QRhiSampler> sampler;
 
-    // 单套资源（去除数组）
     std::unique_ptr<QRhiBuffer> uniformBuffer;
     std::unique_ptr<QRhiTexture> videoTextureY;
     std::unique_ptr<QRhiTexture> videoTextureU;
     std::unique_ptr<QRhiTexture> videoTextureV;
     std::unique_ptr<QRhiShaderResourceBindings> srb;
 
-    // --- 极低延迟核心：无锁化双指针 ---
-    std::atomic<VideoFrame*> currentFramePtr{nullptr};   // 当前待渲染的最新帧
-    std::atomic<VideoFrame*> frameToReleasePtr{nullptr}; // 渲染完毕后丢弃的"垃圾桶"帧
+    // 当前纹理的实际尺寸（与最新视频帧匹配）
+    int texWidth = 0;
+    int texHeight = 0;
 
-    // 视频信息
+    std::atomic<VideoFrame*> currentFramePtr{nullptr};
+    std::atomic<VideoFrame*> frameToReleasePtr{nullptr};
+
     std::atomic<int> videoWidth{640};
     std::atomic<int> videoHeight{480};
     bool resourcesInitialized = false;
@@ -109,7 +104,6 @@ private:
     std::atomic<double> currentFPS{0.0};
     std::atomic<bool> hasVideo{false};
 
-    // UI控件
     QPushButton* fullScreenButton;
     QWidget* sidebar;
     QPushButton* sidebarExitButton;
@@ -127,23 +121,18 @@ private:
 
     std::unique_ptr<InterceptionHook> interceptionHook;
 
-    // 内存对齐结构
     struct UniformData {
-        QMatrix4x4 mvp;     // 0-64
-        QVector4D params;   // 64-80
-        QVector2D uvScale;  // 80-88
-        QVector2D padding;  // 88-96 (补齐 16 字节对齐)
+        QMatrix4x4 mvp;
+        QVector4D params;
+        QVector2D uvScale;   // 现在始终为 (1,1)
+        QVector2D padding;
 
         bool operator!=(const UniformData& other) const {
             return mvp != other.mvp || params != other.params || uvScale != other.uvScale;
         }
     };
-
     UniformData lastUniformData;
-
-    // 固定大纹理 (1080P)
-    const QSize MAX_TEXTURE_SIZE = QSize(1920, 1080);
 };
 
-}
-}
+} // namespace rtc
+} // namespace hope

@@ -11,8 +11,8 @@
 #include <algorithm>
 #include "Utils.h"
 
-namespace hope{
-namespace rtc{
+namespace hope {
+namespace rtc {
 
 VideoWidget::VideoWidget(QWidget* parent)
     : QRhiWidget(parent)
@@ -30,11 +30,10 @@ VideoWidget::VideoWidget(QWidget* parent)
     , sidebarVisible(false)
     , interceptionHook(nullptr)
 {
-    // 强制关闭 VSync 以获得最低延迟
     qputenv("QSG_RENDER_LOOP", "basic");
     qputenv("QT_QSG_NO_VSYNC", "1");
 
-    LOG_INFO("VideoWidget init (Extreme Low Latency Mode)");
+    LOG_INFO("VideoWidget init (Dynamic texture mode)");
 
     QIcon windowIcon(":/logo/res/hope.png");
     if (!windowIcon.isNull()) {
@@ -44,8 +43,6 @@ VideoWidget::VideoWidget(QWidget* parent)
     setMinimumSize(320, 240);
     setFocusPolicy(Qt::StrongFocus);
     setFocus();
-
-    // 开启鼠标追踪，依赖事件驱动而非定时器轮询
     setMouseTracking(true);
     setAttribute(Qt::WA_AcceptTouchEvents);
 
@@ -54,27 +51,21 @@ VideoWidget::VideoWidget(QWidget* parent)
     connect(fpsUpdateTimer, &QTimer::timeout, this, &VideoWidget::updateFPS);
     fpsUpdateTimer->start(1000);
 
-    // 初始化 Uniform
     lastUniformData.mvp.setToIdentity();
     lastUniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
     lastUniformData.uvScale = QVector2D(1.0f, 1.0f);
 
     initializeControls();
-
     LOG_INFO("VideoWidget init finished");
 }
 
 VideoWidget::~VideoWidget()
 {
     LOG_INFO("VideoWidget destruction");
-
-    // 析构前无锁清空引用
     VideoFrame* f1 = currentFramePtr.exchange(nullptr);
     if (f1) delete f1;
-
     VideoFrame* f2 = frameToReleasePtr.exchange(nullptr);
     if (f2) delete f2;
-
     savePipelineCache();
 }
 
@@ -106,8 +97,12 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
 bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 {
     createBuffers();
-    createTextures();
     createSampler();
+
+    // 纹理将在收到第一帧时创建，这里先不创建
+    // 但 pipeline 需要 SRB，而 SRB 需要纹理，因此我们用占位逻辑：
+    // 创建一个 2x2 的占位纹理，保证 pipeline 能首次创建
+    createTextures(2, 2);
     createShaderResourceBindings();
     createPipeline();
 
@@ -126,9 +121,8 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 
         UniformData uniformData;
         uniformData.mvp.setToIdentity();
-        uniformData.params = QVector4D(hasVideo ? 1.0f : 0.0f, 0.0f, 1.0f, 0.0f);
+        uniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
         uniformData.uvScale = QVector2D(1.0f, 1.0f);
-
         batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
         lastUniformData = uniformData;
 
@@ -149,23 +143,25 @@ void VideoWidget::createBuffers()
     uniformBuffer->create();
 }
 
-void VideoWidget::createTextures()
+void VideoWidget::createTextures(int width, int height)
 {
     if (!rhi) return;
 
-    QSize sizeY = MAX_TEXTURE_SIZE;
-    QSize sizeUV(MAX_TEXTURE_SIZE.width() / 2, MAX_TEXTURE_SIZE.height() / 2);
+    LOG_INFO("Creating YUV textures: %dx%d", width, height);
 
-    LOG_INFO("Allocating fixed YUV textures: %dx%d", sizeY.width(), sizeY.height());
-
-    videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, sizeY, 1));
+    videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height), 1));
     videoTextureY->create();
 
-    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, sizeUV, 1));
+    int chromaWidth = (width + 1) / 2;
+    int chromaHeight = (height + 1) / 2;
+    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
     videoTextureU->create();
 
-    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, sizeUV, 1));
+    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
     videoTextureV->create();
+
+    texWidth = width;
+    texHeight = height;
 }
 
 void VideoWidget::createSampler()
@@ -238,119 +234,121 @@ void VideoWidget::clearDisplay()
 {
     LOG_INFO("Clearing display");
     hasVideo = false;
-
-    // 无锁清除
     VideoFrame* f = currentFramePtr.exchange(nullptr);
     if (f) delete f;
-
     update();
 }
 
-// --- 极低延迟核心：完全无锁化 + 垃圾回收模式 ---
 void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 {
     if (!frame || !frame->buffer) return;
 
-    // 1. 新建当前帧的对象拷贝（浅拷贝，仅保留引用计数）
+    // 强制切换到 GUI 线程，确保窗口操作线程安全
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, [this, frame]() {
+            this->displayFrame(frame);
+        }, Qt::QueuedConnection);
+        return;
+    }
+
     VideoFrame* newFrame = new VideoFrame(*frame);
-
-    // 2. 【无锁交换】偷换指针，新进旧出
     VideoFrame* oldFrame = currentFramePtr.exchange(newFrame, std::memory_order_acq_rel);
-    if (oldFrame) {
-        // 如果渲染线程没来得及消费上一帧（网络投递太快），直接把旧帧丢弃，保证零拥塞
-        delete oldFrame;
-    }
+    if (oldFrame) delete oldFrame;
 
-    // 3. 【清空垃圾桶】回收渲染线程用完的"废弃帧"
-    // 把析构耗时转移到本网络线程，避免卡顿 RHI 渲染线程
     VideoFrame* toRelease = frameToReleasePtr.exchange(nullptr, std::memory_order_acq_rel);
-    if (toRelease) {
-        delete toRelease;
-    }
+    if (toRelease) delete toRelease;
 
-    // 4. 请求刷新画面
     if (QWindow* w = windowHandle()) {
-        w->requestUpdate(); // 核心：极速且线程安全
+        w->requestUpdate();
     } else {
         QMetaObject::invokeMethod(this, [this]() { this->update(); }, Qt::QueuedConnection);
     }
 }
 
-// --- 渲染线程 ---
+void VideoWidget::ensureTexturesForSize(int width, int height)
+{
+    if (width == texWidth && height == texHeight && videoTextureY && videoTextureU && videoTextureV)
+        return; // 尺寸未变，纹理有效
+
+    // 销毁旧纹理并重建，同时重建 SRB/pipeline（因为纹理绑定变了）
+    videoTextureY.reset();
+    videoTextureU.reset();
+    videoTextureV.reset();
+
+    createTextures(width, height);
+    createShaderResourceBindings(); // SRB 需要重新绑定新纹理
+    createPipeline();               // pipeline 依赖于 SRB
+}
+
 void VideoWidget::render(QRhiCommandBuffer* cb)
 {
-    if (!rhi || !resourcesInitialized || !pipeline) {
-        const QColor clearColor(32, 32, 32);
-        cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
-        cb->endPass();
+    if (!rhi || !resourcesInitialized || !pipeline || !renderTarget()) {
+        if (renderTarget()) {
+            const QColor clearColor(32, 32, 32);
+            cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
+            cb->endPass();
+        }
         return;
     }
 
-    // 1. 【无锁获取】取出最新的帧
     VideoFrame* frameToRender = currentFramePtr.exchange(nullptr, std::memory_order_acq_rel);
 
-    QVector2D currentUVScale(1.0f, 1.0f);
-
-    // 如果取出到了新帧，才执行 PCIe 上传（避免关闭 VSync 时的无脑重复上传）
     if (frameToRender && frameToRender->buffer) {
-        QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
-
-        // 计算 UV Scale
-        if (frameToRender->width > 0 && frameToRender->height > 0) {
-            float scaleX = float(frameToRender->width) / MAX_TEXTURE_SIZE.width();
-            float scaleY = float(frameToRender->height) / MAX_TEXTURE_SIZE.height();
-            currentUVScale = QVector2D(scaleX, scaleY);
-        } else {
-            currentUVScale = QVector2D(0.0f, 0.0f);
-        }
-
         auto* i420 = frameToRender->buffer.get();
+        int srcWidth = i420->width();
+        int srcHeight = i420->height();
 
-        // 2. 上传 YUV 数据
-        if (videoTextureY) {
-            QRhiTextureSubresourceUploadDescription subDescY(i420->DataY(), i420->StrideY() * i420->height());
-            subDescY.setSourceSize(QSize(frameToRender->width, frameToRender->height));
+        // 动态调整纹理尺寸
+        ensureTexturesForSize(srcWidth, srcHeight);
+
+        if (videoTextureY && videoTextureU && videoTextureV) {
+            QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
+
+            // Y 平面
+            QRhiTextureSubresourceUploadDescription subDescY(
+                i420->DataY(), i420->StrideY() * srcHeight);
+            subDescY.setSourceSize(QSize(srcWidth, srcHeight));
             subDescY.setDataStride(i420->StrideY());
             batch->uploadTexture(videoTextureY.get(), QRhiTextureUploadDescription{{0, 0, subDescY}});
 
-            int chromaW = (frameToRender->width + 1) / 2;
-            int chromaH = (frameToRender->height + 1) / 2;
-
-            QRhiTextureSubresourceUploadDescription subDescU(i420->DataU(), i420->StrideU() * chromaH);
+            int chromaW = (srcWidth + 1) / 2;
+            int chromaH = (srcHeight + 1) / 2;
+            QRhiTextureSubresourceUploadDescription subDescU(
+                i420->DataU(), i420->StrideU() * chromaH);
             subDescU.setSourceSize(QSize(chromaW, chromaH));
             subDescU.setDataStride(i420->StrideU());
             batch->uploadTexture(videoTextureU.get(), QRhiTextureUploadDescription{{0, 0, subDescU}});
 
-            QRhiTextureSubresourceUploadDescription subDescV(i420->DataV(), i420->StrideV() * chromaH);
+            QRhiTextureSubresourceUploadDescription subDescV(
+                i420->DataV(), i420->StrideV() * chromaH);
             subDescV.setSourceSize(QSize(chromaW, chromaH));
             subDescV.setDataStride(i420->StrideV());
             batch->uploadTexture(videoTextureV.get(), QRhiTextureUploadDescription{{0, 0, subDescV}});
 
+            // UV Scale 固定 (1,1)，因为纹理尺寸＝帧尺寸
+            UniformData uniformData;
+            uniformData.mvp.setToIdentity();
+            uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
+            uniformData.uvScale = QVector2D(1.0f, 1.0f);
+            if (uniformData != lastUniformData) {
+                batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
+                lastUniformData = uniformData;
+            }
+
+            cb->resourceUpdate(batch);
+
             hasVideo = true;
-            videoWidth = frameToRender->width;
-            videoHeight = frameToRender->height;
+            videoWidth = srcWidth;
+            videoHeight = srcHeight;
+            frameCount++;
         }
-
-        // 3. 更新 Uniform
-        UniformData uniformData;
-        uniformData.mvp.setToIdentity();
-        uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
-        uniformData.uvScale = currentUVScale;
-
-        if (uniformData != lastUniformData) {
-            batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
-            lastUniformData = uniformData;
-        }
-
-        cb->resourceUpdate(batch);
-        frameCount++; // 统计真实送显的有效帧数
     }
 
+    // 绘制
     const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
     cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, nullptr);
 
-    // 4. 绘制（无论有没有新帧都进行绘制，复用显存数据）
-    if (hasVideo && srb) {
+    if (hasVideo && srb && pipeline) {
         const QSize outputSize = renderTarget()->pixelSize();
         cb->setGraphicsPipeline(pipeline.get());
         cb->setViewport(QRhiViewport{0.0f, 0.0f, float(outputSize.width()), float(outputSize.height()), 0.0f, 1.0f});
@@ -361,13 +359,9 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
     }
     cb->endPass();
 
-    // 5. 【无锁回收】把本轮画完的图扔进垃圾桶，给网络线程处理，保护渲染线程极速退出
     if (frameToRender) {
         VideoFrame* oldRelease = frameToReleasePtr.exchange(frameToRender, std::memory_order_acq_rel);
-        if (oldRelease) {
-            // 如果上一个垃圾还没被网络线程收走，兜底 delete 避免内存泄漏
-            delete oldRelease;
-        }
+        if (oldRelease) delete oldRelease;
     }
 }
 
@@ -375,15 +369,14 @@ void VideoWidget::releaseResources()
 {
     pipeline.reset();
     srb.reset();
-
     uniformBuffer.reset();
     videoTextureY.reset();
     videoTextureU.reset();
     videoTextureV.reset();
-
     sampler.reset();
     vertexBuffer.reset();
     resourcesInitialized = false;
+    texWidth = texHeight = 0;
 }
 
 QShader VideoWidget::getShader(const QString& name)
