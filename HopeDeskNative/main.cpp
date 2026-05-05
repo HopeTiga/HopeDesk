@@ -6,10 +6,10 @@ int main(int argc, char *argv[])
 {
 
     QApplication app(argc, argv);
-    app.setApplicationName("WebRTC-Native-Manager");
+    app.setApplicationName("HopeDesk");
     app.setApplicationVersion("1.0");
-    app.setOrganizationName("WebRTC-Native-Manager");
-    app.setOrganizationDomain("WebRTC-Native-Manager.local");
+    app.setOrganizationName("HopeDesk");
+    app.setOrganizationDomain("HopeDesk.local");
 
     ConfigManager::Instance().Load();
 
