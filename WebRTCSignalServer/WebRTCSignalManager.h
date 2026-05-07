@@ -1,9 +1,6 @@
 #pragma once
-#define TBB_PREVIEW_CONCURRENT_LRU_CACHE 1
 #include <memory>
 #include <string>
-
-#include <tbb/concurrent_lru_cache.h>
 
 #include "WebRTCLogicSystem.h"
 #include "WebRTCSignalSocket.h"
