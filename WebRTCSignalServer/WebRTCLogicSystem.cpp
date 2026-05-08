@@ -140,7 +140,7 @@ namespace hope {
 
                                         targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
-                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                                         co_return;
                                     }
                                     else {
@@ -151,7 +151,7 @@ namespace hope {
 
                                         webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
-                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                                         co_return;
                                     }
                                     });
@@ -164,7 +164,7 @@ namespace hope {
 
                                 webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
-                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                                 
                                 co_return;
                             }
@@ -183,7 +183,7 @@ namespace hope {
 
                                 targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
-                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                                 co_return;
                             }
                             else {
@@ -221,7 +221,7 @@ namespace hope {
                                                 targetWebrtcSignalSocket->actorMappingIndex[accountId] = channelIndex;
                                                 targetWebrtcSignalSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
-                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                                                 
                                                 co_return;
 
@@ -234,7 +234,7 @@ namespace hope {
            
                                                 webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
-                                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                                LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                                                 co_return;
                                             }
                                             });
@@ -247,7 +247,7 @@ namespace hope {
 
                                         webrtcSignalSocket->asyncWrite(boost::json::serialize(response));
 
-                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                                        LOG_WARNING("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                                         co_return;
                                     }
                                     });
@@ -266,7 +266,7 @@ namespace hope {
 
                 targetSocket->asyncWrite(boost::json::serialize(forwardMessage));
 
-                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr);
+                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
                 };
 
 

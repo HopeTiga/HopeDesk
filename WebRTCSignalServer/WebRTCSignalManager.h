@@ -31,6 +31,14 @@ namespace hope {
 
 			int getChannelIndex();
 
+			boost::asio::io_context& getIoCompletionPorts();
+
+#ifdef __linux__
+
+			void asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct);
+
+#endif
+
 		private:
 
 			boost::asio::io_context& ioContext;
@@ -48,6 +56,12 @@ namespace hope {
 			hope::utils::WebRTCHashMap<std::string, int> actorSocketMappingIndex;
 
 			std::hash<std::string> hasher;
+
+#ifdef __linux__
+
+			boost::asio::ip::tcp::acceptor acceptor;
+
+#endif
 
 		};
 

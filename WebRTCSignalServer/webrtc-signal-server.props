@@ -6,7 +6,7 @@
     <TCMALLOC_RELEASE_RATE>10.0</TCMALLOC_RELEASE_RATE>
   </PropertyGroup>
   <PropertyGroup>
-    <IncludePath>D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\openssl;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\jwt-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\boost;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\abseil-cpp;$(IncludePath)</IncludePath>
+    <IncludePath>D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\openssl;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\boost;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\include\abseil-cpp;$(IncludePath)</IncludePath>
     <LibraryPath>D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\openssl;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\abseil-cpp;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\boost;D:\cppPro\WebRTCSignalServer-version\WebRTCSignalServer\lib\tcmalloc;$(LibraryPath)</LibraryPath>
     <_PropertySheetDisplayName>webrtc-signal-server</_PropertySheetDisplayName>
   </PropertyGroup>

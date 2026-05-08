@@ -17,7 +17,9 @@ namespace hope {
         WebRTCSignalServer::WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port, size_t size)
             : ioContext(ioContext)
             , port(port)
+#ifndef __linux__
             , acceptor(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port))
+#endif
             , size(size)
             , webrtcSignalManagers(size)
         {
@@ -32,13 +34,15 @@ namespace hope {
 
             runAccepct.store(true);
 
+#ifndef __linux__
+
             boost::asio::co_spawn(ioContext, [this]() ->boost::asio::awaitable<void> {
 
                 while (runAccepct.load()) {
 
                     std::shared_ptr<WebRTCSignalManager> manager = loadBalanceWebrtcManger();
 
-                    std::shared_ptr<hope::core::WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<hope::core::WebRTCSignalSocket>(hope::iocp::AsioProactors::getInstance()->getIoCompletePorts().second, manager.get());
+                    std::shared_ptr<hope::core::WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<hope::core::WebRTCSignalSocket>(manager->getIoCompletionPorts(), manager.get());
 
                     co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
 
@@ -60,6 +64,16 @@ namespace hope {
                 }
 
                 }, boost::asio::detached);
+
+#elif defined(__linux__)
+
+            for (int i = 0; i < size; i++) {
+
+                webrtcSignalManagers[i]->asyncAccept(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port),runAccepct);
+
+            }
+
+#endif
 
             return;
 

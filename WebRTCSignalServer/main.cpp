@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <clocale>
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalSocket.h"
 #include "ConfigManager.h"
@@ -13,6 +14,11 @@ int main() {
     SetConsoleOutputCP(CP_UTF8);
 
     SetConsoleCP(CP_UTF8);
+
+#else
+
+    std::setlocale(LC_ALL, "C.UTF-8");
+
 #endif
 
     ConfigManager::Instance().Load("config.ini", ConfigManager::Format::Ini);
@@ -26,30 +32,30 @@ int main() {
 
     hope::core::WebRTCSignalSocket::initSslContext();
 
-	boost::asio::io_context ioContext;
+    boost::asio::io_context ioContext;
 
-	size_t port = ConfigManager::Instance().GetInt("WebRTCSignalServer.port");
+    size_t port = ConfigManager::Instance().GetInt("WebRTCSignalServer.port");
 
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-	hope::core::WebRTCSignalServer webrtcSignalServer(ioContext, port);
+    hope::core::WebRTCSignalServer webrtcSignalServer(ioContext, port);
 
     webrtcSignalServer.run();
 
     boost::asio::signal_set signals(ioContext, SIGINT, SIGTERM);
 
-    signals.async_wait([&ioContext,&webrtcSignalServer,&work](const boost::system::error_code& error, int signal) {
+    signals.async_wait([&ioContext, &webrtcSignalServer, &work](const boost::system::error_code& error, int signal) {
 
-		webrtcSignalServer.shutdown();
+        webrtcSignalServer.shutdown();
 
-		work.reset();
+        work.reset();
 
         ioContext.stop();
 
         });
 
     ioContext.run();
-    
+
     return 0;
 
 }

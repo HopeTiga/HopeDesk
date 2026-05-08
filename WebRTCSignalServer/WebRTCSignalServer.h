@@ -21,9 +21,8 @@ namespace hope {
         public:
             WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, size_t size = std::thread::hardware_concurrency());
 
-            ~WebRTCSignalServer();  // 🔧 新增析构函数声明
+            ~WebRTCSignalServer(); 
 
-            // 禁止拷贝和赋值
             WebRTCSignalServer(const WebRTCSignalServer&) = delete;
 
             WebRTCSignalServer& operator=(const WebRTCSignalServer&) = delete;
@@ -32,7 +31,6 @@ namespace hope {
 
             void stop();
 
-            // 新增：优雅关闭方法
             void shutdown();
 
             void postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle);
@@ -55,7 +53,11 @@ namespace hope {
 
             boost::asio::io_context& ioContext;
 
+#ifndef __linux__
+
             boost::asio::ip::tcp::acceptor acceptor;
+
+#endif
 
             size_t port;
 
