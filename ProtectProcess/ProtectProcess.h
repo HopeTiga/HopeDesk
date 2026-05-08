@@ -3,14 +3,22 @@
 #include <memory>
 #include <atomic>
 #include <thread>
+#include <string>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/types.h>
+#include <signal.h>
+#endif
 
 #include <boost/asio.hpp>
 
 #include "Utils.h"
 
 namespace hope {
-	
-	namespace protect{
+
+	namespace protect {
 
 		class ProtectProcess
 		{
@@ -34,7 +42,11 @@ namespace hope {
 
 			std::atomic<bool> eventLoop{ false };
 
+#ifdef _WIN32
 			PROCESS_INFORMATION childProcessInfo{ 0 };
+#else
+			pid_t childPid{ -1 };
+#endif
 
 			std::atomic<bool> hasChildProcess{ false };
 

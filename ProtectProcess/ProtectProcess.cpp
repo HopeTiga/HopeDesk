@@ -2,49 +2,78 @@
 #include "Utils.h"
 #include <filesystem>
 
+#ifdef _WIN32
+#else
+#include <unistd.h>
+#include <sys/wait.h>
+#include <csignal>
+#include <cstdlib>
+#endif
+
 namespace hope {
 
-	namespace protect {
+    namespace protect {
 
 
-		ProtectProcess::ProtectProcess(boost::asio::io_context& ioContext)
-			: ioContext(ioContext)
-		{
+        ProtectProcess::ProtectProcess(boost::asio::io_context& ioContext)
+            : ioContext(ioContext)
+        {
 
 
-		}
+        }
 
-		ProtectProcess::~ProtectProcess()
-		{
-			killChildProcess();
-		}
+        ProtectProcess::~ProtectProcess()
+        {
+            killChildProcess();
+        }
 
-		void ProtectProcess::killChildProcess()
-		{
-			if (hasChildProcess.load()) {
-				if (childProcessInfo.hProcess) {
-					// 尝试优雅终止
-					if (TerminateProcess(childProcessInfo.hProcess, 0)) {
-						LOG_INFO("Child process terminated successfully");
-					}
-					else {
-						DWORD error = GetLastError();
-						LOG_ERROR("Failed to terminate child process, error code: %lu", error);
-					}
+        void ProtectProcess::killChildProcess()
+        {
+#ifdef _WIN32
+            if (hasChildProcess.load()) {
+                if (childProcessInfo.hProcess) {
+                    if (TerminateProcess(childProcessInfo.hProcess, 0)) {
+                        LOG_INFO("Child process terminated successfully");
+                    }
+                    else {
+                        DWORD error = GetLastError();
+                        LOG_ERROR("Failed to terminate child process, error code: %lu", error);
+                    }
 
-					// 等待进程结束
-					WaitForSingleObject(childProcessInfo.hProcess, 5000);
+                    WaitForSingleObject(childProcessInfo.hProcess, 5000);
 
-					CloseHandle(childProcessInfo.hProcess);
-					CloseHandle(childProcessInfo.hThread);
+                    CloseHandle(childProcessInfo.hProcess);
+                    CloseHandle(childProcessInfo.hThread);
 
-					childProcessInfo = { 0 };
-					hasChildProcess.store(false);
-				}
-			}
-		}
+                    childProcessInfo = { 0 };
+                    hasChildProcess.store(false);
+                }
+            }
+#else
+            if (hasChildProcess.load() && childPid > 0) {
+                if (kill(childPid, SIGTERM) == 0) {
+                    LOG_INFO("Sent SIGTERM to child process (pid: %d)", childPid);
+                }
+                else {
+                    LOG_ERROR("Failed to send SIGTERM to child process (pid: %d)", childPid);
+                }
 
-		
+                int status = 0;
+                pid_t ret = waitpid(childPid, &status, 0);
+                if (ret > 0) {
+                    LOG_INFO("Child process exited");
+                }
+                else if (ret == -1) {
+                    LOG_ERROR("waitpid failed for pid: %d", childPid);
+                }
+
+                childPid = -1;
+                hasChildProcess.store(false);
+            }
+#endif
+        }
+
+
 
 
 #include <filesystem>  // 需要 C++17 或以上
@@ -52,20 +81,15 @@ namespace hope {
 
         void ProtectProcess::createProcess(const std::string& exePath)
         {
-            // 如果已有子进程，先终止
             if (hasChildProcess.load()) {
                 killChildProcess();
             }
 
-            // 将相对路径转换为绝对路径
             std::string absolutePath = exePath;
 
-            // 方法1: 使用 C++17 filesystem（推荐）
-#if __cplusplus >= 201703L
             try {
                 std::filesystem::path path(exePath);
                 if (!path.is_absolute()) {
-                    // 转换为绝对路径（相对于当前工作目录）
                     absolutePath = std::filesystem::absolute(path).string();
                 }
             }
@@ -73,59 +97,43 @@ namespace hope {
                 LOG_ERROR("Failed to convert path: %s - %s", exePath.c_str(), e.what());
                 return;
             }
-#else
-// 方法2: 使用 Windows API
-            char buffer[MAX_PATH];
-            DWORD result = GetFullPathNameA(exePath.c_str(), MAX_PATH, buffer, NULL);
-            if (result > 0 && result < MAX_PATH) {
-                absolutePath = buffer;
-            }
-            else {
-                LOG_ERROR("Failed to get full path for: %s", exePath.c_str());
-                return;
-            }
-#endif
 
             LOG_INFO("Original path: %s", exePath.c_str());
             LOG_INFO("Absolute path: %s", absolutePath.c_str());
 
             // 检查文件是否存在
-            DWORD fileAttr = GetFileAttributesA(absolutePath.c_str());
-            if (fileAttr == INVALID_FILE_ATTRIBUTES) {
-                DWORD error = GetLastError();
-                LOG_ERROR("Process not found: %s (Error: %lu)", absolutePath.c_str(), error);
+            if (!std::filesystem::exists(absolutePath)) {
+                LOG_ERROR("Process not found: %s", absolutePath.c_str());
                 return;
             }
 
-            if (fileAttr & FILE_ATTRIBUTE_DIRECTORY) {
+            if (std::filesystem::is_directory(absolutePath)) {
                 LOG_ERROR("Path is a directory: %s", absolutePath.c_str());
                 return;
             }
 
-            // 保存可执行文件路径
             currentExePath = absolutePath;
 
-            // 获取子进程自身的目录
             std::string::size_type pos = absolutePath.find_last_of("\\/");
             std::string childWorkingDir = (pos != std::string::npos) ? absolutePath.substr(0, pos) : "";
 
             LOG_INFO("Working directory: %s", childWorkingDir.c_str());
 
+#ifdef _WIN32
             STARTUPINFOA si = { 0 };
             si.cb = sizeof(si);
 
-            // 创建进程 - 使用绝对路径
             if (CreateProcessA(
-                absolutePath.c_str(),   // 使用绝对路径
-                NULL,                   // 命令行参数
-                NULL,                   // 进程安全属性
-                NULL,                   // 线程安全属性
-                FALSE,                  // 不继承句柄
-                CREATE_NEW_CONSOLE,     // 创建新控制台
-                NULL,                   // 使用父进程环境
-                childWorkingDir.c_str(),// 指定子进程工作目录
-                &si,                    // 启动信息
-                &childProcessInfo       // 进程信息
+                absolutePath.c_str(),
+                NULL,
+                NULL,
+                NULL,
+                FALSE,
+                CREATE_NEW_CONSOLE,
+                NULL,
+                childWorkingDir.c_str(),
+                &si,
+                &childProcessInfo
             )) {
                 LOG_INFO("Process created successfully: %s (PID: %lu)",
                     absolutePath.c_str(), childProcessInfo.dwProcessId);
@@ -133,11 +141,9 @@ namespace hope {
                 hasChildProcess.store(true);
 
                 monitorThread = std::thread([this]() {
-                    // 无限等待子进程退出
                     DWORD waitResult = WaitForSingleObject(childProcessInfo.hProcess, INFINITE);
 
                     if (waitResult == WAIT_OBJECT_0) {
-                        // 子进程已退出
                         DWORD exitCode;
                         if (GetExitCodeProcess(childProcessInfo.hProcess, &exitCode)) {
                             LOG_INFO("Child process exited with code: %lu", exitCode);
@@ -163,10 +169,59 @@ namespace hope {
                     absolutePath.c_str(), error);
                 hasChildProcess.store(false);
             }
+#else
+            pid_t pid = fork();
+            if (pid == -1) {
+                LOG_ERROR("Failed to fork: %s", strerror(errno));
+                hasChildProcess.store(false);
+                return;
+            }
+
+            if (pid == 0) {
+                // 子进程
+                if (!childWorkingDir.empty()) {
+                    if (chdir(childWorkingDir.c_str()) != 0) {
+                        LOG_ERROR("Failed to change working directory: %s", strerror(errno));
+                        _exit(1);
+                    }
+                }
+                execl(absolutePath.c_str(), absolutePath.c_str(), (char*)nullptr);
+                LOG_ERROR("Failed to exec: %s", strerror(errno));
+                _exit(1);
+            }
+
+            LOG_INFO("Process created successfully: %s (PID: %d)", absolutePath.c_str(), pid);
+            childPid = pid;
+            hasChildProcess.store(true);
+
+            auto self = this;
+            monitorThread = std::thread([self, pid]() {
+                int status = 0;
+                pid_t ret = waitpid(pid, &status, 0);
+
+                if (ret > 0) {
+                    int exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+                    LOG_INFO("Child process exited with code: %d", exitCode);
+                    self->hasChildProcess.store(false);
+
+                    boost::asio::post(self->ioContext, [self]() {
+                        LOG_WARNING("Child process terminated, attempting to restart...");
+                        if (!self->currentExePath.empty()) {
+                            self->createProcess(self->currentExePath);
+                        }
+                        });
+                }
+                else {
+                    LOG_ERROR("waitpid failed for pid: %d", pid);
+                    self->hasChildProcess.store(false);
+                }
+                });
+            monitorThread.detach();
+#endif
         }
 
 
 
-	}
+    }
 
 }
