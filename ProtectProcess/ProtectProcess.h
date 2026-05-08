@@ -5,14 +5,16 @@
 #include <thread>
 #include <string>
 
+// 1. 先包含 Boost.Asio
+#include <boost/asio.hpp>
+
+// 2. 再包含 Windows.h (Boost 会处理好冲突)
 #ifdef _WIN32
 #include <windows.h>
 #else
 #include <sys/types.h>
 #include <signal.h>
 #endif
-
-#include <boost/asio.hpp>
 
 #include "Utils.h"
 
