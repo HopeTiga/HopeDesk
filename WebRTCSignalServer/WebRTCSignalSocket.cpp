@@ -272,8 +272,6 @@ namespace hope {
 
             try {
 
-                std::string str;
-
                 while (webSocketRuns.load()) {
 
                     std::optional<std::string> optional = co_await asioConcurrentQueue.dequeue();
