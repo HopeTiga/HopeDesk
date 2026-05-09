@@ -259,7 +259,7 @@ namespace hope {
 
                 if (!json.contains("requestType")) throw std::runtime_error("Invalid request: missing requestType");
 
-                if (!this->isRegistered && !json["requestType"].as_int64() == 0) throw std::runtime_error("Not Allow No Register Do Anything");
+                if (!this->isRegistered && json["requestType"].as_int64() != 0) throw std::runtime_error("Not Allow No Register Do Anything");
 
                 auto data = std::make_shared<hope::core::WebRTCSignalData>(std::move(json), shared_from_this(), webrtcSignalManager);
 
