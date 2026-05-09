@@ -10,6 +10,7 @@ int main(int argc, char *argv[])
     app.setApplicationVersion("1.0");
     app.setOrganizationName("HopeDesk");
     app.setOrganizationDomain("HopeDesk.local");
+    app.setQuitOnLastWindowClosed(false);
 
     ConfigManager::Instance().Load();
 

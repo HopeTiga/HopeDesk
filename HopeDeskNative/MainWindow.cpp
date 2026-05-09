@@ -34,7 +34,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     settings = new QSettings("WebRTCmanager", "Settings", this);
 
-    manager = new WebRTCManager(WebRTCRemoteState::nullRemote);
+    manager = std::make_shared<WebRTCManager>(WebRTCRemoteState::nullRemote);
 
     // 2. 初始化
     initConfigAndSettings();
@@ -73,7 +73,7 @@ MainWindow::MainWindow(QWidget* parent)
                     ui->remoteStatusLabel->setText("远程连接已结束");
                     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
                     ui->networkTypeBadge->setVisible(false);
-                    if(videoWidget) { videoWidget->hide(); videoWidget->deleteLater(); videoWidget = nullptr; }
+                    if(videoWidget) { videoWidget->hide(); disconnect(videoWidget, nullptr, this, nullptr); delete videoWidget; videoWidget = nullptr; }
 
                     if(manager) manager->disConnectRemote();
 
@@ -126,7 +126,7 @@ MainWindow::~MainWindow()
         settings->setValue("webrtcLevels", webrtcLevels);
         settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
     }
-    if (manager) { manager->disConnect(); delete manager; }
+    if (manager) { manager->disConnect();}
     if (videoWidget) delete videoWidget;
     delete ui;
 }
@@ -731,6 +731,7 @@ void MainWindow::quitApplication() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+
     if (reallyExit) {
         if(videoWidget) {
             delete videoWidget;
@@ -740,10 +741,6 @@ void MainWindow::closeEvent(QCloseEvent* event) {
             trayIcon->hide();
             delete trayIcon;
             trayIcon = nullptr;
-        }
-        if(manager) {
-            delete manager;
-            manager = nullptr;
         }
         if (reconnectTimer) reconnectTimer->stop();
         if (remoteConnectionTimer) remoteConnectionTimer->stop();

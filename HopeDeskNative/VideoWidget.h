@@ -37,7 +37,7 @@ public:
     void enterFullScreen();
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
-    void setWebRTCManager(WebRTCManager* manager);
+    void setWebRTCManager(std::shared_ptr<WebRTCManager> manager);
 
 Q_SIGNALS:
     void disConnectRemote();
@@ -75,7 +75,7 @@ private:
     // 当视频尺寸变化时重建纹理和绑定
     void ensureTexturesForSize(int width, int height);
 
-    WebRTCManager* manager;
+    std::shared_ptr<WebRTCManager> manager;
     QRhi* rhi = nullptr;
 
     std::unique_ptr<QRhiGraphicsPipeline> pipeline;

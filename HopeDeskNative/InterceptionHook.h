@@ -28,7 +28,7 @@ public:
 
     // 设置目标窗口和客户端
     void setTargetWidget(VideoWidget* widget);
-    void setManager(WebRTCManager* manager);
+    void setManager(std::shared_ptr<WebRTCManager> manager);
 
     // 启动/停止捕获
     bool startCapture();
@@ -80,7 +80,7 @@ private:
 
     HWND targetHwnd;
     // 远程客户端
-    WebRTCManager * manager;
+    std::shared_ptr<WebRTCManager> manager;
 
     // 捕获线程
     std::thread captureThread;

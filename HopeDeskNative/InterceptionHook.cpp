@@ -45,7 +45,7 @@ void InterceptionHook::setTargetWidget(VideoWidget* widget)
     }
 }
 
-void InterceptionHook::setManager(WebRTCManager* manager)
+void InterceptionHook::setManager(std::shared_ptr<WebRTCManager> manager)
 {
     this->manager = manager;
     LOG_INFO("Remote client set");

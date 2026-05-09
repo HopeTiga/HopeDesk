@@ -433,7 +433,7 @@ void VideoWidget::updateFPS()
     }
 }
 
-void VideoWidget::setWebRTCManager(WebRTCManager * manager)
+void VideoWidget::setWebRTCManager(std::shared_ptr<WebRTCManager> manager)
 {
     this->manager = manager;
     interceptionHook = std::make_unique<InterceptionHook>();

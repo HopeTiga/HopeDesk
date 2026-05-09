@@ -472,6 +472,8 @@ void WebRTCManager::disConnectRemoteHandler()
 
 void WebRTCManager::closeWebSocket()
 {
+    if(!webrtcSignalSocketRuns.exchange(false)) return;
+
     boost::system::error_code ec;
 
     webrtcAsioConcurrentQueue.close();
@@ -501,8 +503,6 @@ void WebRTCManager::closeWebSocket()
             LOG_ERROR("WebRTCManager::closeSocket() close Tcp Socket failed: %s", ec.message().c_str());
         }
     }
-
-    webrtcSignalSocketRuns.store(false);
 
     LOG_INFO("WebRTCManager::WebSocket is close");
 }

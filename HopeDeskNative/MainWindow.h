@@ -100,7 +100,7 @@ private:
 private:
     Ui::MainWindow *ui;
     VideoWidget* videoWidget;
-    WebRTCManager* manager;
+    std::shared_ptr<WebRTCManager> manager;
     QSettings* settings;
     QSystemTrayIcon *trayIcon = nullptr;
     QMenu *trayMenu = nullptr;
