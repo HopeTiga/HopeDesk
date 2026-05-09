@@ -8,7 +8,7 @@ namespace hope {
 		WebRTCSignalData::WebRTCSignalData(boost::json::object json, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webrtcSignalManager)
 			:json(json)
 			, webrtcSignalSocket(webrtcSignalSocket)
-			, webrtcSignalManager(webrtcSignalManager) {
+			, webrtcSignalManager(webrtcSignalManager){
 
 		}
 	}

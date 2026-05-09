@@ -138,7 +138,7 @@ namespace hope {
             }
             if (!isRegistered.load()) {
 
-                LOG_WARNING("Rgister Timeout (%d): WebRTCSignalSocket not rigster，close socket.", registrationTimeoutMs);
+                LOG_WARNING("Rgister Timeout (%d): WebRTCSignalSocket not rigster,close socket.", registrationTimeoutMs);
 
                 destroy();
 
@@ -149,42 +149,42 @@ namespace hope {
 
             webSocketRuns.store(true);
 
-            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void>{
-            
+            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
+
                 co_await self->reviceCoroutine();
 
                 co_return;
 
-            }, [self = shared_from_this()](std::exception_ptr p) {
-                if (p) {
-                    try {
+                }, [self = shared_from_this()](std::exception_ptr p) {
+                    if (p) {
+                        try {
 
-                        std::rethrow_exception(p);
-
-                    }
-                    catch (const std::runtime_error& e) {
-
-                        if (self->isRegistered && self->onDisConnectHandle) {
-
-                            self->onDisConnectHandle(self->accountId, self->sessionId);
+                            std::rethrow_exception(p);
 
                         }
+                        catch (const std::runtime_error& e) {
 
-                        LOG_DEBUG("WebRTCSignalSocket error: %s", e.what());
+                            if (self->isRegistered && self->onDisConnectHandle) {
+
+                                self->onDisConnectHandle(self->accountId, self->sessionId);
+
+                            }
+
+                            LOG_DEBUG("WebRTCSignalSocket error: %s", e.what());
+                        }
                     }
-                }
-                });
+                    });
 
-            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
+                boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
 
-                co_await self->writerCoroutine();
+                    co_await self->writerCoroutine();
 
-                co_return;
+                    co_return;
 
-                }, boost::asio::detached);
+                    }, boost::asio::detached);
 
-            webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
-                boost::beast::role_type::server));
+                webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
+                    boost::beast::role_type::server));
 
         }
         void WebRTCSignalSocket::clear() {

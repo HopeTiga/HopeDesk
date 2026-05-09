@@ -7,8 +7,9 @@
 
 #include <boost/asio.hpp>
 
+#include <absl/container/flat_hash_map.h>
+
 #include "WebRTCMysqlManagerPools.h"
-#include "WebRTCHashMap.h"
 
 
 namespace hope {
@@ -42,7 +43,7 @@ namespace hope {
 
 			int channelIndex;
 
-			hope::utils::WebRTCHashMap<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::core::WebRTCSignalData>)>> webrtcHandlers;
+			absl::flat_hash_map<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::core::WebRTCSignalData>)>> webrtcHandlers;
 
 			std::shared_ptr<hope::mysql::WebRTCMysqlManagerPools> webrtcMysqlManagerPools;
 		};

@@ -2,11 +2,11 @@
 #include <memory>
 #include <string>
 
+#include <absl/container/flat_hash_map.h>
+
 #include "WebRTCLogicSystem.h"
 #include "WebRTCSignalSocket.h"
 
-#include "WebRTCHashMap.h"
-#include "WebRTCHashSet.h"
 
 namespace hope {
 
@@ -49,11 +49,11 @@ namespace hope {
 
 			std::shared_ptr<hope::core::WebRTCLogicSystem> logicSystem;
 
-			hope::utils::WebRTCHashMap<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSocketMap;
+			absl::flat_hash_map<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSocketMap;
 
 			size_t hashSize = std::thread::hardware_concurrency();
 
-			hope::utils::WebRTCHashMap<std::string, int> actorSocketMappingIndex;
+			absl::flat_hash_map<std::string, int> actorSocketMappingIndex;
 
 			std::hash<std::string> hasher;
 

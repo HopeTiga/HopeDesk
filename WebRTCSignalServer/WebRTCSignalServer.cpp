@@ -12,7 +12,7 @@
 #include "Utils.h"
 
 namespace hope {
-    
+
     namespace core {
         WebRTCSignalServer::WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port, size_t size)
             : ioContext(ioContext)
@@ -27,8 +27,8 @@ namespace hope {
         }
 
         void WebRTCSignalServer::run() {
-            // 启动服务器逻辑（监听端口，接受连接等）
-            LOG_INFO("WebRTCSginalServer EventLoop ，Listen Accept Port: %zu", port);
+
+            LOG_INFO("WebRTCSginalServer Protocol: WebSocket , Listen Accept Port: %zu", port);
 
             if (runAccepct.load()) return;
 
@@ -69,7 +69,7 @@ namespace hope {
 
             for (int i = 0; i < size; i++) {
 
-                webrtcSignalManagers[i]->asyncAccept(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port),runAccepct);
+                webrtcSignalManagers[i]->asyncAccept(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port), runAccepct);
 
             }
 
@@ -90,7 +90,7 @@ namespace hope {
 
             if (shuttingDown.exchange(true)) return;
 
-			runAccepct.store(false);
+            runAccepct.store(false);
 
             LOG_INFO("WebRTCSignalServer Start Shutdown...");
             // 设置关闭标志，防止新连接
@@ -144,7 +144,7 @@ namespace hope {
 
                 std::pair<int, boost::asio::io_context&> channelPairs = hope::iocp::AsioProactors::getInstance()->getIoCompletePorts();
 
-                webrtcSignalManagers[i] = std::make_shared<WebRTCSignalManager>(channelPairs.first,channelPairs.second, this);
+                webrtcSignalManagers[i] = std::make_shared<WebRTCSignalManager>(channelPairs.first, channelPairs.second, this);
 
             }
 
