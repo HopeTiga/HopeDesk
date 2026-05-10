@@ -145,7 +145,7 @@ namespace hope {
             }
         }
 
-        void WebRTCSignalSocket::runEventLoop() {
+        void WebRTCSignalSocket::asyncEvent() {
 
             webSocketRuns.store(true);
 

@@ -7,7 +7,6 @@
 #include "WebRTCLogicSystem.h"
 #include "WebRTCSignalSocket.h"
 
-
 namespace hope {
 
 	namespace core {
@@ -32,6 +31,8 @@ namespace hope {
 			int getChannelIndex();
 
 			boost::asio::io_context& getIoCompletionPorts();
+
+			std::shared_ptr<hope::core::WebRTCSignalSocket> generateWebRTCSignalSocket();
 
 #ifdef __linux__
 

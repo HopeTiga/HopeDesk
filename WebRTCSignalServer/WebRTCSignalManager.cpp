@@ -15,7 +15,7 @@ namespace hope {
 
     namespace core {
 
-        WebRTCSignalManager::WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer * webrtcSignalServer)
+        WebRTCSignalManager::WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer)
             : channelIndex(channelIndex)
             , ioContext(ioContext)
             , webrtcSignalServer(webrtcSignalServer)
@@ -25,7 +25,7 @@ namespace hope {
 
         {
 
-            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePorts().second,channelIndex);
+            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePorts().second, channelIndex);
 
             logicSystem->initHandlers();
 
@@ -43,11 +43,16 @@ namespace hope {
         }
 
         boost::asio::io_context& WebRTCSignalManager::getIoCompletionPorts() {
-        
+
             return ioContext;
 
         }
 
+        std::shared_ptr<hope::core::WebRTCSignalSocket> WebRTCSignalManager::generateWebRTCSignalSocket() {
+
+            return std::make_shared<hope::core::WebRTCSignalSocket>(getIoCompletionPorts(), this);
+
+        }
 
         void WebRTCSignalManager::removeConnection(std::string accountId, std::string sessionId, bool needClear)
         {
@@ -105,9 +110,9 @@ namespace hope {
 
 #ifdef __linux__
 
-        void WebRTCSignalManager::asyncAccept(boost::asio::ip::tcp::endpoint endpoint,std::atomic<bool>& runAccepct)
+        void WebRTCSignalManager::asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct)
         {
-           
+
             acceptor.open(endpoint.protocol());
 
             acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
@@ -118,13 +123,13 @@ namespace hope {
 
             acceptor.listen();
 
-            boost::asio::co_spawn(ioContext, [self = shared_from_this()]() ->boost::asio::awaitable<void> {
+            boost::asio::co_spawn(ioContext, [self = shared_from_this(), &runAccepct]() ->boost::asio::awaitable<void> {
 
                 while (runAccepct.load()) {
 
                     std::shared_ptr<hope::core::WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<hope::core::WebRTCSignalSocket>(self->ioContext, self.get());
 
-                    co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
+                    co_await self->acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
 
                     webrtcSignalSocket->setOnDisConnectHandle([sharedManager = self->shared_from_this()](std::string accountId, std::string sessionId) {
 
@@ -132,11 +137,11 @@ namespace hope {
 
                         });
 
-                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [this, selfWebRTCSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
-                        co_await selfWebRTCSignalSocket->handShake();
+                        co_await webrtcSignalSocket->handShake();
 
-                        selfWebRTCSignalSocket->runEventLoop();
+                        webrtcSignalSocket->asyncEvent();
 
                         }, boost::asio::detached);
 

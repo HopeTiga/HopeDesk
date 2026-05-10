@@ -26,7 +26,7 @@ namespace hope {
             initialize();
         }
 
-        void WebRTCSignalServer::run() {
+        void WebRTCSignalServer::asyncEvent() {
 
             LOG_INFO("WebRTCSginalServer Protocol: WebSocket , Listen Accept Port: %zu", port);
 
@@ -42,7 +42,7 @@ namespace hope {
 
                     std::shared_ptr<WebRTCSignalManager> manager = loadBalanceWebrtcManger();
 
-                    std::shared_ptr<hope::core::WebRTCSignalSocket> webrtcSignalSocket = std::make_shared<hope::core::WebRTCSignalSocket>(manager->getIoCompletionPorts(), manager.get());
+                    std::shared_ptr<hope::core::WebRTCSignalSocket> webrtcSignalSocket = manager->generateWebRTCSignalSocket();
 
                     co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
 
@@ -56,7 +56,7 @@ namespace hope {
 
                         co_await selfWebRTCSignalSocket->handShake();
 
-                        selfWebRTCSignalSocket->runEventLoop();
+                        selfWebRTCSignalSocket->asyncEvent();
 
                         }, boost::asio::detached);
 
@@ -82,13 +82,13 @@ namespace hope {
 
         WebRTCSignalServer::~WebRTCSignalServer() {
 
-            shutdown();
+            closeEvent();
 
         }
 
-        void WebRTCSignalServer::shutdown() {
+        void WebRTCSignalServer::closeEvent() {
 
-            if (shuttingDown.exchange(true)) return;
+            if (closeEvents.exchange(true)) return;
 
             runAccepct.store(false);
 

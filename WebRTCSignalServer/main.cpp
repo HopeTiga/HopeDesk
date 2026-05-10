@@ -38,15 +38,15 @@ int main() {
 
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    hope::core::WebRTCSignalServer webrtcSignalServer(ioContext, port);
+    std::shared_ptr<hope::core::WebRTCSignalServer> webrtcSignalServer = std::make_shared<hope::core::WebRTCSignalServer>(ioContext, port);
 
-    webrtcSignalServer.run();
+    webrtcSignalServer->asyncEvent();
 
     boost::asio::signal_set signals(ioContext, SIGINT, SIGTERM);
 
-    signals.async_wait([&ioContext, &webrtcSignalServer, &work](const boost::system::error_code& error, int signal) {
+    signals.async_wait([&ioContext, webrtcSignalServer = webrtcSignalServer->shared_from_this(), &work](const boost::system::error_code& error, int signal) {
 
-        webrtcSignalServer.shutdown();
+        webrtcSignalServer->closeEvent();
 
         work.reset();
 

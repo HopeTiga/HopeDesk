@@ -58,7 +58,7 @@ namespace hope {
 
 			boost::asio::io_context& getIoCompletionPorts();
 
-			void runEventLoop();
+			void asyncEvent();
 
 			void clear();
 
