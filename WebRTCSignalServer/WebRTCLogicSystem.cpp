@@ -86,6 +86,8 @@ namespace hope {
 
             if (httpHandlers.find(targetUrl) != httpHandlers.end()) {
 
+                LOG_INFO("Http Request: %s", targetUrl.data());
+
                 std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)> func = httpHandlers[targetUrl];
 
                 boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), func = std::move(func)]()mutable->boost::asio::awaitable<void> {
