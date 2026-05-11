@@ -63,7 +63,7 @@ namespace hope {
 
         }
 
-        void WebRTCSignalManager::removeConnection(std::string accountId, std::string sessionId, bool needClear)
+        void WebRTCSignalManager::removeConnection(std::string accountId, std::string sessionId)
         {
             LOG_INFO("Remove WebRTCSignalSocketInterface Request: Account=%s, SessionId=%s", accountId.c_str(), sessionId.c_str());
 
@@ -87,27 +87,23 @@ namespace hope {
 
             currentSocket->closeSocket();
 
-            if (needClear) {
+            int mapChannelIndex = hasher(accountId) % hashSize;
 
-                int mapChannelIndex = hasher(accountId) % hashSize;
+            webrtcSignalServer->postTaskAsync(mapChannelIndex, [accountId](std::shared_ptr<WebRTCSignalManager> manager) -> boost::asio::awaitable<void> {
 
-                webrtcSignalServer->postTaskAsync(mapChannelIndex, [accountId](std::shared_ptr<WebRTCSignalManager> manager) -> boost::asio::awaitable<void> {
+                auto itIndex = manager->actorSocketMappingIndex.find(accountId);
 
-                    auto itIndex = manager->actorSocketMappingIndex.find(accountId);
+                if (itIndex != manager->actorSocketMappingIndex.end()) {
 
-                    if (itIndex != manager->actorSocketMappingIndex.end()) {
+                    manager->actorSocketMappingIndex.erase(itIndex);
 
-                        manager->actorSocketMappingIndex.erase(itIndex);
+                    LOG_INFO("Global Index Removed: %s", accountId.c_str());
 
-                        LOG_INFO("Global Index Removed: %s", accountId.c_str());
+                }
 
-                    }
+                co_return;
 
-                    co_return;
-
-                    });
-
-            }
+                });
 
 
         }
@@ -119,7 +115,7 @@ namespace hope {
 
 #ifdef __linux__
 
-        void WebRTCSignalManager::asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, int enableHttp)
+        void WebRTCSignalManager::asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, boost::asio::ip::tcp::endpoint httpEndpoint, int enableHttp)
         {
 
             acceptor.open(endpoint.protocol());
@@ -161,13 +157,13 @@ namespace hope {
 
             if (enableHttp == 1) {
 
-                httpAcceptor.open(endpoint.protocol());
+                httpAcceptor.open(httpEndpoint.protocol());
 
                 httpAcceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
 
                 httpAcceptor.set_option(boost::asio::detail::socket_option::boolean<SOL_SOCKET, SO_REUSEPORT>(true));
 
-                httpAcceptor.bind(endpoint);
+                httpAcceptor.bind(httpEndpoint);
 
                 httpAcceptor.listen();
 

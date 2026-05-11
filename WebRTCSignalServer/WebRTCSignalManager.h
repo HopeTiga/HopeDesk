@@ -27,7 +27,7 @@ namespace hope {
 
 			std::shared_ptr<hope::core::WebRTCLogicSystem> getLogicSystem();
 
-			void removeConnection(std::string accountId, std::string sessionId, bool needClear = true);
+			void removeConnection(std::string accountId, std::string sessionId);
 
 			int getChannelIndex();
 
@@ -39,7 +39,7 @@ namespace hope {
 
 #ifdef __linux__
 
-			void asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, int enableHttp = 0);
+			void asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, boost::asio::ip::tcp::endpoint httpEndpoint, int enableHttp = 0);
 
 #endif
 

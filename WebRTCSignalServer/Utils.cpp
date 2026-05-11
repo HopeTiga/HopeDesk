@@ -7,6 +7,7 @@
 #include <mutex>
 #include <vector>
 #include <string>
+#include <thread>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
