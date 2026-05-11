@@ -72,6 +72,8 @@ namespace hope {
 
 			void setRegistered(bool isRegistered);
 
+			bool getRegistered();
+
 			void destroy();
 
 			std::string getSessionId();

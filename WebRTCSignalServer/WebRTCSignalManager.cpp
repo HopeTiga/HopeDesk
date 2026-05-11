@@ -21,6 +21,7 @@ namespace hope {
             , webrtcSignalServer(webrtcSignalServer)
 #ifdef __linux__
             , acceptor(ioContext)
+            , httpAcceptor(ioContext)
 #endif
 
         {
@@ -28,6 +29,8 @@ namespace hope {
             logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePorts().second, channelIndex);
 
             logicSystem->initHandlers();
+
+            logicSystem->initHttpHandlers();
 
         }
 
@@ -51,6 +54,12 @@ namespace hope {
         std::shared_ptr<hope::core::WebRTCSignalSocket> WebRTCSignalManager::generateWebRTCSignalSocket() {
 
             return std::make_shared<hope::core::WebRTCSignalSocket>(getIoCompletionPorts(), this);
+
+        }
+
+        std::shared_ptr<HttpSocket> WebRTCSignalManager::generateHttpSocket(bool enableSsl) {
+
+            return std::make_shared<HttpSocket>(ioContext, this, enableSsl);
 
         }
 
@@ -110,7 +119,7 @@ namespace hope {
 
 #ifdef __linux__
 
-        void WebRTCSignalManager::asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct)
+        void WebRTCSignalManager::asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, int enableHttp)
         {
 
             acceptor.open(endpoint.protocol());
@@ -149,6 +158,43 @@ namespace hope {
                 }
 
                 }, boost::asio::detached);
+
+            if (enableHttp == 1) {
+
+                httpAcceptor.open(endpoint.protocol());
+
+                httpAcceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+
+                httpAcceptor.set_option(boost::asio::detail::socket_option::boolean<SOL_SOCKET, SO_REUSEPORT>(true));
+
+                httpAcceptor.bind(endpoint);
+
+                httpAcceptor.listen();
+
+                boost::asio::co_spawn(ioContext, [self = shared_from_this(), &runAccepct]() ->boost::asio::awaitable<void> {
+
+                    while (runAccepct.load()) {
+
+                        std::shared_ptr<HttpSocket> httpSocket = self->generateHttpSocket(true);
+
+                        co_await self->httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::use_awaitable);
+
+                        boost::asio::co_spawn(httpSocket->getIoContext(), [httpSocket = httpSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+
+                            co_await httpSocket->asyncEventLoop();
+
+                            co_return;
+
+                            }, boost::asio::detached);
+
+                    }
+
+                    co_return;
+
+                    }, boost::asio::detached);
+
+            }
+
         }
 
 #endif

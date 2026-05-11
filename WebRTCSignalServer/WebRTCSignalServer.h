@@ -21,7 +21,8 @@ namespace hope {
         class WebRTCSignalServer : public std::enable_shared_from_this<WebRTCSignalServer> {
 
         public:
-            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, size_t size = std::thread::hardware_concurrency());
+
+            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, int enableHttp = 0, size_t httpPort = 8080, size_t size = std::thread::hardware_concurrency());
 
             ~WebRTCSignalServer();
 
@@ -34,6 +35,8 @@ namespace hope {
             void closeEvent();
 
             void postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle);
+
+            size_t getChannelNumbers();
 
         private:
 
@@ -57,9 +60,15 @@ namespace hope {
 
             boost::asio::ip::tcp::acceptor acceptor;
 
+            boost::asio::ip::tcp::acceptor httpAcceptor;
+
 #endif
 
             size_t port;
+
+            size_t httpPort;
+
+            int enableHttp;
 
             size_t size;
         };

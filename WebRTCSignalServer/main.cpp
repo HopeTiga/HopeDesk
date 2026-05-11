@@ -36,9 +36,13 @@ int main() {
 
     size_t port = ConfigManager::Instance().GetInt("WebRTCSignalServer.port");
 
+    size_t httpPort = ConfigManager::Instance().GetInt("WebRTCSignalServer.httpPort");
+
+    int enableHttp = ConfigManager::Instance().GetInt("WebRTCSignalServer.enableHttp");
+
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    std::shared_ptr<hope::core::WebRTCSignalServer> webrtcSignalServer = std::make_shared<hope::core::WebRTCSignalServer>(ioContext, port);
+    std::shared_ptr<hope::core::WebRTCSignalServer> webrtcSignalServer = std::make_shared<hope::core::WebRTCSignalServer>(ioContext, port, enableHttp, httpPort);
 
     webrtcSignalServer->asyncEvent();
 

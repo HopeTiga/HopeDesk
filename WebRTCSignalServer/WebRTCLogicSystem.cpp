@@ -2,6 +2,7 @@
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalManager.h"
 #include "WebRTCSignalSocket.h"
+#include "HttpSocket.h"
 #include "WebRTCSignalData.h"
 #include "WebRTCMysqlManagerPools.h"
 
@@ -77,6 +78,90 @@ namespace hope {
             else {
                 LOG_ERROR("Unknown WebRTC Request Type: %d", type);
             }
+        }
+
+        void WebRTCLogicSystem::postHttpTaskAsync(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest)
+        {
+            std::string targetUrl = httpRequest.target();
+
+            if (httpHandlers.find(targetUrl) != httpHandlers.end()) {
+
+                std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)> func = httpHandlers[targetUrl];
+
+                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), func = std::move(func)]()mutable->boost::asio::awaitable<void> {
+
+                    co_await func(httpSocket, httpRquest);
+
+                    co_return;
+
+                    }, [this, targetUrl](std::exception_ptr ptr) {
+                        if (ptr) {
+                            try {
+                                std::rethrow_exception(ptr);
+                            }
+                            catch (const std::exception& e) {
+                                LOG_ERROR("WebRTCLogicSystem boost::asio::co_spawn HttpTask: %d Exception: %s", targetUrl, e.what());
+                            }
+                        }
+                        });
+
+            }
+            else {
+
+                boost::asio::io_context& ioContext = httpSocket->getIoContext();
+
+                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest)]()mutable->boost::asio::awaitable<void> {
+
+                    LOG_WARNING("Http Request Not Found: %s", httpRequest.target().data());
+
+                    boost::beast::http::response<boost::beast::http::string_body> httpResponse{ boost::beast::http::status::not_found,httpRequest.version() };
+
+                    httpResponse.set(boost::beast::http::field::server, "WebRTCSignalServer");
+
+                    httpResponse.set(boost::beast::http::field::content_type, "application/json");
+
+                    httpResponse.keep_alive(httpSocket->getKeepAlive());
+
+                    boost::json::object responseBody;
+
+                    responseBody["message"] = "The requested resource was not found on this server.";
+
+                    responseBody["state"] = 404;
+
+                    responseBody["data"] = nullptr;
+
+                    httpResponse.body() = boost::json::serialize(responseBody);
+
+                    httpResponse.prepare_payload();
+
+                    try {
+                        co_await httpSocket->asyncWrite(std::move(httpResponse));
+
+                        httpSocket->closeSocket();
+                    }
+                    catch (const std::exception& e) {
+
+                        LOG_ERROR("Http Write Error: %s", e.what());
+
+                        httpSocket->closeSocket();
+
+                    }
+
+                    co_return;
+
+                    }, [this, targetUrl](std::exception_ptr ptr) {
+                        if (ptr) {
+                            try {
+                                std::rethrow_exception(ptr);
+                            }
+                            catch (const std::exception& e) {
+                                LOG_ERROR("WebRTCLogicSystem boost::asio::co_spawn HttpTask: %d Exception: %s", targetUrl, e.what());
+                            }
+                        }
+                        });
+
+            }
+
         }
 
         void WebRTCLogicSystem::initHandlers() {
@@ -415,6 +500,193 @@ namespace hope {
 
         }
 
+        void WebRTCLogicSystem::initHttpHandlers()
+        {
+            auto self = shared_from_this();
+
+            std::function<void(std::shared_ptr<HttpSocket>, unsigned, boost::json::object)> httpSocketAsyncWrite = [self](std::shared_ptr<HttpSocket> httpSocket, unsigned version, boost::json::object body) {
+
+                boost::asio::io_context& ioContext = httpSocket->getIoContext();
+
+                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), version, body = std::move(body)]()mutable->boost::asio::awaitable<void> {
+
+                    boost::beast::http::response<boost::beast::http::string_body> res{ boost::beast::http::status::ok, version };
+
+                    res.set(boost::beast::http::field::content_type, "application/json");
+
+                    res.body() = boost::json::serialize(body);
+
+                    res.prepare_payload();
+
+                    res.keep_alive(httpSocket->getKeepAlive());
+
+                    co_await httpSocket->asyncWrite(std::move(res));
+
+                    co_return;
+
+                    }, [self](std::exception_ptr ptr) {
+                        if (ptr) {
+                            try {
+                                std::rethrow_exception(ptr);
+                            }
+                            catch (const std::exception& e) {
+                                LOG_ERROR("WebRTCLogicSystem boost::asio::co_spawn HttpTask Response Exception: %s", e.what());
+                            }
+                        }
+                        });
+                };
+
+            std::function<void(std::shared_ptr<HttpSocket>, unsigned, int, std::string)> httpSocketAsyncWriteError = [self, httpSocketAsyncWrite](std::shared_ptr<HttpSocket> httpSocket, unsigned version, int code, std::string msg) {
+
+                boost::json::object resp;
+
+                resp["state"] = code;
+
+                resp["message"] = msg;
+
+                resp["data"] = nullptr;
+
+                httpSocketAsyncWrite(httpSocket, version, std::move(resp));
+
+                };
+
+            std::function<bool(const boost::beast::http::request<boost::beast::http::string_body>&)> verifyAuthorization = [self, httpSocketAsyncWrite, httpSocketAsyncWriteError](const boost::beast::http::request<boost::beast::http::string_body>& req) {
+
+                try {
+
+                    auto it = req.find(boost::beast::http::field::authorization);
+
+                    if (it == req.end()) return false;
+
+                    std::string authHeader(it->value());
+
+                    if (authHeader.size() < 7 || authHeader.substr(0, 7) != "Bearer ") return false;
+
+                    std::string token = authHeader.substr(7);
+
+                    if (token == "913140924@qq.com") return true;
+
+                    return false;
+
+                }
+                catch (std::exception& e) {
+
+                    LOG_ERROR("Authorization Verify Error:%s", e.what());
+
+                    return false;
+                }
+                };
+
+            httpHandlers["/api/v1/managers/overview"] = [self, httpSocketAsyncWrite, httpSocketAsyncWriteError, verifyAuthorization](std::shared_ptr<HttpSocket> httpSocket, auto httpRequest) mutable -> boost::asio::awaitable<void> {
+
+                if (!verifyAuthorization(httpRequest)) {
+
+                    httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 403, "Forbidden");
+
+                    co_return;
+
+                }
+
+                WebRTCSignalServer* server = httpSocket->getWebRTCSignalManager()->webrtcSignalServer;
+
+                boost::json::object data;
+
+                data["totalManagers"] = server->getChannelNumbers();
+
+                boost::json::object resp;
+
+                resp["state"] = 200;
+
+                resp["message"] = "success";
+
+                resp["data"] = std::move(data);
+
+                httpSocketAsyncWrite(httpSocket, httpRequest.version(), std::move(resp));
+
+                co_return;
+
+                };
+
+
+            httpHandlers["/api/v1/managers/stat"] = [self, httpSocketAsyncWrite, httpSocketAsyncWriteError, verifyAuthorization](std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
+
+                if (!verifyAuthorization(httpRequest)) {
+
+                    httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 403, "Forbidden");
+
+                    co_return;
+
+                }
+
+                boost::json::value reqBody = boost::json::parse(httpRequest.body());
+
+                if (!reqBody.is_object() || !reqBody.as_object().contains("channelIndex")) {
+
+                    httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 400, "Missing channelIndex");
+
+                    co_return;
+
+                }
+
+                size_t targetIdx = reqBody.as_object()["channelIndex"].as_int64();
+
+                int currentChannelIndex = httpSocket->getWebRTCSignalManager()->channelIndex;
+
+                WebRTCSignalServer* server = httpSocket->getWebRTCSignalManager()->webrtcSignalServer;
+
+                server->postTaskAsync(targetIdx, [httpSocket, version = httpRequest.version(), currentChannelIndex, self, httpSocketAsyncWrite](std::shared_ptr<WebRTCSignalManager> targetManager) mutable -> boost::asio::awaitable<void> {
+
+                    boost::json::object targetData;
+
+                    targetData["channelIndex"] = targetManager->channelIndex;
+
+                    targetData["totalSockets"] = targetManager->webrtcSocketMap.size();
+
+                    boost::json::array socketList;
+
+                    for (auto const& [accountId, socketPtr] : targetManager->webrtcSocketMap) {
+
+                        boost::json::object sInfo;
+
+                        sInfo["accountId"] = accountId;
+
+                        sInfo["remoteAddr"] = socketPtr->getRemoteAddress();
+
+                        sInfo["sessionId"] = socketPtr->getSessionId();
+
+                        sInfo["isRegistered"] = socketPtr->getRegistered();
+
+                        sInfo["cachedRouteCount"] = socketPtr->actorMappingIndex.size();
+
+                        socketList.push_back(std::move(sInfo));
+
+                    }
+
+                    targetData["sockets"] = std::move(socketList);
+
+                    targetManager->webrtcSignalServer->postTaskAsync(currentChannelIndex, [httpSocket, version, targetData = std::move(targetData), self, httpSocketAsyncWrite](std::shared_ptr<WebRTCSignalManager> manager) mutable -> boost::asio::awaitable<void> {
+
+                        boost::json::object resp;
+
+                        resp["state"] = 200;
+
+                        resp["data"] = std::move(targetData);
+
+                        httpSocketAsyncWrite(httpSocket, version, std::move(resp));
+
+                        co_return;
+
+                        });
+
+                    co_return;
+
+                    });
+
+                co_return;
+
+                };
+
+        }
     }
 
 }

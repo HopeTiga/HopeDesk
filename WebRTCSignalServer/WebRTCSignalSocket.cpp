@@ -360,6 +360,8 @@ namespace hope {
 
         void WebRTCSignalSocket::setRegistered(bool isRegistered) { this->isRegistered = isRegistered; }
 
+        bool WebRTCSignalSocket::getRegistered() { return this->isRegistered; }
+
         std::string WebRTCSignalSocket::getRemoteAddress()
         {
             return webSocket.next_layer().next_layer().remote_endpoint().address().to_string();

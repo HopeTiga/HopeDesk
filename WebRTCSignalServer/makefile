@@ -31,6 +31,7 @@ SRCS := main.cpp \
 	WebRTCMysqlManager.cpp \
 	WebRTCMysqlManagerPools.cpp \
 	AsioProactors.cpp \
+	HttpSocket.cpp \
 	Utils.cpp
 
 OBJS := $(patsubst %.cpp,$(BUILDDIR)/%.o,$(SRCS))

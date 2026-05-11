@@ -6,6 +6,7 @@
 
 #include "WebRTCLogicSystem.h"
 #include "WebRTCSignalSocket.h"
+#include "HttpSocket.h"
 
 namespace hope {
 
@@ -34,9 +35,11 @@ namespace hope {
 
 			std::shared_ptr<hope::core::WebRTCSignalSocket> generateWebRTCSignalSocket();
 
+			std::shared_ptr<HttpSocket> generateHttpSocket(bool enableSsl = false);
+
 #ifdef __linux__
 
-			void asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct);
+			void asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, int enableHttp = 0);
 
 #endif
 
@@ -61,6 +64,8 @@ namespace hope {
 #ifdef __linux__
 
 			boost::asio::ip::tcp::acceptor acceptor;
+
+			boost::asio::ip::tcp::acceptor httpAcceptor;
 
 #endif
 
