@@ -565,7 +565,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
                 json = boost::json::parse(str).as_object();
             }
             catch (const std::exception& e) {
-                LOG_WARNING("WebSocket received invalid JSON: %s", e.what());
+                LOG_WARN("WebSocket received invalid JSON: %s", e.what());
                 closeWebSocket();
                 co_return;
             }
@@ -1067,7 +1067,7 @@ void WebRTCManager::handleCursor(const unsigned char *data, size_t size)
     }
 
     default:
-        LOG_WARNING("Unknown message type: %d", type);
+        LOG_WARN("Unknown message type: %d", type);
         break;
     }
 }

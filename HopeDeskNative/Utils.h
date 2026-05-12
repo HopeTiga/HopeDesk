@@ -12,67 +12,60 @@
 #include <string>
 #include <mutex>
 #ifdef _WIN32
-#include <windows.h>  // 包含 windows.h 以获取 HCURSOR 的正确定义
+#include <windows.h>
 #include <direct.h>
 #define mkdirs(dir) _mkdir(dir)
 #else
 #include <sys/stat.h>
 #include <unistd.h>
-// 非 Windows 平台，使用 void* 或特定类型替代 HCURSOR
 typedef void* HCURSOR;
 #endif
 
 #ifdef _MSC_VER
-#include <intrin.h>  // MSVC 需要这个
+#include <intrin.h>
 #pragma intrinsic(_mm256_fmadd_ps)
 #else
-#include <cpuid.h>   // GCC/Clang 需要这个
+#include <cpuid.h>
 #endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// 日志级别
 typedef enum {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
-    LOG_LEVEL_WARNING,
+    LOG_LEVEL_WARN,
     LOG_LEVEL_ERROR
 } LogLevel;
 
-// 初始化函数
 void initLogger();
 void closeLogger();
 void enableFileLogging(int enable);
 void setLogDirectory(const char* dir);
-void setConsoleOutputLevels(int debug, int info, int warning, int error);
+void setConsoleOutputLevels(int debug, int info, int warn, int error);
 
-// 核心日志函数
-void logMessage(LogLevel level, const char* format, ...);
-void logMessagePlain(LogLevel level, const char* format, ...);
-void logToFileOnly(LogLevel level, const char* format, ...);
+void logMessage(LogLevel level, const char* file, int line, const char* format, ...);
+void logMessagePlain(LogLevel level, const char* file, int line, const char* format, ...);
+void logToFileOnly(LogLevel level, const char* file, int line, const char* format, ...);
 
-// 辅助函数
 void getTimestamp(char* buffer, size_t size);
 void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
 
-// 便捷宏定义
-#define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
-#define LOG_WARNING(fmt, ...) logMessage(LOG_LEVEL_WARNING, fmt, ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...)   logMessage(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG(fmt, ...)   logMessage(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)    logMessage(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__) // 改为 LOG_WARN
+#define LOG_ERROR(fmt, ...)   logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG(fmt, ...)   logMessage(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 
-#define LOG_INFO_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
-#define LOG_WARNING_PLAIN(fmt, ...) logMessagePlain(LOG_LEVEL_WARNING, fmt, ##__VA_ARGS__)
-#define LOG_ERROR_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+#define LOG_INFO_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOG_WARN_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__) // 改为 LOG_WARN_PLAIN
+#define LOG_ERROR_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 
 #ifdef __cplusplus
 }
 #endif
 
-// 函数声明 - 使用系统定义的 HCURSOR
 HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX = 0, int hotY = 0);
 
 inline bool hasAVX2() {
@@ -98,19 +91,16 @@ inline void fastCopy(void* dst, const void* src, size_t size) {
     uint8_t* d = (uint8_t*)dst;
     const uint8_t* s = (const uint8_t*)src;
 
-    // 小数据直接用 memcpy（编译器优化更好）
     if (size < 128) {
         memcpy(d, s, size);
         return;
     }
 
-    // 检查 AVX2 支持
     if (!hasAVX2()) {
         memcpy(d, s, size);
         return;
     }
 
-    // AVX2 优化路径
     size_t chunks = size / 128;
     for (size_t i = 0; i < chunks; i++) {
         __m256i v0 = _mm256_loadu_si256((const __m256i*)(s + 0));
@@ -127,7 +117,6 @@ inline void fastCopy(void* dst, const void* src, size_t size) {
         d += 128;
     }
 
-    // 处理剩余
     size_t remaining = size % 128;
     if (remaining > 0) {
         memcpy(d, s, remaining);

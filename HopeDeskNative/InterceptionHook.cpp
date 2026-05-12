@@ -59,7 +59,7 @@ void InterceptionHook::setVideoSize(int width, int height)
 bool InterceptionHook::startCapture()
 {
     if (running) {
-        LOG_WARNING("Capture already running");
+        LOG_WARN("Capture already running");
         return true;
     }
 

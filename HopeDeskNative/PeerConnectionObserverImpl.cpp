@@ -117,7 +117,7 @@ namespace hope {
             LOG_ERROR("ICE connection failed");
             break;
         case webrtc::PeerConnectionInterface::kIceConnectionDisconnected:{
-            LOG_WARNING("ICE connection disconnected");
+            LOG_WARN("ICE connection disconnected");
             manager->disConnectRemoteHandler();
             break;
         }

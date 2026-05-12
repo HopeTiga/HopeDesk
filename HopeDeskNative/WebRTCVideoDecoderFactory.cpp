@@ -21,7 +21,7 @@ namespace hope {
         {
             if (!format.IsCodecInList(GetSupportedFormats())) {
 
-                LOG_WARNING("Trying to create decoder for unsupported format: %s", format.ToString().c_str());
+                LOG_WARN("Trying to create decoder for unsupported format: %s", format.ToString().c_str());
 
                 return nullptr;
             }

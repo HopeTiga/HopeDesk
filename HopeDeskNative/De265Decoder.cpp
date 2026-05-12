@@ -31,7 +31,7 @@ bool De265Decoder::Configure(const Settings& settings) {
     de265_error err = de265_start_worker_threads(decoderContext, numberOfThreads); //
 
     if (!de265_isOK(err)) { //
-        LOG_WARNING("De265Decoder::Configure - Failed to start threads: %s", de265_get_error_text(err));
+        LOG_WARN("De265Decoder::Configure - Failed to start threads: %s", de265_get_error_text(err));
     }
 
     return true;
@@ -132,7 +132,6 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
                     .set_color_space(encodedImage.ColorSpace())
                     .build();
 
-
             decodeCompleteCallback->Decoded(decodedFrame, std::nullopt, std::nullopt);
 
         }
@@ -140,7 +139,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
         // 5. 错误处理
         // 只要不是 OK 也不是 WAITING_FOR_INPUT_DATA，往往是致命错误或者严重警告
         if (!de265_isOK(decodeResult) && decodeResult != DE265_ERROR_WAITING_FOR_INPUT_DATA) { //
-            LOG_WARNING("De265Decoder::Decode - Abnormal decode state: %s. Aborting this frame.",
+            LOG_WARN("De265Decoder::Decode - Abnormal decode state: %s. Aborting this frame.",
                         de265_get_error_text(decodeResult));
             // 重点看你的控制台有没有打印这行。如果是警告（如某些参数不受支持），可以尝试 return WEBRTC_VIDEO_CODEC_OK 强行跳过。
             return WEBRTC_VIDEO_CODEC_ERROR;
