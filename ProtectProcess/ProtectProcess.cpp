@@ -151,7 +151,7 @@ namespace hope {
                         hasChildProcess.store(false);
 
                         boost::asio::post(ioContext, [this]() {
-                            LOG_WARNING("Child process terminated, attempting to restart...");
+                            LOG_WARN("Child process terminated, attempting to restart...");
                             if (!currentExePath.empty()) {
                                 createProcess(currentExePath);
                             }
@@ -205,7 +205,7 @@ namespace hope {
                     self->hasChildProcess.store(false);
 
                     boost::asio::post(self->ioContext, [self]() {
-                        LOG_WARNING("Child process terminated, attempting to restart...");
+                        LOG_WARN("Child process terminated, attempting to restart...");
                         if (!self->currentExePath.empty()) {
                             self->createProcess(self->currentExePath);
                         }
