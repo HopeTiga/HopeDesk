@@ -166,8 +166,6 @@ namespace hope {
 
         void WebRTCLogicSystem::initHandlers() {
 
-            auto self = shared_from_this();
-
             // ==================== Forward Handler ====================
             std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalData>, std::string)> forwardHandler = [this](std::shared_ptr<WebRTCSignalData> data, std::string requestTypeStr)->boost::asio::awaitable<void> {
                 boost::json::object message = data->json;
