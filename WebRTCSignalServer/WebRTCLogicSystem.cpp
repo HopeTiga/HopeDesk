@@ -627,6 +627,14 @@ namespace hope {
 
                 size_t targetIdx = reqBody.as_object()["channelIndex"].as_int64();
 
+                if (targetIdx >= httpSocket->getWebRTCSignalManager()->webrtcSignalServer->getChannelNumbers()) {
+
+                    httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 400, "Invalid channelIndex");
+
+                    co_return;
+
+                }
+
                 int currentChannelIndex = httpSocket->getWebRTCSignalManager()->channelIndex;
 
                 WebRTCSignalServer* server = httpSocket->getWebRTCSignalManager()->webrtcSignalServer;

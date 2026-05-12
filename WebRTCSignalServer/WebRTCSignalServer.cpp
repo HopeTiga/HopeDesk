@@ -140,17 +140,17 @@ namespace hope {
 
         }
 
-        void WebRTCSignalServer::postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle)
+        bool WebRTCSignalServer::postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle)
         {
             if (channelIndex >= webrtcSignalManagers.size()) {
                 LOG_ERROR("Invalid channelIndex: %zu, size: %zu", channelIndex, webrtcSignalManagers.size());
-                return;
+                return false;
             }
 
             auto manager = webrtcSignalManagers[channelIndex];
             if (!manager) {
                 LOG_ERROR("WebRTCSignalManager at index %zu is null", channelIndex);
-                return;
+                return false;
             }
 
             boost::asio::co_spawn(manager->getLogicSystem()->getIoCompletePorts(),
@@ -166,6 +166,9 @@ namespace hope {
                         }
                     }
                     });
+
+            return true;
+
         }
 
 

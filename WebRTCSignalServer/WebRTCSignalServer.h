@@ -34,7 +34,7 @@ namespace hope {
 
             void closeEvent();
 
-            void postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle);
+            bool postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle);
 
             size_t getChannelNumbers();
 
