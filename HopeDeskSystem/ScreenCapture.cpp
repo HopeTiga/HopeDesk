@@ -53,21 +53,19 @@ namespace hope {
 
             if (config.levels == CaptureLevels::PRO) {
                 if (!initializeProcessor()) {
-                    LOG_WARNING("PRO Converter init failed, falling back to GPU");
+                    LOG_WARN("PRO Converter init failed, falling back to GPU");
                     config.levels = CaptureLevels::GPU;
-                }
-                else {
+                } else {
                     config.uselevels = CaptureLevels::PRO;
                 }
             }
 
             if (config.levels == CaptureLevels::GPU) {
                 if (!initializeGPUConverter()) {
-                    LOG_WARNING("GPU Converter init failed, falling back to CPU BGRA");
+                    LOG_WARN("GPU Converter init failed, falling back to CPU BGRA");
                     config.levels = CaptureLevels::CPU;
                     config.uselevels = CaptureLevels::CPU;
-                }
-                else {
+                } else {
                     config.uselevels = CaptureLevels::GPU;
                 }
             }
@@ -89,7 +87,7 @@ namespace hope {
             capturing = true;
             captureThread = std::thread([this]() {
                 captureThreadFunc();
-                });
+            });
             return true;
         }
 
@@ -155,7 +153,7 @@ namespace hope {
                             break;
                         }
                         else {
-                            LOG_WARNING("[ScreenCapture] NVIDIA 显卡 [%u] 没有显示输出，可能是 Optimus 笔记本或显示器未连接", i);
+                            LOG_WARN("[ScreenCapture] NVIDIA 显卡 [%u] 没有显示输出，可能是 Optimus 笔记本或显示器未连接", i);
                         }
                     }
                 }
@@ -166,7 +164,7 @@ namespace hope {
 
             // 2. 创建 D3D 设备
             if (!targetAdapter) {
-                LOG_WARNING("[ScreenCapture] 未满足 NVIDIA 零拷贝条件，退避到默认软捕获兼容模式...");
+                LOG_WARN("[ScreenCapture] 未满足 NVIDIA 零拷贝条件，退避到默认软捕获兼容模式...");
                 hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createFlags,
                     featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION,
                     &d3dDevice, &featureLevel, &d3dContext);
@@ -202,7 +200,7 @@ namespace hope {
 
             // 检查是否是我们期望的 NVIDIA 显卡
             if (targetAdapter && actualDesc.VendorId != 0x10DE) {
-                LOG_WARNING("[ScreenCapture] 警告：期望使用 NVIDIA 显卡，但实际创建的是其他显卡！");
+                LOG_WARN("[ScreenCapture] 警告：期望使用 NVIDIA 显卡，但实际创建的是其他显卡！");
             }
 
             // 使用 tempAdapter 继续操作
@@ -405,9 +403,9 @@ namespace hope {
             if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &proOutputTex))) return false;
 
             texDesc.Usage = D3D11_USAGE_STAGING;
-            texDesc.BindFlags = 0;
+            texDesc.BindFlags = 0; 
             texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            texDesc.MiscFlags = 0;
+            texDesc.MiscFlags = 0; 
 
             for (int i = 0; i < YUV_BUFFERS; i++) {
                 if (FAILED(d3dDevice->CreateTexture2D(&texDesc, nullptr, &nv12TextureBuffers[i].buffer))) return false;
@@ -509,7 +507,7 @@ namespace hope {
 
                 // 如果 24 个槽位全都被 WebRTC 编码线程卡住了，这才无奈丢帧
                 if (hwIdx == -1) {
-                    LOG_WARNING("[ScreenCapture] 警告：24个硬件零拷贝槽位全满，主动丢弃当前帧！");
+                    LOG_WARN("[ScreenCapture] 警告：24个硬件零拷贝槽位全满，主动丢弃当前帧！");
                     return true;
                 }
 
@@ -609,8 +607,7 @@ namespace hope {
 
                 if (dataHandle) {
                     dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy, config.width, CaptureLevels::GPU);
-                }
-                else {
+                } else {
                     d3dContext->Unmap(targetBuffer->buffer.Get(), 0);
                     targetBuffer->mappedData = nullptr;
                     targetBuffer->isBusy.store(false);
@@ -663,14 +660,12 @@ namespace hope {
                 if (dataHandle) {
                     dataHandle(reinterpret_cast<const uint8_t*>(targetFrame->mappedSubresource.pData),
                         config.width, config.height, &targetFrame->isBusy, targetFrame->mappedSubresource.RowPitch, CaptureLevels::PRO);
-                }
-                else {
+                } else {
                     d3dContext->Unmap(targetFrame->buffer.Get(), 0);
                     targetFrame->mappedSubresource.pData = nullptr;
                     targetFrame->isBusy.store(false);
                 }
-            }
-            else {
+            } else {
                 d3dContext->Unmap(targetFrame->buffer.Get(), 0);
                 targetFrame->mappedSubresource.pData = nullptr;
                 targetFrame->isBusy.store(false);
@@ -758,7 +753,7 @@ namespace hope {
             for (auto& st : stagingTextures) st.Reset();
             sharedTexture.Reset();
             sharedHandle = nullptr;
-
+            
             for (int i = 0; i < YUV_BUFFERS; i++) {
                 hwSharedTextures[i].Reset();
                 hwSharedHandles[i] = nullptr;

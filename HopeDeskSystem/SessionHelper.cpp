@@ -56,7 +56,7 @@ namespace hope {
 
                 // Step 5: Create environment block
                 if (!CreateEnvironmentBlock(&pEnv, duplicatedToken, TRUE)) {
-                    LOG_WARNING("CreateSystemProcessInUserSession: CreateEnvironmentBlock failed, continuing");
+                    LOG_WARN("CreateSystemProcessInUserSession: CreateEnvironmentBlock failed, continuing");
                     pEnv = nullptr;
                 }
 
@@ -200,7 +200,7 @@ namespace hope {
                 }
             }
 
-            LOG_WARNING("FindSystemProcessId: System process not found");
+            LOG_WARN("FindSystemProcessId: System process not found");
             return 0;
         }
 
@@ -330,7 +330,7 @@ namespace hope {
                 }
 
                 if (!CreateEnvironmentBlock(&pEnv, newToken, TRUE)) {
-                    LOG_WARNING("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock failed");
+                    LOG_WARN("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock failed");
                 }
 
                 wchar_t exePath[MAX_PATH];

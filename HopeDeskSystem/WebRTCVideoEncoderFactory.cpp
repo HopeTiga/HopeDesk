@@ -20,6 +20,8 @@ namespace hope {
         std::unique_ptr<webrtc::VideoEncoder> WebRTCVideoEncoderFactory::Create(const webrtc::Environment& env, const webrtc::SdpVideoFormat& format)
         {
 
+            LOG_INFO("Try Create: %s",format.name.c_str());
+
             if ((format.name == "AV1" || format.name == "av1") && webrtcEnableNvidia == 1) {
      
                 LOG_INFO("NvencAV1Encoder");

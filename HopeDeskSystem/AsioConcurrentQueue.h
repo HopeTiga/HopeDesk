@@ -21,12 +21,10 @@ namespace hope {
                 T val;
 
                 if (semaphore.try_acquire()) {
-                    // 既然凭证扣减成功，队列里必定有数据（排除 close 的情况）
                     if (queue.try_dequeue(val)) {
                         co_return val;
                     }
                     else {
-                        // 拿不到说明是 close 塞入的结束信号
                         if (isClose.load(std::memory_order_acquire)) {
                             semaphore.release();
                             co_return std::nullopt;

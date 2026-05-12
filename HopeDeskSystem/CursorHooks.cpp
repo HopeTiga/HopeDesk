@@ -261,7 +261,7 @@ namespace hope {
             height = hasColor ? bmColor.bmHeight : bmMask.bmHeight / 2;
 
             if (width <= 0 || height <= 0) {
-                LOG_WARNING("Invalid cursor size: %dx%d", width, height); // 使用 %d 占位符
+                LOG_WARN("Invalid cursor size: %dx%d", width, height); // 使用 %d 占位符
                 goto cleanup;
             }
 

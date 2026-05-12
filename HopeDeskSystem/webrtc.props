@@ -6,9 +6,9 @@
     <TCMALLOC_RELEASE_RATE>10.0</TCMALLOC_RELEASE_RATE>
   </PropertyGroup>
   <PropertyGroup>
-    <IncludePath>E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\x265;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\nvidia;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\interception;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\webrtc;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\boost;$(IncludePath)</IncludePath>
+    <IncludePath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\interception;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\boost;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\nvidia;$(IncludePath)</IncludePath>
     <LibraryWPath>$(LibraryWPath)</LibraryWPath>
-    <LibraryPath>E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\x265;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\tcmalloc;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\interception\x64;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\webrtc;E:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\boost;$(LibraryPath)</LibraryPath>
+    <LibraryPath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\tcmalloc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\interception\x64;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\boost;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <Link>

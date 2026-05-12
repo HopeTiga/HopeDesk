@@ -95,6 +95,8 @@ namespace hope {
             encodeConfig.rcParams.maxBitRate = bitrateBps * 1.5;
             encodeConfig.frameIntervalP = 1;
             encodeConfig.gopLength = NVENC_INFINITE_GOPLENGTH;
+            encodeConfig.rcParams.enableAQ = 1;              // 关闭自适应量化
+            encodeConfig.rcParams.aqStrength = 8;
             encodeConfig.rcParams.enableLookahead = 0;
 
             encodeConfig.encodeCodecConfig.av1Config.repeatSeqHdr = 0;

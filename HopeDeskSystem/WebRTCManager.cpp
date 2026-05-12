@@ -407,7 +407,7 @@ namespace hope {
 
                     if (senderCapabilities.codecs.empty()) {
 
-                        LOG_WARNING("No video codecs available from factory");
+                        LOG_WARN("No video codecs available from factory");
 
                         continue;
 
@@ -452,7 +452,7 @@ namespace hope {
 
                     if (!foundPriorityCodec) {
 
-                        LOG_WARNING("Priority codec %s not found in available codecs", priorityCodec.c_str());
+                        LOG_WARN("Priority codec %s not found in available codecs", priorityCodec.c_str());
 
                     }
 
@@ -609,10 +609,10 @@ namespace hope {
 
             }
 
-            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag , int stride, CaptureLevels levels) {
-                
+            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag, int stride, CaptureLevels levels) {
+
                 if (!videoTrackSourceImpl || !data) {
-         
+
                     return;
                 }
 
@@ -907,7 +907,7 @@ namespace hope {
 
                                             }
 
-                                            if (json.contains("webrtcEnableNvidia")){
+                                            if (json.contains("webrtcEnableNvidia")) {
 
                                                 webrtcEnableNvidia = json["webrtcEnableNvidia"].as_int64();
 

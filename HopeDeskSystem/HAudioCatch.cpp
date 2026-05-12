@@ -59,7 +59,7 @@ namespace hope {
                     LOG_INFO("Dummy render stream started");
                 }
                 else {
-                    LOG_WARNING("Dummy render Initialize failed: 0x%08X", hr);
+                    LOG_WARN("Dummy render Initialize failed: 0x%08X", hr);
                 }
             }
 

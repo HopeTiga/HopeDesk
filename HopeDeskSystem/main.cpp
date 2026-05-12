@@ -153,7 +153,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
         }
     }
     else {
-        LOG_WARNING("[MAINPROCESS] SessionID: %d - Service unexpectedly in active session", sessionId);
+        LOG_WARN("[MAINPROCESS] SessionID: %d - Service unexpectedly in active session", sessionId);
     }
 
     CloseHandle(stopEvent);
