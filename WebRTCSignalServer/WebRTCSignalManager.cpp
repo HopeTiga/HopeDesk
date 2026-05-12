@@ -70,14 +70,14 @@ namespace hope {
             auto it = webrtcSocketMap.find(accountId);
 
             if (it == webrtcSocketMap.end()) {
-                LOG_WARNING("Connection already removed or not found: %s", accountId.c_str());
+                LOG_WARN("Connection already removed or not found: %s", accountId.c_str());
                 return;
             }
 
             std::shared_ptr<WebRTCSignalSocket> currentSocket = it->second;
 
             if (currentSocket->getSessionId() != sessionId) {
-                LOG_WARNING("Race Condition Detected! Ignore remove request. "
+                LOG_WARN("Race Condition Detected! Ignore remove request. "
                     "Account: %s, RequestSessionId: %s, CurrentMapSessionId: %s",
                     accountId.c_str(), sessionId.c_str(), currentSocket->getSessionId().c_str());
                 return;

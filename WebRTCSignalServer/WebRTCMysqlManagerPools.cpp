@@ -56,7 +56,7 @@ namespace hope {
 
 					if (!co_await webrtcMysqlManager->checkAndReconnect()) {
 
-						LOG_WARNING("WebRTCMysqlManagerPools::getTransactionMysqlManager: Reconnected to MySQL DisConnected");
+						LOG_WARN("WebRTCMysqlManagerPools::getTransactionMysqlManager: Reconnected to MySQL DisConnected");
 
 					}
 

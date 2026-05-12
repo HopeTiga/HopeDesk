@@ -191,7 +191,7 @@ namespace hope {
 						}
 					}
 					catch (...) {
-						LOG_WARNING("Failed to parse Keep-Alive timeout value: %s", value.c_str());
+						LOG_WARN("Failed to parse Keep-Alive timeout value: %s", value.c_str());
 					}
 				}
 			}

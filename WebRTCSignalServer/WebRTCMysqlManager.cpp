@@ -53,7 +53,7 @@ namespace hope {
                     }
                 }
                 else {
-                    LOG_WARNING("WebRTCMysqlManager instance has been destroyed before connection attempt");
+                    LOG_WARN("WebRTCMysqlManager instance has been destroyed before connection attempt");
                 }
                 }, boost::asio::detached);
         }
@@ -108,7 +108,7 @@ namespace hope {
                     // 尝试重连
                     bool success = co_await checkAndReconnect();
                     if (!success) {
-                        LOG_WARNING("Heartbeat: connection is not available");
+                        LOG_WARN("Heartbeat: connection is not available");
                         co_return;
                     }
                 }
@@ -120,7 +120,7 @@ namespace hope {
                 LOG_DEBUG("MySQL heartbeat executed successfully");
             }
             catch (const std::exception& e) {
-                LOG_WARNING("MySQL heartbeat failed: %s", e.what());
+                LOG_WARN("MySQL heartbeat failed: %s", e.what());
                 isConnected = false;
 
                 // 心跳失败后立即尝试重连
@@ -151,7 +151,7 @@ namespace hope {
                 co_await mysqlConnection->async_connect(params);
                 isConnected = true;
 
-                LOG_WARNING("MySQL connection reestablished successfully");
+                LOG_WARN("MySQL connection reestablished successfully");
                 co_return true;
             }
             catch (const std::exception& e) {
@@ -164,7 +164,7 @@ namespace hope {
         std::shared_ptr<boost::mysql::any_connection> WebRTCMysqlManager::getConnection() {
             // 返回连接前可以检查状态
             if (!isConnected) {
-                LOG_WARNING("Returning potentially disconnected MySQL connection");
+                LOG_WARN("Returning potentially disconnected MySQL connection");
             }
             return mysqlConnection;
         }

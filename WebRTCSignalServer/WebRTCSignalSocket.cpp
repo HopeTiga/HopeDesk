@@ -138,7 +138,7 @@ namespace hope {
             }
             if (!isRegistered.load()) {
 
-                LOG_WARNING("Rgister Timeout (%d): WebRTCSignalSocket not rigster,close socket.", registrationTimeoutMs);
+                LOG_WARN("Rgister Timeout (%d): WebRTCSignalSocket not rigster,close socket.", registrationTimeoutMs);
 
                 destroy();
 
@@ -249,7 +249,7 @@ namespace hope {
                 }
                 catch (const std::exception& e) {
 
-                    LOG_WARNING("WebSocket received invalid JSON: %s", e.what());
+                    LOG_WARN("WebSocket received invalid JSON: %s", e.what());
 
                     destroy();
 
