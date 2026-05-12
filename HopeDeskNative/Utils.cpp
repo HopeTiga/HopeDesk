@@ -34,7 +34,37 @@ static int logToFileEnabled = 1;
 static std::mutex logMutex;
 static int loggerInitialized = 0;
 
+static FILE* logFiles[4] = { nullptr, nullptr, nullptr, nullptr };
+
 static int consoleOutputLevels[4] = { 1, 1, 1, 1 };
+
+static void openLogFiles() {
+    for (int i = 0; i < 4; i++) {
+        if (logFiles[i]) continue;
+        std::string filePath = logDir + "/" + logFileNames[i];
+#ifdef _WIN32
+        logFiles[i] = _fsopen(filePath.c_str(), "a", _SH_DENYNO);
+#else
+        logFiles[i] = fopen(filePath.c_str(), "a");
+#endif
+        if (logFiles[i]) {
+#ifdef _WIN32
+            setvbuf(logFiles[i], nullptr, _IOLBF, 4096);
+#else
+            setvbuf(logFiles[i], nullptr, _IOLBF, 0);
+#endif
+        }
+    }
+}
+
+static void closeLogFiles() {
+    for (int i = 0; i < 4; i++) {
+        if (logFiles[i]) {
+            fclose(logFiles[i]);
+            logFiles[i] = nullptr;
+        }
+    }
+}
 
 static void ensureLogDirectory() {
     if (loggerInitialized) return;
@@ -49,6 +79,7 @@ static void ensureLogDirectory() {
 #else
     mkdir(logDir.c_str(), 0755);
 #endif
+    openLogFiles();
     loggerInitialized = 1;
 }
 
@@ -59,6 +90,7 @@ void initLogger() {
 
 void closeLogger() {
     std::lock_guard<std::mutex> lock(logMutex);
+    closeLogFiles();
     loggerInitialized = 0;
 }
 
@@ -69,6 +101,7 @@ void enableFileLogging(int enable) {
 
 void setLogDirectory(const char* dir) {
     std::lock_guard<std::mutex> lock(logMutex);
+    closeLogFiles();
     logDir = dir;
     loggerInitialized = 0;
 }
@@ -126,37 +159,17 @@ static std::string formatFileAndLine(const char* file, int line) {
     return std::string(aligned);
 }
 
-static FILE* openLogFileShared(const std::string& path) {
-    FILE* fp = nullptr;
-
-#ifdef _WIN32
-    fp = _fsopen(path.c_str(), "a", _SH_DENYNO);
-#else
-    fp = fopen(path.c_str(), "a");
-#endif
-    return fp;
-}
-
 static void writeRawToFile(LogLevel level, const char* timestamp, const char* levelStr, const std::string& message) {
     if (!logToFileEnabled || level < 0 || level > 3) return;
 
     ensureLogDirectory();
-    std::string filePath = logDir + "/" + logFileNames[level];
-
-    FILE* logFile = openLogFileShared(filePath);
-
-    if (!logFile) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        logFile = openLogFileShared(filePath);
-    }
+    FILE* logFile = logFiles[level];
 
     if (logFile) {
         fprintf(logFile, "[%s][%-5s] %s\n", timestamp, levelStr, message.c_str());
-        fflush(logFile);
-        fclose(logFile);
     }
     else {
-        fprintf(stderr, "Logger Error: Cannot open file %s\n", filePath.c_str());
+        fprintf(stderr, "Logger Error: Cannot write to %s\n", logFileNames[level]);
     }
 }
 
@@ -244,7 +257,6 @@ void logToFileOnly(LogLevel level, const char* file, int line, const char* forma
     std::lock_guard<std::mutex> lock(logMutex);
     writeRawToFile(level, timestamp, levelStr, fullMsg);
 }
-
 
 HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX, int hotY)
 {
