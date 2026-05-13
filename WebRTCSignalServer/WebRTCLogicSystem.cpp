@@ -38,6 +38,8 @@ namespace hope {
 
             exitThreshold.store(ConfigManager::Instance().GetInt("WebRTCSignalServer.exitThreshold"));
 
+            asyncThreshold.store(ConfigManager::Instance().GetInt("WebRTCSignalServer.asyncThreshold"));
+
         }
 
         boost::asio::io_context& WebRTCLogicSystem::getIoCompletePorts()
@@ -107,7 +109,7 @@ namespace hope {
                                 });
                     }
 
-                    if (taskQueueSize.load() >= exitThreshold.load()) {
+                    if (localTaskQueueSize.load() >= exitThreshold.load()) {
 
                         LOG_WARN("WebRTCLogicSystem local queue depth %d exceeds threshold, switching to local processing", taskQueueSize.load());
 
@@ -146,15 +148,28 @@ namespace hope {
 
                 taskQueueSize.fetch_add(1);
 
-                if (taskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
+                if (taskQueueSize.load() >= threshold.load() && localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
 
                     std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket = data->webrtcSignalSocket->shared_from_this();
 
                     bool success = taskQueues.enqueue([this, type, func, data = std::move(data)]()mutable -> boost::asio::awaitable<void> {
 
-                        co_await func(data);
+                        try {
+
+                            co_await func(data);
+
+                        }
+                        catch (...) {
+
+                            taskQueueSize.fetch_sub(1);
+
+                            throw;
+
+                        }
 
                         taskQueueSize.fetch_sub(1);
+
+                        co_return;
 
                         });
 
@@ -178,6 +193,8 @@ namespace hope {
 
                 }
 
+                localTaskQueueSize.fetch_add(1);
+
                 boost::asio::co_spawn(ioContext, [this, type, func, data]() mutable -> boost::asio::awaitable<void> {
 
                     co_await func(data);
@@ -185,7 +202,9 @@ namespace hope {
                     },
                     [this, type](std::exception_ptr ptr) {
 
-                        if (taskQueueSize.fetch_sub(1) == 1) {
+                        taskQueueSize.fetch_sub(1);
+
+                        if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
 
                             asyncTaskExecute();
 
@@ -223,7 +242,7 @@ namespace hope {
 
                 taskQueueSize.fetch_add(1);
 
-                if (taskQueueSize.load() >= threshold.load() && httpLogicHandlers[targetUrl]) {
+                if (taskQueueSize.load() >= threshold.load() && localTaskQueueSize.load() >= threshold.load() && httpLogicHandlers[targetUrl]) {
 
                     unsigned int version = httpRequest.version();
 
@@ -231,9 +250,22 @@ namespace hope {
 
                     bool success = taskQueues.enqueue([this, httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), func = std::move(func)]()mutable -> boost::asio::awaitable<void> {
 
-                        co_await func(httpSocket, httpRquest);
+                        try {
+
+                            co_await func(httpSocket, httpRquest);
+
+                        }
+                        catch (...) {
+
+                            taskQueueSize.fetch_sub(1);
+
+                            throw;
+
+                        }
 
                         taskQueueSize.fetch_sub(1);
+
+                        co_return;
 
                         });
 
@@ -284,13 +316,17 @@ namespace hope {
 
                 }
 
+                localTaskQueueSize.fetch_add(1);
+
                 boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), func = std::move(func)]()mutable->boost::asio::awaitable<void> {
 
                     co_await func(httpSocket, httpRquest);
 
                     }, [this, targetUrl](std::exception_ptr ptr) {
 
-                        if (taskQueueSize.fetch_sub(1) == 1) {
+                        taskQueueSize.fetch_sub(1);
+
+                        if (localTaskQueueSize.fetch_sub(1) == 1) {
 
                             asyncTaskExecute();
 

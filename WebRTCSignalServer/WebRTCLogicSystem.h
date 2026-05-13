@@ -71,6 +71,8 @@ namespace hope {
 
 			std::atomic<size_t> taskQueueSize{ 0 };
 
+			std::atomic<size_t> localTaskQueueSize{ 0 };
+
 			std::atomic<bool> asyncEvents{ false };
 
 			TaskChannel& taskQueues;
@@ -80,6 +82,8 @@ namespace hope {
 			std::atomic<uint32_t> threshold{ 0 };
 
 			std::atomic<uint32_t> exitThreshold{ 0 };
+
+			std::atomic<uint32_t> asyncThreshold{ 0 };
 
 		};
 	}
