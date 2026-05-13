@@ -15,7 +15,7 @@ namespace hope {
 
     namespace core {
 
-        WebRTCSignalManager::WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer)
+        WebRTCSignalManager::WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer, TaskChannel& taskQueues)
             : channelIndex(channelIndex)
             , ioContext(ioContext)
             , webrtcSignalServer(webrtcSignalServer)
@@ -26,11 +26,9 @@ namespace hope {
 
         {
 
-            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePorts().second, channelIndex);
+            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePorts().second, channelIndex, taskQueues);
 
-            logicSystem->initHandlers();
-
-            logicSystem->initHttpHandlers();
+            logicSystem->asyncEvent();
 
         }
 

@@ -11,6 +11,7 @@
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 
+#include "AwaitableTask.h"
 
 namespace hope {
 
@@ -50,7 +51,7 @@ namespace hope {
 
             std::atomic<size_t> managerIndex{ 0 };
 
-            std::atomic<bool> runAccepct{ false };
+            std::atomic<bool> asyncEvents{ false };
 
             std::atomic<bool> closeEvents{ false };
 
@@ -71,6 +72,9 @@ namespace hope {
             int enableHttp;
 
             size_t size;
+
+            TaskChannel taskQueues;
+
         };
     }
 

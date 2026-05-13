@@ -10,11 +10,11 @@ namespace hope {
 
 		class WebRTCSignalManager;
 
-		class WebRTCSignalData : public std::enable_shared_from_this<WebRTCSignalData>{
+		class WebRTCSignalData : public std::enable_shared_from_this<WebRTCSignalData> {
 
 		public:
 
-			WebRTCSignalData(boost::json::object json, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager);
+			WebRTCSignalData(boost::json::object json, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager, int channelIndex);
 
 			std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket;
 
@@ -22,8 +22,10 @@ namespace hope {
 
 			WebRTCSignalManager* webrtcSignalManager;
 
+			int channelIndex;
+
 		};
 	}
-	
+
 }
 

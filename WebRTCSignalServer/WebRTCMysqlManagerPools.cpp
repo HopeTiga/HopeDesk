@@ -42,6 +42,8 @@ namespace hope {
 
 			}
 
+			if (transactionChannels) transactionChannels->close();
+
 		}
 
 		boost::asio::awaitable<WebRTCMysqlManagerPools::ScopedMysqlConnection> WebRTCMysqlManagerPools::getTransactionMysqlManager()

@@ -12,6 +12,8 @@
 
 #include "WebRTCMysqlManagerPools.h"
 
+#include "AwaitableTask.h"
+
 namespace hope {
 
 	namespace core {
@@ -25,7 +27,7 @@ namespace hope {
 
 		public:
 
-			WebRTCLogicSystem(boost::asio::io_context& ioContext, int channelIndex);
+			WebRTCLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues);
 
 			~WebRTCLogicSystem();
 
@@ -38,6 +40,14 @@ namespace hope {
 			void postHttpTaskAsync(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest);
 
 			boost::asio::io_context& getIoCompletePorts();
+
+			void asyncEvent();
+
+			void closeEvent();
+
+			void asyncTaskExecute();
+
+		private:
 
 			void initHandlers();
 
@@ -53,7 +63,24 @@ namespace hope {
 
 			absl::flat_hash_map<std::string, std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>> httpHandlers;
 
+			absl::flat_hash_map<int, bool> webrtcLogicHandlers;
+
+			absl::flat_hash_map<std::string, bool> httpLogicHandlers;
+
 			std::shared_ptr<hope::mysql::WebRTCMysqlManagerPools> webrtcMysqlManagerPools;
+
+			std::atomic<size_t> taskQueueSize{ 0 };
+
+			std::atomic<bool> asyncEvents{ false };
+
+			TaskChannel& taskQueues;
+
+			std::atomic<bool> asyncTaskExecutes{ false };
+
+			std::atomic<uint32_t> threshold{ 0 };
+
+			std::atomic<uint32_t> exitThreshold{ 0 };
+
 		};
 	}
 

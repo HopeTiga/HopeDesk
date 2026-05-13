@@ -26,23 +26,28 @@ namespace hope {
 #endif
             , size(size)
             , webrtcSignalManagers(size)
+            , taskQueues(ioContext)
         {
             initialize();
         }
 
         void WebRTCSignalServer::asyncEvent() {
 
+            if (asyncEvents.exchange(true)) return;
+
             LOG_INFO("WebRTCSginalServer Protocol: WebSocket , Listen Accept Port: %zu", port);
 
-            if (runAccepct.load()) return;
+            if (enableHttp == 1) {
 
-            runAccepct.store(true);
+                LOG_INFO("WebRTCSginalServer Protocol: Https , Listen Accept Port: %zu", httpPort);
+
+            }
 
 #ifndef __linux__
 
             boost::asio::co_spawn(ioContext, [this]() ->boost::asio::awaitable<void> {
 
-                while (runAccepct.load()) {
+                while (asyncEvents.load()) {
 
                     std::shared_ptr<WebRTCSignalManager> manager = loadBalanceWebrtcManger();
 
@@ -71,11 +76,9 @@ namespace hope {
 
             if (enableHttp == 1) {
 
-                LOG_INFO("WebRTCSginalServer Protocol: Https , Listen Accept Port: %zu", httpPort);
-
                 boost::asio::co_spawn(ioContext, [this]() ->boost::asio::awaitable<void> {
 
-                    while (runAccepct.load()) {
+                    while (asyncEvents.load()) {
 
                         std::shared_ptr<WebRTCSignalManager> manager = loadBalanceWebrtcManger();
 
@@ -101,19 +104,45 @@ namespace hope {
 
 #elif defined(__linux__)
 
-            if (enableHttp == 1) {
-
-                LOG_INFO("WebRTCSginalServer Protocol: Https , Listen Accept Port: %zu", httpPort);
-
-            }
-
             for (int i = 0; i < size; i++) {
 
-                webrtcSignalManagers[i]->asyncAccept(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port), runAccepct, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), httpPort), enableHttp);
+                webrtcSignalManagers[i]->asyncAccept(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port), asyncEvents, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), httpPort), enableHttp);
 
             }
 
 #endif
+
+            boost::asio::co_spawn(ioContext, [this]()mutable->boost::asio::awaitable<void> {
+
+                while (asyncEvents.load()) {
+
+                    std::optional<AwaitableTask> optional = co_await taskQueues.dequeue();
+
+                    if (!optional.has_value()) break;
+
+                    AwaitableTask func = std::move(optional.value());
+
+                    if (func) {
+
+                        co_await func();
+
+                    }
+
+                    if (!asyncEvents.load()) break;
+
+                }
+
+                LOG_INFO("WebRTCSignalServer asyncTaskExecute closeAsyncEvent");
+
+                co_return;
+
+                }, boost::asio::detached);
+
+            for (int i = 0; i < size; i++) {
+
+                webrtcSignalManagers[i]->getLogicSystem()->asyncTaskExecute();
+
+            }
 
             return;
 
@@ -130,9 +159,11 @@ namespace hope {
 
             if (closeEvents.exchange(true)) return;
 
-            runAccepct.store(false);
+            asyncEvents.store(false);
 
             LOG_INFO("WebRTCSignalServer Start Shutdown...");
+
+            taskQueues.close();
             // 设置关闭标志，防止新连接
             webrtcSignalManagers.clear();
 
@@ -167,8 +198,7 @@ namespace hope {
                     }
                     });
 
-            return true;
-
+                return true;
         }
 
 
@@ -192,7 +222,7 @@ namespace hope {
 
                 std::pair<int, boost::asio::io_context&> channelPairs = hope::iocp::AsioProactors::getInstance()->getIoCompletePorts();
 
-                webrtcSignalManagers[i] = std::make_shared<WebRTCSignalManager>(channelPairs.first, channelPairs.second, this);
+                webrtcSignalManagers[i] = std::make_shared<WebRTCSignalManager>(channelPairs.first, channelPairs.second, this, taskQueues);
 
             }
 

@@ -2,11 +2,15 @@
 #include <memory>
 #include <string>
 
+#include <boost/asio.hpp>
+
 #include <absl/container/node_hash_map.h>
 
 #include "WebRTCLogicSystem.h"
 #include "WebRTCSignalSocket.h"
 #include "HttpSocket.h"
+
+#include "AwaitableTask.h"
 
 namespace hope {
 
@@ -21,7 +25,7 @@ namespace hope {
 			friend class hope::core::WebRTCLogicSystem;
 		public:
 
-			WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer);
+			WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer, TaskChannel& taskQueues);
 
 			~WebRTCSignalManager();
 
