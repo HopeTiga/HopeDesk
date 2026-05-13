@@ -10,6 +10,7 @@
 #include "WebRTCSignalSocket.h"
 #include "HttpSocket.h"
 #include "WebRTCMysqlManagerPools.h"
+#include "ConfigManager.h"
 #include "Utils.h"
 
 namespace hope {
@@ -26,7 +27,7 @@ namespace hope {
 #endif
             , size(size)
             , webrtcSignalManagers(size)
-            , taskQueues(ioContext)
+            , taskQueues(ioContext, ConfigManager::Instance().GetInt("WebRTCSignalServer.overload") * (size + 1))
         {
             initialize();
         }
