@@ -5,8 +5,8 @@
 
 namespace hope {
 	namespace core {
-		WebRTCSignalData::WebRTCSignalData(boost::json::object json, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webrtcSignalManager, int channelIndex)
-			:json(json)
+		WebRTCSignalData::WebRTCSignalData(WebRTCSignalRequest webrtcSignalRequest, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webrtcSignalManager, int channelIndex)
+			:webrtcSignalRequest(webrtcSignalRequest)
 			, webrtcSignalSocket(webrtcSignalSocket)
 			, webrtcSignalManager(webrtcSignalManager)
 			, channelIndex(channelIndex) {

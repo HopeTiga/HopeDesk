@@ -1,9 +1,13 @@
 #include "WebRTCSignalSocket.h"
+
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>  
+
 #include "WebRTCSignalManager.h"
 #include "WebRTCSignalData.h"
-#include <boost/uuid/uuid.hpp>           // uuid 类  
-#include <boost/uuid/uuid_generators.hpp> // 生成器  
-#include <boost/uuid/uuid_io.hpp>  
+#include "WebRTCSignalRequest.h"
+
 #include "ConfigManager.h"
 #include "Utils.h"
 
@@ -242,14 +246,13 @@ namespace hope {
 
                 buffer.consume(buffer.size());
 
-                boost::json::object json;
+                WebRTCSignalRequest webrtcSignalRequest;
 
-                try {
-                    json = boost::json::parse(dataStr).as_object();
-                }
-                catch (const std::exception& e) {
+                glz::error_ctx err = glz::read < glz::opts{ .error_on_unknown_keys = false } > (webrtcSignalRequest, dataStr);
 
-                    LOG_WARN("WebSocket received invalid JSON: %s", e.what());
+                if (err) {
+
+                    LOG_WARN("JSON parse error: %s", glz::format_error(err).c_str());
 
                     destroy();
 
@@ -257,11 +260,11 @@ namespace hope {
 
                 }
 
-                if (!json.contains("requestType")) throw std::runtime_error("Invalid request: missing requestType");
+                if (!webrtcSignalRequest.requestType.has_value()) throw std::runtime_error("Invalid request: missing requestType");
 
-                if (!this->isRegistered && json["requestType"].as_int64() != 0) throw std::runtime_error("Not Allow No Register Do Anything");
+                if (!this->isRegistered && webrtcSignalRequest.requestType.value() != 0) throw std::runtime_error("Not Allow No Register Do Anything");
 
-                auto data = std::make_shared<hope::core::WebRTCSignalData>(std::move(json), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+                auto data = std::make_shared<hope::core::WebRTCSignalData>(std::move(webrtcSignalRequest), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
                 webrtcSignalManager->getLogicSystem()->postTaskAsync(data);
 
@@ -345,7 +348,9 @@ namespace hope {
         }
 
         void WebRTCSignalSocket::asyncWrite(std::string str) {
+
             if (isStop) return;
+
             asioConcurrentQueue.enqueue(std::move(str));
 
         }

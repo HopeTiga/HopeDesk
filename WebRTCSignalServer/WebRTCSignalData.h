@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
-#include <boost/json.hpp>
+
+#include "WebRTCSignalRequest.h"
 
 namespace hope {
 
@@ -14,11 +15,11 @@ namespace hope {
 
 		public:
 
-			WebRTCSignalData(boost::json::object json, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager, int channelIndex);
+			WebRTCSignalData(WebRTCSignalRequest webrtcSignalRequest, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager, int channelIndex);
 
 			std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket;
 
-			boost::json::object json;
+			WebRTCSignalRequest webrtcSignalRequest;
 
 			WebRTCSignalManager* webrtcSignalManager;
 

@@ -5,7 +5,7 @@
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/websocket/ssl.hpp> 
 #include <boost/beast.hpp>
-#include <boost/json.hpp>
+
 #ifdef _WIN32
 #include <winsock2.h>      // Windows Socket API
 #include <ws2tcpip.h>      // Windows Socket 扩展
