@@ -18,8 +18,6 @@ namespace hope {
 
 		class WebRTCSignalServer;
 
-		class WebRTCSignalData;
-
 		class WebRTCSignalManager : public std::enable_shared_from_this<WebRTCSignalManager>
 		{
 			friend class hope::core::WebRTCLogicSystem;

@@ -5,8 +5,6 @@
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalSocket.h"
 
-#include "WebRTCSignalData.h"
-
 #include "AsioProactors.h"
 
 #include "Utils.h"

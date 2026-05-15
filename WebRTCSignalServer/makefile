@@ -26,7 +26,7 @@ SRCS := main.cpp \
 	WebRTCSignalServer.cpp \
 	WebRTCSignalSocket.cpp \
 	WebRTCSignalManager.cpp \
-	WebRTCSignalData.cpp \
+	WebRTCSignalPacket.cpp \
 	WebRTCLogicSystem.cpp \
 	WebRTCMysqlManager.cpp \
 	WebRTCMysqlManagerPools.cpp \

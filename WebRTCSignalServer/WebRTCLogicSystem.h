@@ -18,7 +18,7 @@ namespace hope {
 
 	namespace core {
 
-		class WebRTCSignalData;
+		class WebRTCSignalPacket;
 
 		class HttpSocket;
 
@@ -35,7 +35,7 @@ namespace hope {
 
 			void operator=(const WebRTCLogicSystem& logic) = delete;
 
-			void postTaskAsync(std::shared_ptr<hope::core::WebRTCSignalData> data);
+			void postTaskAsync(std::shared_ptr<hope::core::WebRTCSignalPacket> packet);
 
 			void postHttpTaskAsync(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest);
 
@@ -59,7 +59,7 @@ namespace hope {
 
 			int channelIndex;
 
-			absl::flat_hash_map<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::core::WebRTCSignalData>)>> webrtcHandlers;
+			absl::flat_hash_map<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::core::WebRTCSignalPacket>)>> webrtcHandlers;
 
 			absl::flat_hash_map<std::string, std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>> httpHandlers;
 

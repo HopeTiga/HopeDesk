@@ -5,7 +5,7 @@
 #include <boost/uuid/uuid_io.hpp>  
 
 #include "WebRTCSignalManager.h"
-#include "WebRTCSignalData.h"
+#include "WebRTCSignalPacket.h"
 #include "WebRTCSignalRequest.h"
 
 #include "ConfigManager.h"
@@ -264,9 +264,9 @@ namespace hope {
 
                 if (!this->isRegistered && webrtcSignalRequest.requestType.value() != 0) throw std::runtime_error("Not Allow No Register Do Anything");
 
-                auto data = std::make_shared<hope::core::WebRTCSignalData>(std::move(webrtcSignalRequest), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+                std::shared_ptr<WebRTCSignalPacket> packet = std::make_shared<WebRTCSignalPacket>(std::move(webrtcSignalRequest), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
-                webrtcSignalManager->getLogicSystem()->postTaskAsync(data);
+                webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(packet));
 
             }
         }
