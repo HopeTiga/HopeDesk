@@ -42,7 +42,7 @@ namespace hope {
 		{
 		public:
 
-			static void initSslContext(); // 初始化一次
+			static void initSslContext();
 
 			static boost::asio::ssl::context& getSslContext();
 
@@ -62,9 +62,9 @@ namespace hope {
 
 			void clear();
 
-			virtual void asyncWrite(unsigned char* data, size_t size);
+			virtual void asyncWrite(unsigned char* packet, size_t size);
 
-			void asyncWrite(std::string str);
+			void asyncWrite(std::string packet);
 
 			void setAccountId(const std::string& accountId);
 
@@ -100,6 +100,7 @@ namespace hope {
 
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
 				int idle = 0, int intvl = 3, int probes = 3);
+
 		private:
 
 			WebRTCSignalManager* webrtcSignalManager;
@@ -116,9 +117,9 @@ namespace hope {
 
 			std::string accountId;
 
-			boost::asio::steady_timer registrationTimer; // 计时器成员
+			boost::asio::steady_timer registrationTimer;
 
-			std::atomic<bool> isRegistered{ false }; // 新增：注册状态标志
+			std::atomic<bool> isRegistered{ false };
 
 			std::atomic<bool> isStop{ false };
 

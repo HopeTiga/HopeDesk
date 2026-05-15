@@ -242,13 +242,13 @@ namespace hope {
 
                 co_await webSocket.async_read(buffer, boost::asio::use_awaitable);
 
-                std::string dataStr = boost::beast::buffers_to_string(buffer.data());
+                std::string packetStr = boost::beast::buffers_to_string(buffer.data());
 
                 buffer.consume(buffer.size());
 
                 WebRTCSignalRequest webrtcSignalRequest;
 
-                glz::error_ctx err = glz::read < glz::opts{ .error_on_unknown_keys = false } > (webrtcSignalRequest, dataStr);
+                glz::error_ctx err = glz::read < glz::opts{ .error_on_unknown_keys = false } > (webrtcSignalRequest, packetStr);
 
                 if (err) {
 
@@ -281,9 +281,9 @@ namespace hope {
 
                     if (optional.has_value()) {
 
-                        std::string str = std::move(optional.value());
+                        std::string packet = std::move(optional.value());
 
-                        co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
+                        co_await webSocket.async_write(boost::asio::buffer(packet), boost::asio::use_awaitable);
 
                     }
                     else break;
@@ -333,25 +333,25 @@ namespace hope {
 #endif
         }
 
-        void WebRTCSignalSocket::asyncWrite(unsigned char* data, size_t size) {
+        void WebRTCSignalSocket::asyncWrite(unsigned char* packet, size_t size) {
 
-            asyncWrite(std::string(reinterpret_cast<const char*>(data), size));
+            asyncWrite(std::string(reinterpret_cast<const char*>(packet), size));
 
-            if (data) {
+            if (packet) {
 
-                delete[] data;
+                delete[] packet;
 
-                data = nullptr;
+                packet = nullptr;
 
             }
 
         }
 
-        void WebRTCSignalSocket::asyncWrite(std::string str) {
+        void WebRTCSignalSocket::asyncWrite(std::string packet) {
 
             if (isStop) return;
 
-            asioConcurrentQueue.enqueue(std::move(str));
+            asioConcurrentQueue.enqueue(std::move(packet));
 
         }
 
