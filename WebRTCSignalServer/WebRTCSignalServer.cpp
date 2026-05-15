@@ -16,20 +16,48 @@
 namespace hope {
 
     namespace core {
-        WebRTCSignalServer::WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port, int enableHttp, size_t httpPort, size_t size)
+
+        WebRTCSignalServer::WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port, int enableHttp, size_t httpPort, size_t enablePublicPort, size_t size)
             : ioContext(ioContext)
             , port(port)
             , enableHttp(enableHttp)
             , httpPort(httpPort)
+            , enablePublicPort(enablePublicPort)
 #ifndef __linux__
-            , acceptor(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port))
-            , httpAcceptor(ioContext, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), httpPort))
+            , acceptor(ioContext)
+            , httpAcceptor(ioContext)
 #endif
             , size(size)
             , webrtcSignalManagers(size)
-            , taskQueues(ioContext, ConfigManager::Instance().GetInt("WebRTCSignalServer.overload") * (size + 1))
+            , taskQueues(ioContext, ConfigManager::Instance().GetInt("WebRTCSignalServer.overload")* (size + 1))
         {
+
+#ifndef __linux__
+
+            boost::asio::ip::address address = enablePublicPort ? boost::asio::ip::address_v4::any() : boost::asio::ip::address_v4::loopback();
+
+            try {
+
+                acceptor.open(boost::asio::ip::tcp::v4());
+                acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+                acceptor.bind(boost::asio::ip::tcp::endpoint(address, port));
+                acceptor.listen(boost::asio::socket_base::max_listen_connections);
+
+                httpAcceptor.open(boost::asio::ip::tcp::v4());
+                httpAcceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+                httpAcceptor.bind(boost::asio::ip::tcp::endpoint(address, httpPort));
+                httpAcceptor.listen(boost::asio::socket_base::max_listen_connections);
+
+            }
+            catch (const std::exception& e) {
+                LOG_ERROR("Acceptor setup failed: %s", e.what());
+                throw;
+            }
+
+#endif
+
             initialize();
+
         }
 
         void WebRTCSignalServer::asyncEvent() {
@@ -105,9 +133,11 @@ namespace hope {
 
 #elif defined(__linux__)
 
+            boost::asio::ip::address address = enablePublicPort ? boost::asio::ip::address_v4::any() : boost::asio::ip::address_v4::loopback();
+
             for (int i = 0; i < size; i++) {
 
-                webrtcSignalManagers[i]->asyncAccept(boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), port), asyncEvents, boost::asio::ip::tcp::endpoint(boost::asio::ip::address_v4::any(), httpPort), enableHttp);
+                webrtcSignalManagers[i]->asyncAccept(boost::asio::ip::tcp::endpoint(address, port), asyncEvents, boost::asio::ip::tcp::endpoint(address, httpPort), enableHttp);
 
             }
 

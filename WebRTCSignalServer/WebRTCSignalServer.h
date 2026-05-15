@@ -23,7 +23,7 @@ namespace hope {
 
         public:
 
-            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, int enableHttp = 0, size_t httpPort = 8080, size_t size = std::thread::hardware_concurrency());
+            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, int enableHttp = 0, size_t httpPort = 8080, size_t enablePublicPort = 1, size_t size = std::thread::hardware_concurrency());
 
             ~WebRTCSignalServer();
 
@@ -72,6 +72,8 @@ namespace hope {
             int enableHttp;
 
             size_t size;
+
+            size_t enablePublicPort;
 
             TaskChannel taskQueues;
 
