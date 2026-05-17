@@ -113,7 +113,7 @@ namespace hope {
 
 			AsioConcurrentQueue<std::string> asioConcurrentQueue;
 
-			std::atomic<bool> webSocketRuns{ false };
+			std::atomic<bool> asyncEvents{ false };
 
 			std::string accountId;
 

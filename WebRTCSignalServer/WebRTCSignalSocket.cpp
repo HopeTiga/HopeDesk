@@ -151,7 +151,7 @@ namespace hope {
 
         void WebRTCSignalSocket::asyncEvent() {
 
-            webSocketRuns.store(true);
+            asyncEvents.store(true);
 
             boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
 
@@ -205,7 +205,7 @@ namespace hope {
                 return;
             }
 
-            webSocketRuns.store(false);
+            asyncEvents.store(false);
 
             boost::system::error_code ec;
 
@@ -236,7 +236,7 @@ namespace hope {
 
         boost::asio::awaitable<void> WebRTCSignalSocket::reviceCoroutine() {
 
-            while (webSocketRuns) {
+            while (asyncEvents) {
 
                 boost::beast::flat_buffer buffer;
 
@@ -275,7 +275,7 @@ namespace hope {
 
             try {
 
-                while (webSocketRuns.load()) {
+                while (asyncEvents.load()) {
 
                     std::optional<std::string> optional = co_await asioConcurrentQueue.dequeue();
 
@@ -288,7 +288,7 @@ namespace hope {
                     }
                     else break;
 
-                    if (!webSocketRuns.load()) break;
+                    if (!asyncEvents.load()) break;
 
                 }
             }
