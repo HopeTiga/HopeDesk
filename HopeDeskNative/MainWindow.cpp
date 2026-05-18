@@ -34,7 +34,9 @@ MainWindow::MainWindow(QWidget* parent)
 
     settings = new QSettings("WebRTCmanager", "Settings", this);
 
-    manager = std::make_shared<WebRTCManager>(WebRTCRemoteState::nullRemote);
+    manager = std::make_shared<WebRTCManager>();
+
+    manager->asyncEvent();
 
     // 2. 初始化
     initConfigAndSettings();
@@ -63,7 +65,7 @@ MainWindow::MainWindow(QWidget* parent)
             if (!videoWidget) {
                 videoWidget = new VideoWidget();
                 videoWidget->setWebRTCManager(manager);
-                manager->setVideoFrameCallback([this](std::shared_ptr<VideoFrame> frame) {
+                manager->setOnVideoFrameHanlder([this](std::shared_ptr<VideoFrame> frame) {
                     if (videoWidget) videoWidget->displayFrame(frame);
                 });
                 connect(videoWidget, &VideoWidget::disConnectRemote, this, [this](){
@@ -640,7 +642,7 @@ void MainWindow::onBtnConnectClicked()
 
     manager->setTargetId(targetId.toStdString());
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    manager->sendRequestToTarget(webrtcModulesType, webrtcLevels, videoCodec, webrtcAudioEnable,webrtcEnableNvidia);
+    manager->asyncReomteDesk(webrtcModulesType, webrtcLevels, videoCodec, webrtcAudioEnable,webrtcEnableNvidia);
 }
 
 void MainWindow::onBtnCopyCodeClicked()

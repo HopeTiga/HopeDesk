@@ -1,6 +1,6 @@
 #include "VideoTrackSinkImpl.h"
 #include "WebRTCManager.h"
-#include "Utils.h" // 确保包含 VideoFrame 的定义
+#include "Utils.h"
 
 namespace hope {
 namespace rtc {
@@ -13,11 +13,11 @@ VideoTrackSinkImpl::~VideoTrackSinkImpl() {
 
 void VideoTrackSinkImpl::OnFrame(const webrtc::VideoFrame& frame) {
 
-    if (!manager || !manager->videoFrameCallback) return;
+    if (!manager || !manager->onVideoFrameHandler) return;
 
     auto videoFrame = std::make_shared<VideoFrame>(frame);
 
-    manager->videoFrameCallback(videoFrame);
+    manager->onVideoFrameHandler(videoFrame);
 }
 
 

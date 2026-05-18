@@ -33,9 +33,8 @@ namespace hope{
 
 namespace rtc{
 
-WebRTCManager::WebRTCManager(WebRTCRemoteState state)
-    : connetState(WebRTCConnetState::none)
-    , accept(ioContext,boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address_v4("127.0.0.1"),19998))
+WebRTCManager::WebRTCManager()
+    : accept(ioContext,boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address_v4("127.0.0.1"),19998))
     , tcpSocket(nullptr)
     , ioContextWorkPtr(nullptr)
     , webSocket(nullptr)
@@ -51,43 +50,6 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
         this->ioContext.run();
     }));
 
-    boost::asio::co_spawn(ioContext,[this]()->boost::asio::awaitable<void>{
-
-        for(;;){
-
-            std::unique_ptr<boost::asio::ip::tcp::socket> socket = std::make_unique<boost::asio::ip::tcp::socket>(ioContext);
-
-            co_await accept.async_accept(*socket,boost::asio::use_awaitable);
-
-            tcpSocket = std::move(socket);
-
-            LOG_INFO("tcpSocket Accept Successful!");
-
-            socketRuns = true;
-
-            followRunning = true;
-
-            asioConcurrentQueue.reset();
-
-            receiveCoroutineAysnc();
-
-            boost::asio::co_spawn(ioContext,writerCoroutineAsync(),boost::asio::detached);
-
-            std::string registerStr = "{\"requestType\":0,\"webrtcManagerPath\":\"" + ConfigManager::Instance().GetString("WebRTC.WebRTCConfigPath") + "\",\"state\":200}";
-
-            std::shared_ptr<WriterData> registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
-
-            asyncWrite(registerData);
-
-            // 发送初始数据
-            std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
-
-            asyncWrite(writerData);
-
-        }
-
-    },boost::asio::detached);
-
     sslContext.set_options(
         boost::asio::ssl::context::default_workarounds |
         boost::asio::ssl::context::no_sslv2 |
@@ -97,6 +59,55 @@ WebRTCManager::WebRTCManager(WebRTCRemoteState state)
     systemService = ConfigManager::Instance().GetString("WebRTC.WebRTCService");
 
     systemServiceExe = ConfigManager::Instance().GetString("WebRTC.WebRTCEXE");
+
+}
+
+void WebRTCManager::asyncEvent(){
+
+    if(asyncAccpets.exchange(true)) return;
+
+    boost::asio::co_spawn(ioContext,[self = shared_from_this()]()->boost::asio::awaitable<void>{
+
+        while(self->asyncAccpets.load()){
+
+            std::unique_ptr<boost::asio::ip::tcp::socket> socket = std::make_unique<boost::asio::ip::tcp::socket>(self->ioContext);
+
+            co_await self->accept.async_accept(*socket,boost::asio::use_awaitable);
+
+            self->tcpSocket = std::move(socket);
+
+            LOG_INFO("tcpSocket Accept Successful!");
+
+            self->asyncEvents = true;
+
+            self->followRunning = true;
+
+            self->asioConcurrentQueue.reset();
+
+            self->receiveCoroutineAysnc();
+
+            boost::asio::co_spawn(self->ioContext,self->writerCoroutineAsync(),boost::asio::detached);
+
+            std::string registerStr = "{\"requestType\":0,\"webrtcManagerPath\":\"" + ConfigManager::Instance().GetString("WebRTC.WebRTCConfigPath") + "\",\"state\":200}";
+
+            std::shared_ptr<WriterData> registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
+
+            self->asyncWrite(registerData);
+
+            // 发送初始数据
+            std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(self->dataStr.data(), self->dataStr.size());
+
+            self->asyncWrite(writerData);
+
+        }
+
+    },boost::asio::detached);
+
+}
+
+void WebRTCManager::closeEvent(){
+
+    if(!asyncAccpets.exchange(false)) return;
 
 }
 
@@ -112,22 +123,22 @@ void WebRTCManager::connect(std::string ip)
         port = ip.substr(colonPos + 1);
     }
 
-    boost::asio::co_spawn(ioContext, [this,host,port]()->boost::asio::awaitable<void> {
+    boost::asio::co_spawn(ioContext, [self = shared_from_this(),host,port]()->boost::asio::awaitable<void> {
 
         try {
 
-            if (webSocket) {
+            if (self->webSocket) {
 
-                closeWebSocket();
+                self->closeWebSocket();
 
-                webSocket = nullptr;
+                self->webSocket = nullptr;
 
             }
 
-            webSocket = std::make_unique<boost::beast::websocket::stream<
-                boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>>(ioContext, sslContext);
+            self->webSocket = std::make_unique<boost::beast::websocket::stream<
+                boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>>(self->ioContext, self->sslContext);
 
-            boost::asio::ip::tcp::resolver resolver(ioContext);
+            boost::asio::ip::tcp::resolver resolver(self->ioContext);
 
             // 1. DNS 解析（带超时）
             auto results = co_await resolver.async_resolve(
@@ -137,67 +148,67 @@ void WebRTCManager::connect(std::string ip)
 
             // 2. TCP 连接（带超时）
             co_await boost::asio::async_connect(
-                webSocket->next_layer().next_layer(),
+                self->webSocket->next_layer().next_layer(),
                 results,
                 boost::asio::cancel_after(CONNECT_TIMEOUT, boost::asio::use_awaitable)
                 );
 
             // 3. SSL 握手（带超时）
-            co_await webSocket->next_layer().async_handshake(
+            co_await self->webSocket->next_layer().async_handshake(
                 boost::asio::ssl::stream_base::client,
                 boost::asio::cancel_after(SSL_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
                 );
 
             // 4. WebSocket 握手（带超时）
-            co_await webSocket->async_handshake(
+            co_await self->webSocket->async_handshake(
                 host, "/",
                 boost::asio::cancel_after(WS_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
                 );
 
-            webrtcAsioConcurrentQueue.reset();
+            self->webrtcAsioConcurrentQueue.reset();
 
-            setTcpKeepAlive(webSocket->next_layer().next_layer());
+            self->setTcpKeepAlive(self->webSocket->next_layer().next_layer());
 
-            boost::asio::co_spawn(ioContext, webrtcReceiveCoroutine(), boost::asio::detached);
+            boost::asio::co_spawn(self->ioContext, self->webrtcReceiveCoroutine(), boost::asio::detached);
 
-            boost::asio::co_spawn(ioContext, webrtcWriteCoroutine(), boost::asio::detached);
+            boost::asio::co_spawn(self->ioContext, self->webrtcWriteCoroutine(), boost::asio::detached);
 
             boost::json::object request;
 
             request["requestType"] = static_cast<int>(WebRTCRequestState::REGISTER);
 
-            request["accountId"] = this->accountId;
+            request["accountId"] = self->accountId;
 
             std::string requestStr = boost::json::serialize(request);
 
-            webrtcAsyncWrite(requestStr);
+            self->webrtcAsyncWrite(requestStr);
 
         }
         catch (std::exception & e) {
 
             LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
-            if (onSignalServerDisConnectHandle) {
-                onSignalServerDisConnectHandle();
+            if (self->onSignalServerDisConnectHandle) {
+                self->onSignalServerDisConnectHandle();
             }
 
-            if (isRemote == false) {
+            if (self->isRemote == false) {
 
                 co_return;
 
             }
 
-            isRemote = false;
+            self->isRemote = false;
 
-            if (onDisConnectRemoteHandle) {
+            if (self->onDisConnectRemoteHandle) {
 
-                onDisConnectRemoteHandle();
+                self->onDisConnectRemoteHandle();
 
             }
 
-            releaseSource();
+            self->releaseSource();
 
-            initializePeerConnection();
+            self->initializePeerConnection();
 
             co_return;
         }
@@ -211,6 +222,8 @@ WebRTCManager::~WebRTCManager()
 {
     LOG_INFO("Destructing WebRTCManager...");
 
+    closeEvent();
+
     onSignalServerDisConnectHandle = nullptr;
     onFollowRemoteHandle = nullptr;
     onDisConnectRemoteHandle = nullptr;
@@ -220,7 +233,7 @@ WebRTCManager::~WebRTCManager()
     onResetCursorHandle = nullptr;
     onRTCStatsCollectorHandle = nullptr;
 
-    socketRuns = false;
+    asyncEvents = false;
     followRunning = false;
 
     WindowsServiceManager::stopService(systemService);
@@ -310,13 +323,6 @@ bool WebRTCManager::initializePeerConnection()
             return false;
         }
 
-        const char* field_trials =
-            "WebRTC-DataChannelMessageInterleaving/Disabled/"
-            "WebRTC-Video-JitterBufferDelay/Enabled/"
-            "WebRTC-ZeroPlayoutDelay/min_pacing:2ms/";
-
-        std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
-
         std::unique_ptr<WebRTCVideoEncoderFactory> webrtcVideoEncoderFactoryUnique = std::make_unique<WebRTCVideoEncoderFactory>();
 
         webrtcVideoEncoderFactory = webrtcVideoEncoderFactoryUnique.get();
@@ -337,7 +343,7 @@ bool WebRTCManager::initializePeerConnection()
             nullptr,
             nullptr,
             nullptr,
-            std::move(fieldTrials)
+            nullptr
             );
 
         if (!peerConnectionFactory) {
@@ -358,12 +364,6 @@ bool WebRTCManager::initializePeerConnection()
     config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
     config.set_dscp(true);
-
-    uint32_t flags = webrtc::PORTALLOCATOR_ENABLE_SHARED_SOCKET |
-                     webrtc::PORTALLOCATOR_ENABLE_IPV6 |
-                     webrtc::PORTALLOCATOR_DISABLE_TCP;
-
-    config.set_port_allocator_flags(flags);
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
 
@@ -444,7 +444,7 @@ void WebRTCManager::disConnectRemoteHandler()
 
     if(tcpSocket){
 
-        socketRuns = false;
+        asyncEvents = false;
 
         followRunning = false;
 
@@ -472,7 +472,7 @@ void WebRTCManager::disConnectRemoteHandler()
 
 void WebRTCManager::closeWebSocket()
 {
-    if(!webrtcSignalSocketRuns.exchange(false)) return;
+    if(!webrtcAsyncEvents.exchange(false)) return;
 
     boost::system::error_code ec;
 
@@ -545,11 +545,11 @@ void WebRTCManager::setTcpKeepAlive(boost::asio::ip::tcp::socket &sock, int idle
 
 boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 {
-    webrtcSignalSocketRuns.store(true);
+    webrtcAsyncEvents.store(true);
 
     try{
 
-        while (webrtcSignalSocketRuns.load()) {
+        while (webrtcAsyncEvents.load()) {
 
             boost::beast::flat_buffer buffer;
 
@@ -590,8 +590,6 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
                     if(responseState == 200){
 
-                        connetState = WebRTCConnetState::connect;
-
                         if(onSignalServerConnectHandle){
 
                             onSignalServerConnectHandle();
@@ -609,7 +607,6 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
                             WebRTCRemoteState remoteState = WebRTCRemoteState(json["webRTCRemoteState"].as_int64());
 
-                            // 对方是masterRemote(接收端)，我们需要成为followerRemote(发送端)
                             if(remoteState == WebRTCRemoteState::masterRemote){
 
                                 targetId = std::string(json["accountId"].as_string().c_str());
@@ -638,7 +635,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
                                             if(tcpSocket){
 
-                                                socketRuns = false;
+                                                asyncEvents = false;
 
                                                 followRunning = false;
 
@@ -770,7 +767,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
                         initializePeerConnection();
 
-                        sendRequestToTarget();
+                        asyncReomteDesk();
                     }
                 }else if(WebRTCRequestState(requestType) == WebRTCRequestState::STOPREMOTE){
 
@@ -786,7 +783,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
                         if(tcpSocket){
 
-                            socketRuns = false;
+                            asyncEvents = false;
 
                             followRunning = false;
 
@@ -820,7 +817,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
                     if(responseState == 200){
 
-                        sendRequestToTarget();
+                        asyncReomteDesk();
 
                     }
 
@@ -866,7 +863,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcWriteCoroutine()
 {
     try {
 
-        while (webrtcSignalSocketRuns.load()) {
+        while (webrtcAsyncEvents.load()) {
 
             std::optional<std::string> optional = co_await webrtcAsioConcurrentQueue.dequeue();
 
@@ -878,7 +875,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcWriteCoroutine()
 
             }else break;
 
-            if (!webrtcSignalSocketRuns.load()) break;
+            if (!webrtcAsyncEvents.load()) break;
 
         }
 
@@ -903,7 +900,7 @@ void WebRTCManager::disConnectHandle()
 
     if(tcpSocket){
 
-        socketRuns = false;
+        asyncEvents = false;
 
         followRunning = false;
 
@@ -1076,7 +1073,7 @@ boost::asio::awaitable<void> WebRTCManager::writerCoroutineAsync()
 {
     try {
 
-        while(socketRuns.load()){
+        while(asyncEvents.load()){
 
             std::optional<std::shared_ptr<WriterData>> optional = co_await asioConcurrentQueue.dequeue();
 
@@ -1088,7 +1085,7 @@ boost::asio::awaitable<void> WebRTCManager::writerCoroutineAsync()
 
             }else break;
 
-            if (!socketRuns.load()) break;
+            if (!asyncEvents.load()) break;
 
         }
 
@@ -1111,7 +1108,7 @@ void WebRTCManager::receiveCoroutineAysnc()
         size_t headerSize = sizeof(int64_t);
         int messageCount = 0;
 
-        while (socketRuns) {
+        while (asyncEvents) {
             std::memset(headerBuffer, 0, headerSize);
 
             // 接收消息头
@@ -1243,7 +1240,7 @@ void WebRTCManager::handleAsioException()
 
     if(tcpSocket){
 
-        socketRuns = false;
+        asyncEvents = false;
 
         followRunning = false;
 
@@ -1309,7 +1306,7 @@ void WebRTCManager::releaseSource()
 
     if(tcpSocket){
 
-        socketRuns = false;
+        asyncEvents = false;
 
         followRunning = false;
 
@@ -1337,13 +1334,13 @@ void WebRTCManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
-void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable,int webrtcEnableNvidia)
+void WebRTCManager::asyncReomteDesk(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable,int webrtcEnableNvidia)
 {
-    boost::asio::co_spawn(ioContext,[=]()->boost::asio::awaitable<void>{
+    boost::asio::co_spawn(ioContext,[=,self = shared_from_this()]()->boost::asio::awaitable<void>{
 
-        if(peerConnection == nullptr){
+        if(self->peerConnection == nullptr){
 
-            initializePeerConnection();
+            self->initializePeerConnection();
 
         }
 
@@ -1352,16 +1349,16 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
             co_return;
         }
 
-        if (!webSocket || !webSocket->is_open()) {
+        if (!self->webSocket || !self->webSocket->is_open()) {
             LOG_ERROR("WebSocket not connected");
             co_return;
         }
 
-        if(peerConnection != nullptr){
+        if(self->peerConnection != nullptr){
 
             boost::json::object message;
-            message["accountId"] = accountId;
-            message["targetId"] = targetId;
+            message["accountId"] = self->accountId;
+            message["targetId"] = self->targetId;
             message["requestType"] = static_cast<int64_t>(WebRTCRequestState::REQUEST);
             message["webRTCRemoteState"] = static_cast<int64_t>(WebRTCRemoteState::masterRemote);
             message["webrtcModulesType"] = webrtcModulesType;
@@ -1370,39 +1367,39 @@ void WebRTCManager::sendRequestToTarget(int webrtcModulesType,int webrtcUseLevel
             message["webrtcAudioEnable"] = webrtcAudioEnable;
             message["webrtcEnableNvidia"] = webrtcEnableNvidia;
 
-            webrtcAsyncWrite(boost::json::serialize(message));
+            self->webrtcAsyncWrite(boost::json::serialize(message));
 
             LOG_INFO("Request sent to target: %s", targetId.c_str());
 
-            boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
+            boost::asio::co_spawn(ioContext,[self = self->shared_from_this()]()mutable->boost::asio::awaitable<void>{
 
-                reloadTimer.expires_after(std::chrono::seconds(15));;
+                self->reloadTimer.expires_after(std::chrono::seconds(15));;
 
-                co_await reloadTimer.async_wait(boost::asio::use_awaitable);
+                co_await self->reloadTimer.async_wait(boost::asio::use_awaitable);
 
-                if (!isRemote) {
+                if (!self->isRemote) {
 
-                    if(tcpSocket){
+                    if(self->tcpSocket){
 
-                        socketRuns = false;
+                        self->asyncEvents = false;
 
-                        followRunning = false;
+                        self->followRunning = false;
 
-                        asioConcurrentQueue.close();
+                        self->asioConcurrentQueue.close();
 
-                        if(tcpSocket && tcpSocket->is_open()){
+                        if(self->tcpSocket && self->tcpSocket->is_open()){
 
-                            tcpSocket->close();
+                            self->tcpSocket->close();
                         }
 
-                        tcpSocket = nullptr;
+                        self->tcpSocket = nullptr;
                     }
 
-                    releaseSource();
+                    self->releaseSource();
 
-                    initializePeerConnection();
+                    self->initializePeerConnection();
 
-                    isRemote = false;
+                    self->isRemote = false;
 
                     LOG_INFO("WebRTCManager SendRequestToTarget ReInit");
 
@@ -1449,46 +1446,47 @@ void WebRTCManager::writerRemote(unsigned char *data, size_t size)
 
 }
 
-void WebRTCManager::setVideoFrameCallback(VideoFrameCallback callback)
+void WebRTCManager::setOnVideoFrameHanlder(std::function<void(std::shared_ptr<VideoFrame>)> onVideoFrameHandler)
 {
-    this->videoFrameCallback = callback;
+    this->onVideoFrameHandler = onVideoFrameHandler;
 }
 
 void WebRTCManager::disConnect()
 {
 
-    boost::asio::post(ioContext,[this](){
+    boost::asio::post(ioContext,[self = shared_from_this()](){
 
-        if (webSocket && webSocket->is_open()) {
+        if (self->webSocket && self->webSocket->is_open()) {
 
-            closeWebSocket();
+            self->closeWebSocket();
 
-            webSocket = nullptr;
+            self->webSocket = nullptr;
         }
 
-        if(tcpSocket){
+        if(self->tcpSocket){
 
-            socketRuns = false;
+            self->asyncEvents = false;
 
-            followRunning = false;
+            self->followRunning = false;
 
-            asioConcurrentQueue.close();
+            self->asioConcurrentQueue.close();
 
-            if(tcpSocket && tcpSocket->is_open()){
+            if(self->tcpSocket && self->tcpSocket->is_open()){
 
-                tcpSocket->close();
+                self->tcpSocket->close();
+
             }
 
-            tcpSocket = nullptr;
+            self->tcpSocket = nullptr;
         }
 
-        if(onDisConnectRemoteHandle){
+        if(self->onDisConnectRemoteHandle){
 
-            onDisConnectRemoteHandle();
+            self->onDisConnectRemoteHandle();
 
         }
 
-        disConnectHandle();
+        self->disConnectHandle();
 
     });
 

@@ -79,11 +79,6 @@ enum class WebRTCRemoteState{
     followerRemote = 2, // 发送端：捕获屏幕并发送视频流
 };
 
-enum class WebRTCConnetState{
-    none,
-    connect,
-};
-
 enum class WebRTCRequestState {
     REGISTER = 0,
     REQUEST = 1,
@@ -97,8 +92,6 @@ enum class WebRTCRequestState {
 };
 
 struct VideoFrame {
-    // 核心：持有 WebRTC 的 buffer 引用
-    // scoped_refptr 会自动管理生命周期，引用计数归零时 WebRTC 会自动回收内存
     webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer;
 
     int width = 0;
@@ -106,9 +99,7 @@ struct VideoFrame {
 
     VideoFrame() = default;
 
-    // 构造函数：直接接管 WebRTC 的帧
     explicit VideoFrame(const webrtc::VideoFrame& frame) {
-        // ToI420() 如果底层已经是 I420，这里只是指针转换，开销极低
         buffer = frame.video_frame_buffer()->ToI420();
         width = frame.width();
         height = frame.height();
@@ -142,13 +133,13 @@ public:
 };
 
 
-class WebRTCManager
+class WebRTCManager : public std::enable_shared_from_this<WebRTCManager>
 {
     friend class PeerConnectionObserverImpl;
     friend class DataChannelObserverImpl;
     friend class VideoTrackSinkImpl;
 public:
-    WebRTCManager(WebRTCRemoteState state);
+    WebRTCManager();
 
     ~WebRTCManager();
 
@@ -157,7 +148,12 @@ public:
     WebRTCManager& operator=(const WebRTCManager&) = delete;
 
 public:
-    void sendRequestToTarget(int webrtcModulesType = 0,int webrtcUseLevels = 2,int videoCodec = 4,int webrtcAudioEnable = 0,int webrtcEnableNvidia = 0);
+
+    void asyncEvent();
+
+    void closeEvent();
+
+    void asyncReomteDesk(int webrtcModulesType = 0,int webrtcUseLevels = 2,int videoCodec = 4,int webrtcAudioEnable = 0,int webrtcEnableNvidia = 0);
 
     void connect(std::string ip);
 
@@ -165,9 +161,7 @@ public:
 
     void disConnect();
 
-    using VideoFrameCallback = std::function<void(std::shared_ptr<VideoFrame>)>;
-
-    void setVideoFrameCallback(VideoFrameCallback callback);
+    void setOnVideoFrameHanlder(std::function<void(std::shared_ptr<VideoFrame>)> onVideoFrameHanlder);
 
     std::string getAccountId() const;
 
@@ -232,8 +226,6 @@ private:
 
 private:
 
-    std::atomic<WebRTCConnetState> connetState;
-
     std::string accountId;
 
     std::string targetId;
@@ -276,17 +268,11 @@ private:
 
     std::atomic<bool> followRunning{false};
 
-    std::atomic<bool> shouldStop{false};
-
-    std::atomic<bool> isStreaming;
-
     std::atomic<int> videoWidth{1920};
 
     std::atomic<int> videoHeight{1080};
 
     std::atomic<bool> isRemote {false};
-
-    std::atomic<bool> remoteServiceRunning{false};
 
     boost::asio::io_context ioContext;
 
@@ -300,21 +286,21 @@ private:
 
     AsioConcurrentQueue<std::string> webrtcAsioConcurrentQueue;
 
-    std::atomic<bool> webrtcSignalSocketRuns{ false };
+    std::atomic<bool> webrtcAsyncEvents{ false };
 
     boost::asio::steady_timer reloadTimer;
 
     boost::asio::ip::tcp::acceptor accept;
 
-    std::function<void(std::shared_ptr<VideoFrame>)> videoFrameCallback;
+    std::atomic<bool> asyncAccpets {false};
+
+    std::function<void(std::shared_ptr<VideoFrame>)> onVideoFrameHandler;
 
     std::unique_ptr<boost::asio::ip::tcp::socket> tcpSocket;
 
-    std::atomic<bool> writerCoroutineRuns{ false };
-
     AsioConcurrentQueue<std::shared_ptr<WriterData>> asioConcurrentQueue;
 
-    std::atomic<bool> socketRuns{false};
+    std::atomic<bool> asyncEvents{false};
 
     std::string followData;
 
