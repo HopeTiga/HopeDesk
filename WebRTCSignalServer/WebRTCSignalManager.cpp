@@ -24,7 +24,7 @@ namespace hope {
 
         {
 
-            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePorts().second, channelIndex, taskQueues);
+            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePort(channelIndex), channelIndex, taskQueues);
 
             logicSystem->asyncEvent();
 
