@@ -444,7 +444,7 @@ namespace hope {
 
                     }
 
-                    auto webrtcSignalServer = packet->webrtcSignalManager->webrtcSignalServer;
+                    WebRTCSignalServer * webrtcSignalServer = packet->webrtcSignalManager->webrtcSignalServer;
 
                     int mapChannelIndex = packet->webrtcSignalManager->hasher(targetId) % packet->webrtcSignalManager->hashSize;
 
