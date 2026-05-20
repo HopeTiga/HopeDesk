@@ -429,7 +429,20 @@ namespace hope {
 
                 if (!targetSocket) {
 
-                    int index = packet->webrtcSignalSocket->actorMappingIndex[targetId];
+                    auto it = packet->webrtcSignalSocket->actorMappingIndex.find(targetId);
+
+                    int index = 0;
+
+                    if (it == packet->webrtcSignalSocket->actorMappingIndex.end()) {
+
+                        index = -1;
+
+                    }
+                    else {
+
+                        index = it->second;
+
+                    }
 
                     auto webrtcSignalServer = packet->webrtcSignalManager->webrtcSignalServer;
 
@@ -558,7 +571,6 @@ namespace hope {
                             });
                     }
                     else {
-
                         packet->webrtcSignalManager->webrtcSignalServer->postTaskAsync(index, [webrtcSignalSocket = webrtcSignalSocket->shared_from_this(), channelIndex = std::move(channelIndex), mapChannelIndex = std::move(mapChannelIndex), webrtcSignalRequest = std::move(packet->webrtcSignalRequest), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
 
                             if (manager->webrtcSocketMap.find(targetId) != manager->webrtcSocketMap.end()) {
@@ -572,6 +584,8 @@ namespace hope {
                                 std::string response;
 
                                 glz::write_json(webrtcSignalRequest, response);
+
+                                targetWebrtcSignalSocket->actorMappingIndex[accountId] = channelIndex;
 
                                 targetWebrtcSignalSocket->asyncWrite(std::move(response));
 
