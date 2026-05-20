@@ -71,17 +71,6 @@ namespace hope {
 
         }
 
-        void WebRTCSignalSocket::destroy() {
-
-            bool expected = false;
-
-            if (isDeleted.compare_exchange_strong(expected, true)) {
-
-                this->closeSocket();
-
-            }
-
-        }
         boost::asio::io_context& WebRTCSignalSocket::getIoCompletionPorts() {
 
             return ioContext;
@@ -122,9 +111,13 @@ namespace hope {
 
                 LOG_ERROR("WebRTCSignalServer WebSocket handshake failed! ERROR: %s", se.what());
 
-                destroy();
+                closeSocket(true);
+
             }
+
+            co_return;
         }
+
         boost::asio::awaitable<void> WebRTCSignalSocket::registrationTimeout() {
 
             static int registrationTimeoutMs = ConfigManager::Instance().GetInt("WebRTCSignalServer.socketWaitTime");
@@ -144,14 +137,17 @@ namespace hope {
 
                 LOG_WARN("Rgister Timeout (%d): WebRTCSignalSocket not rigster,close socket.", registrationTimeoutMs);
 
-                destroy();
+                closeSocket(true);
 
             }
+
+            co_return;
+
         }
 
         void WebRTCSignalSocket::asyncEvent() {
 
-            asyncEvents.store(true);
+            if (asyncEvents.exchange(true)) return;
 
             boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
 
@@ -193,19 +189,30 @@ namespace hope {
         }
         void WebRTCSignalSocket::clear() {
 
-            LOG_INFO("Stop connect...");
-
             closeSocket();
 
         }
 
         void WebRTCSignalSocket::closeSocket() {
 
-            if (isStop.exchange(true)) {
-                return;
+            closeSocket(false);
+
+        }
+
+
+        void WebRTCSignalSocket::closeSocket(bool isContinue) {
+
+            if (isContinue) {
+
+                asyncEvents.store(true);
+
             }
 
-            asyncEvents.store(false);
+            if (!asyncEvents.exchange(false)) {
+
+                return;
+
+            }
 
             boost::system::error_code ec;
 
@@ -236,9 +243,9 @@ namespace hope {
 
         boost::asio::awaitable<void> WebRTCSignalSocket::reviceCoroutine() {
 
-            while (asyncEvents) {
+            boost::beast::flat_buffer buffer;
 
-                boost::beast::flat_buffer buffer;
+            while (asyncEvents.load()) {
 
                 co_await webSocket.async_read(buffer, boost::asio::use_awaitable);
 
@@ -252,9 +259,9 @@ namespace hope {
 
                 if (err) {
 
-                    LOG_WARN("JSON parse error: %s", glz::format_error(err).c_str());
+                    LOG_WARN("JSON Parse Error: %s", glz::format_error(err).c_str());
 
-                    destroy();
+                    closeSocket();
 
                     co_return;
 
@@ -262,7 +269,15 @@ namespace hope {
 
                 if (!webrtcSignalRequest.requestType.has_value()) throw std::runtime_error("Invalid request: missing requestType");
 
-                if (!this->isRegistered && webrtcSignalRequest.requestType.value() != 0) throw std::runtime_error("Not Allow No Register Do Anything");
+                if (!this->isRegistered && webrtcSignalRequest.requestType.value() != 0) {
+
+                    LOG_WARN("WebRTCSignalSocket Not Registered, RequestType: %d", webrtcSignalRequest.requestType.value());
+
+                    closeSocket();
+
+                    co_return;
+
+                }
 
                 std::shared_ptr<WebRTCSignalPacket> packet = std::make_shared<WebRTCSignalPacket>(std::move(webrtcSignalRequest), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 

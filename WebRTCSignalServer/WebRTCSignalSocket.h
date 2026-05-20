@@ -74,8 +74,6 @@ namespace hope {
 
 			bool getRegistered();
 
-			void destroy();
-
 			std::string getSessionId();
 
 			std::string getRemoteAddress();
@@ -91,6 +89,8 @@ namespace hope {
 			absl::flat_hash_map<std::string, int> actorMappingIndex;
 
 		private:
+
+			void closeSocket(bool isContinue);
 
 			boost::asio::awaitable<void> registrationTimeout();
 
