@@ -54,7 +54,7 @@ namespace hope {
 
 			boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>& getWebSocket();
 
-			boost::asio::awaitable<void> handShake();
+			boost::asio::awaitable<bool> handShake();
 
 			boost::asio::io_context& getIoCompletionPorts();
 

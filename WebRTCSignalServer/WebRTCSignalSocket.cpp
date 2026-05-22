@@ -82,7 +82,7 @@ namespace hope {
 
         }
 
-        boost::asio::awaitable<void> WebRTCSignalSocket::handShake() {
+        boost::asio::awaitable<bool> WebRTCSignalSocket::handShake() {
 
             boost::beast::flat_buffer buffer;
 
@@ -113,9 +113,11 @@ namespace hope {
 
                 closeSocket(true);
 
+                co_return false;
+
             }
 
-            co_return;
+            co_return true;
         }
 
         boost::asio::awaitable<void> WebRTCSignalSocket::registrationTimeout() {
