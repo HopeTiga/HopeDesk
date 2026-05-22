@@ -138,7 +138,7 @@ namespace hope {
 
                         });
 
-                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [this, webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
                         if (co_await webrtcSignalSocket->handShake()) {
 

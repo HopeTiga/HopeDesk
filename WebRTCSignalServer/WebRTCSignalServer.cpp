@@ -90,10 +90,10 @@ namespace hope {
 
                         });
 
-                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [this, webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
                         if (co_await webrtcSignalSocket->handShake()) {
-                        
+
                             webrtcSignalSocket->asyncEvent();
 
                         }
@@ -190,17 +190,15 @@ namespace hope {
 
         void WebRTCSignalServer::closeEvent() {
 
-            if (closeEvents.exchange(true)) return;
+            if (!closeEvents.exchange(false)) return;
 
-            asyncEvents.store(false);
-
-            LOG_INFO("WebRTCSignalServer Start Shutdown...");
+            LOG_INFO("WebRTCSignalServer CloseEvent...");
 
             taskQueues.close();
             // 设置关闭标志，防止新连接
             webrtcSignalManagers.clear();
 
-            LOG_INFO("WebRTCSignalServer Already Shutdown");
+            LOG_INFO("WebRTCSignalServer Already CloseEvent");
 
         }
 
