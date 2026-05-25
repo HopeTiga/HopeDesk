@@ -81,7 +81,7 @@ namespace hope {
 
             webrtcSocketMap.erase(it);
 
-            currentSocket->closeSocket();
+            currentSocket->closeEvent();
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 

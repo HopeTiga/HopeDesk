@@ -55,7 +55,9 @@ namespace hope {
 
         WebRTCSignalSocket::~WebRTCSignalSocket() {
 
-            clear();
+            closeEvent();
+
+            closeSocket();
 
         }
 
@@ -111,7 +113,7 @@ namespace hope {
 
                 LOG_ERROR("WebRTCSignalServer WebSocket handshake failed! ERROR: %s", se.what());
 
-                closeSocket(true);
+                closeSocket();
 
                 co_return false;
 
@@ -139,7 +141,7 @@ namespace hope {
 
                 LOG_WARN("Rgister Timeout (%d): WebRTCSignalSocket not rigster,close socket.", registrationTimeoutMs);
 
-                closeSocket(true);
+                closeSocket();
 
             }
 
@@ -189,26 +191,8 @@ namespace hope {
                     boost::beast::role_type::server));
 
         }
-        void WebRTCSignalSocket::clear() {
 
-            closeSocket();
-
-        }
-
-        void WebRTCSignalSocket::closeSocket() {
-
-            closeSocket(false);
-
-        }
-
-
-        void WebRTCSignalSocket::closeSocket(bool isContinue) {
-
-            if (isContinue) {
-
-                asyncEvents.store(true);
-
-            }
+        void WebRTCSignalSocket::closeEvent() {
 
             if (!asyncEvents.exchange(false)) {
 
@@ -216,23 +200,29 @@ namespace hope {
 
             }
 
-            boost::system::error_code ec;
-
             asioConcurrentQueue.close();
 
             registrationTimer.cancel();
 
-            auto& tcpSock = webSocket.next_layer().next_layer();
+        }
 
-            if (tcpSock.is_open()) {
+        void WebRTCSignalSocket::closeSocket() {
 
-                tcpSock.cancel(ec);
+            boost::system::error_code ec;
+
+            auto& tcpSocket = webSocket.next_layer().next_layer();
+
+            if (tcpSocket.is_open()) {
+
+                tcpSocket.cancel(ec);
+
                 if (ec) {
                     LOG_ERROR("WebRTCSignalSocket::closeSocket() cancel failed: %s", ec.message().c_str());
                 }
-                tcpSock.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
 
-                tcpSock.close(ec);
+                tcpSocket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+
+                tcpSocket.close(ec);
 
                 if (ec && ec != boost::asio::error::not_connected) {
                     LOG_ERROR("WebRTCSignalSocket::closeSocket() force close failed: %s", ec.message().c_str());
@@ -265,19 +255,27 @@ namespace hope {
 
                     closeSocket();
 
-                    co_return;
+                    continue;
 
                 }
 
-                if (!webrtcSignalRequest.requestType.has_value()) throw std::runtime_error("Invalid request: missing requestType");
+                if (!webrtcSignalRequest.requestType.has_value()) {
 
-                if (!this->isRegistered && webrtcSignalRequest.requestType.value() != 0) {
-
-                    LOG_WARN("WebRTCSignalSocket Not Registered, RequestType: %d", webrtcSignalRequest.requestType.value());
+                    LOG_WARN("WebRTCSignalSocket Invalid Request: missing requestType");
 
                     closeSocket();
 
-                    co_return;
+                    continue;
+
+                }
+
+                if (!this->isRegistered && webrtcSignalRequest.requestType.value() != 0) {
+
+                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", webrtcSignalRequest.requestType.value());
+
+                    closeSocket();
+
+                    continue;
 
                 }
 

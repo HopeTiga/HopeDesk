@@ -1,142 +1,83 @@
 #pragma once
-#include <string>
 #include <memory>
+#include <string>
+#include <mutex>
+#include <vector>
+#include <unordered_map>
+#include <functional>
+#include <unordered_set>
+#include <atomic>
+#include <boost/json.hpp>
 #include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
-#include <boost/beast/websocket/ssl.hpp> 
 #include <boost/beast.hpp>
 
-#ifdef _WIN32
-#include <winsock2.h>      // Windows Socket API
-#include <ws2tcpip.h>      // Windows Socket 扩展
-#include <mstcpip.h>       // SIO_KEEPALIVE_VALS 和 tcp_keepalive 结构体
-#pragma comment(lib, "ws2_32.lib")
-#elif defined(__linux__)
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <unistd.h>
-#include <fcntl.h>
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <unistd.h>
-#include <fcntl.h>
-#endif
-
-#include <absl/container/flat_hash_map.h>
-
-#include "WebRTCSignalSocketInterface.h"
-#include "AsioConcurrentQueue.h"
+#include "AwaitableTask.h"
 
 namespace hope {
 
-	namespace core {
+    namespace core {
 
-		class WebRTCSignalServer;
+        class WebRTCSignalManager;
 
-		class WebRTCSignalManager;
+        class WebRTCSignalServer : public std::enable_shared_from_this<WebRTCSignalServer> {
 
-		class WebRTCSignalSocket : public std::enable_shared_from_this<WebRTCSignalSocket>
-		{
-		public:
+        public:
 
-			static void initSslContext();
+            WebRTCSignalServer(boost::asio::io_context& ioContext, size_t port = 8088, int enableHttp = 0, size_t httpPort = 8080, size_t enablePublicPort = 1, size_t size = std::thread::hardware_concurrency());
 
-			static boost::asio::ssl::context& getSslContext();
+            ~WebRTCSignalServer();
 
-			WebRTCSignalSocket(boost::asio::io_context& ioContext, WebRTCSignalManager* webrtcSignalManager);
+            WebRTCSignalServer(const WebRTCSignalServer&) = delete;
 
-			~WebRTCSignalSocket();
+            WebRTCSignalServer& operator=(const WebRTCSignalServer&) = delete;
 
-			boost::asio::ip::tcp::socket& getSocket();
+            void asyncEvent();
 
-			boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>& getWebSocket();
+            void closeEvent();
 
-			boost::asio::awaitable<bool> handShake();
+            bool postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle);
 
-			boost::asio::io_context& getIoCompletionPorts();
+            size_t getChannelNumbers();
 
-			void asyncEvent();
+        private:
 
-			void clear();
+            std::shared_ptr<WebRTCSignalManager> loadBalanceWebrtcManger();
 
-			virtual void asyncWrite(unsigned char* packet, size_t size);
+            void initialize();
 
-			void asyncWrite(std::string packet);
+        private:
 
-			void setAccountId(const std::string& accountId);
+            std::vector<std::shared_ptr<WebRTCSignalManager>> webrtcSignalManagers;
 
-			std::string getAccountId();
+            std::atomic<size_t> managerIndex{ 0 };
 
-			void setRegistered(bool isRegistered);
+            std::atomic<bool> asyncEvents{ false };
 
-			bool getRegistered();
+            std::atomic<bool> closeEvents{ false };
 
-			std::string getSessionId();
+            boost::asio::io_context& ioContext;
 
-			std::string getRemoteAddress();
+#ifndef __linux__
 
-			void closeSocket();
+            boost::asio::ip::tcp::acceptor acceptor;
 
-		public:
+            boost::asio::ip::tcp::acceptor httpAcceptor;
 
-			void setOnDisConnectHandle(std::function<void(std::string, std::string)> handle);
+#endif
 
-		public:
+            size_t port;
 
-			absl::flat_hash_map<std::string, int> actorMappingIndex;
+            size_t httpPort;
 
-		private:
+            int enableHttp;
 
-			void closeSocket(bool isContinue);
+            size_t size;
 
-			boost::asio::awaitable<void> registrationTimeout();
+            size_t enablePublicPort;
 
-			boost::asio::awaitable<void> reviceCoroutine();
+            TaskChannel taskQueues;
 
-			boost::asio::awaitable<void> writerCoroutine();
+        };
+    }
 
-			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
-				int idle = 0, int intvl = 3, int probes = 3);
-
-		private:
-
-			WebRTCSignalManager* webrtcSignalManager;
-
-			boost::asio::io_context& ioContext;
-
-			boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> webSocket;
-
-			boost::asio::ip::tcp::resolver resolver;
-
-			AsioConcurrentQueue<std::string> asioConcurrentQueue;
-
-			std::atomic<bool> asyncEvents{ false };
-
-			std::string accountId;
-
-			boost::asio::steady_timer registrationTimer;
-
-			std::atomic<bool> isRegistered{ false };
-
-			std::atomic<bool> isStop{ false };
-
-			std::atomic<bool> isHandleDisConnect{ false };
-
-			std::atomic<bool> isDeleted{ false };
-
-			std::atomic<bool> writerCoroutineRuns{ false };
-
-			std::string sessionId;
-
-			static boost::asio::ssl::context sslContext;
-
-		private:
-
-			std::function<void(std::string, std::string)> onDisConnectHandle;
-
-		};
-	}
 }
