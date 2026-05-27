@@ -110,10 +110,8 @@ namespace hope {
 
             encodeConfig.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
             encodeConfig.rcParams.averageBitRate = bitrateBps;
-            encodeConfig.rcParams.maxBitRate = bitrateBps;
+            encodeConfig.rcParams.maxBitRate = bitrateBps * 2;
             encodeConfig.rcParams.enableAQ = 0;
-            encodeConfig.rcParams.enableMinQP = 1;
-            encodeConfig.rcParams.enableMaxQP = 1;
             encodeConfig.rcParams.enableLookahead = 0;
             encodeConfig.frameIntervalP = 1;
             encodeConfig.gopLength = NVENC_INFINITE_GOPLENGTH;
@@ -129,7 +127,7 @@ namespace hope {
                 return false;
             }
 
-            bufCount = 8;
+            bufCount = 24;
             mappedResources.resize(bufCount, nullptr);
             swInputBuffers.resize(bufCount, nullptr);
 
@@ -525,7 +523,7 @@ namespace hope {
 
             encodeConfig.rcParams.averageBitRate = targetBitrateBps;
             encodeConfig.rcParams.maxBitRate =
-                static_cast<uint32_t>(targetBitrateBps * 1.2);
+                static_cast<uint32_t>(targetBitrateBps * 2);
 
             initParams.encodeConfig = &encodeConfig;
             reconfig.reInitEncodeParams = initParams;
