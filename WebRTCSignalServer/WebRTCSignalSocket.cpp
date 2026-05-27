@@ -90,12 +90,6 @@ namespace hope {
 
             boost::beast::http::request<boost::beast::http::string_body> req;
 
-            boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
-
-                co_await self->registrationTimeout();
-
-                }, boost::asio::detached);
-
             try {
 
                 co_await webSocket.next_layer().async_handshake(boost::asio::ssl::stream_base::server, boost::asio::use_awaitable);
@@ -112,8 +106,6 @@ namespace hope {
             catch (const boost::system::system_error& se) {
 
                 LOG_ERROR("WebRTCSignalServer WebSocket handshake failed! ERROR: %s", se.what());
-
-                registrationTimer.cancel();
 
                 closeSocket();
 
@@ -154,6 +146,12 @@ namespace hope {
         void WebRTCSignalSocket::asyncEvent() {
 
             if (asyncEvents.exchange(true)) return;
+
+            boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
+
+                co_await self->registrationTimeout();
+
+                }, boost::asio::detached);
 
             boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
 
