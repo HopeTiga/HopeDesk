@@ -57,8 +57,6 @@ namespace hope {
 
             closeEvent();
 
-            closeSocket();
-
             LOG_INFO("~WebRTCSignalSocket");
 
         }
@@ -115,6 +113,8 @@ namespace hope {
 
                 LOG_ERROR("WebRTCSignalServer WebSocket handshake failed! ERROR: %s", se.what());
 
+                registrationTimer.cancel();
+
                 closeSocket();
 
                 co_return false;
@@ -143,7 +143,7 @@ namespace hope {
 
                 LOG_WARN("Rgister Timeout (%d): WebRTCSignalSocket not register,close socket.", registrationTimeoutMs);
 
-                closeSocket();
+                closeEvent();
 
             }
 
@@ -168,7 +168,7 @@ namespace hope {
                             std::rethrow_exception(p);
 
                         }
-                        catch (const std::runtime_error& e) {
+                        catch (std::exception& e) {
 
                             if (self->isRegistered && self->onDisConnectHandle) {
 
@@ -176,7 +176,19 @@ namespace hope {
 
                             }
 
-                            LOG_DEBUG("WebRTCSignalSocket error: %s", e.what());
+                            LOG_ERROR("WebRTCSignalSocket error: %s", e.what());
+
+                        }
+                        catch (...) {
+
+                            if (self->isRegistered && self->onDisConnectHandle) {
+
+                                self->onDisConnectHandle(self->accountId, self->sessionId);
+
+                            }
+
+                            LOG_ERROR("WebRTCSignalSocket error: unknown");
+
                         }
                     }
                     });
@@ -206,6 +218,8 @@ namespace hope {
 
             registrationTimer.cancel();
 
+            closeSocket();
+
         }
 
         void WebRTCSignalSocket::closeSocket() {
@@ -229,9 +243,10 @@ namespace hope {
                 if (ec && ec != boost::asio::error::not_connected) {
                     LOG_ERROR("WebRTCSignalSocket::closeSocket() force close failed: %s", ec.message().c_str());
                 }
-            }
 
-            LOG_INFO("WebRTCSignalSocket is immediately closed and resources are freed");
+                LOG_INFO("WebRTCSignalSocket is immediately closed and resources are freed");
+
+            }
 
         }
 
@@ -255,7 +270,7 @@ namespace hope {
 
                     LOG_WARN("JSON Parse Error: %s", glz::format_error(err).c_str());
 
-                    closeSocket();
+                    closeEvent();
 
                     continue;
 
@@ -265,7 +280,7 @@ namespace hope {
 
                     LOG_WARN("WebRTCSignalSocket Invalid Request: missing requestType");
 
-                    closeSocket();
+                    closeEvent();
 
                     continue;
 
@@ -275,7 +290,7 @@ namespace hope {
 
                     LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", webrtcSignalRequest.requestType.value());
 
-                    closeSocket();
+                    closeEvent();
 
                     continue;
 
