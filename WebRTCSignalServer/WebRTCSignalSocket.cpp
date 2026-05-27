@@ -59,6 +59,8 @@ namespace hope {
 
             closeSocket();
 
+            LOG_INFO("~WebRTCSignalSocket");
+
         }
 
         std::string WebRTCSignalSocket::getSessionId() {
@@ -139,7 +141,7 @@ namespace hope {
             }
             if (!isRegistered.load()) {
 
-                LOG_WARN("Rgister Timeout (%d): WebRTCSignalSocket not rigster,close socket.", registrationTimeoutMs);
+                LOG_WARN("Rgister Timeout (%d): WebRTCSignalSocket not register,close socket.", registrationTimeoutMs);
 
                 closeSocket();
 
