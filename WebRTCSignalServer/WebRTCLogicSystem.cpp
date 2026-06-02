@@ -177,7 +177,7 @@ namespace hope {
 
                         taskQueueSize.fetch_sub(1);
 
-                        glz::obj response{ "responseType", type, "state", 503, "message", "webrtcSignalServer busy, please retry later", "data", nullptr };
+                        glz::generic response{ {"responseType", type}, {"state", 503}, {"message", "webrtcSignalServer busy, please retry later"}, {"data", nullptr} };
 
                         std::string responseBuf;
 
@@ -281,7 +281,7 @@ namespace hope {
 
                             res.set(boost::beast::http::field::content_type, "application/json");
 
-                            glz::write_json(body, res.body());
+                            res.body() = glz::write_json(body).value_or("{}");
 
                             res.prepare_payload();
 
@@ -485,9 +485,9 @@ namespace hope {
 
                                         manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = webrtcSignalSocket->shared_from_this(), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
 
-                                            glz::obj forwardObj{ "requestType", requestTypeValue, "state", 404.0, "message", std::string("TargetId is not register") };
+                                            glz::generic forward{ {"requestType", requestTypeValue}, {"state", 404.0}, {"message", std::string("TargetId is not register")}, {"data", nullptr} };
 
-                                            std::string response = glz::write_json(forwardObj).value_or("{}");
+                                            std::string response = glz::write_json(forward).value_or("{}");
 
                                             webrtcSignalSocket->asyncWrite(std::move(response));
 
@@ -532,9 +532,9 @@ namespace hope {
 
                                         manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = webrtcSignalSocket->shared_from_this(), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
 
-                                            glz::obj forwardObj{ "requestType", requestTypeValue, "state", 404.0, "message", std::string("TargetId is not register") };
+                                            glz::generic forward{ {"requestType", requestTypeValue}, {"state", 404.0}, {"message", std::string("TargetId is not register")}, {"data", nullptr} };
 
-                                            std::string response = glz::write_json(forwardObj).value_or("{}");
+                                            std::string response = glz::write_json(forward).value_or("{}");
 
                                             webrtcSignalSocket->asyncWrite(std::move(response));
 
@@ -553,9 +553,9 @@ namespace hope {
 
                                 manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = webrtcSignalSocket->shared_from_this(), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
 
-                                    glz::obj forwardObj{ "requestType", requestTypeValue, "state", 404.0, "message", std::string("TargetId is not register") };
+                                    glz::generic forward{ {"requestType", requestTypeValue}, {"state", 404.0}, {"message", std::string("TargetId is not register")}, {"data", nullptr} };
 
-                                    std::string response = glz::write_json(forwardObj).value_or("{}");
+                                    std::string response = glz::write_json(forward).value_or("{}");
 
                                     webrtcSignalSocket->asyncWrite(std::move(response));
 
@@ -645,9 +645,9 @@ namespace hope {
 
                                                 manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = webrtcSignalSocket->shared_from_this(), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
 
-                                                    glz::obj forwardObj{ "requestType", requestTypeValue, "state", 404.0, "message", std::string("TargetId is not register") };
+                                                    glz::generic forward{ {"requestType", requestTypeValue}, {"state", 404.0}, {"message", std::string("TargetId is not register")}, {"data", nullptr} };
 
-                                                    std::string response = glz::write_json(forwardObj).value_or("{}");
+                                                    std::string response = glz::write_json(forward).value_or("{}");
 
                                                     webrtcSignalSocket->asyncWrite(std::move(response));
 
@@ -692,9 +692,9 @@ namespace hope {
 
                                                 manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = webrtcSignalSocket->shared_from_this(), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
 
-                                                    glz::obj forwardObj{ "requestType", requestTypeValue, "state", 404.0, "message", "TargetId is not register" };
+                                                    glz::generic forward{ {"requestType", requestTypeValue}, {"state", 404.0}, {"message", std::string("TargetId is not register")}, {"data", nullptr} };
 
-                                                    std::string response = glz::write_json(forwardObj).value_or("{}");
+                                                    std::string response = glz::write_json(forward).value_or("{}");
 
                                                     webrtcSignalSocket->asyncWrite(std::move(response));
 
@@ -713,9 +713,9 @@ namespace hope {
 
                                         manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = webrtcSignalSocket->shared_from_this(), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
 
-                                            glz::obj forwardObj{ "requestType", requestTypeValue, "state", 404.0, "message", "TargetId is not register" };
+                                            glz::generic forward{ {"requestType", requestTypeValue}, {"state", 404.0}, {"message", std::string("TargetId is not register")}, {"data", nullptr} };
 
-                                            std::string response = glz::write_json(forwardObj).value_or("{}");
+                                            std::string response = glz::write_json(forward).value_or("{}");
 
                                             webrtcSignalSocket->asyncWrite(std::move(response));
 
