@@ -2,15 +2,24 @@
 #include <stdexcept>
 #include <string>
 #include <tchar.h>
+#include <algorithm>   // for std::find
 
-// 定义Windows API常量
 #define WINSTA_ALL_ACCESS 0x37F
 #define DESKTOP_ALL_ACCESS 0x01FF
 
 namespace hope {
+    namespace rtc {
 
-	namespace rtc {
-	
+        // 静态回调：枚举桌面并过滤掉 winlogon 和 ScreenSaver
+        BOOL CALLBACK WinLogon::EnumDesktopProc(LPTSTR desktopName, LPARAM lParam) {
+            auto* vec = reinterpret_cast<std::vector<std::wstring>*>(lParam);
+            if (_tcsicmp(desktopName, TEXT("winlogon")) != 0 &&
+                _tcsicmp(desktopName, TEXT("ScreenSaver")) != 0) {
+                vec->push_back(desktopName);
+            }
+            return TRUE;
+        }
+
         WinLogon::WinLogon() {
             SwitchToWinLogonDesktop();
         }
@@ -20,46 +29,39 @@ namespace hope {
         }
 
         void WinLogon::SwitchToWinLogonDesktop() {
-            // 如果已经在安全桌面，直接返回
-            if (_isOnWinLogonDesktop) {
+            if (isOnWinLogonDesktop) {
                 return;
             }
 
-            // 打开WinSta0窗口站
-            _winSta0Station = OpenWindowStation(TEXT("WinSta0"), FALSE, WINSTA_ALL_ACCESS);
-            if (_winSta0Station == NULL) {
+            winSta0Station = OpenWindowStation(TEXT("WinSta0"), FALSE, WINSTA_ALL_ACCESS);
+            if (winSta0Station == NULL) {
                 throw std::runtime_error("Failed to open WinSta0 window station: " + std::to_string(GetLastError()));
             }
 
-            // 保存当前窗口站
-            _oldProcessWinStation = GetProcessWindowStation();
+            oldProcessWinStation = GetProcessWindowStation();
 
-            // 设置新的窗口站
-            if (!SetProcessWindowStation(_winSta0Station)) {
-                CloseWindowStation(_winSta0Station);
+            if (!SetProcessWindowStation(winSta0Station)) {
+                CloseWindowStation(winSta0Station);
                 throw std::runtime_error("Failed to set process window station: " + std::to_string(GetLastError()));
             }
 
-            // 打开winlogon桌面
-            _winLogonDesktop = OpenDesktop(TEXT("winlogon"), 0, FALSE, DESKTOP_ALL_ACCESS);
-            if (_winLogonDesktop == NULL) {
-                SetProcessWindowStation(_oldProcessWinStation);
-                CloseWindowStation(_winSta0Station);
+            winLogonDesktop = OpenDesktop(TEXT("winlogon"), 0, FALSE, DESKTOP_ALL_ACCESS);
+            if (winLogonDesktop == NULL) {
+                SetProcessWindowStation(oldProcessWinStation);
+                CloseWindowStation(winSta0Station);
                 throw std::runtime_error("Failed to open winlogon desktop: " + std::to_string(GetLastError()));
             }
 
-            // 保存当前线程桌面
-            _oldThreadDesktop = GetThreadDesktop(GetCurrentThreadId());
+            oldThreadDesktop = GetThreadDesktop(GetCurrentThreadId());
 
-            // 设置新的线程桌面
-            if (!SetThreadDesktop(_winLogonDesktop)) {
-                CloseDesktop(_winLogonDesktop);
-                SetProcessWindowStation(_oldProcessWinStation);
-                CloseWindowStation(_winSta0Station);
+            if (!SetThreadDesktop(winLogonDesktop)) {
+                CloseDesktop(winLogonDesktop);
+                SetProcessWindowStation(oldProcessWinStation);
+                CloseWindowStation(winSta0Station);
                 throw std::runtime_error("Failed to set thread desktop: " + std::to_string(GetLastError()));
             }
 
-            _isOnWinLogonDesktop = true;
+            isOnWinLogonDesktop = true;
         }
 
         bool WinLogon::IsCurrentlyOnSecureDesktop() {
@@ -68,93 +70,79 @@ namespace hope {
                 return false;
             }
 
-            // 获取桌面名称
             TCHAR desktopName[256] = { 0 };
             DWORD needed = 0;
-
-            if (!GetUserObjectInformation(currentDesktop, UOI_NAME,
-                desktopName, sizeof(desktopName),
-                &needed)) {
+            if (!GetUserObjectInformation(currentDesktop, UOI_NAME, desktopName, sizeof(desktopName), &needed)) {
                 return false;
             }
 
-            // 比较桌面名称
-            // winlogon 是安全桌面，返回 true
-            // Default 是普通桌面，返回 false
             return (_tcsicmp(desktopName, TEXT("winlogon")) == 0);
         }
 
         void WinLogon::SwitchToDefaultDesktop() {
-            // 如果不在安全桌面，直接返回
-            if (!_isOnWinLogonDesktop) {
+            if (!isOnWinLogonDesktop) {
                 return;
             }
 
-            // 确保WinSta0窗口站是打开的
-            if (_winSta0Station == NULL) {
-                _winSta0Station = OpenWindowStation(TEXT("WinSta0"), FALSE, WINSTA_ALL_ACCESS);
-                if (_winSta0Station == NULL) {
+            if (winSta0Station == NULL) {
+                winSta0Station = OpenWindowStation(TEXT("WinSta0"), FALSE, WINSTA_ALL_ACCESS);
+                if (winSta0Station == NULL) {
                     throw std::runtime_error("Failed to open WinSta0 window station: " + std::to_string(GetLastError()));
                 }
             }
 
-            // 设置窗口站
-            if (!SetProcessWindowStation(_winSta0Station)) {
+            if (!SetProcessWindowStation(winSta0Station)) {
                 throw std::runtime_error("Failed to set process window station: " + std::to_string(GetLastError()));
             }
 
-            // 打开默认桌面（Default桌面）
-            _defaultDesktop = OpenDesktop(TEXT("Default"), 0, FALSE, DESKTOP_ALL_ACCESS);
-            if (_defaultDesktop == NULL) {
+            defaultDesktop = OpenDesktop(TEXT("Default"), 0, FALSE, DESKTOP_ALL_ACCESS);
+            if (defaultDesktop == NULL) {
                 throw std::runtime_error("Failed to open default desktop: " + std::to_string(GetLastError()));
             }
 
-            // 切换到默认桌面
-            if (!SetThreadDesktop(_defaultDesktop)) {
-                CloseDesktop(_defaultDesktop);
-                _defaultDesktop = NULL;
+            if (!SetThreadDesktop(defaultDesktop)) {
+                CloseDesktop(defaultDesktop);
+                defaultDesktop = NULL;
                 throw std::runtime_error("Failed to set thread desktop to default: " + std::to_string(GetLastError()));
             }
 
-            // 清理winlogon桌面句柄
-            if (_winLogonDesktop != NULL) {
-                CloseDesktop(_winLogonDesktop);
-                _winLogonDesktop = NULL;
+            if (winLogonDesktop != NULL) {
+                CloseDesktop(winLogonDesktop);
+                winLogonDesktop = NULL;
             }
 
-            _isOnWinLogonDesktop = false;
+            isOnWinLogonDesktop = false;
         }
 
         void WinLogon::RestoreOriginalDesktop() {
-            // 如果有默认桌面句柄，先关闭它
-            if (_defaultDesktop != NULL) {
-                CloseDesktop(_defaultDesktop);
-                _defaultDesktop = NULL;
+            if (defaultDesktop != NULL) {
+                CloseDesktop(defaultDesktop);
+                defaultDesktop = NULL;
             }
 
-            if (_oldThreadDesktop != NULL) {
-                SetThreadDesktop(_oldThreadDesktop);
+            if (oldThreadDesktop != NULL) {
+                SetThreadDesktop(oldThreadDesktop);
             }
 
-            if (_winLogonDesktop != NULL) {
-                CloseDesktop(_winLogonDesktop);
-                _winLogonDesktop = NULL;
+            if (winLogonDesktop != NULL) {
+                CloseDesktop(winLogonDesktop);
+                winLogonDesktop = NULL;
             }
 
-            if (_oldProcessWinStation != NULL) {
-                SetProcessWindowStation(_oldProcessWinStation);
+            if (oldProcessWinStation != NULL) {
+                SetProcessWindowStation(oldProcessWinStation);
             }
 
-            if (_winSta0Station != NULL) {
-                CloseWindowStation(_winSta0Station);
-                _winSta0Station = NULL;
+            if (winSta0Station != NULL) {
+                CloseWindowStation(winSta0Station);
+                winSta0Station = NULL;
             }
 
-            _isOnWinLogonDesktop = false;
+            isOnWinLogonDesktop = false;
         }
 
         bool WinLogon::AttachedToWinLogonDesktop() const {
-            return _isOnWinLogonDesktop && (_winLogonDesktop != NULL);
+            return isOnWinLogonDesktop && (winLogonDesktop != NULL);
         }
 
         void WinLogon::Dispose() {
@@ -162,16 +150,71 @@ namespace hope {
         }
 
         void WinLogon::Dispose(bool disposing) {
-            if (!_disposed) {
+            if (!disposed) {
                 if (disposing) {
                     RestoreOriginalDesktop();
                 }
-                _disposed = true;
+                disposed = true;
             }
         }
 
+        // 获取普通桌面列表（const 成员函数）
+        std::vector<std::wstring> WinLogon::GetNormalDesktops() const {
+            std::vector<std::wstring> desktops;
+            HWINSTA hwinsta = GetProcessWindowStation();
+            if (hwinsta == NULL) {
+                return desktops;
+            }
+            // 使用静态回调函数，传递 vector 指针
+            EnumDesktops(hwinsta, EnumDesktopProc, reinterpret_cast<LPARAM>(&desktops));
+            return desktops;
+        }
 
+        bool WinLogon::SwitchToDesktop(const std::wstring& desktopName) {
+            HWINSTA hwinsta = GetProcessWindowStation();
+            if (hwinsta == NULL) {
+                // 尝试切换到 WinSta0
+                HWINSTA winsta0 = OpenWindowStation(TEXT("WinSta0"), FALSE, WINSTA_ALL_ACCESS);
+                if (winsta0 == NULL) return false;
+                if (!SetProcessWindowStation(winsta0)) {
+                    CloseWindowStation(winsta0);
+                    return false;
+                }
+                CloseWindowStation(winsta0); // 临时使用后可关闭
+            }
 
-	}
+            HDESK hDesktop = OpenDesktop(desktopName.c_str(), 0, FALSE, DESKTOP_ALL_ACCESS);
+            if (hDesktop == NULL) {
+                return false;
+            }
+            if (!SetThreadDesktop(hDesktop)) {
+                CloseDesktop(hDesktop);
+                return false;
+            }
+            CloseDesktop(hDesktop);  // SetThreadDesktop 已增加引用计数
+            return true;
+        }
 
+        void WinLogon::SwitchToNextNormalDesktop() {
+            auto desktops = GetNormalDesktops();
+            if (desktops.empty()) return;
+
+            // 获取当前桌面名称
+            HDESK currentDesktop = GetThreadDesktop(GetCurrentThreadId());
+            TCHAR currentName[256] = { 0 };
+            DWORD needed = 0;
+            std::wstring currentDesktopName;
+            if (currentDesktop != NULL && GetUserObjectInformation(currentDesktop, UOI_NAME, currentName, sizeof(currentName), &needed)) {
+                currentDesktopName = currentName;
+            }
+
+            auto it = std::find(desktops.begin(), desktops.end(), currentDesktopName);
+            size_t nextIndex = 0;
+            if (it != desktops.end()) {
+                nextIndex = (it - desktops.begin() + 1) % desktops.size();
+            }
+            SwitchToDesktop(desktops[nextIndex]);
+        }
+
+    }
 }

@@ -723,18 +723,38 @@ namespace hope {
         }
 
         void ScreenCapture::handleCaptureError(HRESULT hr) {
+
             if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_INVALID_CALL) {
+
                 invalidCallCount++;
+
                 if (invalidCallCount >= 2) {
+
                     bool targetWinLogon = !desktopSwitchInProgress;
+
                     releaseResourceDXGI();
-                    if (targetWinLogon) winLogonSwitcher->SwitchToWinLogonDesktop();
-                    else winLogonSwitcher->SwitchToDefaultDesktop();
+
+                    if (targetWinLogon) {
+                    
+                        winLogonSwitcher->SwitchToWinLogonDesktop();
+
+                    }
+                    else {
+ 
+                        winLogonSwitcher->SwitchToNextNormalDesktop();
+
+                    }
+
                     initializeDXGI();
+
                     if (config.uselevels == CaptureLevels::PRO) initializeProcessor();
+
                     if (config.uselevels == CaptureLevels::GPU) initializeGPUConverter();
+
                     desktopSwitchInProgress = targetWinLogon;
+
                     invalidCallCount = 0;
+
                 }
             }
         }
