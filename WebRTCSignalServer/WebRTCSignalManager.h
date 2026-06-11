@@ -41,7 +41,7 @@ namespace hope {
 
 #ifdef __linux__
 
-			void asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, boost::asio::ip::tcp::endpoint httpEndpoint, int enableHttp = 0);
+			void asyncAccept(std::atomic<bool>& runAccepct, boost::asio::ip::tcp::endpoint endpoint, boost::asio::ip::tcp::endpoint httpEndpoint, int enableHttp = 0);
 
 #endif
 

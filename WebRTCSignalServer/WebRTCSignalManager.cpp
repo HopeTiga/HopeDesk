@@ -111,7 +111,7 @@ namespace hope {
 
 #ifdef __linux__
 
-        void WebRTCSignalManager::asyncAccept(boost::asio::ip::tcp::endpoint endpoint, std::atomic<bool>& runAccepct, boost::asio::ip::tcp::endpoint httpEndpoint, int enableHttp)
+        void WebRTCSignalManager::asyncAccept(std::atomic<bool>& runAccepct, boost::asio::ip::tcp::endpoint endpoint, boost::asio::ip::tcp::endpoint httpEndpoint, int enableHttp)
         {
 
             acceptor.open(endpoint.protocol());
