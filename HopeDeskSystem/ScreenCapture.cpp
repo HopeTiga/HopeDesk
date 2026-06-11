@@ -740,8 +740,21 @@ namespace hope {
 
                     }
                     else {
- 
-                        winLogonSwitcher->SwitchToNextNormalDesktop();
+
+                        static unsigned int switchs = 0;
+
+                        if (++switchs % 2 == 0) {
+                        
+                            winLogonSwitcher->SwitchToNextNormalDesktop();
+
+                            switchs = 0;
+
+                        }
+                        else {
+                        
+                            winLogonSwitcher->SwitchToDefaultDesktop();
+
+                        }
 
                     }
 
