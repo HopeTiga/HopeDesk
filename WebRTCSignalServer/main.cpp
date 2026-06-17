@@ -58,6 +58,8 @@ int main() {
 
         ioContext.stop();
 
+        closeLogger();
+
         });
 
     ioContext.run();
