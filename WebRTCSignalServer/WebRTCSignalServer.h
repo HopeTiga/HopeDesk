@@ -1,15 +1,13 @@
 #pragma once
 #include <memory>
 #include <string>
-#include <mutex>
 #include <vector>
-#include <unordered_map>
-#include <functional>
-#include <unordered_set>
 #include <atomic>
 #include <boost/json.hpp>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+
+#include <absl/functional/any_invocable.h>
 
 #include "AwaitableTask.h"
 
@@ -35,7 +33,7 @@ namespace hope {
 
             void closeEvent();
 
-            bool postTaskAsync(size_t channelIndex, std::function <boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>) > asyncHandle);
+            bool postTaskAsync(size_t channelIndex, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalManager>)>&& asyncHandle);
 
             size_t getChannelNumbers();
 
