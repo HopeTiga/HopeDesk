@@ -144,7 +144,7 @@ namespace hope {
 
             if (this->webrtcHandlers.find(type) != this->webrtcHandlers.end()) {
 
-                std::function<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalPacket>)> func = this->webrtcHandlers[type];
+                absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<WebRTCSignalPacket>)> & func = webrtcHandlers[type];
 
                 taskQueueSize.fetch_add(1);
 
@@ -152,7 +152,7 @@ namespace hope {
 
                     std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket = packet->webrtcSignalSocket->shared_from_this();
 
-                    bool success = taskQueues.enqueue([this, type, func, packet = std::move(packet)]()mutable -> boost::asio::awaitable<void> {
+                    bool success = taskQueues.enqueue([this, type, &func, packet = std::move(packet)]()mutable -> boost::asio::awaitable<void> {
 
                         try {
 
@@ -193,7 +193,7 @@ namespace hope {
 
                 localTaskQueueSize.fetch_add(1);
 
-                boost::asio::co_spawn(ioContext, [this, type, func, packet]() mutable -> boost::asio::awaitable<void> {
+                boost::asio::co_spawn(ioContext, [this, type, &func, packet]() mutable -> boost::asio::awaitable<void> {
 
                     co_await func(packet);
 
@@ -236,7 +236,7 @@ namespace hope {
 
                 LOG_INFO("Http Request: %s", targetUrl.data());
 
-                std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)> func = httpHandlers[targetUrl];
+                absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)> & func = httpHandlers[targetUrl];
 
                 taskQueueSize.fetch_add(1);
 
@@ -246,7 +246,7 @@ namespace hope {
 
                     std::shared_ptr<HttpSocket> httpSocketShared = httpSocket->shared_from_this();
 
-                    bool success = taskQueues.enqueue([this, httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), func = std::move(func)]()mutable -> boost::asio::awaitable<void> {
+                    bool success = taskQueues.enqueue([this, httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), &func]()mutable -> boost::asio::awaitable<void> {
 
                         try {
 
@@ -310,7 +310,7 @@ namespace hope {
 
                 localTaskQueueSize.fetch_add(1);
 
-                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), func = std::move(func)]()mutable->boost::asio::awaitable<void> {
+                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), &func]()mutable->boost::asio::awaitable<void> {
 
                     co_await func(httpSocket, httpRquest);
 

@@ -379,14 +379,14 @@ namespace hope {
 
         void WebRTCSignalSocket::asyncWrite(std::string packet) {
 
-            if (isStop) return;
+            if (!asyncEvents.load()) return;
 
             asioConcurrentQueue.enqueue(std::move(packet));
 
         }
 
-        void WebRTCSignalSocket::setOnDisConnectHandle(std::function<void(std::string, std::string)> handle) {
-            this->onDisConnectHandle = handle;
+        void WebRTCSignalSocket::setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)> && handle) {
+            this->onDisConnectHandle = std::move(handle);
         }
 
         void WebRTCSignalSocket::setAccountId(const std::string& accountId) { this->accountId = accountId; }

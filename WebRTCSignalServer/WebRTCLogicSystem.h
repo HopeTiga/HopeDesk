@@ -2,13 +2,13 @@
 
 #include <unordered_map>
 #include <memory>
-#include <functional>
 #include <utility>
 
 #include <boost/asio.hpp>
 #include <boost/beast/http.hpp>
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/functional/any_invocable.h>
 
 #include "WebRTCMysqlManagerPools.h"
 
@@ -59,9 +59,9 @@ namespace hope {
 
 			int channelIndex;
 
-			absl::flat_hash_map<int, std::function<boost::asio::awaitable<void>(std::shared_ptr<hope::core::WebRTCSignalPacket>)>> webrtcHandlers;
+			absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<hope::core::WebRTCSignalPacket>)>> webrtcHandlers;
 
-			absl::flat_hash_map<std::string, std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>> httpHandlers;
+			absl::flat_hash_map<std::string, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>> httpHandlers;
 
 			absl::flat_hash_map<int, bool> webrtcLogicHandlers;
 

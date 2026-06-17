@@ -1,15 +1,17 @@
 #pragma once
-#include <functional>
 #include <optional>
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
+
+#include <absl/functional/any_invocable.h>
+
 #include "concurrentqueue.h"
 
 namespace hope {
     namespace core {
 
-        using AwaitableTask = std::function<boost::asio::awaitable<void>()>;
+        using AwaitableTask = absl::AnyInvocable<boost::asio::awaitable<void>()>;
 
         class TaskChannel {
         public:

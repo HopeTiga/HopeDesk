@@ -26,6 +26,7 @@
 #endif
 
 #include <absl/container/flat_hash_map.h>
+#include <absl/functional/any_invocable.h>
 
 #include "WebRTCSignalSocketInterface.h"
 #include "AsioConcurrentQueue.h"
@@ -80,7 +81,7 @@ namespace hope {
 
 		public:
 
-			void setOnDisConnectHandle(std::function<void(std::string, std::string)> handle);
+			void setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)> && handle);
 
 		public:
 
@@ -113,27 +114,21 @@ namespace hope {
 
 			std::atomic<bool> asyncEvents{ false };
 
+			std::string sessionId;
+
 			std::string accountId;
 
 			boost::asio::steady_timer registrationTimer;
 
 			std::atomic<bool> isRegistered{ false };
 
-			std::atomic<bool> isStop{ false };
-
 			std::atomic<bool> isHandleDisConnect{ false };
-
-			std::atomic<bool> isDeleted{ false };
-
-			std::atomic<bool> writerCoroutineRuns{ false };
-
-			std::string sessionId;
 
 			static boost::asio::ssl::context sslContext;
 
 		private:
 
-			std::function<void(std::string, std::string)> onDisConnectHandle;
+			absl::AnyInvocable<void(std::string, std::string)> onDisConnectHandle;
 
 		};
 	}
