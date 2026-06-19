@@ -123,7 +123,7 @@ void WebRTCManager::connect(std::string ip)
         port = ip.substr(colonPos + 1);
     }
 
-    boost::asio::co_spawn(ioContext, [self = shared_from_this(),host,port]()->boost::asio::awaitable<void> {
+    boost::asio::co_spawn(ioContext, [self = shared_from_this(),host,port]()mutable->boost::asio::awaitable<void> {
 
         try {
 
@@ -385,13 +385,14 @@ bool WebRTCManager::initializePeerConnection()
 
     webrtc::PeerConnectionDependencies pcDependencies(peerConnectionObserver.get());
 
-    auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
-    if (!pcResult.ok()) {
-        LOG_ERROR("Failed to create PeerConnection: %s" ,pcResult.error().message());
+    webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>>  peerConnectionResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
+
+    if (!peerConnectionResult.ok()) {
+        LOG_ERROR("Failed to create PeerConnection: %s" ,peerConnectionResult.error().message());
         return false;
     }
 
-    peerConnection = pcResult.MoveValue();
+    peerConnection = peerConnectionResult.MoveValue();
 
     return true;
 }
@@ -565,9 +566,8 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
                 json = boost::json::parse(str).as_object();
             }
             catch (const std::exception& e) {
-                LOG_WARN("WebSocket received invalid JSON: %s", e.what());
-                closeWebSocket();
-                co_return;
+                LOG_ERROR("WebSocket received invalid JSON: %s", e.what());
+                continue;
             }
 
             dataStr = boost::json::serialize(json);
@@ -595,8 +595,6 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
                             onSignalServerConnectHandle();
 
                         }
-
-                        LOG_INFO("%s",json["message"].as_string().c_str());
 
                     }
                 }else if(WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST){
