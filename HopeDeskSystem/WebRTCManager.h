@@ -164,7 +164,7 @@ namespace hope {
 
             webrtc::VideoFrameBufferPool bufferPool;
 
-            WebRTCVideoEncoderFactory * webrtcVideoEncoderFactory;
+            WebRTCVideoEncoderFactory* webrtcVideoEncoderFactory;
 
             WebRTCVideoDecoderFactory* webrtcVideoDecoderFactory;
 

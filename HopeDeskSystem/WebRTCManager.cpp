@@ -262,18 +262,6 @@ namespace hope {
 
                 audioDeviceModuleImpl = AudioDeviceModuleImpl::Create();
 
-                const char* field_trials =
-                    "WebRTC-Bwe-TrendlineEstimatorSettings/window_size:12,sort:true/"
-                    "WebRTC-SendNackDelayMs/0/"
-                    "WebRTC-Video-Pacing/factor:1.2,max_delay:200ms/"
-                    "WebRTC-Pacer-DrainQueue/Enabled/"
-                    "WebRTC-Pacer-PadInSilence/Enabled/"
-                    "WebRTC-Bwe-ProbingConfiguration/Enabled/"
-                    "WebRTC-DataChannelMessageInterleaving/Disabled/"
-                    "WebRTC-LossBasedBweV2/Enabled/";
-
-                std::unique_ptr<webrtc::FieldTrialsView> fieldTrials = std::make_unique<webrtc::FieldTrials>(field_trials);
-
                 std::unique_ptr<WebRTCVideoEncoderFactory> webrtcVideoEncoderFactoryUnique = std::make_unique<WebRTCVideoEncoderFactory>();
 
                 webrtcVideoEncoderFactory = webrtcVideoEncoderFactoryUnique.get();
@@ -294,7 +282,7 @@ namespace hope {
                     nullptr,
                     nullptr,
                     nullptr,
-                    std::move(fieldTrials)
+                    nullptr
                 );
 
                 if (!peerConnectionFactory) {
@@ -323,12 +311,6 @@ namespace hope {
             config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
 
             config.set_dscp(true);
-
-            uint32_t flags = webrtc::PORTALLOCATOR_ENABLE_SHARED_SOCKET |
-                webrtc::PORTALLOCATOR_ENABLE_IPV6 |
-                webrtc::PORTALLOCATOR_DISABLE_TCP;
-
-            config.set_port_allocator_flags(flags);
 
             webrtc::PeerConnectionInterface::IceServer stunServer;
 
@@ -382,26 +364,26 @@ namespace hope {
 
             std::vector<std::string> streamIds = { "mediaStream" };
 
-            auto addTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
+            webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> videoTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
 
-            if (!addTrackResult.ok()) {
+            if (!videoTrackResult.ok()) {
 
-                LOG_ERROR("Failed to add video track: %s", addTrackResult.error().message());
+                LOG_ERROR("Failed to add video track: %s", videoTrackResult.error().message());
 
                 return false;
 
             }
 
-            videoSender = addTrackResult.MoveValue();
+            videoSender = videoTrackResult.MoveValue();
 
             auto transceivers = peerConnection->GetTransceivers();
 
             for (auto& transceiver : transceivers) {
 
-                if (transceiver->media_type() == webrtc::MediaType::MEDIA_TYPE_VIDEO) {
+                if (transceiver->media_type() == webrtc::MediaType::VIDEO) {
 
                     webrtc::RtpCapabilities senderCapabilities = peerConnectionFactory->GetRtpSenderCapabilities(
-                        webrtc::MediaType::MEDIA_TYPE_VIDEO);
+                        webrtc::MediaType::VIDEO);
 
                     senderCapabilities.fec.clear();
 
@@ -519,11 +501,14 @@ namespace hope {
 
                 std::vector<std::string> audioStreamIds = { "audioStream" };
 
-                auto audioTrackResult = peerConnection->AddTrack(audioTrack, audioStreamIds);
+                webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> audioTrackResult = peerConnection->AddTrack(audioTrack, audioStreamIds);
 
                 if (!audioTrackResult.ok()) {
+
                     LOG_ERROR("Failed to add video track: %s", audioTrackResult.error().message());
+
                     return false;
+
                 }
 
                 audioSender = audioTrackResult.MoveValue();
@@ -534,15 +519,17 @@ namespace hope {
 
             dataChannelConfig->priority = webrtc::PriorityValue(webrtc::Priority::kHigh);
 
-            dataChannel = peerConnection->CreateDataChannel("dataChannel", dataChannelConfig.get());
+            webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::DataChannelInterface>> dataChannelResult = peerConnection->CreateDataChannelOrError("dataChannel", dataChannelConfig.get());
 
-            if (!dataChannel) {
-
-                LOG_ERROR("Failed to create data channel");
+            if (!dataChannelResult.ok()) {
+            
+                LOG_ERROR("Failed to add dataChannel: %s", dataChannelResult.error().message());
 
                 return false;
 
             }
+
+			dataChannel = dataChannelResult.MoveValue();
 
             dataChannelObserver = std::make_unique<DataChannelObserverImpl>(this);
 

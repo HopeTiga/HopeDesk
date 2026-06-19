@@ -6,13 +6,13 @@
     <TCMALLOC_RELEASE_RATE>10.0</TCMALLOC_RELEASE_RATE>
   </PropertyGroup>
   <PropertyGroup>
-    <IncludePath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\interception;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\boost;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\nvidia;$(IncludePath)</IncludePath>
+    <IncludePath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\nvidia;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\interception;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\boost;$(IncludePath)</IncludePath>
     <LibraryWPath>$(LibraryWPath)</LibraryWPath>
     <LibraryPath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\tcmalloc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\interception\x64;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\boost;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalDependencies>webrtc.lib;x265-static.lib;interception.lib;libtcmalloc_minimal.lib;libboost_sam-vc143-mt-x64-1_89.lib;ws2_32.lib;mswsock.lib;wtsapi32.lib;d3d11.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;windowscodecs.lib;gdiplus.lib;dwmapi.lib;windowsapp.lib;runtimeobject.lib;userenv.lib;Wtsapi32.lib;Advapi32.lib;winmm.lib;msdmo.lib;dmoguids.lib;wmcodecdspuuid.lib;strmiids.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>webrtc.lib;x265-static.lib;interception.lib;libtcmalloc_minimal.lib;libboost_sam-vc145-mt-x64-1_91.lib;ws2_32.lib;mswsock.lib;wtsapi32.lib;d3d11.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;windowscodecs.lib;gdiplus.lib;dwmapi.lib;windowsapp.lib;runtimeobject.lib;userenv.lib;Wtsapi32.lib;Advapi32.lib;winmm.lib;msdmo.lib;dmoguids.lib;wmcodecdspuuid.lib;strmiids.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ForceSymbolReferences>_tcmalloc</ForceSymbolReferences>
     </Link>
     <ClCompile>
