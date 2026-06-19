@@ -1,9 +1,9 @@
 CXX := g++
-CXXFLAGS := -std=c++23 -O3 -finline-functions -pipe
+CXXFLAGS := -std=c++20 -O3 -finline-functions -pipe
 CXXFLAGS += -w
 CXXFLAGS += -DTCMALLOC_AGGRESSIVE_DECOMMIT -DTCMALLOC_RELEASE_RATE=10.0
 CXXFLAGS += -DBOOST_ASIO_HAS_IO_URING
-CXXFLAGS += -Iinclude/openssl -Iinclude/absl -Iinclude/boost -Iinclude/glaze
+CXXFLAGS += -Iinclude/openssl -Iinclude/absl -Iinclude/boost
 
 BUILDDIR := release-x64
 
