@@ -1,12 +1,12 @@
 #include "WebRTCSignalSocket.h"
 
+#include <boost/json.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>  
 
 #include "WebRTCSignalManager.h"
 #include "WebRTCSignalPacket.h"
-#include "WebRTCSignalRequest.h"
 
 #include "ConfigManager.h"
 #include "Utils.h"
@@ -260,13 +260,16 @@ namespace hope {
 
                 buffer.consume(buffer.size());
 
-                WebRTCSignalRequest webrtcSignalRequest;
+                boost::json::object request;
 
-                glz::error_ctx err = glz::read < glz::opts{ .error_on_unknown_keys = false } > (webrtcSignalRequest, packetStr);
+                try {
+                
+					request = boost::json::parse(packetStr).as_object();
 
-                if (err) {
-
-                    LOG_WARN("JSON Parse Error: %s", glz::format_error(err).c_str());
+                }
+                catch (std::exception& e) {
+                
+                    LOG_WARN("JSON Parse Error: %s", e.what());
 
                     closeEvent();
 
@@ -274,7 +277,7 @@ namespace hope {
 
                 }
 
-                if (!webrtcSignalRequest.requestType.has_value()) {
+                if (!request.contains("requestType")) {
 
                     LOG_WARN("WebRTCSignalSocket Invalid Request: missing requestType");
 
@@ -284,9 +287,9 @@ namespace hope {
 
                 }
 
-                if (!this->isRegistered && webrtcSignalRequest.requestType.value() != 0) {
+                if (!this->isRegistered && request["requestType"].as_int64() != 0) {
 
-                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", webrtcSignalRequest.requestType.value());
+                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", request["requestType"].as_int64());
 
                     closeEvent();
 
@@ -294,7 +297,7 @@ namespace hope {
 
                 }
 
-                std::shared_ptr<WebRTCSignalPacket> packet = std::make_shared<WebRTCSignalPacket>(std::move(webrtcSignalRequest), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+                std::shared_ptr<WebRTCSignalPacket> packet = std::make_shared<WebRTCSignalPacket>(std::move(request), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
                 webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(packet));
 
