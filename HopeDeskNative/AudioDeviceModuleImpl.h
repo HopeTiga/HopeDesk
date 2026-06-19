@@ -1,7 +1,7 @@
 #pragma once
 
 #include <atomic>
-
+#include <vector>
 
 #include <modules/audio_device/include/audio_device.h>
 #include <api/scoped_refptr.h>
