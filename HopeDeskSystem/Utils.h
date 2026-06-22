@@ -13,6 +13,9 @@
 #include <mutex>
 #ifdef _WIN32
 #include <direct.h>
+#include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #define mkdir(dir) _mkdir(dir)
 #else
 #include <sys/stat.h>
@@ -49,7 +52,6 @@ extern "C" {
 
     void getTimestamp(char* buffer, size_t size);
     void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
-
 
 #define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define LOG_WARN(fmt, ...)    logMessage(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__) 
@@ -119,6 +121,5 @@ inline void fastCopy(void* dst, const void* src, size_t size) {
         memcpy(d, s, remaining);
     }
 }
-
 
 #endif // UTILS_H

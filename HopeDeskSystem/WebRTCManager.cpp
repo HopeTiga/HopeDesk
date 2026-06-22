@@ -607,7 +607,17 @@ namespace hope {
 
                 if (releaseFlag) {
 
-                    buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
+                    if (levels == CaptureLevels::GPU) {
+                    
+						buffer = webrtc::make_ref_counted<WebRTCManagerI420Buffer>(data, width, height, releaseFlag, stride);
+
+                    }
+
+                    else if (levels == CaptureLevels::PRO) {
+                    
+                        buffer = webrtc::make_ref_counted<WebRTCManagerNV12Buffer>(data, width, height, releaseFlag, stride);
+
+                    }
 
                 }
                 else {

@@ -7,9 +7,6 @@
 #include <mutex>
 #include <deque>
 #include <vector>
-#include <thread>
-#include <atomic>
-#include <condition_variable>
 #include "Nvenc.h"
 
 namespace hope {
@@ -33,7 +30,7 @@ namespace hope {
         private:
             bool InitD3D11();
             bool InitNvenc(int width, int height, uint32_t bitrateBps);
-            void ProcessOutputThread();
+            bool GetEncodedPacket(bool finalize);
 
             webrtc::EncodedImageCallback* encodedImageCallback = nullptr;
 
@@ -52,31 +49,21 @@ namespace hope {
             std::vector<NvInputTexture>    inputPool;
             std::unordered_map<HANDLE, NvInputTexture> resourceCache;
 
-            // 环形缓冲区中的输入输出指针（已预分配）
-            std::vector<NV_ENC_INPUT_PTR>  mappedResources;   // D3D 纹理映射结果
-            std::vector<NV_ENC_INPUT_PTR>  swInputBuffers;    // 系统内存输入缓冲区（池化）
-            std::vector<HANDLE>            encodeEvents;      // 异步完成事件
+            std::vector<NV_ENC_INPUT_PTR>  mappedResources;
+            std::vector<NV_ENC_INPUT_PTR>  swInputBuffers;
 
+            // 状态控制 (参照 AV1)
             uint32_t bufCount = 0;
+            uint32_t curBitstream = 0;
+            uint32_t nextBitstream = 0;
+            uint32_t buffersQueued = 0;
 
-            // 轻量级同步原语
-            std::mutex apiMutex;                  // 仅保护单次 NVENC API 调用
-            std::mutex queueMutex;                // 配合条件变量
-            std::condition_variable queueCond;
+            std::deque<int64_t> dtsList;
 
-            // 原子索引
-            std::atomic<uint32_t> writeIdx{ 0 };    // 生产者：下一个写入槽位
-            std::atomic<uint32_t> readIdx{ 0 };     // 消费者：下一个读取槽位
-
-            // 输出线程
-            std::thread outputThread;
-            std::atomic<bool> isRunning{ false };
-
-            // 编码分辨率
+            std::mutex nvencApiMutex;
             int widths = 0;
             int heights = 0;
 
-            // 码率控制防抖
             std::chrono::steady_clock::time_point lastRateChangeTime;
         };
     }

@@ -92,7 +92,6 @@ namespace hope {
             DataHandle dataHandle;
             GpuDataHandle gpuDataHandle;
 
-            // 智能状态机：当前环境是否支持 4090 硬件零拷贝
             bool canZeroCopy = false;
 
             Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
@@ -111,7 +110,6 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> stagingTextures[YUV_BUFFERS];
             HANDLE sharedHandle = nullptr;
 
-            // 仅在 canZeroCopy == true 时启用的专属硬件池
             Microsoft::WRL::ComPtr<ID3D11Texture2D> hwSharedTextures[YUV_BUFFERS];
             HANDLE hwSharedHandles[YUV_BUFFERS] = { nullptr };
             std::atomic<bool> hwSharedBusy[YUV_BUFFERS];
