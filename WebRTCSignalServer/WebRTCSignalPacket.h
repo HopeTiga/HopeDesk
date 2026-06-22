@@ -15,10 +15,15 @@ namespace hope {
 
 		public:
 
-			WebRTCSignalPacket(boost::json::object && request, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager, int channelIndex);
+			WebRTCSignalPacket(std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager, int channelIndex);
 
 			std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket;
 
+			// Parsed request body. Constructed with an owning, refcounted
+			// storage_ptr (make_shared_resource<monotonic_resource>), so the
+			// arena backing it travels with the object: moving `request` into
+			// another coroutine keeps the arena alive (refcounted) until that
+			// holder is destroyed. No external lifetime management needed.
 			boost::json::object request;
 
 			WebRTCSignalManager* webrtcSignalManager;

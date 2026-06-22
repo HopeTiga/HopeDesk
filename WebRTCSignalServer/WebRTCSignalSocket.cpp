@@ -1,6 +1,7 @@
 #include "WebRTCSignalSocket.h"
 
 #include <boost/json.hpp>
+#include <string_view>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>  
@@ -256,20 +257,26 @@ namespace hope {
 
                 co_await webSocket.async_read(buffer, boost::asio::use_awaitable);
 
-                std::string packetStr = boost::beast::buffers_to_string(buffer.data());
+                // flat_buffer::data() is a single contiguous const_buffer — build a
+                // string_view over it directly, no buffers_to_string copy.
+                boost::asio::const_buffer cb = buffer.data();
 
-                buffer.consume(buffer.size());
+                std::string_view sv(reinterpret_cast<const char*>(cb.data()), cb.size());
 
-                boost::json::object request;
+                std::shared_ptr<WebRTCSignalPacket> packet = std::make_shared<WebRTCSignalPacket>(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
                 try {
-                
-					request = boost::json::parse(packetStr).as_object();
+
+                    boost::json::value pv = boost::json::parse(sv, packet->request.storage());
+
+                    packet->request = std::move(pv.as_object());
 
                 }
                 catch (std::exception& e) {
-                
+
                     LOG_WARN("JSON Parse Error: %s", e.what());
+
+                    buffer.consume(buffer.size());
 
                     closeEvent();
 
@@ -277,7 +284,9 @@ namespace hope {
 
                 }
 
-                if (!request.contains("requestType")) {
+                buffer.consume(buffer.size());
+
+                if (!packet->request.contains("requestType")) {
 
                     LOG_WARN("WebRTCSignalSocket Invalid Request: missing requestType");
 
@@ -287,17 +296,15 @@ namespace hope {
 
                 }
 
-                if (!this->isRegistered && request["requestType"].as_int64() != 0) {
+                if (!this->isRegistered && packet->request["requestType"].as_int64() != 0) {
 
-                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", request["requestType"].as_int64());
+                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", packet->request["requestType"].as_int64());
 
                     closeEvent();
 
                     continue;
 
                 }
-
-                std::shared_ptr<WebRTCSignalPacket> packet = std::make_shared<WebRTCSignalPacket>(std::move(request), shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
                 webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(packet));
 
@@ -388,7 +395,7 @@ namespace hope {
 
         }
 
-        void WebRTCSignalSocket::setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)> && handle) {
+        void WebRTCSignalSocket::setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)>&& handle) {
             this->onDisConnectHandle = std::move(handle);
         }
 
