@@ -29,40 +29,56 @@ static const char* logFileNames[4] = {
     "warn.log",
     "error.log"
 };
+
 static std::string logDir = "logs";
 static int logToFileEnabled = 1;
-static std::mutex logMutex;
 static int loggerInitialized = 0;
-
-static FILE* logFiles[4] = { nullptr, nullptr, nullptr, nullptr };
-
 static int consoleOutputLevels[4] = { 1, 1, 1, 1 };
+
+#ifdef _WIN32
+static HANDLE logHandles[4] = { INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE };
+#else
+static FILE* logFiles[4] = { nullptr, nullptr, nullptr, nullptr };
+#endif
 
 static void openLogFiles() {
     for (int i = 0; i < 4; i++) {
+#ifdef _WIN32
+        if (logHandles[i] != INVALID_HANDLE_VALUE) continue;
+        std::string filePath = logDir + "\\" + logFileNames[i];
+        HANDLE h = CreateFileA(
+            filePath.c_str(),
+            FILE_APPEND_DATA,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr
+            );
+        if (h != INVALID_HANDLE_VALUE) {
+            logHandles[i] = h;
+        }
+#else
         if (logFiles[i]) continue;
         std::string filePath = logDir + "/" + logFileNames[i];
-#ifdef _WIN32
-        logFiles[i] = _fsopen(filePath.c_str(), "a", _SH_DENYNO);
-#else
         logFiles[i] = fopen(filePath.c_str(), "a");
 #endif
-        if (logFiles[i]) {
-#ifdef _WIN32
-            setvbuf(logFiles[i], nullptr, _IOLBF, 4096);
-#else
-            setvbuf(logFiles[i], nullptr, _IOLBF, 0);
-#endif
-        }
     }
 }
 
 static void closeLogFiles() {
     for (int i = 0; i < 4; i++) {
+#ifdef _WIN32
+        if (logHandles[i] != INVALID_HANDLE_VALUE) {
+            CloseHandle(logHandles[i]);
+            logHandles[i] = INVALID_HANDLE_VALUE;
+        }
+#else
         if (logFiles[i]) {
             fclose(logFiles[i]);
             logFiles[i] = nullptr;
         }
+#endif
     }
 }
 
@@ -84,30 +100,26 @@ static void ensureLogDirectory() {
 }
 
 void initLogger() {
-    std::lock_guard<std::mutex> lock(logMutex);
     ensureLogDirectory();
 }
 
 void closeLogger() {
-    std::lock_guard<std::mutex> lock(logMutex);
     closeLogFiles();
     loggerInitialized = 0;
 }
 
 void enableFileLogging(int enable) {
-    std::lock_guard<std::mutex> lock(logMutex);
     logToFileEnabled = enable;
 }
 
 void setLogDirectory(const char* dir) {
-    std::lock_guard<std::mutex> lock(logMutex);
     closeLogFiles();
     logDir = dir;
     loggerInitialized = 0;
+    ensureLogDirectory();
 }
 
 void setConsoleOutputLevels(int debug, int info, int warn, int error) {
-    std::lock_guard<std::mutex> lock(logMutex);
     consoleOutputLevels[LOG_LEVEL_DEBUG] = debug;
     consoleOutputLevels[LOG_LEVEL_INFO] = info;
     consoleOutputLevels[LOG_LEVEL_WARN] = warn;
@@ -136,7 +148,7 @@ void getTimestamp(char* buffer, size_t size) {
 void getLevelInfo(LogLevel level, const char** levelStr, const char** color) {
     switch (level) {
     case LOG_LEVEL_INFO:  *levelStr = "INFO";  *color = COLOR_GREEN; break;
-    case LOG_LEVEL_WARN:  *levelStr = "WARN";  *color = COLOR_YELLOW; break; // 返回 WARN
+    case LOG_LEVEL_WARN:  *levelStr = "WARN";  *color = COLOR_YELLOW; break;
     case LOG_LEVEL_ERROR: *levelStr = "ERROR"; *color = COLOR_RED; break;
     case LOG_LEVEL_DEBUG: *levelStr = "DEBUG"; *color = COLOR_BLUE; break;
     default:              *levelStr = "UNKN";  *color = COLOR_RESET; break;
@@ -144,7 +156,6 @@ void getLevelInfo(LogLevel level, const char** levelStr, const char** color) {
 }
 
 static std::string formatFileAndLine(const char* file, int line) {
-
     const char* slash = strrchr(file, '/');
     const char* backslash = strrchr(file, '\\');
     const char* shortFile = slash > backslash ? slash : backslash;
@@ -154,23 +165,8 @@ static std::string formatFileAndLine(const char* file, int line) {
     snprintf(buffer, sizeof(buffer), "%s:%d", shortFile, line);
 
     char aligned[128];
-
     snprintf(aligned, sizeof(aligned), "%-30s", buffer);
     return std::string(aligned);
-}
-
-static void writeRawToFile(LogLevel level, const char* timestamp, const char* levelStr, const std::string& message) {
-    if (!logToFileEnabled || level < 0 || level > 3) return;
-
-    ensureLogDirectory();
-    FILE* logFile = logFiles[level];
-
-    if (logFile) {
-        fprintf(logFile, "[%s][%-5s] %s\n", timestamp, levelStr, message.c_str());
-    }
-    else {
-        fprintf(stderr, "Logger Error: Cannot write to %s\n", logFileNames[level]);
-    }
 }
 
 static std::string formatString(const char* format, va_list args) {
@@ -188,7 +184,27 @@ static std::string formatString(const char* format, va_list args) {
     return std::string(buffer.data(), len);
 }
 
-void logMessage(LogLevel level, const char* file, int line, const char* format, ...) {
+static void writeConsole(const char* data, size_t len) {
+#ifdef _WIN32
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), data, (DWORD)len, &written, nullptr);
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
+#else
+    fwrite(data, 1, len, stdout);
+    fwrite("\n", 1, 1, stdout);
+    fflush(stdout);
+#endif
+}
+
+static void writeFileRaw(HANDLE hFile, const char* data, size_t len) {
+    if (hFile == INVALID_HANDLE_VALUE) return;
+    DWORD written = 0;
+    WriteFile(hFile, data, (DWORD)len, &written, nullptr);
+    WriteFile(hFile, "\r\n", 2, &written, nullptr);
+    FlushFileBuffers(hFile);
+}
+
+static void doLog(LogLevel level, const char* file, int line, const char* format, va_list args, bool plain, bool fileOnly) {
     char timestamp[32];
     const char* levelStr;
     const char* color;
@@ -196,66 +212,67 @@ void logMessage(LogLevel level, const char* file, int line, const char* format, 
     getTimestamp(timestamp, sizeof(timestamp));
     getLevelInfo(level, &levelStr, &color);
 
-    va_list args;
-    va_start(args, format);
     std::string msg = formatString(format, args);
-    va_end(args);
-
     std::string alignedFileLine = formatFileAndLine(file, line);
-    std::string fullMsg = alignedFileLine + " " + msg;
 
-    std::lock_guard<std::mutex> lock(logMutex);
+    int levelIdx = static_cast<int>(level);
 
-    if (consoleOutputLevels[level]) {
-        printf("%s[%s][%-5s] %s%s\n", color, timestamp, levelStr, fullMsg.c_str(), COLOR_RESET);
+    if (!fileOnly && levelIdx >= 0 && levelIdx <= 3 && consoleOutputLevels[levelIdx]) {
+        char consoleBuf[4096];
+        int n = 0;
+        if (plain) {
+            n = snprintf(consoleBuf, sizeof(consoleBuf), "[%s][%-5s] %s %s",
+                         timestamp, levelStr, alignedFileLine.c_str(), msg.c_str());
+        }
+        else {
+            n = snprintf(consoleBuf, sizeof(consoleBuf), "%s[%s][%-5s] %s %s%s",
+                         color, timestamp, levelStr, alignedFileLine.c_str(), msg.c_str(), COLOR_RESET);
+        }
+        if (n > 0 && n < (int)sizeof(consoleBuf)) {
+            writeConsole(consoleBuf, n);
+        }
     }
 
-    writeRawToFile(level, timestamp, levelStr, fullMsg);
+    if (logToFileEnabled && levelIdx >= 0 && levelIdx <= 3) {
+        ensureLogDirectory();
+
+        char fileBuf[4096];
+        int n = snprintf(fileBuf, sizeof(fileBuf), "[%s][%-5s] %s %s",
+                         timestamp, levelStr, alignedFileLine.c_str(), msg.c_str());
+
+        if (n > 0 && n < (int)sizeof(fileBuf)) {
+#ifdef _WIN32
+            writeFileRaw(logHandles[levelIdx], fileBuf, n);
+#else
+            if (logFiles[levelIdx]) {
+                fwrite(fileBuf, 1, n, logFiles[levelIdx]);
+                fwrite("\n", 1, 1, logFiles[levelIdx]);
+                fflush(logFiles[levelIdx]);
+            }
+#endif
+        }
+    }
+}
+
+void logMessage(LogLevel level, const char* file, int line, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    doLog(level, file, line, format, args, false, false);
+    va_end(args);
 }
 
 void logMessagePlain(LogLevel level, const char* file, int line, const char* format, ...) {
-    char timestamp[32];
-    const char* levelStr;
-    const char* color;
-
-    getTimestamp(timestamp, sizeof(timestamp));
-    getLevelInfo(level, &levelStr, &color);
-
     va_list args;
     va_start(args, format);
-    std::string msg = formatString(format, args);
+    doLog(level, file, line, format, args, true, false);
     va_end(args);
-
-    std::string alignedFileLine = formatFileAndLine(file, line);
-    std::string fullMsg = alignedFileLine + " " + msg;
-
-    std::lock_guard<std::mutex> lock(logMutex);
-
-    if (consoleOutputLevels[level]) {
-        printf("[%s][%-5s] %s\n", timestamp, levelStr, fullMsg.c_str());
-    }
-
-    writeRawToFile(level, timestamp, levelStr, fullMsg);
 }
 
 void logToFileOnly(LogLevel level, const char* file, int line, const char* format, ...) {
-    char timestamp[32];
-    const char* levelStr;
-    const char* color;
-
-    getTimestamp(timestamp, sizeof(timestamp));
-    getLevelInfo(level, &levelStr, &color);
-
     va_list args;
     va_start(args, format);
-    std::string msg = formatString(format, args);
+    doLog(level, file, line, format, args, false, true);
     va_end(args);
-
-    std::string alignedFileLine = formatFileAndLine(file, line);
-    std::string fullMsg = alignedFileLine + " " + msg;
-
-    std::lock_guard<std::mutex> lock(logMutex);
-    writeRawToFile(level, timestamp, levelStr, fullMsg);
 }
 
 HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX, int hotY)
