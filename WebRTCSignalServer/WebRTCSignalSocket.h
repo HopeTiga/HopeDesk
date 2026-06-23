@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <string>
 #include <memory>
 #include <boost/asio.hpp>
@@ -8,8 +8,8 @@
 
 #ifdef _WIN32
 #include <winsock2.h>      // Windows Socket API
-#include <ws2tcpip.h>      // Windows Socket À©Õ¹
-#include <mstcpip.h>       // SIO_KEEPALIVE_VALS ºÍ tcp_keepalive ½á¹¹Ìå
+#include <ws2tcpip.h>      // Windows Socket æ‰©å±•
+#include <mstcpip.h>       // SIO_KEEPALIVE_VALS å’Œ tcp_keepalive ç»“æž„ä½“
 #pragma comment(lib, "ws2_32.lib")
 #elif defined(__linux__)
 #include <sys/socket.h>
@@ -43,6 +43,19 @@ namespace hope {
 		{
 		public:
 
+#ifdef WEBRTC_SIGNAL_SOCKET_DISABLE_SSL
+
+			using WebSocketStream = boost::beast::websocket::stream<boost::asio::ip::tcp::socket>;
+
+			bool enableSsl = false;
+#else
+
+			using WebSocketStream = boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>;
+
+			bool enableSsl = true;
+
+#endif
+
 			static void initSslContext();
 
 			static boost::asio::ssl::context& getSslContext();
@@ -53,7 +66,7 @@ namespace hope {
 
 			boost::asio::ip::tcp::socket& getSocket();
 
-			boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>& getWebSocket();
+			WebSocketStream& getWebSocket();
 
 			boost::asio::awaitable<bool> handShake();
 
@@ -81,7 +94,7 @@ namespace hope {
 
 		public:
 
-			void setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)> && handle);
+			void setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)>&& handle);
 
 		public:
 
@@ -106,7 +119,7 @@ namespace hope {
 
 			boost::asio::io_context& ioContext;
 
-			boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> webSocket;
+			WebSocketStream webSocket;
 
 			boost::asio::ip::tcp::resolver resolver;
 

@@ -44,7 +44,11 @@ namespace hope {
             : ioContext(ioContext)
             , resolver(ioContext)
             , registrationTimer(ioContext)
+#if defined(WEBRTC_SIGNAL_SOCKET_DISABLE_SSL)
+            , webSocket(ioContext)
+#else
             , webSocket(ioContext, getSslContext())
+#endif
             , webrtcSignalManager(webrtcSignalManager)
             , asioConcurrentQueue(ioContext.get_executor()) {
 
@@ -70,7 +74,15 @@ namespace hope {
 
         boost::asio::ip::tcp::socket& WebRTCSignalSocket::getSocket() {
 
+#if defined(WEBRTC_SIGNAL_SOCKET_DISABLE_SSL)
+
+            return webSocket.next_layer();
+
+#else
+
             return webSocket.next_layer().next_layer();
+
+#endif
 
         }
 
@@ -79,7 +91,7 @@ namespace hope {
             return ioContext;
 
         }
-        boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>& WebRTCSignalSocket::getWebSocket() {
+        WebRTCSignalSocket::WebSocketStream& WebRTCSignalSocket::getWebSocket() {
 
             return webSocket;
 
@@ -93,13 +105,17 @@ namespace hope {
 
             try {
 
+#if !defined(WEBRTC_SIGNAL_SOCKET_DISABLE_SSL)
+
                 co_await webSocket.next_layer().async_handshake(boost::asio::ssl::stream_base::server, boost::asio::use_awaitable);
+
+#endif
 
                 co_await boost::beast::http::async_read(webSocket.next_layer(), buffer, req, boost::asio::use_awaitable);
 
                 co_await webSocket.async_accept(req, boost::asio::use_awaitable);
 
-                setTcpKeepAlive(webSocket.next_layer().next_layer());
+                setTcpKeepAlive(getSocket());
 
                 buffer.consume(buffer.size());
 
@@ -225,7 +241,7 @@ namespace hope {
 
             boost::system::error_code ec;
 
-            auto& tcpSocket = webSocket.next_layer().next_layer();
+            auto& tcpSocket = getSocket();
 
             if (tcpSocket.is_open()) {
 
@@ -389,7 +405,11 @@ namespace hope {
 
         void WebRTCSignalSocket::asyncWrite(std::string packet) {
 
-            if (!asyncEvents.load()) return;
+            if (!asyncEvents.load()) {
+
+                return;
+
+            }
 
             asioConcurrentQueue.enqueue(std::move(packet));
 
@@ -409,7 +429,7 @@ namespace hope {
 
         std::string WebRTCSignalSocket::getRemoteAddress()
         {
-            return webSocket.next_layer().next_layer().remote_endpoint().address().to_string();
+            return getSocket().remote_endpoint().address().to_string();
         }
     } // namespace socket
 } // namespace hope

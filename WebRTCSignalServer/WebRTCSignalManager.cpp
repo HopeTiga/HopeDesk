@@ -53,9 +53,9 @@ namespace hope {
 
         }
 
-        std::shared_ptr<HttpSocket> WebRTCSignalManager::generateHttpSocket(bool enableSsl) {
+        std::shared_ptr<HttpSocket> WebRTCSignalManager::generateHttpSocket() {
 
-            return std::make_shared<HttpSocket>(ioContext, this, enableSsl);
+            return std::make_shared<HttpSocket>(ioContext, this);
 
         }
 
@@ -169,7 +169,7 @@ namespace hope {
 
                     while (runAccepct.load()) {
 
-                        std::shared_ptr<HttpSocket> httpSocket = self->generateHttpSocket(true);
+                        std::shared_ptr<HttpSocket> httpSocket = self->generateHttpSocket();
 
                         co_await self->httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::use_awaitable);
 

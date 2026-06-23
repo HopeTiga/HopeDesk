@@ -37,7 +37,7 @@ namespace hope {
 
 			std::shared_ptr<hope::core::WebRTCSignalSocket> generateWebRTCSignalSocket();
 
-			std::shared_ptr<HttpSocket> generateHttpSocket(bool enableSsl = false);
+			std::shared_ptr<HttpSocket> generateHttpSocket();
 
 #ifdef __linux__
 

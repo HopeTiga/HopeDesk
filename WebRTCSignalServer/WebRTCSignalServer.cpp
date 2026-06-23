@@ -113,7 +113,7 @@ namespace hope {
 
                         std::shared_ptr<WebRTCSignalManager> manager = loadBalanceWebrtcManger();
 
-                        std::shared_ptr<HttpSocket> httpSocket = manager->generateHttpSocket(true);
+                        std::shared_ptr<HttpSocket> httpSocket = manager->generateHttpSocket();
 
                         co_await httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::use_awaitable);
 
