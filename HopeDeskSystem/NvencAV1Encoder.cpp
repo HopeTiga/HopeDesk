@@ -18,7 +18,7 @@ namespace hope {
             widths = codecSettings->width;
             heights = codecSettings->height;
             if (!InitD3D11()) return WEBRTC_VIDEO_CODEC_ERROR;
-            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000)) return WEBRTC_VIDEO_CODEC_ERROR;
+            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000, codecSettings->maxFramerate)) return WEBRTC_VIDEO_CODEC_ERROR;
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
@@ -36,7 +36,7 @@ namespace hope {
             return !!d3dDevice;
         }
 
-        bool NvencAV1Encoder::InitNvenc(int width, int height, uint32_t bitrateBps) {
+        bool NvencAV1Encoder::InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate) {
 
             nvVideoCodecHandle = LoadLibrary(TEXT("nvEncodeAPI64.dll"));
             if (!nvVideoCodecHandle) return false;
@@ -64,7 +64,7 @@ namespace hope {
             initParams.encodeHeight = height;
             initParams.darWidth = width;
             initParams.darHeight = height;
-            initParams.frameRateNum = 144;
+            initParams.frameRateNum = maxFramerate ? maxFramerate : 60;
             initParams.frameRateDen = 1;
             initParams.enablePTD = 1;
             initParams.enableEncodeAsync = 0;
@@ -114,6 +114,7 @@ namespace hope {
             bufCount = 8;
             mappedResources.resize(bufCount, nullptr);
             swInputBuffers.resize(bufCount, nullptr);
+            pendingInputs.resize(bufCount);
 
             for (uint32_t i = 0; i < bufCount; i++) {
                 NvBitstream bs;
@@ -166,23 +167,50 @@ namespace hope {
                 if (!cached.tex) {
                     d3dDevice->OpenSharedResource(h, IID_PPV_ARGS(&cached.tex));
                     cached.tex.As(&cached.km);
+                    // 直注：把共享纹理直接注册给 NVENC，省掉 CopyResource
+                    NV_ENC_REGISTER_RESOURCE reg = { NV_ENC_REGISTER_RESOURCE_VER };
+                    reg.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX;
+                    reg.resourceToRegister = cached.tex.Get();
+                    reg.width = buffer->width();
+                    reg.height = buffer->height();
+                    reg.bufferFormat = NV_ENC_BUFFER_FORMAT_ARGB;
+                    if (nvencFuncs.nvEncRegisterResource(nvencSession, &reg) == NV_ENC_SUCCESS)
+                        cached.regPtr = reg.registeredResource;
+                    // 失败则 cached.regPtr 保持 nullptr → 走拷贝回退路径
                 }
+
                 if (cached.km && cached.km->AcquireSync(0, INFINITE) == S_OK) {
-                    d3dContext->CopyResource(inputPool[idx].tex.Get(), cached.tex.Get());
-                    d3dContext->Flush();
-                    cached.km->ReleaseSync(0);
-                    d3dBuffer->FreeSharedSlot();
+                    if (cached.regPtr) {
+                        // 直注路径：NVENC 直接 DMA 读共享纹理，零拷贝
+                        // keyed mutex 必须持有到 GetEncodedPacket 里 unmap 之后
+                        map.registeredResource = cached.regPtr;
+                        nvencFuncs.nvEncMapInputResource(nvencSession, &map);
+                        params.inputBuffer = map.mappedResource;
+                        params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
+                        mappedResources[idx] = map.mappedResource;
+                        swInputBuffers[idx] = nullptr;
+                        pendingInputs[idx].km = cached.km;
+                        pendingInputs[idx].buffer = buffer;
+                        pendingInputs[idx].isShared = true;
+                    }
+                    else {
+                        // 回退：私有纹理拷贝路径（ReleaseSync 会等 CopyResource 完成后再放锁，无需 Flush）
+                        d3dContext->CopyResource(inputPool[idx].tex.Get(), cached.tex.Get());
+                        cached.km->ReleaseSync(0);
+                        d3dBuffer->FreeSharedSlot();
+                        map.registeredResource = inputPool[idx].regPtr;
+                        nvencFuncs.nvEncMapInputResource(nvencSession, &map);
+                        params.inputBuffer = map.mappedResource;
+                        params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
+                        mappedResources[idx] = map.mappedResource;
+                        swInputBuffers[idx] = nullptr;
+                        pendingInputs[idx].isShared = false;
+                    }
                 }
                 else {
                     LOG_ERROR("[NVENC] D3D AcquireSync failed. handle=%p", h);
                     return WEBRTC_VIDEO_CODEC_ERROR;
                 }
-                map.registeredResource = inputPool[idx].regPtr;
-                nvencFuncs.nvEncMapInputResource(nvencSession, &map);
-                params.inputBuffer = map.mappedResource;
-                params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
-                mappedResources[idx] = map.mappedResource;
-                swInputBuffers[idx] = nullptr;
             }
             else {
                 // 软件帧路径
@@ -212,6 +240,7 @@ namespace hope {
                 params.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
                 mappedResources[idx] = nullptr;
                 swInputBuffers[idx] = swInputBuffer;
+                pendingInputs[idx].isShared = false;
             }
 
             NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
@@ -265,6 +294,18 @@ namespace hope {
                         nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedResources[curBitstream]);
                         mappedResources[curBitstream] = nullptr;
                     }
+                    // 直注路径：unmap 完成后 NVENC 不再读共享纹理，此时归还 keyed mutex 并释放捕获槽
+                    if (pendingInputs[curBitstream].isShared) {
+                        if (pendingInputs[curBitstream].km)
+                            pendingInputs[curBitstream].km->ReleaseSync(0);
+                        if (pendingInputs[curBitstream].buffer) {
+                            auto* d3d = static_cast<WebRTCD3D11TextureBuffer*>(pendingInputs[curBitstream].buffer.get());
+                            if (d3d) d3d->FreeSharedSlot();
+                        }
+                        pendingInputs[curBitstream].km.Reset();
+                        pendingInputs[curBitstream].buffer = nullptr;
+                        pendingInputs[curBitstream].isShared = false;
+                    }
                     if (swInputBuffers[curBitstream]) {
                         nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffers[curBitstream]);
                         swInputBuffers[curBitstream] = nullptr;
@@ -291,7 +332,26 @@ namespace hope {
                 for (auto& it : inputPool) nvencFuncs.nvEncUnregisterResource(nvencSession, it.regPtr);
                 for (auto& bs : bitstreams) nvencFuncs.nvEncDestroyBitstreamBuffer(nvencSession, bs.ptr);
 
+                // 注销直注路径下注册的共享纹理
+                for (auto& kv : resourceCache)
+                    if (kv.second.regPtr) nvencFuncs.nvEncUnregisterResource(nvencSession, kv.second.regPtr);
                 resourceCache.clear();
+
+                // 兜底：销毁时若仍有在途的共享槽未释放，归还 keyed mutex 与捕获槽，避免卡住捕获侧
+                for (auto& p : pendingInputs) {
+                    if (p.isShared) {
+                        if (p.km) p.km->ReleaseSync(0);
+                        if (p.buffer) {
+                            auto* d3d = static_cast<WebRTCD3D11TextureBuffer*>(p.buffer.get());
+                            if (d3d) d3d->FreeSharedSlot();
+                        }
+                        p.km.Reset();
+                        p.buffer = nullptr;
+                        p.isShared = false;
+                    }
+                }
+                pendingInputs.clear();
+
                 nvencFuncs.nvEncDestroyEncoder(nvencSession);
                 nvencSession = nullptr;
             }

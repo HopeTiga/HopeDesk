@@ -1,6 +1,7 @@
 #pragma once
 
 #include "api/video_codecs/video_encoder.h"
+#include "api/video/video_frame_buffer.h"
 #include <modules/video_coding/include/video_codec_interface.h>
 #include <modules/video_coding/include/video_error_codes.h>
 #include <unordered_map>
@@ -26,7 +27,7 @@ namespace hope {
 
         private:
             bool InitD3D11();
-            bool InitNvenc(int width, int height, uint32_t bitrateBps);
+            bool InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate);
             bool GetEncodedPacket(bool finalize); // 参照 OBS 的 get_encoded_packet
 
             webrtc::EncodedImageCallback* encodedImageCallback = nullptr;
@@ -46,6 +47,15 @@ namespace hope {
             std::unordered_map<HANDLE, NvInputTexture> resourceCache;
             std::vector<NV_ENC_INPUT_PTR> mappedResources;
             std::vector<NV_ENC_INPUT_PTR> swInputBuffers;
+
+            // 直注路径下，每个 bitstream 槽位在途输入的同步状态：
+            // NVENC 直接读共享纹理，keyed mutex 必须持有到 nvEncUnmapInputResource 之后
+            struct PendingInput {
+                Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;          // 持有到 unmap
+                webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer; // 保活 d3dBuffer 以便 FreeSharedSlot
+                bool isShared = false;                                // 仅直注路径为 true
+            };
+            std::vector<PendingInput> pendingInputs;
 
             // 状态控制 (完全对照 OBS 成员)
             uint32_t bufCount = 0;
