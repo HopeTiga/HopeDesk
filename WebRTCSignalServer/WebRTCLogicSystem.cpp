@@ -313,7 +313,7 @@ namespace hope {
 
                         taskQueueSize.fetch_sub(1);
 
-                        if (localTaskQueueSize.fetch_sub(1) == 1) {
+                        if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
 
                             asyncTaskExecute();
 
@@ -1033,7 +1033,7 @@ namespace hope {
                 };
 
             httpLogicHandlers["/api/v1/managers/overview"] = true;
-            httpLogicHandlers["/api/v1/managers/stat"] = true;
+            httpLogicHandlers["/api/v1/managers/stat"] = false;
         }
 
     }
