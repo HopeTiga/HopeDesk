@@ -28,11 +28,11 @@ namespace hope {
 
         WebRTCManagerNV12Buffer::~WebRTCManagerNV12Buffer() {
             if (releaseFlag) {
-            
+
                 releaseFlag->store(false);
 
             }
-               
+
         }
 
         /* ============= NV12BufferInterface ============= */

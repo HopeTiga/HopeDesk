@@ -137,7 +137,7 @@ namespace hope {
 						i, desc.Description, desc.VendorId, desc.DeviceId);
 
 					if (desc.VendorId == 0x10DE) {
-			
+
 						Microsoft::WRL::ComPtr<IDXGIOutput> out;
 						bool hasOutput = false;
 						for (UINT j = 0; adapter->EnumOutputs(j, &out) != DXGI_ERROR_NOT_FOUND; ++j) {
@@ -205,7 +205,7 @@ namespace hope {
 				LOG_ERROR("[ScreenCapture] 当前显卡没有挂载显示器 (WinLogon可能会接管), hr=0x%08X", hr);
 				return false;
 			}
-			dxgiAdapter = tempAdapter;  
+			dxgiAdapter = tempAdapter;
 
 			dxgiOutput.As(&dxgiOutput1);
 
@@ -267,33 +267,36 @@ namespace hope {
 				sharedSource = R"(
 				Texture2D<float4> inputTexture : register(t0);
 				RWBuffer<uint> outputBuffer : register(u0);
-				cbuffer Constants : register(b0) { 
-					uint width; 
-					uint height; 
-					uint yPitch;  
-					uint uvPitch;   
-					uint ySize;    
-					uint uSize;  
+				cbuffer Constants : register(b0) {
+					uint width;
+					uint height;
+					uint yPitch;   // Y 行宽（8 对齐）
+					uint uvPitch;  // U/V 行宽 = yPitch/2（4 对齐）
+					uint ySize;    // Y 平面字节数 = yPitch * height
+					uint uSize;    // U 平面字节数 = uvPitch * (height/2)，V 平面紧随其后
 				}
-				uint GetY(float4 c) { 
-					uint b = (uint)(c.r * 255.0f);
+				uint GetY(float4 c) {
+					uint r = (uint)(c.r * 255.0f);
 					uint g = (uint)(c.g * 255.0f);
-					uint r = (uint)(c.b * 255.0f);
-					return ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16; 
+					uint b = (uint)(c.b * 255.0f);
+					return ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
 				}
-				uint GetU(float4 c) { 
-					uint b = (uint)(c.r * 255.0f);
+				uint GetU(float4 c) {
+					uint r = (uint)(c.r * 255.0f);
 					uint g = (uint)(c.g * 255.0f);
-					uint r = (uint)(c.b * 255.0f);
-					return ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128; 
+					uint b = (uint)(c.b * 255.0f);
+					return ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
 				}
-				uint GetV(float4 c) { 
-					uint b = (uint)(c.r * 255.0f);
+				uint GetV(float4 c) {
+					uint r = (uint)(c.r * 255.0f);
 					uint g = (uint)(c.g * 255.0f);
-					uint r = (uint)(c.b * 255.0f);
-					return ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128; 
+					uint b = (uint)(c.b * 255.0f);
+					return ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
 				}
 
+				// 每个线程处理 8(宽) x 2(高) luma = 16 个 Y + 1 行 4 个色度样本(各 4 个 U/V)。
+				// 写入用 outputBuffer[byteOffset>>2] = packed（原始机制，本机 GPU 实测可写）。
+				// 每个线程组 [numthreads(8,8,1)] 覆盖 64(宽) x 16(高) 像素。
 				[numthreads(8, 8, 1)]
 				void main(uint3 id : SV_DispatchThreadID) {
 					uint blockX = id.x * 8;
@@ -303,15 +306,18 @@ namespace hope {
 					float4 c[8][2];
 					[unroll]
 					for (int i = 0; i < 8; i++) {
+						[unroll]
 						for (int j = 0; j < 2; j++) {
 							uint px = blockX + i;
 							uint py = blockY + j;
 							if (px < width && py < height)
 								c[i][j] = inputTexture.Load(int3(px, py, 0));
 							else
-								c[i][j] = c[0][0]; 
+								c[i][j] = c[0][0];
 						}
 					}
+
+					// Y 平面：每行 8 个 Y，分成 2 个 uint（各 4 个 Y）
 					[unroll]
 					for (int j = 0; j < 2; j++) {
 						uint row = (blockY + j) * yPitch;
@@ -325,22 +331,24 @@ namespace hope {
 						}
 					}
 
+					// 4 个 2x2 色度块的平均（对应 chroma 列 blockX/2 .. blockX/2+3）
 					uint uvRow = blockY >> 1;
-					uint uvCol = blockX >> 1; 
-					uint uRowStart = ySize + uvRow * uvPitch + uvCol;
-					uint vRowStart = ySize + uSize + uvRow * uvPitch + uvCol;
+					uint uvCol = blockX >> 1; // = id.x*4，4 对齐
 
-					uint u0 = GetU((c[0][0] + c[1][0] + c[0][1] + c[1][1]) * 0.25f);
-					uint u1 = GetU((c[2][0] + c[3][0] + c[2][1] + c[3][1]) * 0.25f);
-					uint u2 = GetU((c[4][0] + c[5][0] + c[4][1] + c[5][1]) * 0.25f);
-					uint u3 = GetU((c[6][0] + c[7][0] + c[6][1] + c[7][1]) * 0.25f);
-					outputBuffer[uRowStart >> 2] = (u3 << 24) | (u2 << 16) | (u1 << 8) | u0;
+					float4 avg0 = (c[0][0] + c[1][0] + c[0][1] + c[1][1]) * 0.25f;
+					float4 avg1 = (c[2][0] + c[3][0] + c[2][1] + c[3][1]) * 0.25f;
+					float4 avg2 = (c[4][0] + c[5][0] + c[4][1] + c[5][1]) * 0.25f;
+					float4 avg3 = (c[6][0] + c[7][0] + c[6][1] + c[7][1]) * 0.25f;
 
-					uint v0 = GetV((c[0][0] + c[1][0] + c[0][1] + c[1][1]) * 0.25f);
-					uint v1 = GetV((c[2][0] + c[3][0] + c[2][1] + c[3][1]) * 0.25f);
-					uint v2 = GetV((c[4][0] + c[5][0] + c[4][1] + c[5][1]) * 0.25f);
-					uint v3 = GetV((c[6][0] + c[7][0] + c[6][1] + c[7][1]) * 0.25f);
-					outputBuffer[vRowStart >> 2] = (v3 << 24) | (v2 << 16) | (v1 << 8) | v0;
+					// U 平面：4 个 U 打包进一个 uint
+					uint uOff = ySize + uvRow * uvPitch + uvCol;
+					uint u0 = GetU(avg0), u1 = GetU(avg1), u2 = GetU(avg2), u3 = GetU(avg3);
+					outputBuffer[uOff >> 2] = (u3 << 24) | (u2 << 16) | (u1 << 8) | u0;
+
+					// V 平面：紧接 U 平面之后
+					uint vOff = ySize + uSize + uvRow * uvPitch + uvCol;
+					uint v0 = GetV(avg0), v1 = GetV(avg1), v2 = GetV(avg2), v3 = GetV(avg3);
+					outputBuffer[vOff >> 2] = (v3 << 24) | (v2 << 16) | (v1 << 8) | v0;
 				}
 				)";
 			}
@@ -566,8 +574,9 @@ namespace hope {
 						// 指针还在，直接发！
 						if (targetBuffer->mappedData && !targetBuffer->isBusy.load()) {
 							targetBuffer->isBusy.store(true);
+							UINT yPitch = (config.width + 3) & ~3;
 							dataHandle(targetBuffer->mappedData, config.width, config.height,
-								&targetBuffer->isBusy, config.width, CaptureLevels::GPU);
+								&targetBuffer->isBusy, (int)yPitch, CaptureLevels::GPU);
 						}
 					}
 					else {
@@ -677,8 +686,11 @@ namespace hope {
 			d3dContext->CSSetUnorderedAccessViews(0, 1, yuvUAV.GetAddressOf(), nullptr);
 			d3dContext->CSSetConstantBuffers(0, 1, yuvConstantBuffer.GetAddressOf());
 
-			UINT dispatchX = (config.width + 127) / 128;
-			UINT dispatchY = (config.height + 1) / 2;
+			// 着色器 [numthreads(8,8,1)]，每线程 8(宽) x 2(高) → 每组覆盖 64 x 16。
+			// dispatchX = ceil(width/64)、dispatchY = ceil(height/16) 才能整屏覆盖。
+			// 旧值 (width+127)/128 只有一半线程组 → 右半屏不写 → YUV(0,0,0)=绿。
+			UINT dispatchX = (config.width + 63) / 64;
+			UINT dispatchY = (config.height + 15) / 16;
 
 			d3dContext->Dispatch(dispatchX, dispatchY, 1);
 
@@ -710,7 +722,10 @@ namespace hope {
 				targetBuffer->isBusy.store(true);
 
 				if (dataHandle) {
-					dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy, config.width, CaptureLevels::GPU);
+					// 传 yPitch(=着色器实际 Y 行距) 作为 stride，下游 I420Buffer 用 strideY=stride、
+					// strideU=stride/2，与着色器 yPitch/uvPitch 严格一致（含 1366 等非 4 倍数宽度）。
+					UINT yPitch = (config.width + 3) & ~3;
+					dataHandle(targetBuffer->mappedData, config.width, config.height, &targetBuffer->isBusy, (int)yPitch, CaptureLevels::GPU);
 				}
 				else {
 					d3dContext->Unmap(targetBuffer->buffer.Get(), 0);

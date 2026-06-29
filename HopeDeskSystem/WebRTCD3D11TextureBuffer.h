@@ -1,6 +1,6 @@
 #pragma once
+
 #include <d3d11.h>
-#include <functional>
 #include <atomic>
 #include "api/video/video_frame_buffer.h"
 
@@ -14,52 +14,29 @@ namespace hope {
                 HANDLE sharedHandle,
                 int width,
                 int height,
-                std::atomic<bool>* releaseFlag)
-                : texture(texture),
-                sharedHandle(sharedHandle),
-                frameWidth(width),
-                frameHeight(height),
-                releaseFlag(releaseFlag) {
-            }
+                std::atomic<bool>* releaseFlag);
 
-            ~WebRTCD3D11TextureBuffer() override {
-                if (releaseFlag && releaseFlag->load()) {
-                    releaseFlag->store(false);
-                }
-            }
+            ~WebRTCD3D11TextureBuffer() override;
 
-            Type type() const override {
-                return Type::kNative;
-            }
+            Type type() const override;
+            int width() const override;
+            int height() const override;
 
-            int width() const override { return this->frameWidth; }
-            int height() const override { return this->frameHeight; }
+            HANDLE GetSharedHandle() const;
+            ID3D11Texture2D* GetTexture() const;
 
-            HANDLE GetSharedHandle() const { return sharedHandle; }
-            ID3D11Texture2D* GetTexture() const { return texture; }
+            webrtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
+            webrtc::scoped_refptr<const webrtc::I420BufferInterface> ToI420() const;
 
-            webrtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override {
-                return nullptr;
-            }
-
-            webrtc::scoped_refptr<const webrtc::I420BufferInterface> ToI420() const {
-                return nullptr;
-            }
-
-            void FreeSharedSlot() {
-                if (releaseFlag && releaseFlag->load()) {
-                    releaseFlag->store(false);
-                    releaseFlag = nullptr; // 置空，防止析构函数重复触发
-                }
-            }
+            void FreeSharedSlot();
 
         private:
             ID3D11Texture2D* texture;
             HANDLE sharedHandle;
-            int frameWidth;
-            int frameHeight;
+            int widths;
+            int heights;
             std::atomic<bool>* releaseFlag;
         };
 
-    }
-}
+    } // namespace rtc
+} // namespace hope
