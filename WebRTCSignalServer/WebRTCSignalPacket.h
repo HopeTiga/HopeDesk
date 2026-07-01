@@ -11,11 +11,19 @@ namespace hope {
 
 		class WebRTCSignalManager;
 
-		class WebRTCSignalPacket : public std::enable_shared_from_this<WebRTCSignalPacket> {
+		class WebRTCSignalPacket{
 
 		public:
 
-			WebRTCSignalPacket(std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webRTCSignalManager, int channelIndex);
+			WebRTCSignalPacket(std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket, WebRTCSignalManager* webrtcSignalManager, int channelIndex);
+
+			WebRTCSignalPacket(const WebRTCSignalPacket& webrtcSignalPacket) = delete;
+
+			WebRTCSignalPacket& operator=(const WebRTCSignalPacket& webrtcSignalPacket) = delete;
+
+			WebRTCSignalPacket(WebRTCSignalPacket&& webrtcSignalPacket) noexcept ;
+
+			WebRTCSignalPacket& operator=(WebRTCSignalPacket&& webrtcSignalPacket) noexcept ;
 
 			std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket;
 

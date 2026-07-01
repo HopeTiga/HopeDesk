@@ -279,13 +279,13 @@ namespace hope {
 
                 std::string_view sv(reinterpret_cast<const char*>(cb.data()), cb.size());
 
-                std::shared_ptr<WebRTCSignalPacket> packet = std::make_shared<WebRTCSignalPacket>(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+                WebRTCSignalPacket webrtcSignalPakcet(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
                 try {
 
-                    boost::json::value pv = boost::json::parse(sv, packet->request.storage());
+                    boost::json::value pv = boost::json::parse(sv, webrtcSignalPakcet.request.storage());
 
-                    packet->request = std::move(pv.as_object());
+                    webrtcSignalPakcet.request = std::move(pv.as_object());
 
                 }
                 catch (std::exception& e) {
@@ -302,7 +302,7 @@ namespace hope {
 
                 buffer.consume(buffer.size());
 
-                if (!packet->request.contains("requestType")) {
+                if (!webrtcSignalPakcet.request.contains("requestType")) {
 
                     LOG_WARN("WebRTCSignalSocket Invalid Request: missing requestType");
 
@@ -312,9 +312,9 @@ namespace hope {
 
                 }
 
-                if (!this->isRegistered && packet->request["requestType"].as_int64() != 0) {
+                if (!this->isRegistered && webrtcSignalPakcet.request["requestType"].as_int64() != 0) {
 
-                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", packet->request["requestType"].as_int64());
+                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", webrtcSignalPakcet.request["requestType"].as_int64());
 
                     closeEvent();
 
@@ -322,7 +322,7 @@ namespace hope {
 
                 }
 
-                webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(packet));
+                webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(webrtcSignalPakcet));
 
             }
         }
