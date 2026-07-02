@@ -23,7 +23,7 @@ namespace hope {
 			friend class hope::core::WebRTCLogicSystem;
 		public:
 
-			WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer, TaskChannel& taskQueues);
+			WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer, TaskChannel& taskQueues, size_t size);
 
 			~WebRTCSignalManager();
 
@@ -57,7 +57,7 @@ namespace hope {
 
 			absl::node_hash_map<std::string, std::shared_ptr<WebRTCSignalSocket>> webrtcSocketMap;
 
-			size_t hashSize = std::thread::hardware_concurrency();
+			size_t hashSize;
 
 			absl::node_hash_map<std::string, int> actorSocketMappingIndex;
 

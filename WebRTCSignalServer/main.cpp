@@ -4,6 +4,7 @@
 #include "WebRTCSignalServer.h"
 #include "WebRTCSignalSocket.h"
 #include "ConfigManager.h"
+#include "AsioProactors.h"
 
 #include "Utils.h"
 
@@ -42,9 +43,15 @@ int main() {
 
     size_t enablePublicPort = ConfigManager::Instance().GetInt("WebRTCSignalServer.enablePublicPort");
 
+    size_t size = ConfigManager::Instance().GetSize("WebRTCSignalServer.size");
+
+    if(size <= 0) size = std::thread::hardware_concurrency();
+
+    hope::iocp::AsioProactors::init(size);
+
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    std::shared_ptr<hope::core::WebRTCSignalServer> webrtcSignalServer = std::make_shared<hope::core::WebRTCSignalServer>(ioContext, port, enableHttp, httpPort, enablePublicPort);
+    std::shared_ptr<hope::core::WebRTCSignalServer> webrtcSignalServer = std::make_shared<hope::core::WebRTCSignalServer>(ioContext, port, enableHttp, httpPort, enablePublicPort, size);
 
     webrtcSignalServer->asyncEvent();
 

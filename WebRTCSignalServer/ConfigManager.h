@@ -8,6 +8,7 @@
 #include <string>
 #include <optional>
 #include <fstream>
+#include <thread>
 
 class ConfigManager {
 public:
@@ -120,6 +121,13 @@ public:
 
     bool GetBool(const std::string& key, bool defaultValue = false) const {
         return Get<bool>(key, defaultValue).value_or(defaultValue);
+    }
+
+    // 读取线程/通道数等 size 类配置：值 <= 0 时回退到 autoValue（默认硬件并发数）。
+    // 集中处理“0 = 自动”的回退逻辑，避免每个调用点各自写 hardware_concurrency()。
+    size_t GetSize(const std::string& key, size_t autoValue = std::thread::hardware_concurrency()) const {
+        int v = GetInt(key, 0);
+        return (v > 0) ? static_cast<size_t>(v) : autoValue;
     }
 
  

@@ -4,6 +4,16 @@
 
 namespace hope {
 	namespace iocp{
+
+		size_t AsioProactors::sIoSize = std::thread::hardware_concurrency();
+		
+		size_t AsioProactors::sLogicSize = std::thread::hardware_concurrency();
+
+		void AsioProactors::init(size_t size) {
+			sIoSize = size;
+			sLogicSize = size;
+		}
+
 		AsioProactors::AsioProactors(size_t size) :size(size),
 		ioContexts(size), works(size), threads(size), ioPressures(size), isStop(false) {
 

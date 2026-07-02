@@ -9,13 +9,16 @@ namespace hope {
 		class AsioProactors {
 
 		public:
+
+			static void init(size_t size);
+
 			static AsioProactors* getInstance() {
-				static AsioProactors instance;
+				static AsioProactors instance(sIoSize);
 				return &instance;
 			}
 
 			static AsioProactors* getLogicInstance() {
-				static AsioProactors instance;
+				static AsioProactors instance(sLogicSize);
 				return &instance;
 			}
 
@@ -33,7 +36,11 @@ namespace hope {
 
 		private:
 
-			AsioProactors(size_t size = std::thread::hardware_concurrency() );
+			AsioProactors(size_t size);
+
+			static size_t sIoSize;
+			
+			static size_t sLogicSize;
 
 			std::vector<boost::asio::io_context> ioContexts;
 

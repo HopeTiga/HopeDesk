@@ -13,10 +13,11 @@ namespace hope {
 
     namespace core {
 
-        WebRTCSignalManager::WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer, TaskChannel& taskQueues)
+        WebRTCSignalManager::WebRTCSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebRTCSignalServer* webrtcSignalServer, TaskChannel& taskQueues, size_t size)
             : channelIndex(channelIndex)
             , ioContext(ioContext)
             , webrtcSignalServer(webrtcSignalServer)
+            , hashSize(hashSize)
 #ifdef __linux__
             , acceptor(ioContext)
             , httpAcceptor(ioContext)

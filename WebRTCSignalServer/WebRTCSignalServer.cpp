@@ -253,7 +253,7 @@ namespace hope {
 
                 boost::asio::io_context& ioContext = hope::iocp::AsioProactors::getInstance()->getIoCompletePort(i);
 
-                webrtcSignalManagers[i] = std::make_shared<WebRTCSignalManager>(i, ioContext, this, taskQueues);
+                webrtcSignalManagers[i] = std::make_shared<WebRTCSignalManager>(i, ioContext, this, taskQueues, size);
 
             }
 
