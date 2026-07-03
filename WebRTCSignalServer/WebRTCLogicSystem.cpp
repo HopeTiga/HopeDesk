@@ -153,9 +153,11 @@ namespace hope {
 
             int type = webrtcSignalPacket.request["requestType"].as_int64();
 
-            if (this->webrtcHandlers.find(type) != this->webrtcHandlers.end()) {
+            auto it = this->webrtcHandlers.find(type);
 
-                absl::AnyInvocable<boost::asio::awaitable<void>(WebRTCSignalPacket)>& func = webrtcHandlers[type];
+            if (it != this->webrtcHandlers.end()) {
+
+                absl::AnyInvocable<boost::asio::awaitable<void>(WebRTCSignalPacket)>& func = it->second;
 
                 taskQueueSize.fetch_add(1);
 
