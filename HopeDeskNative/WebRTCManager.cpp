@@ -127,6 +127,12 @@ void WebRTCManager::connect(std::string ip)
 
         try {
 
+            if(self->webSocket){
+
+                self->closeWebSocket();
+
+            }
+
             self->webSocket = std::make_unique<boost::beast::websocket::stream<
                 boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>>(self->ioContext, self->sslContext);
 
@@ -481,6 +487,8 @@ void WebRTCManager::closeWebSocket()
     boost::system::error_code ec;
 
     webrtcAsioConcurrentQueue.close();
+
+    if(!webSocket) return;
 
     // 取消底层 TCP socket
     auto& tcpSocket = webSocket->next_layer().next_layer();
