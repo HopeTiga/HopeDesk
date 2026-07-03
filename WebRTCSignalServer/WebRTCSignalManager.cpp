@@ -145,20 +145,19 @@ namespace hope {
 
 #ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-                        boost::asio::io_context& ioContext = sharedManager->ioContext;
+                        sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
 
 #else
 
                         boost::asio::io_context& ioContext = logicSystem->getIoCompletePort();
 
-#endif
-
                         boost::asio::post(ioContext, [sharedManager = std::move(sharedManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
-                            
+
                             sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
 
                             });
 
+#endif
                         });
 
                     boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {

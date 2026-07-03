@@ -86,6 +86,11 @@ namespace hope {
 
                     webrtcSignalSocket->setOnDisConnectHandle([sharedManager = manager->shared_from_this()](std::string accountId, std::string sessionId) {
 
+#ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
+
+                        sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
+
+#else
                         boost::asio::io_context& ioContext = sharedManager->getIoCompletionPorts();
 
                         boost::asio::post(ioContext, [sharedManager = std::move(sharedManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
@@ -93,6 +98,7 @@ namespace hope {
                             sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
 
                             });
+#endif
 
                         });
 
