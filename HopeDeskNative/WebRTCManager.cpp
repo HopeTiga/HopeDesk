@@ -127,14 +127,6 @@ void WebRTCManager::connect(std::string ip)
 
         try {
 
-            if (self->webSocket) {
-
-                self->closeWebSocket();
-
-                self->webSocket = nullptr;
-
-            }
-
             self->webSocket = std::make_unique<boost::beast::websocket::stream<
                 boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>>(self->ioContext, self->sslContext);
 
@@ -169,6 +161,8 @@ void WebRTCManager::connect(std::string ip)
 
             self->setTcpKeepAlive(self->webSocket->next_layer().next_layer());
 
+            self->webrtcAsyncEvents.store(true);
+
             boost::asio::co_spawn(self->ioContext, self->webrtcReceiveCoroutine(), boost::asio::detached);
 
             boost::asio::co_spawn(self->ioContext, self->webrtcWriteCoroutine(), boost::asio::detached);
@@ -187,6 +181,10 @@ void WebRTCManager::connect(std::string ip)
         catch (std::exception & e) {
 
             LOG_ERROR("WebSocket Connect Error : %s",e.what());
+
+            self->webrtcAsyncEvents.store(true);
+
+            self->closeWebSocket();
 
             if (self->onSignalServerDisConnectHandle) {
                 self->onSignalServerDisConnectHandle();
@@ -473,6 +471,7 @@ void WebRTCManager::disConnectRemoteHandler()
 
 void WebRTCManager::closeWebSocket()
 {
+
     if(!webrtcAsyncEvents.exchange(false)) return;
 
     boost::system::error_code ec;
@@ -504,6 +503,8 @@ void WebRTCManager::closeWebSocket()
             LOG_ERROR("WebRTCManager::closeSocket() close Tcp Socket failed: %s", ec.message().c_str());
         }
     }
+
+    webSocket = nullptr;
 
     LOG_INFO("WebRTCManager::WebSocket is close");
 }
@@ -546,7 +547,6 @@ void WebRTCManager::setTcpKeepAlive(boost::asio::ip::tcp::socket &sock, int idle
 
 boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 {
-    webrtcAsyncEvents.store(true);
 
     try{
 
@@ -593,6 +593,12 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
                         if(onSignalServerConnectHandle){
 
                             onSignalServerConnectHandle();
+
+                        }
+
+                        if(!peerConnection){
+
+                            initializePeerConnection();
 
                         }
 
@@ -829,11 +835,16 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
         LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
+        webrtcAsyncEvents.store(true);
+
+        closeWebSocket();
+
         if (onSignalServerDisConnectHandle) {
             onSignalServerDisConnectHandle();
         }
 
         if (isRemote == false) {
+
 
             co_return;
 
@@ -1399,7 +1410,7 @@ void WebRTCManager::asyncReomteDesk(int webrtcModulesType,int webrtcUseLevels,in
 
                     self->isRemote = false;
 
-                    LOG_INFO("WebRTCManager SendRequestToTarget ReInit");
+                    LOG_INFO("WebRTCManager AsyncReomteDesk ReInit");
 
                 }
             },boost::asio::detached);
