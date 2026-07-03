@@ -280,7 +280,9 @@ private:
 
     std::thread ioContextThread;
 
-    std::unique_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> webSocket;
+    // shared_ptr：connect/receive/write 协程各自持有一份引用，
+    // 避免挂起期间成员被重连/关闭置空后对象被销毁导致野指针。
+    std::shared_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> webSocket;
 
     boost::asio::ssl::context sslContext{ boost::asio::ssl::context::tlsv12_client };
 

@@ -125,6 +125,11 @@ void WebRTCManager::connect(std::string ip)
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this(),host,port]()mutable->boost::asio::awaitable<void> {
 
+        // 本协程私有的 webSocket 引用：跨挂起点始终有效，
+        // 不受其它 connect()/disConnect() 改写成员影响。
+        std::shared_ptr<boost::beast::websocket::stream<
+            boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> ws;
+
         try {
 
             if(self->webSocket){
@@ -133,8 +138,9 @@ void WebRTCManager::connect(std::string ip)
 
             }
 
-            self->webSocket = std::make_unique<boost::beast::websocket::stream<
+            ws = std::make_shared<boost::beast::websocket::stream<
                 boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>>(self->ioContext, self->sslContext);
+            self->webSocket = ws;
 
             boost::asio::ip::tcp::resolver resolver(self->ioContext);
 
@@ -148,30 +154,28 @@ void WebRTCManager::connect(std::string ip)
                 throw std::runtime_error("resolve returned empty results (timeout or cancel)");
             }
 
-            // 2. TCP 连接（带超时）
+            // 2. TCP 连接（带超时）——用 ws，不再读 self->webSocket
             co_await boost::asio::async_connect(
-                self->webSocket->next_layer().next_layer(),
+                ws->next_layer().next_layer(),
                 results,
                 boost::asio::cancel_after(CONNECT_TIMEOUT, boost::asio::use_awaitable)
                 );
 
             // 3. SSL 握手（带超时）
-            co_await self->webSocket->next_layer().async_handshake(
+            co_await ws->next_layer().async_handshake(
                 boost::asio::ssl::stream_base::client,
                 boost::asio::cancel_after(SSL_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
                 );
 
             // 4. WebSocket 握手（带超时）
-            co_await self->webSocket->async_handshake(
+            co_await ws->async_handshake(
                 host, "/",
                 boost::asio::cancel_after(WS_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
                 );
 
             self->webrtcAsioConcurrentQueue.reset();
 
-            self->setTcpKeepAlive(self->webSocket->next_layer().next_layer());
-
-            self->webrtcAsyncEvents.store(true);
+            self->setTcpKeepAlive(ws->next_layer().next_layer());
 
             boost::asio::co_spawn(self->ioContext, self->webrtcReceiveCoroutine(), boost::asio::detached);
 
@@ -192,9 +196,12 @@ void WebRTCManager::connect(std::string ip)
 
             LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
-            self->webrtcAsyncEvents.store(true);
-
-            self->closeWebSocket();
+            // 仅当当前活跃 webSocket 仍是本协程创建的那个时才关闭；
+            // 若已被更新的 connect() 替换，则不要误关新连接——本协程的 ws
+            // 已被对方的 closeWebSocket 取消，ws 出作用域时自动释放即可。
+            if (self->webSocket == ws && ws) {
+                self->closeWebSocket();
+            }
 
             if (self->onSignalServerDisConnectHandle) {
                 self->onSignalServerDisConnectHandle();
@@ -393,14 +400,13 @@ bool WebRTCManager::initializePeerConnection()
 
     webrtc::PeerConnectionDependencies pcDependencies(peerConnectionObserver.get());
 
-    webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>>  peerConnectionResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
-
-    if (!peerConnectionResult.ok()) {
-        LOG_ERROR("Failed to create PeerConnection: %s" ,peerConnectionResult.error().message());
+    auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
+    if (!pcResult.ok()) {
+        LOG_ERROR("Failed to create PeerConnection: %s" ,pcResult.error().message());
         return false;
     }
 
-    peerConnection = peerConnectionResult.MoveValue();
+    peerConnection = pcResult.MoveValue();
 
     return true;
 }
@@ -481,8 +487,10 @@ void WebRTCManager::disConnectRemoteHandler()
 
 void WebRTCManager::closeWebSocket()
 {
-
-    if(!webrtcAsyncEvents.exchange(false)) return;
+    // 停止 receive/write 协程循环。改为 store(false)：无论之前是否在运行，
+    // 都要继续执行下面的 cancel/close，避免 connect() 在握手前失败时跳过清理
+    // （原先 exchange(false) 早退会导致 webSocket 既不 cancel 也不置空）。
+    webrtcAsyncEvents.store(false);
 
     boost::system::error_code ec;
 
@@ -559,6 +567,12 @@ void WebRTCManager::setTcpKeepAlive(boost::asio::ip::tcp::socket &sock, int idle
 
 boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 {
+    webrtcAsyncEvents.store(true);
+
+    // 持有当前 webSocket 的共享引用，避免挂起期间成员被重连/关闭置空后对象被销毁
+    auto ws = webSocket;
+
+    if (!ws) co_return;
 
     try{
 
@@ -566,7 +580,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
             boost::beast::flat_buffer buffer;
 
-            co_await webSocket->async_read(buffer, boost::asio::use_awaitable);
+            co_await ws->async_read(buffer, boost::asio::use_awaitable);
 
             std::string str = boost::beast::buffers_to_string(buffer.data());
 
@@ -605,12 +619,6 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
                         if(onSignalServerConnectHandle){
 
                             onSignalServerConnectHandle();
-
-                        }
-
-                        if(!peerConnection){
-
-                            initializePeerConnection();
 
                         }
 
@@ -847,16 +855,17 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
         LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
-        webrtcAsyncEvents.store(true);
-
-        closeWebSocket();
+        // 仅当当前活跃 webSocket 仍是本协程持有的那个时才关闭，
+        // 否则说明已被新的 connect() 替换，不要误关新连接。
+        if (webSocket == ws) {
+            closeWebSocket();
+        }
 
         if (onSignalServerDisConnectHandle) {
             onSignalServerDisConnectHandle();
         }
 
         if (isRemote == false) {
-
 
             co_return;
 
@@ -882,6 +891,10 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
 boost::asio::awaitable<void> WebRTCManager::webrtcWriteCoroutine()
 {
+    auto ws = webSocket;
+
+    if (!ws) co_return;
+
     try {
 
         while (webrtcAsyncEvents.load()) {
@@ -892,7 +905,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcWriteCoroutine()
 
                 std::string str = std::move(optional.value());
 
-                co_await webSocket->async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
+                co_await ws->async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
 
             }else break;
 
