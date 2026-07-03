@@ -39,7 +39,7 @@ namespace hope {
 
 			void postHttpTaskAsync(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest);
 
-			boost::asio::io_context& getIoCompletePorts();
+			boost::asio::io_context& getIoCompletionPorts();
 
 			void asyncEvent();
 

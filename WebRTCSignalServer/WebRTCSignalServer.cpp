@@ -201,7 +201,7 @@ namespace hope {
             LOG_INFO("WebRTCSignalServer CloseEvent...");
 
             taskQueues.close();
-            // 设置关闭标志，防止新连接
+      
             webrtcSignalManagers.clear();
 
             LOG_INFO("WebRTCSignalServer Already CloseEvent");
@@ -221,7 +221,7 @@ namespace hope {
                 return false;
             }
 
-            boost::asio::co_spawn(manager->getLogicSystem()->getIoCompletePorts(),
+            boost::asio::co_spawn(manager->getLogicSystem()->getIoCompletionPorts(),
                 [manager = manager->shared_from_this(), asyncHandle = std::move(asyncHandle)]()mutable -> boost::asio::awaitable<void> {
                     co_await asyncHandle(manager);
                 }, [this](std::exception_ptr ptr) {

@@ -17,11 +17,17 @@ namespace hope {
 				return &instance;
 			}
 
+
+#ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
+
 			static AsioProactors* getLogicInstance() {
 				static AsioProactors instance(sLogicSize);
 				return &instance;
 			}
 
+#endif
+
+	
 			~AsioProactors();
 
 			void stop();

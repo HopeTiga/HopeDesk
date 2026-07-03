@@ -25,7 +25,15 @@ namespace hope {
 
         {
 
+#ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
+
+            logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(ioContext, channelIndex, taskQueues);
+
+#else
+
             logicSystem = std::make_shared<hope::core::WebRTCLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePort(channelIndex), channelIndex, taskQueues);
+
+#endif
 
             logicSystem->asyncEvent();
 
@@ -135,7 +143,15 @@ namespace hope {
 
                     webrtcSignalSocket->setOnDisConnectHandle([sharedManager = self->shared_from_this()](std::string accountId, std::string sessionId) {
 
-                        boost::asio::io_context & ioContext = sharedManager->ioContext;
+#ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
+
+                        boost::asio::io_context& ioContext = sharedManager->ioContext;
+
+#else
+
+                        boost::asio::io_context& ioContext = logicSystem->getIoCompletePort();
+
+#endif
 
                         boost::asio::post(ioContext, [sharedManager = std::move(sharedManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
                             
