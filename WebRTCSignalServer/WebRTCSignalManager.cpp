@@ -17,7 +17,7 @@ namespace hope {
             : channelIndex(channelIndex)
             , ioContext(ioContext)
             , webrtcSignalServer(webrtcSignalServer)
-            , hashSize(hashSize)
+            , hashSize(size)
 #ifdef __linux__
             , acceptor(ioContext)
             , httpAcceptor(ioContext)
