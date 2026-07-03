@@ -138,6 +138,10 @@ void WebRTCManager::connect(std::string ip)
                 boost::asio::cancel_after(RESOLVE_TIMEOUT, boost::asio::use_awaitable)
                 );
 
+            if (results.empty()) {
+                throw std::runtime_error("resolve returned empty results (timeout or cancel)");
+            }
+
             // 2. TCP 连接（带超时）
             co_await boost::asio::async_connect(
                 self->webSocket->next_layer().next_layer(),
