@@ -30,6 +30,8 @@ namespace hope {
     namespace core
     {
 
+        thread_local int threadChannelIndex = -1;
+
         WebRTCLogicSystem::WebRTCLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues)
             : ioContext(ioContext)
             , channelIndex(channelIndex)
@@ -42,6 +44,12 @@ namespace hope {
             exitThreshold.store(ConfigManager::Instance().GetInt("WebRTCSignalServer.exitThreshold"));
 
             asyncThreshold.store(ConfigManager::Instance().GetInt("WebRTCSignalServer.asyncThreshold"));
+
+            boost::asio::post(ioContext, [channelIndex]() {
+                
+                threadChannelIndex = channelIndex;
+
+                });
 
         }
 
@@ -847,6 +855,26 @@ namespace hope {
         void WebRTCLogicSystem::initHttpHandlers()
         {
 
+            std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, unsigned, std::string)> awaitableHttpSocketAsyncWrite =
+                [this](std::shared_ptr<HttpSocket> httpSocket, unsigned version, std::string body) mutable->boost::asio::awaitable<void> {
+
+                boost::beast::http::response<boost::beast::http::string_body> res{
+                           boost::beast::http::status::ok, version };
+
+                res.set(boost::beast::http::field::content_type, "application/json");
+
+                res.body() = std::move(body);
+
+                res.prepare_payload();
+
+                res.keep_alive(httpSocket->getKeepAlive());
+
+                co_await httpSocket->asyncWrite(std::move(res));
+
+                co_return;
+
+                };
+
             std::function<void(std::shared_ptr<HttpSocket>, unsigned, std::string)> httpSocketAsyncWrite =
                 [this](std::shared_ptr<HttpSocket> httpSocket, unsigned version, std::string body) {
                 boost::asio::io_context& ioContext = httpSocket->getIoContext();
@@ -889,20 +917,16 @@ namespace hope {
                 return boost::json::serialize(resp);
                 };
 
-            std::function<void(std::shared_ptr<HttpSocket>, unsigned, int, std::string)> httpSocketAsyncWriteError =
-                [this, httpSocketAsyncWrite, serializeHttpResp](std::shared_ptr<HttpSocket> httpSocket, unsigned version, int code, std::string msg) {
-                httpSocketAsyncWrite(httpSocket, version, serializeHttpResp(code, msg, nullptr));
-                };
-
 
             std::function<bool(const boost::beast::http::request<boost::beast::http::string_body>&)> verifyAuthorization =
-                [this, httpSocketAsyncWrite, httpSocketAsyncWriteError](const boost::beast::http::request<boost::beast::http::string_body>& req) {
+                [this, httpSocketAsyncWrite](const boost::beast::http::request<boost::beast::http::string_body>& req) {
                 try {
                     auto it = req.find(boost::beast::http::field::authorization);
                     if (it == req.end()) return false;
                     std::string_view authView{ it->value().data(), it->value().size() };
                     if (authView.size() < 7 || authView.substr(0, 7) != "Bearer ")
                         return false;
+
                     return authView.substr(7) == "913140924@qq.com";
                 }
                 catch (std::exception& e) {
@@ -913,33 +937,63 @@ namespace hope {
 
             // -------- 路由 /api/v1/managers/overview --------
             httpHandlers["/api/v1/managers/overview"] =
-                [this, httpSocketAsyncWrite, httpSocketAsyncWriteError, verifyAuthorization, serializeHttpResp](
+                [this, httpSocketAsyncWrite, verifyAuthorization, serializeHttpResp, awaitableHttpSocketAsyncWrite](
                     std::shared_ptr<HttpSocket> httpSocket,
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
                         if (!verifyAuthorization(httpRequest)) {
-                            httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 403, "Forbidden");
+
+                            co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(403, "Forbidden",nullptr));
+   
                             co_return;
                         }
 
                         WebRTCSignalServer* server = httpSocket->getWebRTCSignalManager()->webrtcSignalServer;
 
                         boost::json::object data;
+
                         data["totalManagers"] = server->getChannelNumbers();
 
-                        httpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(200, "success", std::move(data)));
+                        LOG_INFO("channelIndex:%d threadChannelIndex:%d",httpSocket->getWebRTCSignalManager()->getChannelIndex() , threadChannelIndex);
+
+                        if (httpSocket->getWebRTCSignalManager()->getChannelIndex() == threadChannelIndex) {
+                        
+							co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(200, "success", std::move(data)));
+
+                        }
+                        else {
+                        
+                            httpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(200, "success", std::move(data)));
+
+                        }
+
                         co_return;
                 };
 
             // -------- 路由 /api/v1/managers/stat --------
             httpHandlers["/api/v1/managers/stat"] =
-                [this, httpSocketAsyncWrite, httpSocketAsyncWriteError, verifyAuthorization](
+                [this, httpSocketAsyncWrite, verifyAuthorization, serializeHttpResp, awaitableHttpSocketAsyncWrite](
                     std::shared_ptr<HttpSocket> httpSocket,
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
+
+                        // ========== 第一步：获取 manager 和通道索引，比较 ==========
+                        auto manager = httpSocket->getWebRTCSignalManager();
+                        int currentChannelIndex = manager->channelIndex;
+                        bool isSameChannel = (currentChannelIndex == threadChannelIndex);  // threadChannelIndex 是 thread_local
+
+                        // ========== 第二步：鉴权（不管同不同通道，都要验证） ==========
                         if (!verifyAuthorization(httpRequest)) {
-                            httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 403, "Forbidden");
+                            if (isSameChannel) {
+                                co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(403, "Forbidden", nullptr));
+                            }
+                            else {
+                                httpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(403, "Forbidden", nullptr));
+                            }
                             co_return;
                         }
 
+                        // ========== 第三步：解析请求体（获取要查询的目标通道索引） ==========
                         unsigned char parseBuf[256];
                         boost::json::monotonic_resource parseMr(parseBuf, sizeof(parseBuf));
                         boost::json::value reqBody;
@@ -947,32 +1001,56 @@ namespace hope {
                             reqBody = boost::json::parse(httpRequest.body(), &parseMr);
                         }
                         catch (const boost::system::system_error&) {
-                            httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 400, "Invalid JSON body");
+
+                            httpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                serializeHttpResp(400, "Invalid JSON body", nullptr));
+
                             co_return;
                         }
 
                         if (!reqBody.is_object()) {
-                            httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 400, "Request body must be an object");
+                            if (isSameChannel) {
+                                co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(400, "Request body must be an object", nullptr));
+                            }
+                            else {
+                                httpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(400, "Request body must be an object", nullptr));
+                            }
                             co_return;
                         }
+
                         auto& obj = reqBody.as_object();
                         auto it = obj.find("channelIndex");
                         if (it == obj.end() || !it->value().is_int64()) {
-                            httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 400, "Missing or invalid channelIndex");
+                            if (isSameChannel) {
+                                co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(400, "Missing or invalid channelIndex", nullptr));
+                            }
+                            else {
+                                httpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(400, "Missing or invalid channelIndex", nullptr));
+                            }
                             co_return;
                         }
-                        size_t targetIdx = static_cast<size_t>(it->value().as_int64());
 
-                        auto manager = httpSocket->getWebRTCSignalManager();
+                        size_t targetIdx = static_cast<size_t>(it->value().as_int64());
                         WebRTCSignalServer* server = manager->webrtcSignalServer;
                         if (targetIdx >= server->getChannelNumbers()) {
-                            httpSocketAsyncWriteError(httpSocket, httpRequest.version(), 400, "Invalid channelIndex");
+                            if (isSameChannel) {
+                                co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(400, "Invalid channelIndex", nullptr));
+                            }
+                            else {
+                                httpSocketAsyncWrite(httpSocket, httpRequest.version(),
+                                    serializeHttpResp(400, "Invalid channelIndex", nullptr));
+                            }
                             co_return;
                         }
 
-                        int currentChannelIndex = manager->channelIndex;
-
+                        // ========== 第四步：处理请求 ==========
                         if (targetIdx == static_cast<size_t>(currentChannelIndex)) {
+                            // 查询的是当前 manager 自己的通道
                             boost::json::storage_ptr sp = boost::json::make_shared_resource<boost::json::monotonic_resource>();
                             boost::json::array socketList(sp);
                             socketList.reserve(manager->webrtcSocketMap.size());
@@ -991,52 +1069,56 @@ namespace hope {
                             targetData["totalSockets"] = static_cast<std::int64_t>(manager->webrtcSocketMap.size());
                             targetData["sockets"] = std::move(socketList);
 
-                            boost::json::object resp(sp);
-                            resp["state"] = 200;
-                            resp["message"] = "success";
-                            resp["data"] = std::move(targetData);
-
-                            httpSocketAsyncWrite(httpSocket, httpRequest.version(), boost::json::serialize(resp));
+                            std::string respBody = serializeHttpResp(200, "success", std::move(targetData));
+                            if (isSameChannel) {
+                                co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), std::move(respBody));
+                            }
+                            else {
+                                httpSocketAsyncWrite(httpSocket, httpRequest.version(), std::move(respBody));
+                            }
                             co_return;
                         }
+                        else {
+                            // 查询的是其他通道，通过 postTaskAsync 跨通道获取
+                            server->postTaskAsync(
+                                targetIdx,
+                                [this, httpSocket = httpSocket->shared_from_this(), version = httpRequest.version(),
+                                currentChannelIndex, httpSocketAsyncWrite](
+                                    std::shared_ptr<WebRTCSignalManager> targetManager) mutable -> boost::asio::awaitable<void> {
+                                        boost::json::storage_ptr sp = boost::json::make_shared_resource<boost::json::monotonic_resource>();
+                                        boost::json::array socketList(sp);
+                                        socketList.reserve(targetManager->webrtcSocketMap.size());
+                                        for (auto const& [accountId, socketPtr] : targetManager->webrtcSocketMap) {
+                                            boost::json::object sInfo(sp);
+                                            sInfo["accountId"] = accountId;
+                                            sInfo["remoteAddr"] = socketPtr->getRemoteAddress();
+                                            sInfo["sessionId"] = socketPtr->getSessionId();
+                                            sInfo["isRegistered"] = socketPtr->getRegistered();
+                                            sInfo["cachedRouteCount"] = static_cast<std::int64_t>(socketPtr->actorMappingIndex.size());
+                                            socketList.emplace_back(std::move(sInfo));
+                                        }
 
-                        server->postTaskAsync(
-                            targetIdx,
-                            [this, httpSocket = httpSocket->shared_from_this(), version = httpRequest.version(),
-                            currentChannelIndex, httpSocketAsyncWrite](
-                                std::shared_ptr<WebRTCSignalManager> targetManager) mutable -> boost::asio::awaitable<void> {
-                                    boost::json::storage_ptr sp = boost::json::make_shared_resource<boost::json::monotonic_resource>();
-                                    boost::json::array socketList(sp);
-                                    socketList.reserve(targetManager->webrtcSocketMap.size());
-                                    for (auto const& [accountId, socketPtr] : targetManager->webrtcSocketMap) {
-                                        boost::json::object sInfo(sp);
-                                        sInfo["accountId"] = accountId;
-                                        sInfo["remoteAddr"] = socketPtr->getRemoteAddress();
-                                        sInfo["sessionId"] = socketPtr->getSessionId();
-                                        sInfo["isRegistered"] = socketPtr->getRegistered();
-                                        sInfo["cachedRouteCount"] = static_cast<std::int64_t>(socketPtr->actorMappingIndex.size());
-                                        socketList.emplace_back(std::move(sInfo));
-                                    }
+                                        boost::json::object targetData(sp);
+                                        targetData["channelIndex"] = targetManager->channelIndex;
+                                        targetData["totalSockets"] = static_cast<std::int64_t>(targetManager->webrtcSocketMap.size());
+                                        targetData["sockets"] = std::move(socketList);
 
-                                    boost::json::object targetData(sp);
-                                    targetData["channelIndex"] = targetManager->channelIndex;
-                                    targetData["totalSockets"] = static_cast<std::int64_t>(targetManager->webrtcSocketMap.size());
-                                    targetData["sockets"] = std::move(socketList);
-
-                                    targetManager->webrtcSignalServer->postTaskAsync(
-                                        currentChannelIndex,
-                                        [this, httpSocket, version, targetData = std::move(targetData), sp,
-                                        httpSocketAsyncWrite](std::shared_ptr<WebRTCSignalManager> manager) mutable -> boost::asio::awaitable<void> {
-                                            boost::json::object resp(sp);
-                                            resp["state"] = 200;
-                                            resp["message"] = "success";
-                                            resp["data"] = std::move(targetData);
-                                            httpSocketAsyncWrite(httpSocket, version, boost::json::serialize(resp));
-                                            co_return;
-                                        });
-                                    co_return;
-                            });
-                        co_return;
+                                        targetManager->webrtcSignalServer->postTaskAsync(
+                                            currentChannelIndex,
+                                            [this, httpSocket, version, targetData = std::move(targetData), sp,
+                                            httpSocketAsyncWrite](std::shared_ptr<WebRTCSignalManager> manager) mutable -> boost::asio::awaitable<void> {
+                                                boost::json::object resp(sp);
+                                                resp["state"] = 200;
+                                                resp["message"] = "success";
+                                                resp["data"] = std::move(targetData);
+                                                // 跨通道回写：目标 manager 在另一个通道，这里统一用非协程版本
+                                                httpSocketAsyncWrite(httpSocket, version, boost::json::serialize(resp));
+                                                co_return;
+                                            });
+                                        co_return;
+                                });
+                            co_return;
+                        }
                 };
 
             httpLogicHandlers["/api/v1/managers/overview"] = true;
