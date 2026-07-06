@@ -1,14 +1,28 @@
-CXX := g++
-CXXFLAGS := -std=c++20 -O3 -finline-functions -pipe
+CXX := clang++
+CXXFLAGS := -std=c++20
+CXXFLAGS += -O3 -DNDEBUG
+CXXFLAGS += -march=native -mtune=native
+CXXFLAGS += -fomit-frame-pointer
+CXXFLAGS += -finline-functions -finline-hint-functions
+CXXFLAGS += -fwhole-program-vtables -fstrict-vtable-pointers
+CXXFLAGS += -ffunction-sections -fdata-sections
+CXXFLAGS += -pipe
 CXXFLAGS += -w
 CXXFLAGS += -DTCMALLOC_AGGRESSIVE_DECOMMIT -DTCMALLOC_RELEASE_RATE=10.0
 CXXFLAGS += -DBOOST_ASIO_HAS_IO_URING
 CXXFLAGS += -Iinclude/openssl -Iinclude/absl -Iinclude/boost
 
+# === ThinLTO + 协程优化核心 ===
+CXXFLAGS += -flto=thin
+
 BUILDDIR := release-x64
 
 LDFLAGS := -Llib/openssl -Llib/absl -Llib/boost -Llib/tcmalloc
 LDFLAGS += -Wl,-rpath,$ORIGIN
+LDFLAGS += -fuse-ld=lld
+LDFLAGS += -flto=thin
+LDFLAGS += -Wl,--gc-sections
+LDFLAGS += -Wl,-O3 -Wl,--icf=all
 
 LDLIBS := -lssl -lcrypto
 LDLIBS += -lboost_json -lboost_container -lboost_thread -lboost_chrono -lboost_atomic -lboost_system -lboost_date_time -lboost_regex -lboost_program_options -lboost_serialization -lboost_coroutine -lboost_context -lboost_log -lboost_log_setup -lboost_filesystem -lboost_iostreams -lboost_random -lboost_exception -lboost_sam -lboost_charconv
