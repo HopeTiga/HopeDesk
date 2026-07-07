@@ -298,7 +298,7 @@ private:
 
     std::function<void(std::shared_ptr<VideoFrame>)> onVideoFrameHandler;
 
-    std::unique_ptr<boost::asio::ip::tcp::socket> tcpSocket;
+    std::shared_ptr<boost::asio::ip::tcp::socket> tcpSocket;
 
     AsioConcurrentQueue<std::shared_ptr<WriterData>> asioConcurrentQueue;
 

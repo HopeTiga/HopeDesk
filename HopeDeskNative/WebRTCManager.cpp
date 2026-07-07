@@ -70,7 +70,7 @@ void WebRTCManager::asyncEvent(){
 
         while(self->asyncAccpets.load()){
 
-            std::unique_ptr<boost::asio::ip::tcp::socket> socket = std::make_unique<boost::asio::ip::tcp::socket>(self->ioContext);
+            std::shared_ptr<boost::asio::ip::tcp::socket> socket = std::make_shared<boost::asio::ip::tcp::socket>(self->ioContext);
 
             co_await self->accept.async_accept(*socket,boost::asio::use_awaitable);
 
@@ -1107,6 +1107,8 @@ boost::asio::awaitable<void> WebRTCManager::writerCoroutineAsync()
 {
     try {
 
+        std::shared_ptr<boost::asio::ip::tcp::socket> socket = this->tcpSocket;
+
         while(asyncEvents.load()){
 
             std::optional<std::shared_ptr<WriterData>> optional = co_await asioConcurrentQueue.dequeue();
@@ -1115,7 +1117,7 @@ boost::asio::awaitable<void> WebRTCManager::writerCoroutineAsync()
 
                 std::shared_ptr<WriterData> writeData = optional.value();
 
-                co_await boost::asio::async_write(*tcpSocket,boost::asio::buffer(writeData->data,writeData->size),boost::asio::use_awaitable);
+                co_await boost::asio::async_write(*socket,boost::asio::buffer(writeData->data,writeData->size),boost::asio::use_awaitable);
 
             }else break;
 
@@ -1138,6 +1140,9 @@ boost::asio::awaitable<void> WebRTCManager::writerCoroutineAsync()
 void WebRTCManager::receiveCoroutineAysnc()
 {
     boost::asio::co_spawn(ioContext, [this]() -> boost::asio::awaitable<void> {
+
+        std::shared_ptr<boost::asio::ip::tcp::socket> socket = this->tcpSocket;
+
         char headerBuffer[8];
         size_t headerSize = sizeof(int64_t);
         int messageCount = 0;
@@ -1148,7 +1153,7 @@ void WebRTCManager::receiveCoroutineAysnc()
             // 接收消息头
             size_t headerRead = 0;
             while (headerRead < headerSize) {
-                size_t n = co_await this->tcpSocket->async_read_some(
+                size_t n = co_await socket->async_read_some(
                     boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
                     boost::asio::use_awaitable);
 
@@ -1180,7 +1185,7 @@ void WebRTCManager::receiveCoroutineAysnc()
             // 接收消息体
             size_t bodyRead = 0;
             while (bodyRead < bodySize) {
-                size_t n = co_await this->tcpSocket->async_read_some(
+                size_t n = co_await socket->async_read_some(
                     boost::asio::buffer(bodyBuffer.get() + bodyRead, bodySize - bodyRead),
                     boost::asio::use_awaitable);
 
