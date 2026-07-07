@@ -94,11 +94,11 @@ namespace hope {
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            webrtcSignalServer->postTaskAsync(mapChannelIndex, [accountId](std::shared_ptr<WebRTCSignalManager> manager) -> boost::asio::awaitable<void> {
+            webrtcSignalServer->postTaskAsync(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebRTCSignalManager> manager) -> boost::asio::awaitable<void> {
 
                 auto itIndex = manager->actorSocketMappingIndex.find(accountId);
 
-                if (itIndex != manager->actorSocketMappingIndex.end()) {
+                if (itIndex != manager->actorSocketMappingIndex.end() && itIndex->second.sessionId == sessionId) {
 
                     manager->actorSocketMappingIndex.erase(itIndex);
 

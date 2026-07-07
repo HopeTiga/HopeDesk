@@ -45,6 +45,17 @@ namespace hope {
 
 #endif
 
+		public:
+
+			struct ActorMapping
+			{
+
+				std::string sessionId;
+
+				int channelIndex;
+
+			};
+
 		private:
 
 			boost::asio::io_context& ioContext;
@@ -59,7 +70,7 @@ namespace hope {
 
 			size_t hashSize;
 
-			absl::node_hash_map<std::string, int> actorSocketMappingIndex;
+			absl::node_hash_map<std::string, ActorMapping> actorSocketMappingIndex;
 
 			std::hash<std::string> hasher;
 

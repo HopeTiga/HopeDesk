@@ -46,7 +46,7 @@ namespace hope {
             asyncThreshold.store(ConfigManager::Instance().GetInt("WebRTCSignalServer.asyncThreshold"));
 
             boost::asio::post(ioContext, [channelIndex]() {
-                
+
                 threadChannelIndex = channelIndex;
 
                 });
@@ -455,19 +455,19 @@ namespace hope {
 
                     if (index == -1) {
 
-                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(webrtcSignalPacket.request), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(webrtcSignalPacket.request), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
-                            auto indexIt = manager->actorSocketMappingIndex.find(targetId);
+                            auto indexIt = webrtcSignalManager->actorSocketMappingIndex.find(targetId);
 
-                            if (indexIt != manager->actorSocketMappingIndex.end()) {
+                            if (indexIt != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
-                                int targetChannelIndex = indexIt->second;
+                                int targetChannelIndex = indexIt->second.channelIndex;
 
-                                if (targetChannelIndex == manager->getChannelIndex()) {
+                                if (targetChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                    auto it = manager->webrtcSocketMap.find(targetId);
+                                    auto it = webrtcSignalManager->webrtcSocketMap.find(targetId);
 
-                                    if ( it != manager->webrtcSocketMap.end()) {
+                                    if (it != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                         std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = it->second;
 
@@ -479,7 +479,7 @@ namespace hope {
 
                                         LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
 
-                                        manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex , targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
+                                        webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                             webrtcSignalSocket->actorMappingIndex[targetId] = targetChannelIndex;
 
@@ -492,7 +492,7 @@ namespace hope {
                                     }
                                     else {
 
-                                        manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                        webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                             webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%lld,"state":404,"message":"TargetId is not register"})", static_cast<long long>(requestTypeValue)));
 
@@ -510,11 +510,11 @@ namespace hope {
 
                                 }
 
-                                manager->webrtcSignalServer->postTaskAsync(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(request), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                webrtcSignalManager->webrtcSignalServer->postTaskAsync(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(request), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
-                                    auto it = manager->webrtcSocketMap.find(targetId);
+                                    auto it = webrtcSignalManager->webrtcSocketMap.find(targetId);
 
-                                    if ( it != manager->webrtcSocketMap.end()) {
+                                    if (it != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                         std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = it->second;
 
@@ -526,9 +526,9 @@ namespace hope {
 
                                         LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
 
-                                        int targetChannelIndex = manager->channelIndex;
+                                        int targetChannelIndex = webrtcSignalManager->channelIndex;
 
-                                        manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
+                                        webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                             webrtcSignalSocket->actorMappingIndex[targetId] = targetChannelIndex;
 
@@ -541,7 +541,7 @@ namespace hope {
                                     }
                                     else {
 
-                                        manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                        webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                             webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%lld,"state":404,"message":"TargetId is not register"})", static_cast<long long>(requestTypeValue)));
 
@@ -558,7 +558,7 @@ namespace hope {
                             }
                             else {
 
-                                manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                     webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%lld,"state":404,"message":"TargetId is not register"})", static_cast<long long>(requestTypeValue)));
 
@@ -575,11 +575,11 @@ namespace hope {
                     }
                     else {
 
-                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTaskAsync(index, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), mapChannelIndex = std::move(mapChannelIndex), request = std::move(webrtcSignalPacket.request), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTaskAsync(index, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), mapChannelIndex = std::move(mapChannelIndex), request = std::move(webrtcSignalPacket.request), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
-                            auto it = manager->webrtcSocketMap.find(targetId);
+                            auto it = webrtcSignalManager->webrtcSocketMap.find(targetId);
 
-                            if (it != manager->webrtcSocketMap.end()) {
+                            if (it != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                 std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = it->second;
 
@@ -596,19 +596,19 @@ namespace hope {
                             }
                             else {
 
-                                manager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(request), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(request), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
-                                    auto indexIt = manager->actorSocketMappingIndex.find(targetId);
+                                    auto indexIt = webrtcSignalManager->actorSocketMappingIndex.find(targetId);
 
-                                    if (indexIt != manager->actorSocketMappingIndex.end()) {
+                                    if (indexIt != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
-                                        int targetChannelIndex = indexIt->second;
+                                        int targetChannelIndex = indexIt->second.channelIndex;
 
-                                        if (targetChannelIndex == manager->getChannelIndex()) {
+                                        if (targetChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                            auto it = manager->webrtcSocketMap.find(targetId);
+                                            auto it = webrtcSignalManager->webrtcSocketMap.find(targetId);
 
-                                            if (it != manager->webrtcSocketMap.end()) {
+                                            if (it != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                                 std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = it->second;
 
@@ -620,7 +620,7 @@ namespace hope {
 
                                                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
 
-                                                manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
+                                                webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                                     webrtcSignalSocket->actorMappingIndex[targetId] = targetChannelIndex;
 
@@ -633,7 +633,7 @@ namespace hope {
                                             }
                                             else {
 
-                                                manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId),index](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                                webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                                     auto routeIt = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -661,11 +661,11 @@ namespace hope {
 
                                         }
 
-                                        manager->webrtcSignalServer->postTaskAsync(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(request), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId),index](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                        webrtcSignalManager->webrtcSignalServer->postTaskAsync(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(request), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
-                                            auto it = manager->webrtcSocketMap.find(targetId);
+                                            auto it = webrtcSignalManager->webrtcSocketMap.find(targetId);
 
-                                            if (it != manager->webrtcSocketMap.end()) {
+                                            if (it != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                                 std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = it->second;
 
@@ -677,9 +677,9 @@ namespace hope {
 
                                                 LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
 
-                                                int targetChannelIndex = manager->channelIndex;
+                                                int targetChannelIndex = webrtcSignalManager->channelIndex;
 
-                                                manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
+                                                webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                                     webrtcSignalSocket->actorMappingIndex[targetId] = targetChannelIndex;
 
@@ -692,7 +692,7 @@ namespace hope {
                                             }
                                             else {
 
-                                                manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId),index](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                                webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                                     auto routeIt = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -719,7 +719,7 @@ namespace hope {
                                     }
                                     else {
 
-                                        manager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId),index](std::shared_ptr<WebRTCSignalManager> manager)mutable->boost::asio::awaitable<void> {
+                                        webrtcSignalManager->webrtcSignalServer->postTaskAsync(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
                                             auto routeIt = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -794,9 +794,11 @@ namespace hope {
 
                 int mapChannelIndex = webrtcSignalPacket.webrtcSignalManager->hasher(accountId) % webrtcSignalPacket.webrtcSignalManager->hashSize;
 
-                webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [managers = webrtcSignalPacket.webrtcSignalManager->shared_from_this(), accountId, mapChannelIndex](std::shared_ptr<WebRTCSignalManager> manager)->boost::asio::awaitable<void> {
+                webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [managers = webrtcSignalPacket.webrtcSignalManager->shared_from_this(), accountId = std::move(accountId), sessionId = webrtcSignalPacket.webrtcSignalSocket->getSessionId(), mapChannelIndex](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)->boost::asio::awaitable<void> {
 
-                    manager->actorSocketMappingIndex[accountId] = managers->channelIndex;
+                    WebRTCSignalManager::ActorMapping actorMapping{ sessionId ,static_cast<int>(managers->channelIndex) };
+
+                    webrtcSignalManager->actorSocketMappingIndex[accountId] = std::move(actorMapping);
 
                     co_return;
 
@@ -944,8 +946,8 @@ namespace hope {
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
                         if (!verifyAuthorization(httpRequest)) {
 
-                            co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(403, "Forbidden",nullptr));
-   
+                            co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(403, "Forbidden", nullptr));
+
                             co_return;
                         }
 
@@ -955,15 +957,15 @@ namespace hope {
 
                         data["totalManagers"] = server->getChannelNumbers();
 
-                        LOG_INFO("channelIndex:%d threadChannelIndex:%d",httpSocket->getWebRTCSignalManager()->getChannelIndex() , threadChannelIndex);
+                        LOG_INFO("channelIndex:%d threadChannelIndex:%d", httpSocket->getWebRTCSignalManager()->getChannelIndex(), threadChannelIndex);
 
                         if (httpSocket->getWebRTCSignalManager()->getChannelIndex() == threadChannelIndex) {
-                        
-							co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(200, "success", std::move(data)));
+
+                            co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(200, "success", std::move(data)));
 
                         }
                         else {
-                        
+
                             httpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(200, "success", std::move(data)));
 
                         }
@@ -1108,7 +1110,7 @@ namespace hope {
                                         targetManager->webrtcSignalServer->postTaskAsync(
                                             currentChannelIndex,
                                             [this, httpSocket, version, targetData = std::move(targetData), sp,
-                                            httpSocketAsyncWrite](std::shared_ptr<WebRTCSignalManager> manager) mutable -> boost::asio::awaitable<void> {
+                                            httpSocketAsyncWrite](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager) mutable -> boost::asio::awaitable<void> {
                                                 boost::json::object resp(sp);
                                                 resp["state"] = 200;
                                                 resp["message"] = "success";
