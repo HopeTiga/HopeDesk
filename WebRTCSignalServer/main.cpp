@@ -33,7 +33,7 @@ int main() {
 
     hope::core::WebRTCSignalSocket::initSslContext();
 
-    boost::asio::io_context ioContext;
+    boost::asio::io_context ioContext{ 1 };
 
     size_t port = ConfigManager::Instance().GetInt("WebRTCSignalServer.port");
 
@@ -45,7 +45,9 @@ int main() {
 
     size_t size = ConfigManager::Instance().GetSize("WebRTCSignalServer.size");
 
-    if(size <= 0) size = std::thread::hardware_concurrency();
+    if (size <= 0) size = std::thread::hardware_concurrency();
+
+    std::cout << "size:" << size << std::endl;
 
     hope::iocp::AsioProactors::init(size);
 

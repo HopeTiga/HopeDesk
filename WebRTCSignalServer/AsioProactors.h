@@ -48,7 +48,7 @@ namespace hope {
 			
 			static size_t sLogicSize;
 
-			std::vector<boost::asio::io_context> ioContexts;
+			std::vector<std::unique_ptr<boost::asio::io_context>> ioContexts;
 
 			std::vector<std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>> works;
 
