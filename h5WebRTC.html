@@ -605,8 +605,17 @@
                 </div>
                 
                 <div class="config-selector">
-                    <span class="config-label">GPU:</span>
+                    <span class="config-label">转码策略:</span>
                     <select id="gpu-select" class="config-select">
+                        <option value="0">CPU</option>
+                        <option value="1">GPU</option>
+                        <option value="2">PRO</option>
+                    </select>
+                </div>
+
+                <div class="config-selector">
+                    <span class="config-label">硬编加速:</span>
+                    <select id="nvidia-select" class="config-select">
                         <option value="1">启用</option>
                         <option value="0">禁用</option>
                     </select>
@@ -674,8 +683,12 @@
                     <span id="codec-status" class="status-value">-</span>
                 </div>
                 <div class="status-item">
-                    <span class="status-label">GPU加速</span>
+                    <span class="status-label">加速策略</span>
                     <span id="gpu-status" class="status-value">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">硬编加速</span>
+                    <span id="nvidia-status" class="status-value">-</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">模块类型</span>
@@ -752,7 +765,8 @@
 
     // 配置选项 - 设置默认值
     let webrtcModulesType = 0;
-    let webrtcUseGPU = 1;
+    let webrtcUseLevels = 1;     // 加速策略(RGBA->YUV420 转换方式)：0=CPU(软解/软编) 1=GPU(硬解/硬编) 2=PRO(智能混合)
+    let webrtcEnableNvidia = 0;  // 硬编加速：1=NVENC/QuickSync 硬件编码 0=禁用
     let videoCodec = 4;
     let webrtcAudioEnable = 1;
 
@@ -801,8 +815,15 @@
         '1': '高级'
     };
 
-    // GPU映射
-    const GPU_MAP = {
+    // 加速策略映射（RGBA->YUV420 转换方式）
+    const ACCEL_MAP = {
+        '0': 'CPU(软解/软编)',
+        '1': 'GPU(硬解/硬编)',
+        '2': 'PRO(智能混合)'
+    };
+
+    // 硬编加速映射（NVENC/QuickSync 硬件编码）
+    const NVIDIA_MAP = {
         '0': '禁用',
         '1': '启用'
     };
@@ -925,27 +946,58 @@
 
 
     /* ========== 1. RVFC 版渲染循环 ========== */
-    function renderLoopWithRVFC() {
-        if (!videoElement) return;
-        videoElement.requestVideoFrameCallback(() => {
+    let renderingActive = false;
 
-            if(videoElement.paused || videoElement.suspended) alert("paused or suspended = true");
+    // 每秒由 frameCount 计算一次 FPS 并刷新状态栏
+    function tickFps() {
+        const now = performance.now();
+        if (now - lastFpsTime >= 1000) {
+            const fps = Math.round(frameCount * 1000 / (now - lastFpsTime));
+            const el = document.getElementById('fps');
+            if (el) el.textContent = fps + ' FPS';
+            frameCount = 0;
+            lastFpsTime = now;
+        }
+    }
+
+    function renderFrame() {
+        if (videoElement && videoElement.readyState >= 2) {
+            const ctx = isCinemaMode ? cinemaGL : mainGL;
+            if (ctx) renderWebGL(ctx, videoElement);
+            frameCount++;
+            tickFps();
+        }
+    }
+
+    function renderLoopWithRVFC() {
+        if (!renderingActive || !videoElement) return;
+
+        // 无 RVFC 支持时回退到 requestAnimationFrame
+        if (typeof videoElement.requestVideoFrameCallback !== 'function') {
+            animationId = requestAnimationFrame(() => {
+                if (!renderingActive) return;
+                try { renderFrame(); } catch (e) { console.error('[rAF] draw error', e); }
+                renderLoopWithRVFC();
+            });
+            return;
+        }
+
+        animationId = videoElement.requestVideoFrameCallback(() => {
+            if (!renderingActive) return;
             try {
-                if (videoElement.readyState >= 2) {
-                    const ctx = isCinemaMode ? cinemaGL : mainGL;
-                    if (ctx) renderWebGL(ctx, videoElement);
-                    frameCount++; /* fps 计数 */
-                }
+                renderFrame();
             } catch (e) {
                 console.error('[RVFC] draw error', e);
             }
-            // 无论成功失败都继续排程
             renderLoopWithRVFC();
         });
     }
 
     function startRenderLoop() {
-        if (animationId) return;         // 防止重复
+        if (renderingActive) return;         // 防止重复启动
+        renderingActive = true;
+        frameCount = 0;
+        lastFpsTime = performance.now();
         renderLoopWithRVFC();
         log('渲染循环已启动(RVFC)');
     }
@@ -1007,16 +1059,7 @@
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         });
 
-        /* PBO（WebGL2 才有效） */
-        let pbo = null;
-        if (gl instanceof WebGL2RenderingContext) {
-            pbo = gl.createBuffer();
-            gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, pbo);
-            gl.bufferData(gl.PIXEL_UNPACK_BUFFER, 1920 * 1080 * 3, gl.STREAM_DRAW);
-            gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
-        }
-
-        return { gl, program, vao, tex, canvas, idx: 0, pbo };
+        return { gl, program, vao, tex, canvas, idx: 0 };
     }
 
 
@@ -1048,12 +1091,19 @@
 
 
     function stopRenderLoop() {
+        renderingActive = false;
         if (animationId) {
-            cancelAnimationFrame(animationId);
+            // RVFC 句柄用 cancelVideoFrameCallback 取消，rAF 回退句柄用 cancelAnimationFrame
+            if (videoElement && typeof videoElement.cancelVideoFrameCallback === 'function') {
+                try { videoElement.cancelVideoFrameCallback(animationId); } catch (e) {}
+            } else {
+                cancelAnimationFrame(animationId);
+            }
             animationId = null;
-            frameCount = 0;
-            document.getElementById('fps').textContent = '0 FPS';
         }
+        frameCount = 0;
+        const fpsEl = document.getElementById('fps');
+        if (fpsEl) fpsEl.textContent = '0 FPS';
     }
 
     function sendDataChannelMessage(type, data) {
@@ -1677,9 +1727,9 @@
     function createPeerConnection() {
         const config = {
             iceServers: [
-                { urls: "stun:121.5.37.53:3478" },
+                { urls: "stun:202.101.189.30:13478" },
                 {
-                    urls: "turn:121.5.37.53:3478",
+                    urls: "turn:202.101.189.30:13478",
                     username: "HopeTiga",
                     credential: "dy913140924"
                 }
@@ -1782,17 +1832,13 @@
     }
 
     function connectWebSocket() {
-        ws = new WebSocket('ws://121.5.37.53:8088');
+
+        ws = new WebSocket('wss://121.5.37.53:8088/?accountId=' + encodeURIComponent(accountId));
 
         ws.onopen = () => {
-            log('WebSocket已连接');
+            log('WebSocket已连接(已注册)');
             document.getElementById('signal-status').textContent = '已连接';
             document.getElementById('signal-status').className = 'status-value connected';
-
-            ws.send(JSON.stringify({
-                requestType: 0,
-                accountId: accountId
-            }));
 
             document.getElementById('call-btn').disabled = false;
         };
@@ -1814,20 +1860,39 @@
         };
     }
 
+    // 音频 transceiver 偏好：h5 是纯接收端，按 UI 开关设方向
+    //   webrtcAudioEnable=1 -> recvonly（只收音频）
+    //   webrtcAudioEnable=0 -> inactive（协商出 a=inactive，远端不发音频，省带宽）
+    // 并把 Opus 排到音频编解码器首位。必须在 createAnswer 之前调用。
+    function applyAudioTransceiverPrefs() {
+        if (!pc) return;
+        const caps = (typeof RTCRtpReceiver.getCapabilities === 'function')
+            ? RTCRtpReceiver.getCapabilities('audio') : null;
+        for (const t of pc.getTransceivers()) {
+            const kind = (t.receiver && t.receiver.track) ? t.receiver.track.kind : '';
+            if (kind !== 'audio') continue;
+            t.direction = webrtcAudioEnable ? 'recvonly' : 'inactive';
+            if (caps) {
+                const opus = caps.codecs.filter(c => c.mimeType === 'audio/opus');
+                const rest = caps.codecs.filter(c => c.mimeType !== 'audio/opus');
+                try { t.setCodecPreferences([...opus, ...rest]); } catch (e) { /* 老浏览器不支持，忽略 */ }
+            }
+        }
+    }
+
     async function handleSignalingMessage(data) {
         if (!pc) return;
 
-        if (data.requestType === 0 && data.state === 200) {
-            log('注册成功');
-
-        }
-        else if (data.requestType === 1 && data.state === 200) {
+        if (data.requestType === 1 && data.state === 200) {
             if (data.type === 'offer') {
                 targetId = data.accountId;
                 await pc.setRemoteDescription(new RTCSessionDescription({
                     type: 'offer',
                     sdp: data.sdp
                 }));
+
+                // setRemoteDescription 后 transceiver 已存在；createAnswer 前定音频方向 + Opus 偏好
+                applyAudioTransceiverPrefs();
 
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
@@ -1876,27 +1941,31 @@
 
         // 从UI获取配置值
         videoCodec = parseInt(document.getElementById('codec-select').value);
-        webrtcUseGPU = parseInt(document.getElementById('gpu-select').value);
+        webrtcUseLevels = parseInt(document.getElementById('gpu-select').value);
+        webrtcEnableNvidia = parseInt(document.getElementById('nvidia-select').value);
         webrtcModulesType = parseInt(document.getElementById('modules-select').value);
         webrtcAudioEnable = parseInt(document.getElementById('audio-select').value);
 
         // 更新状态显示
         document.getElementById('codec-status').textContent = CODEC_MAP[videoCodec] || '自动';
-        document.getElementById('gpu-status').textContent = GPU_MAP[webrtcUseGPU];
+        document.getElementById('gpu-status').textContent = ACCEL_MAP[webrtcUseLevels];
+        document.getElementById('nvidia-status').textContent = NVIDIA_MAP[webrtcEnableNvidia];
         document.getElementById('modules-status').textContent = MODULES_MAP[webrtcModulesType];
         
+        // 字段名与远端(system service)读取的一致：webrtcUseLevels(加速策略)、webrtcEnableNvidia(硬编)
         const requestData = {
             accountId: accountId,
             targetId: targetId,
             requestType: 1,
             webRTCRemoteState: 1,
             webrtcModulesType: webrtcModulesType,
-            webrtcUseGPU: webrtcUseGPU,
+            webrtcUseLevels: webrtcUseLevels,
+            webrtcEnableNvidia: webrtcEnableNvidia,
             codec: videoCodec,
             webrtcAudioEnable: webrtcAudioEnable
         };
 
-        log(`发起连接请求 - 编码器: ${CODEC_MAP[videoCodec]}, GPU: ${GPU_MAP[webrtcUseGPU]}, 模块: ${MODULES_MAP[webrtcModulesType]}, 音频: ${AUDIO_MAP[webrtcAudioEnable]}`);
+        log(`发起连接请求 - 编码器: ${CODEC_MAP[videoCodec]}, 加速策略: ${ACCEL_MAP[webrtcUseLevels]}, 硬编: ${NVIDIA_MAP[webrtcEnableNvidia]}, 模块: ${MODULES_MAP[webrtcModulesType]}, 音频: ${AUDIO_MAP[webrtcAudioEnable]}`);
 
         ws.send(JSON.stringify(requestData));
     }
@@ -2074,25 +2143,28 @@
         // 初始化配置选择器
         const codecSelect = document.getElementById('codec-select');
         const gpuSelect = document.getElementById('gpu-select');
+        const nvidiaSelect = document.getElementById('nvidia-select');
         const modulesSelect = document.getElementById('modules-select');
         const audioSelect = document.getElementById('audio-select');
 
         // 设置默认值
         codecSelect.value = videoCodec;
-        gpuSelect.value = webrtcUseGPU;
+        gpuSelect.value = webrtcUseLevels;
+        nvidiaSelect.value = webrtcEnableNvidia;
         modulesSelect.value = webrtcModulesType;
         audioSelect.value = webrtcAudioEnable;
 
         // 更新初始状态显示
         document.getElementById('codec-status').textContent = CODEC_MAP[videoCodec] || '自动';
-        document.getElementById('gpu-status').textContent = GPU_MAP[webrtcUseGPU];
+        document.getElementById('gpu-status').textContent = ACCEL_MAP[webrtcUseLevels];
+        document.getElementById('nvidia-status').textContent = NVIDIA_MAP[webrtcEnableNvidia];
         document.getElementById('modules-status').textContent = MODULES_MAP[webrtcModulesType];
 
         // 设置默认目标账户状态显示
         document.getElementById('target-account-status').textContent = targetId;
         log(`当前账户ID: ${accountId}`);
         log(`默认目标账户: ${targetId}`);
-        log(`默认配置 - 编码器: ${CODEC_MAP[videoCodec]}, GPU: ${GPU_MAP[webrtcUseGPU]}, 模块: ${MODULES_MAP[webrtcModulesType]}, 音频: ${AUDIO_MAP[webrtcAudioEnable]}`);
+        log(`默认配置 - 编码器: ${CODEC_MAP[videoCodec]}, 加速策略: ${ACCEL_MAP[webrtcUseLevels]}, 硬编: ${NVIDIA_MAP[webrtcEnableNvidia]}, 模块: ${MODULES_MAP[webrtcModulesType]}, 音频: ${AUDIO_MAP[webrtcAudioEnable]}`);
 
         document.getElementById('start-btn').addEventListener('click', () => {
             document.getElementById('start-btn').disabled = true;
