@@ -144,7 +144,6 @@ void WebRTCManager::connect(std::string ip)
 
             boost::asio::ip::tcp::resolver resolver(self->ioContext);
 
-            // 1. DNS 解析（带超时）
             auto results = co_await resolver.async_resolve(
                 host, port,
                 boost::asio::cancel_after(RESOLVE_TIMEOUT, boost::asio::use_awaitable)
@@ -154,7 +153,6 @@ void WebRTCManager::connect(std::string ip)
                 throw std::runtime_error("resolve returned empty results (timeout or cancel)");
             }
 
-            // 2. TCP 连接（带超时）——用 ws，不再读 self->webSocket
             co_await boost::asio::async_connect(
                 ws->next_layer().next_layer(),
                 results,
@@ -167,7 +165,12 @@ void WebRTCManager::connect(std::string ip)
                 boost::asio::cancel_after(SSL_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
                 );
 
-            // 4. WebSocket 握手（带超时）
+
+            ws->set_option(boost::beast::websocket::stream_base::decorator(
+                [accountId = self->accountId](boost::beast::websocket::request_type& req) {
+                    req.set(boost::beast::http::field::authorization, accountId);
+                }));
+
             co_await ws->async_handshake(
                 host, "/",
                 boost::asio::cancel_after(WS_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
@@ -181,24 +184,17 @@ void WebRTCManager::connect(std::string ip)
 
             boost::asio::co_spawn(self->ioContext, self->webrtcWriteCoroutine(), boost::asio::detached);
 
-            boost::json::object request;
+            if (self->onSignalServerConnectHandle) {
 
-            request["requestType"] = static_cast<int>(WebRTCRequestState::REGISTER);
+                self->onSignalServerConnectHandle();
 
-            request["accountId"] = self->accountId;
-
-            std::string requestStr = boost::json::serialize(request);
-
-            self->webrtcAsyncWrite(requestStr);
+            }
 
         }
         catch (std::exception & e) {
 
             LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
-            // 仅当当前活跃 webSocket 仍是本协程创建的那个时才关闭；
-            // 若已被更新的 connect() 替换，则不要误关新连接——本协程的 ws
-            // 已被对方的 closeWebSocket 取消，ws 出作用域时自动释放即可。
             if (self->webSocket == ws && ws) {
                 self->closeWebSocket();
             }
@@ -608,22 +604,12 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
             }
 
             if(json.contains("requestType")){
+
                 int64_t requestType = json["requestType"].as_int64();
 
                 int64_t responseState = json["state"].as_int64();
 
-                if(WebRTCRequestState(requestType) == WebRTCRequestState::REGISTER){
-
-                    if(responseState == 200){
-
-                        if(onSignalServerConnectHandle){
-
-                            onSignalServerConnectHandle();
-
-                        }
-
-                    }
-                }else if(WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST){
+                if(WebRTCRequestState(requestType) == WebRTCRequestState::REQUEST){
 
                     if(responseState == 200){
 
