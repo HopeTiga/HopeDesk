@@ -151,7 +151,7 @@ namespace hope {
 
         void WebRTCLogicSystem::postTaskAsync(WebRTCSignalPacket webrtcSignalPacket) {
 
-            int type = webrtcSignalPacket.request["requestType"].as_int64();
+            int type = webrtcSignalPacket.requestType;
 
             auto it = this->webrtcHandlers.find(type);
 
@@ -403,7 +403,7 @@ namespace hope {
 
                 auto webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
-                int64_t requestTypeValue = request["requestType"].as_int64();
+                int64_t requestTypeValue = webrtcSignalPacket.requestType;
 
                 if (!request.contains("accountId") || !request.contains("targetId")) {
 
@@ -765,50 +765,6 @@ namespace hope {
 
                 };
 
-            // ==================== Handler 0: REGISTER ====================
-            webrtcHandlers[0] = [this](WebRTCSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
-
-                boost::json::object& request = webrtcSignalPacket.request;
-
-                if (!request.contains("accountId")) {
-
-                    webrtcSignalPacket.webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%lld,"state":400,"message":"Missing accountId in registration request"})", static_cast<long long>(request["requestType"].as_int64())));
-
-                    LOG_WARN("Registration Failed: Missing accountId");
-
-                    co_return;
-
-                }
-
-                std::string accountId = boost::json::value_to<std::string>(request["accountId"]);
-
-                webrtcSignalPacket.webrtcSignalSocket->setAccountId(accountId);
-
-                webrtcSignalPacket.webrtcSignalSocket->setRegistered(true);
-
-                webrtcSignalPacket.webrtcSignalManager->webrtcSocketMap[accountId] = webrtcSignalPacket.webrtcSignalSocket;
-
-                webrtcSignalPacket.webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%lld,"state":200,"message":"Register Successful"})", static_cast<long long>(request["requestType"].as_int64())));
-
-                LOG_INFO("User Register Successful : %s (channelIndex: %d)", accountId.c_str(), webrtcSignalPacket.webrtcSignalManager->channelIndex);
-
-                int mapChannelIndex = webrtcSignalPacket.webrtcSignalManager->hasher(accountId) % webrtcSignalPacket.webrtcSignalManager->hashSize;
-
-                webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTaskAsync(mapChannelIndex, [managers = webrtcSignalPacket.webrtcSignalManager->shared_from_this(), accountId = std::move(accountId), sessionId = webrtcSignalPacket.webrtcSignalSocket->getSessionId(), mapChannelIndex](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager)->boost::asio::awaitable<void> {
-
-                    WebRTCSignalManager::ActorMapping actorMapping{ sessionId ,static_cast<int>(managers->channelIndex) };
-
-                    webrtcSignalManager->actorSocketMappingIndex[accountId] = std::move(actorMapping);
-
-                    co_return;
-
-                    });
-
-                co_return;
-
-                };
-
-
             // ==================== Handlers 1-4 ====================
             webrtcHandlers[1] = [this, forwardHandler](WebRTCSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "REQUEST"); };
             webrtcHandlers[2] = [this, forwardHandler](WebRTCSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "RESTART"); };
@@ -837,8 +793,6 @@ namespace hope {
             webrtcHandlers[7] = [this, forwardHandler](WebRTCSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(webrtcSignalPacket), "SYSTEMREADLY");
                 };
-
-            webrtcLogicHandlers[0] = false;
 
             webrtcLogicHandlers[1] = false;
 
@@ -1063,7 +1017,7 @@ namespace hope {
                                 sInfo["accountId"] = accountId;
                                 sInfo["remoteAddr"] = socketPtr->getRemoteAddress();
                                 sInfo["sessionId"] = socketPtr->getSessionId();
-                                sInfo["isRegistered"] = socketPtr->getRegistered();
+                                sInfo["isRegistered"] = true;
                                 sInfo["cachedRouteCount"] = static_cast<std::int64_t>(socketPtr->actorMappingIndex.size());
                                 socketList.emplace_back(std::move(sInfo));
                             }
@@ -1097,7 +1051,7 @@ namespace hope {
                                             sInfo["accountId"] = accountId;
                                             sInfo["remoteAddr"] = socketPtr->getRemoteAddress();
                                             sInfo["sessionId"] = socketPtr->getSessionId();
-                                            sInfo["isRegistered"] = socketPtr->getRegistered();
+                                            sInfo["isRegistered"] = true;
                                             sInfo["cachedRouteCount"] = static_cast<std::int64_t>(socketPtr->actorMappingIndex.size());
                                             socketList.emplace_back(std::move(sInfo));
                                         }
@@ -1115,7 +1069,6 @@ namespace hope {
                                                 resp["state"] = 200;
                                                 resp["message"] = "success";
                                                 resp["data"] = std::move(targetData);
-                                                // 跨通道回写：目标 manager 在另一个通道，这里统一用非协程版本
                                                 httpSocketAsyncWrite(httpSocket, version, boost::json::serialize(resp));
                                                 co_return;
                                             });

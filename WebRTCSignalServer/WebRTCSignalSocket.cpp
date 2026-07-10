@@ -1,10 +1,11 @@
 #include "WebRTCSignalSocket.h"
 
 #include <boost/json.hpp>
+#include <boost/url.hpp>
 #include <string_view>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
-#include <boost/uuid/uuid_io.hpp>  
+#include <boost/uuid/uuid_io.hpp>
 
 #include "WebRTCSignalManager.h"
 #include "WebRTCSignalPacket.h"
@@ -43,7 +44,6 @@ namespace hope {
         WebRTCSignalSocket::WebRTCSignalSocket(boost::asio::io_context& ioContext, WebRTCSignalManager* webrtcSignalManager)
             : ioContext(ioContext)
             , resolver(ioContext)
-            , registrationTimer(ioContext)
 #if defined(WEBRTC_SIGNAL_SOCKET_DISABLE_SSL)
             , webSocket(ioContext)
 #else
@@ -103,21 +103,73 @@ namespace hope {
 
             boost::beast::http::request<boost::beast::http::string_body> req;
 
+            static auto handshakeTimeout = std::chrono::milliseconds(ConfigManager::Instance().GetInt("WebRTCSignalServer.socketWaitTime"));
+
             try {
 
 #if !defined(WEBRTC_SIGNAL_SOCKET_DISABLE_SSL)
 
-                co_await webSocket.next_layer().async_handshake(boost::asio::ssl::stream_base::server, boost::asio::use_awaitable);
+                co_await webSocket.next_layer().async_handshake(
+                    boost::asio::ssl::stream_base::server,
+                    boost::asio::cancel_after(handshakeTimeout, boost::asio::use_awaitable));
 
 #endif
 
-                co_await boost::beast::http::async_read(webSocket.next_layer(), buffer, req, boost::asio::use_awaitable);
+                co_await boost::beast::http::async_read(webSocket.next_layer(), buffer, req,
+                    boost::asio::cancel_after(handshakeTimeout, boost::asio::use_awaitable));
+
+                std::string accountId;
+
+                auto authIt = req.find(boost::beast::http::field::authorization);
+
+                if (authIt != req.end()) {
+
+                    accountId = std::string(authIt->value());
+
+                }
+                else {
+
+                    auto target = req.target();
+
+                    auto parsed = boost::urls::parse_origin_form(boost::core::string_view(target.data(), target.size()));
+
+                    if (parsed) {
+
+                        auto it = parsed->params().find("accountId");
+
+                        if (it != parsed->params().end()) {
+
+                            auto v = (*it).value;
+
+                            accountId.assign(v.data(), v.size());
+
+                        }
+
+                    }
+
+                }
+
+                if (accountId.empty()) {
+
+                    LOG_WARN("WebRTCSignalSocket handshake rejected: missing accountId (expect Authorization header or ?accountId= query)");
+
+                    closeSocket();
+
+                    co_return false;
+
+                }
 
                 co_await webSocket.async_accept(req, boost::asio::use_awaitable);
 
                 setTcpKeepAlive(getSocket());
 
                 buffer.consume(buffer.size());
+
+                setAccountId(accountId);
+
+                webrtcSignalManager->registerSocket(accountId, shared_from_this());
+
+                LOG_INFO("User Register Successful (HandShake): %s (channelIndex: %d)", accountId.c_str(), webrtcSignalManager->getChannelIndex());
 
             }
             catch (const boost::system::system_error& se) {
@@ -133,42 +185,9 @@ namespace hope {
             co_return true;
         }
 
-        boost::asio::awaitable<void> WebRTCSignalSocket::registrationTimeout() {
-
-            static int registrationTimeoutMs = ConfigManager::Instance().GetInt("WebRTCSignalServer.socketWaitTime");
-
-            registrationTimer.expires_after(std::chrono::milliseconds(registrationTimeoutMs));
-
-            boost::system::error_code ec;
-
-            co_await registrationTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-
-            if (ec == boost::asio::error::operation_aborted) {
-
-                co_return;
-
-            }
-            if (!isRegistered.load()) {
-
-                LOG_WARN("Rgister Timeout (%d): WebRTCSignalSocket not register,close socket.", registrationTimeoutMs);
-
-                closeEvent();
-
-            }
-
-            co_return;
-
-        }
-
         void WebRTCSignalSocket::asyncEvent() {
 
             if (asyncEvents.exchange(true)) return;
-
-            boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
-
-                co_await self->registrationTimeout();
-
-                }, boost::asio::detached);
 
             boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
 
@@ -185,7 +204,7 @@ namespace hope {
                         }
                         catch (std::exception& e) {
 
-                            if (self->isRegistered && self->onDisConnectHandle) {
+                            if (self->onDisConnectHandle) {
 
                                 self->onDisConnectHandle(self->accountId, self->sessionId);
 
@@ -196,7 +215,7 @@ namespace hope {
                         }
                         catch (...) {
 
-                            if (self->isRegistered && self->onDisConnectHandle) {
+                            if (self->onDisConnectHandle) {
 
                                 self->onDisConnectHandle(self->accountId, self->sessionId);
 
@@ -230,8 +249,6 @@ namespace hope {
             }
 
             asioConcurrentQueue.close();
-
-            registrationTimer.cancel();
 
             closeSocket();
 
@@ -273,8 +290,6 @@ namespace hope {
 
                 co_await webSocket.async_read(buffer, boost::asio::use_awaitable);
 
-                // flat_buffer::data() is a single contiguous const_buffer — build a
-                // string_view over it directly, no buffers_to_string copy.
                 boost::asio::const_buffer cb = buffer.data();
 
                 std::string_view sv(reinterpret_cast<const char*>(cb.data()), cb.size());
@@ -312,15 +327,7 @@ namespace hope {
 
                 }
 
-                if (!this->isRegistered && webrtcSignalPakcet.request["requestType"].as_int64() != 0) {
-
-                    LOG_ERROR("WebRTCSignalSocket Not Registered, RequestType: %d", webrtcSignalPakcet.request["requestType"].as_int64());
-
-                    closeEvent();
-
-                    continue;
-
-                }
+				webrtcSignalPakcet.requestType = webrtcSignalPakcet.request["requestType"].as_int64();
 
                 webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(webrtcSignalPakcet));
 
@@ -389,20 +396,6 @@ namespace hope {
 #endif
         }
 
-        void WebRTCSignalSocket::asyncWrite(unsigned char* packet, size_t size) {
-
-            asyncWrite(std::string(reinterpret_cast<const char*>(packet), size));
-
-            if (packet) {
-
-                delete[] packet;
-
-                packet = nullptr;
-
-            }
-
-        }
-
         void WebRTCSignalSocket::asyncWrite(std::string packet) {
 
             if (!asyncEvents.load()) {
@@ -422,10 +415,6 @@ namespace hope {
         void WebRTCSignalSocket::setAccountId(const std::string& accountId) { this->accountId = accountId; }
 
         std::string WebRTCSignalSocket::getAccountId() { return this->accountId; }
-
-        void WebRTCSignalSocket::setRegistered(bool isRegistered) { this->isRegistered = isRegistered; }
-
-        bool WebRTCSignalSocket::getRegistered() { return this->isRegistered; }
 
         std::string WebRTCSignalSocket::getRemoteAddress()
         {

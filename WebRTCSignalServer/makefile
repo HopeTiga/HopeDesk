@@ -25,7 +25,7 @@ LDFLAGS += -Wl,--gc-sections
 LDFLAGS += -Wl,-O3 -Wl,--icf=all
 
 LDLIBS := -lssl -lcrypto
-LDLIBS += -lboost_json -lboost_container -lboost_thread -lboost_chrono -lboost_atomic -lboost_system -lboost_date_time -lboost_regex -lboost_program_options -lboost_serialization -lboost_coroutine -lboost_context -lboost_log -lboost_log_setup -lboost_filesystem -lboost_iostreams -lboost_random -lboost_exception -lboost_sam -lboost_charconv
+LDLIBS += -lboost_json -lboost_container -lboost_thread -lboost_chrono -lboost_atomic -lboost_system -lboost_date_time -lboost_regex -lboost_program_options -lboost_serialization -lboost_coroutine -lboost_context -lboost_log -lboost_log_setup -lboost_filesystem -lboost_iostreams -lboost_random -lboost_exception -lboost_sam -lboost_charconv -lboost_url
 LDLIBS += -ltcmalloc
 LDLIBS += -luring
 

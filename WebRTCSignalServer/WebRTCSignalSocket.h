@@ -28,7 +28,6 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/functional/any_invocable.h>
 
-#include "WebRTCSignalSocketInterface.h"
 #include "AsioConcurrentQueue.h"
 
 namespace hope {
@@ -76,17 +75,11 @@ namespace hope {
 
 			void closeEvent();
 
-			virtual void asyncWrite(unsigned char* packet, size_t size);
-
 			void asyncWrite(std::string packet);
 
 			void setAccountId(const std::string& accountId);
 
 			std::string getAccountId();
-
-			void setRegistered(bool isRegistered);
-
-			bool getRegistered();
 
 			std::string getSessionId();
 
@@ -103,8 +96,6 @@ namespace hope {
 		private:
 
 			void closeSocket();
-
-			boost::asio::awaitable<void> registrationTimeout();
 
 			boost::asio::awaitable<void> reviceCoroutine();
 
@@ -130,10 +121,6 @@ namespace hope {
 			std::string sessionId;
 
 			std::string accountId;
-
-			boost::asio::steady_timer registrationTimer;
-
-			std::atomic<bool> isRegistered{ false };
 
 			std::atomic<bool> isHandleDisConnect{ false };
 

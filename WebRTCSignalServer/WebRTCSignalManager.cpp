@@ -68,6 +68,27 @@ namespace hope {
 
         }
 
+        void WebRTCSignalManager::registerSocket(const std::string& accountId, std::shared_ptr<WebRTCSignalSocket> webrtcSignalSocket) {
+
+            std::string sessionId = webrtcSignalSocket->getSessionId();
+
+            webrtcSocketMap[accountId] = std::move(webrtcSignalSocket);
+
+            int mapChannelIndex = hasher(accountId) % hashSize;
+
+            webrtcSignalServer->postTaskAsync(mapChannelIndex,
+                [managers = shared_from_this(), accountId, sessionId, mapChannelIndex](std::shared_ptr<WebRTCSignalManager> webrtcSignalManager) -> boost::asio::awaitable<void> {
+
+                    WebRTCSignalManager::ActorMapping actorMapping{ sessionId, static_cast<int>(managers->channelIndex) };
+
+                    webrtcSignalManager->actorSocketMappingIndex[accountId] = std::move(actorMapping);
+
+                    co_return;
+
+                });
+
+        }
+
         void WebRTCSignalManager::removeConnection(std::string accountId, std::string sessionId)
         {
             LOG_INFO("Remove WebRTCSignalSocketInterface Request: Account=%s, SessionId=%s", accountId.c_str(), sessionId.c_str());

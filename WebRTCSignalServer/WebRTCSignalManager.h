@@ -39,6 +39,8 @@ namespace hope {
 
 			std::shared_ptr<HttpSocket> generateHttpSocket();
 
+			void registerSocket(const std::string& accountId, std::shared_ptr<WebRTCSignalSocket> socket);
+
 #ifdef __linux__
 
 			void asyncAccept(std::atomic<bool>& runAccepct, boost::asio::ip::tcp::endpoint endpoint, boost::asio::ip::tcp::endpoint httpEndpoint, int enableHttp = 0);
