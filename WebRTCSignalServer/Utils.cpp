@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <future>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -63,8 +64,9 @@ struct LogEntry {
 };
 
 // ---------- 异步基础设施 ----------
-static std::unique_ptr<hope::core::AsioConcurrentQueue<LogEntry>> asyncQueue;
-static boost::asio::io_context ioContext{ 1 };   // 可以多个线程，但此处仅用 1 个
+static std::unique_ptr<hope::core::AsioConcurrentQueue<LogEntry>> asyncQueue = nullptr;
+static boost::asio::io_context ioContext;   // 可以多个线程，但此处仅用 1 个
+static std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> logWork;
 static std::thread ioThread;
 static std::atomic<bool> stopped{ true };
 
@@ -168,7 +170,7 @@ static boost::asio::awaitable<void> logProcessor() {
     // 初始化目录和文件（单线程，安全）
     ensureLogDirAndFiles();
 
-    while (!stopped.load()) {
+    while (true) {
 
         auto optEntry = co_await asyncQueue->dequeue();
         if (!optEntry.has_value()) {
@@ -216,17 +218,36 @@ static boost::asio::awaitable<void> logProcessor() {
 void initLogger() {
 
     if (!stopped.exchange(false)) return;
-    // 使用 io_context 的执行器创建队列
-    asyncQueue = std::make_unique<hope::core::AsioConcurrentQueue<LogEntry>>(
-        ioContext.get_executor());
 
-    // 启动日志处理协程
-    boost::asio::co_spawn(ioContext, logProcessor, boost::asio::detached);
+    // 使用 work_guard 防止 io_context 空转退出
+    logWork = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+        boost::asio::make_work_guard(ioContext));
 
     // 运行 io_context 的线程
     ioThread = std::thread([]() {
+
         ioContext.run();
+
         });
+
+    std::packaged_task<void()> packagedTask([]() {});
+
+    std::future<void> asyncQueueFuture = packagedTask.get_future();
+
+    boost::asio::post(ioContext, [&packagedTask]() {
+
+        // 使用 io_context 的执行器创建队列
+        asyncQueue = std::make_unique<hope::core::AsioConcurrentQueue<LogEntry>>(ioContext.get_executor());
+
+        // 启动日志处理协程
+        boost::asio::co_spawn(ioContext, logProcessor, boost::asio::detached);
+
+        packagedTask();
+
+        });
+
+    asyncQueueFuture.get();
+
 }
 
 void closeLogger() {
@@ -238,11 +259,16 @@ void closeLogger() {
     // 通知队列关闭，协程将收到 nullopt 并退出
     asyncQueue->close();
 
-    // 等待 io_context 完成所有任务并退出
-    ioContext.stop();
+    // 撤销 work_guard，让 io_context 在协程自然结束后退出
+    logWork.reset();
+
+    // 等待 io_context 排空并结束
     if (ioThread.joinable()) {
         ioThread.join();
     }
+
+    // 兜底
+    ioContext.stop();
 
     // 兜底关闭文件（协程退出时已做过，这里以防万一）
     closeLogFiles();
@@ -271,6 +297,7 @@ void setLogDirectory(const char* dir) {
 }
 
 // ---------- 日志写入入口（仅构造并入队，极快）----------
+
 static void enqueueLog(LogLevel level, const char* file, int line,
     const char* format, va_list args,
     bool showConsole, bool writeFile) {
