@@ -1,4 +1,5 @@
 # webrtc-signal-server
+
 ## 一、整体架构图
 
 ```mermaid
@@ -94,10 +95,9 @@ sequenceDiagram
         Client->>Acceptor: TCP 连接
         Acceptor->>Socket: 创建 Socket
         Socket->>Socket: SSL 握手 (可选)
-        Socket->>Socket: WebSocket 握手
+        Socket->>Socket: WebSocket 握手（包含账户校验）
         Socket->>Manager: 注册到 webrtcSocketMap
-        Socket->>Socket: 启动 registrationTimeout (默认10s)
-        Note right of Socket: 超时未注册则断开
+        Note right of Socket: 握手阶段即完成鉴权，无需额外注册超时
     end
 
     %% 注册阶段
@@ -226,7 +226,7 @@ graph LR
     end
 
     subgraph Reliability["可靠性机制"]
-        TIMEOUT["注册超时检测<br/>socketWaitTime"]
+        HANDSHAKE["WebSocket 握手校验<br/>鉴权前置"]
         KEEPALIVE["TCP Keep-Alive<br/>跨平台支持"]
         OVERLOAD_PROT["过载保护<br/>503 响应"]
         ROUTE_CACHE["路由缓存<br/>减少跨 Manager 查询"]
