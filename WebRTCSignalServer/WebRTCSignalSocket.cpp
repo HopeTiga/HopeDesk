@@ -135,7 +135,7 @@ namespace hope {
 
                     if (parsed) {
 
-                        auto it = parsed->params().find("accountId");
+                        auto it = parsed->params().find("authorization");
 
                         if (it != parsed->params().end()) {
 
@@ -151,7 +151,7 @@ namespace hope {
 
                 if (accountId.empty()) {
 
-                    LOG_WARN("WebRTCSignalSocket handshake rejected: missing accountId (expect Authorization header or ?accountId= query)");
+                    LOG_WARN("WebRTCSignalSocket Handshake Rejected: Missing Authorization (Expect Authorization Header OR ? Authorization= Query)");
 
                     closeSocket();
 
