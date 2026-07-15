@@ -47,8 +47,6 @@ int main() {
 
     if (size <= 0) size = std::thread::hardware_concurrency();
 
-    std::cout << "size:" << size << std::endl;
-
     hope::iocp::AsioProactors::init(size);
 
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
