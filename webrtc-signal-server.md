@@ -89,32 +89,22 @@ sequenceDiagram
     participant MySQL as MySQL 连接池
     participant Target as 目标 Socket
 
-    %% 连接建立阶段
+    %% 连接建立、握手与自动注册
     rect rgb(240, 248, 255)
-        Note over Client,Target: 1. 连接建立与 WebSocket 握手
+        Note over Client,Target: 1. 连接建立、WebSocket 握手及自动注册
         Client->>Acceptor: TCP 连接
         Acceptor->>Socket: 创建 Socket
         Socket->>Socket: SSL 握手 (可选)
-        Socket->>Socket: WebSocket 握手（包含账户校验）
-        Socket->>Manager: 注册到 webrtcSocketMap
-        Note right of Socket: 握手阶段即完成鉴权，无需额外注册超时
-    end
-
-    %% 注册阶段
-    rect rgb(255, 248, 240)
-        Note over Client,Target: 2. 注册 (requestType=0)
-        Client->>Socket: {"requestType":0, "accountId":"userA"}
-        Socket->>Logic: postTaskAsync(packet)
-        Logic->>Handlers: webrtcHandlers[0]
-        Handlers->>Socket: 设置 accountId, isRegistered=true
-        Handlers->>Manager: webrtcSocketMap[accountId]=socket
-        Handlers->>Manager: 全局注册 actorSocketMappingIndex
-        Socket-->>Client: {"state":200, "message":"Register Successful"}
+        Socket->>Socket: WebSocket 握手（携带 token/证书完成鉴权）
+        Socket->>Manager: 注册到 webrtcSocketMap (accountId → socket)
+        Manager->>Manager: 全局注册 actorSocketMappingIndex
+        Socket-->>Client: 握手成功（隐含注册完成）
+        Note right of Socket: 鉴权、注册均在握手阶段完成
     end
 
     %% 消息转发阶段
     rect rgb(240, 255, 240)
-        Note over Client,Target: 3. 消息转发 (requestType=1-7)
+        Note over Client,Target: 2. 消息转发 (requestType=1-3,6-7)
         Client->>Socket: {"requestType":1, "accountId":"userA", "targetId":"userB", ...}
         Socket->>Logic: postTaskAsync(packet)
         Logic->>TaskQ: 检查负载阈值
@@ -138,7 +128,7 @@ sequenceDiagram
 
     %% 断开连接
     rect rgb(255, 240, 240)
-        Note over Client,Target: 4. 断开清理
+        Note over Client,Target: 3. 断开清理
         Client->>Socket: 连接断开 / requestType=4
         Socket->>Manager: removeConnection(accountId, sessionId)
         Manager->>Manager: 从 webrtcSocketMap 移除
@@ -206,7 +196,7 @@ flowchart TB
 ```mermaid
 graph LR
     subgraph Core["核心功能"]
-        REG["用户注册<br/>requestType=0"]
+        REG["WebSocket 握手注册<br/>鉴权即注册"]
         FWD["消息转发<br/>requestType=1-3,6-7"]
         CLOSE["断开连接<br/>requestType=4"]
         PING["心跳保活"]
