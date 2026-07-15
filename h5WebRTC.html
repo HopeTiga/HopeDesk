@@ -1727,9 +1727,9 @@
     function createPeerConnection() {
         const config = {
             iceServers: [
-                { urls: "stun:202.101.189.30:13478" },
+                { urls: "stun:121.5.37.53:3478" },
                 {
-                    urls: "turn:202.101.189.30:13478",
+                    urls: "turn:121.5.37.53:3478",
                     username: "HopeTiga",
                     credential: "dy913140924"
                 }
@@ -1833,7 +1833,7 @@
 
     function connectWebSocket() {
 
-        ws = new WebSocket('wss://121.5.37.53:8088/?accountId=' + encodeURIComponent(accountId));
+        ws = new WebSocket('wss://121.5.37.53:8088/?authorization=' + encodeURIComponent(accountId));
 
         ws.onopen = () => {
             log('WebSocket已连接(已注册)');
