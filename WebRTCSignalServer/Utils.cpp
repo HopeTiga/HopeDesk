@@ -64,9 +64,9 @@ struct LogEntry {
 
 // ---------- 异步基础设施 ----------
 static std::unique_ptr<hope::core::AsioConcurrentQueue<LogEntry>> asyncQueue;
-static boost::asio::io_context ioContext {1};   // 可以多个线程，但此处仅用 1 个
+static boost::asio::io_context ioContext{ 1 };   // 可以多个线程，但此处仅用 1 个
 static std::thread ioThread;
-static std::atomic<bool> stopped{ false };
+static std::atomic<bool> stopped{ true };
 
 // ---------- 工具函数 ----------
 void getTimestamp(char* buffer, size_t size) {
@@ -168,7 +168,8 @@ static boost::asio::awaitable<void> logProcessor() {
     // 初始化目录和文件（单线程，安全）
     ensureLogDirAndFiles();
 
-    while (true) {
+    while (!stopped.load()) {
+
         auto optEntry = co_await asyncQueue->dequeue();
         if (!optEntry.has_value()) {
             // 队列已关闭
@@ -213,23 +214,25 @@ static boost::asio::awaitable<void> logProcessor() {
 
 // ---------- 公开接口 ----------
 void initLogger() {
-    static std::once_flag flag;
-    std::call_once(flag, []() {
-        // 使用 io_context 的执行器创建队列
-        asyncQueue = std::make_unique<hope::core::AsioConcurrentQueue<LogEntry>>(
-            ioContext.get_executor());
 
-        // 启动日志处理协程
-        boost::asio::co_spawn(ioContext, logProcessor, boost::asio::detached);
+    if (!stopped.exchange(false)) return;
+    // 使用 io_context 的执行器创建队列
+    asyncQueue = std::make_unique<hope::core::AsioConcurrentQueue<LogEntry>>(
+        ioContext.get_executor());
 
-        // 运行 io_context 的线程
-        ioThread = std::thread([]() {
-            ioContext.run();
-            });
+    // 启动日志处理协程
+    boost::asio::co_spawn(ioContext, logProcessor, boost::asio::detached);
+
+    // 运行 io_context 的线程
+    ioThread = std::thread([]() {
+        ioContext.run();
         });
 }
 
 void closeLogger() {
+
+    if (stopped.exchange(true)) return;
+
     if (!asyncQueue) return;
 
     // 通知队列关闭，协程将收到 nullopt 并退出
@@ -271,7 +274,7 @@ void setLogDirectory(const char* dir) {
 static void enqueueLog(LogLevel level, const char* file, int line,
     const char* format, va_list args,
     bool showConsole, bool writeFile) {
-    if (!asyncQueue) return;
+    if (!asyncQueue || stopped.load()) return;
     if (!showConsole && !writeFile) return;
 
     LogEntry entry;
