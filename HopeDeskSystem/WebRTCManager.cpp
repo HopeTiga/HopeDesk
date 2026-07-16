@@ -22,18 +22,19 @@ namespace hope {
     namespace rtc {
 
         WebRTCManager::WebRTCManager(WebRTCVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
-            : tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext)),
-            asioConcurrentQueue(ioContext.get_executor()),
-            connetState(WebRTCConnetState::none),
-            peerConnection(nullptr),
-            winLogon(nullptr),
-            keyMouseSim(nullptr),
-            codec(codec),
-            rtpEncodingParameters(rtpEncodingParameters),
-            bufferPool(false, 100),
-            cursorHooks(nullptr),
-            screenCapture(nullptr),
-            hAudioCatch(nullptr) {
+            : ioContext(1)
+            , tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext))
+            , asioConcurrentQueue(ioContext.get_executor())
+            , connetState(WebRTCConnetState::none)
+            , peerConnection(nullptr)
+            , winLogon(nullptr)
+            , keyMouseSim(nullptr)
+            , codec(codec)
+            , rtpEncodingParameters(rtpEncodingParameters)
+            , bufferPool(false, 100)
+            , cursorHooks(nullptr)
+            , screenCapture(nullptr)
+            , hAudioCatch(nullptr) {
 
             ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
                 boost::asio::make_work_guard(ioContext));
