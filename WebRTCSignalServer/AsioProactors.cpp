@@ -24,15 +24,7 @@ namespace hope {
 
 			for (int i = 0; i < size; i++) {
 
-#ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
-
 				ioContexts[i] = std::make_unique<boost::asio::io_context>(1);
-
-#else
-
-				ioContexts[i] = std::make_unique<boost::asio::io_context>();
-
-#endif // !1
 
 				std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
 					boost::asio::make_work_guard(*ioContexts[i].get())

@@ -10,6 +10,7 @@ CXXFLAGS += -pipe
 CXXFLAGS += -w
 CXXFLAGS += -DTCMALLOC_AGGRESSIVE_DECOMMIT -DTCMALLOC_RELEASE_RATE=10.0
 CXXFLAGS += -DBOOST_ASIO_HAS_IO_URING
+CXXFLAGS += -DBOOST_SAM_HEADER_ONLY
 CXXFLAGS += -Iinclude/openssl -Iinclude/absl -Iinclude/boost
 
 # === ThinLTO + 协程优化核心 ===
@@ -25,7 +26,7 @@ LDFLAGS += -Wl,--gc-sections
 LDFLAGS += -Wl,-O3 -Wl,--icf=all
 
 LDLIBS := -lssl -lcrypto
-LDLIBS += -lboost_json -lboost_container -lboost_thread -lboost_chrono -lboost_atomic -lboost_system -lboost_date_time -lboost_regex -lboost_program_options -lboost_serialization -lboost_coroutine -lboost_context -lboost_log -lboost_log_setup -lboost_filesystem -lboost_iostreams -lboost_random -lboost_exception -lboost_sam -lboost_charconv -lboost_url
+LDLIBS += -lboost_json -lboost_container -lboost_thread -lboost_chrono -lboost_atomic -lboost_system -lboost_date_time -lboost_regex -lboost_program_options -lboost_serialization -lboost_coroutine -lboost_context -lboost_log -lboost_log_setup -lboost_filesystem -lboost_iostreams -lboost_random -lboost_exception -lboost_charconv -lboost_url
 LDLIBS += -ltcmalloc
 LDLIBS += -luring
 

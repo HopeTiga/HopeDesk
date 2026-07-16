@@ -65,7 +65,7 @@ struct LogEntry {
 
 // ---------- 异步基础设施 ----------
 static std::unique_ptr<hope::core::AsioConcurrentQueue<LogEntry>> asyncQueue = nullptr;
-static boost::asio::io_context ioContext;   // 可以多个线程，但此处仅用 1 个
+static boost::asio::io_context ioContext{1};   // 可以多个线程，但此处仅用 1 个
 static std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> logWork;
 static std::thread ioThread;
 static std::atomic<bool> stopped{ true };
