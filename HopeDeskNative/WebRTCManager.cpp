@@ -34,7 +34,8 @@ namespace hope{
 namespace rtc{
 
 WebRTCManager::WebRTCManager()
-    : accept(ioContext,boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address_v4("127.0.0.1"),19998))
+    : ioContext(1)
+    , accept(ioContext,boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address_v4("127.0.0.1"),19998))
     , tcpSocket(nullptr)
     , ioContextWorkPtr(nullptr)
     , webSocket(nullptr)

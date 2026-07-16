@@ -2,7 +2,6 @@ QT += core gui widgets gui-private
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 CONFIG += c++20 no_keywords
 
-
 CONFIG += release
 CONFIG -= debug debug_and_release
 
@@ -10,7 +9,6 @@ RC_ICONS = hope.ico
 
 TCMALLOC_AGGRESSIVE_DECOMMIT = true
 TCMALLOC_RELEASE_RATE = 10.0
-
 
 win32-msvc* {
 
@@ -33,7 +31,6 @@ win32-msvc* {
     QMAKE_LFLAGS_RELEASE += /DEBUG
 
 }
-
 
 QMAKE_PROJECT_DEPTH = 0
 
@@ -106,9 +103,6 @@ win32 {
 
     LIBS += -llibtcmalloc_minimal
 
-    LIBS += -llibboost_sam-vc143-mt-x64-1_89
-
-
     LIBS += -lws2_32          # Windows Socket 2.0
     LIBS += -lmswsock         # Microsoft Winsock 2.0
     LIBS += -lwtsapi32        # Windows Terminal Services API
@@ -137,6 +131,7 @@ win32 {
     DEFINES += NOMINMAX
     DEFINES += WEBRTC_WIN
     DEFINES += WEBRTC_ARCH_LITTLE_ENDIAN
+    DEFINES += BOOST_SAM_HEADER_ONLY
 
     TARGET = HopeDesk
 }
