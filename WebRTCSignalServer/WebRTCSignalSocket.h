@@ -25,7 +25,7 @@
 #include <fcntl.h>
 #endif
 
-#include <absl/container/flat_hash_map.h>
+#include <absl/container/node_hash_map.h>
 #include <absl/functional/any_invocable.h>
 
 #include "AsioConcurrentQueue.h"
@@ -91,7 +91,7 @@ namespace hope {
 
 		public:
 
-			absl::flat_hash_map<std::string, int> actorMappingIndex;
+			absl::node_hash_map<std::string, int> actorMappingIndex;
 
 		private:
 

@@ -72,6 +72,14 @@ namespace hope {
 
             std::string sessionId = webrtcSignalSocket->getSessionId();
 
+            absl::node_hash_map<std::string, std::shared_ptr<WebRTCSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
+
+            if (iterator != webrtcSocketMap.end()) {
+            
+                iterator->second->closeEvent();
+
+            }
+
             webrtcSocketMap[accountId] = std::move(webrtcSignalSocket);
 
             int mapChannelIndex = hasher(accountId) % hashSize;
@@ -179,6 +187,7 @@ namespace hope {
                             });
 
 #endif
+
                         });
 
                     boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
