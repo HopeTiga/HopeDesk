@@ -151,7 +151,7 @@ namespace hope {
 
                 if (accountId.empty()) {
 
-                    LOG_WARN("WebRTCSignalSocket Handshake Rejected: Missing Authorization (Expect Authorization Header OR ? Authorization= Query)");
+                    LOG_WARN("WebRTCSignalSocket Handshake Rejected: Missing Authorization (Expect Authorization Header OR ? Authorization = Query)");
 
                     closeSocket();
 
@@ -327,7 +327,7 @@ namespace hope {
 
                 }
 
-				webrtcSignalPakcet.requestType = webrtcSignalPakcet.request["requestType"].as_int64();
+                webrtcSignalPakcet.requestType = webrtcSignalPakcet.request["requestType"].as_int64();
 
                 webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(webrtcSignalPakcet));
 
