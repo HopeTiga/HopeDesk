@@ -595,7 +595,7 @@ boost::asio::awaitable<void> WebRTCManager::webrtcReceiveCoroutine()
 
             dataStr = boost::json::serialize(json);
 
-            if(this->tcpSocket && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
+            if(this->tcpSocket && this->tcpSocket->is_open() && WebRTCRequestState(json["requestType"].as_int64()) == WebRTCRequestState::REQUEST){
 
                 std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(),dataStr.size());
 
