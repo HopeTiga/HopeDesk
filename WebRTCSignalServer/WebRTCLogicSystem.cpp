@@ -32,15 +32,6 @@ namespace hope {
 
         thread_local int threadChannelIndex = -1;
 
-        auto getIteratorSocket(absl::node_hash_map<std::string, std::shared_ptr<WebRTCSignalSocket>>::iterator & iterator) {
-#ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
-            std::shared_ptr<WebRTCSignalSocket>& targetWebrtcSignalSocket = iterator->second;
-#else
-            std::shared_ptr<WebRTCSignalSocket> targetWebrtcSignalSocket = iterator->second;
-#endif
-            return targetWebrtcSignalSocket;
-        }
-
         WebRTCLogicSystem::WebRTCLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues)
             : ioContext(ioContext)
             , channelIndex(channelIndex)
@@ -478,7 +469,7 @@ namespace hope {
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
-                                        auto targetWebrtcSignalSocket = getIteratorSocket(iterator);
+                                        std::shared_ptr<WebRTCSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
                                         request["state"] = 200;
 
@@ -525,7 +516,7 @@ namespace hope {
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
-                                        auto targetWebrtcSignalSocket = getIteratorSocket(iterator);
+                                        std::shared_ptr<WebRTCSignalSocket> & targetWebrtcSignalSocket = iterator->second;
 
                                         request["state"] = 200;
 
@@ -590,7 +581,7 @@ namespace hope {
 
                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
-                                auto targetWebrtcSignalSocket = getIteratorSocket(iterator);
+                                std::shared_ptr<WebRTCSignalSocket> & targetWebrtcSignalSocket = iterator->second;
 
                                 request["state"] = 200;
 
@@ -619,7 +610,7 @@ namespace hope {
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
-                                                auto targetWebrtcSignalSocket = getIteratorSocket(iterator);
+                                                std::shared_ptr<WebRTCSignalSocket> & targetWebrtcSignalSocket = iterator->second;
 
                                                 request["state"] = 200;
 
@@ -676,7 +667,7 @@ namespace hope {
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
-                                                auto targetWebrtcSignalSocket = getIteratorSocket(iterator);
+                                                std::shared_ptr<WebRTCSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
                                                 request["state"] = 200;
 
