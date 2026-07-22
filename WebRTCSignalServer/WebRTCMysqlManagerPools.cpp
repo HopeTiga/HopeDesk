@@ -12,7 +12,7 @@ namespace hope {
 
 			boost::mysql::pool_params params;
 			params.server_address.emplace_host_and_port(
-				ConfigManager::Instance().GetString("Mysql.ip"),
+				ConfigManager::Instance().GetString("Mysql.host"),
 				static_cast<unsigned short>(ConfigManager::Instance().GetInt("Mysql.port")));
 			params.username = ConfigManager::Instance().GetString("Mysql.username");
 			params.password = ConfigManager::Instance().GetString("Mysql.password");
