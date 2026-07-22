@@ -43,7 +43,6 @@ SRCS := main.cpp \
 	WebRTCSignalManager.cpp \
 	WebRTCSignalPacket.cpp \
 	WebRTCLogicSystem.cpp \
-	WebRTCMysqlManager.cpp \
 	WebRTCMysqlManagerPools.cpp \
 	AsioProactors.cpp \
 	HttpSocket.cpp \

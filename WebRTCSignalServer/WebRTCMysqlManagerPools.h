@@ -1,16 +1,12 @@
 #pragma once
 
 #include <memory>
-#include <vector>
 #include <atomic>
-#include <thread>
+#include <chrono>
 
 #include <boost/asio.hpp>
-#include <boost/asio/experimental/concurrent_channel.hpp>
-
-#include "concurrentqueue.h"
-
-#include "WebRTCMysqlManager.h"
+#include <boost/mysql.hpp>
+#include <boost/mysql/connection_pool.hpp>
 
 namespace hope {
 
@@ -18,53 +14,40 @@ namespace hope {
 
 		class WebRTCMysqlManagerPools : public std::enable_shared_from_this<WebRTCMysqlManagerPools>
 		{
-			struct ScopedMysqlConnection {
-				std::shared_ptr<WebRTCMysqlManager> conn;
-				WebRTCMysqlManagerPools* pool;
+		public:
 
-				// 禁用拷贝，只允许移动（确保所有权唯一）
+			struct ScopedMysqlConnection {
+				boost::mysql::pooled_connection conn;
+
 				ScopedMysqlConnection(const ScopedMysqlConnection&) = delete;
 				ScopedMysqlConnection& operator=(const ScopedMysqlConnection&) = delete;
-				ScopedMysqlConnection(ScopedMysqlConnection&&) = default;
+				ScopedMysqlConnection(ScopedMysqlConnection&&) noexcept = default;
+				ScopedMysqlConnection& operator=(ScopedMysqlConnection&&) noexcept = default;
 
-				// 构造函数
-				ScopedMysqlConnection(std::shared_ptr<WebRTCMysqlManager> c, WebRTCMysqlManagerPools* p)
-					: conn(std::move(c)), pool(p) {
+				explicit ScopedMysqlConnection(boost::mysql::pooled_connection c)
+					: conn(std::move(c)) {
 				}
 
-				// 析构函数：核心魔法，离开作用域自动归还
-				~ScopedMysqlConnection() {
-					if (conn && pool) {
-						pool->returnTransactionMysqlManager(std::move(conn));
-					}
+				boost::mysql::any_connection* getConnection() noexcept {
+					return conn.valid() ? &conn.get() : nullptr;
 				}
-
-				WebRTCMysqlManager* operator->() { return conn.get(); }
 			};
 
 		public:
 
-			boost::asio::awaitable<WebRTCMysqlManagerPools::ScopedMysqlConnection> getTransactionMysqlManager();
-
-			void returnTransactionMysqlManager(std::shared_ptr<WebRTCMysqlManager> mysqlManager);
-
-			WebRTCMysqlManagerPools(boost::asio::io_context& ioContext, size_t size = 2);
+			WebRTCMysqlManagerPools(boost::asio::io_context& ioContext);
 
 			~WebRTCMysqlManagerPools();
+
+			boost::asio::awaitable<ScopedMysqlConnection> getTransactionMysqlManager();
 
 		private:
 
 			boost::asio::io_context& ioContext;
 
-			std::atomic<size_t> size;
-
-			moodycamel::ConcurrentQueue<std::shared_ptr<WebRTCMysqlManager>> transactionMysqlManagers{ 1 };
-
-			std::shared_ptr<boost::asio::experimental::concurrent_channel<void(boost::system::error_code, std::shared_ptr<WebRTCMysqlManager>)>> transactionChannels;
-
+			std::shared_ptr<boost::mysql::connection_pool> pool;
 		};
 
 	}
 
 }
-
