@@ -49,9 +49,8 @@ graph TB
 
     subgraph Infra["基础设施层"]
         direction LR
-        MYSQL --> POOL["MySQL 连接池<br/>concurrent_channel"]
-        POOL --> CONN1["WebRTCMysqlManager 0"]
-        POOL --> CONN2["WebRTCMysqlManager 1"]
+        MYSQL --> POOL["MySQL 连接池<br/>boost::mysql::connection_pool"]
+        POOL --> DB[("MySQL 数据库")]
         
         LOG["异步日志系统<br/>AsioConcurrentQueue"]
         CFG["ConfigManager<br/>配置管理"]
