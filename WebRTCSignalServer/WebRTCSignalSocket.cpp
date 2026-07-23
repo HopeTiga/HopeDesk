@@ -258,7 +258,7 @@ namespace hope {
 
             boost::system::error_code ec;
 
-            auto& tcpSocket = getSocket();
+            boost::asio::ip::tcp::socket& tcpSocket = getSocket();
 
             if (tcpSocket.is_open()) {
 
@@ -268,15 +268,24 @@ namespace hope {
                     LOG_ERROR("WebRTCSignalSocket::closeSocket() cancel failed: %s", ec.message().c_str());
                 }
 
-                tcpSocket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+                // Force RST close: skip graceful TCP FIN handshake, send RST immediately
+                boost::asio::detail::socket_option::linger<SOL_SOCKET, SO_LINGER> lingerOption(true, 0);
+
+                tcpSocket.set_option(lingerOption, ec);
+
+                if (ec) {
+                    LOG_ERROR("WebRTCSignalSocket::closeSocket() set SO_LINGER failed: %s", ec.message().c_str());
+                }
 
                 tcpSocket.close(ec);
 
                 if (ec && ec != boost::asio::error::not_connected) {
+
                     LOG_ERROR("WebRTCSignalSocket::closeSocket() force close failed: %s", ec.message().c_str());
+
                 }
 
-                LOG_INFO("WebRTCSignalSocket is immediately closed and resources are freed");
+                LOG_INFO("WebRTCSignalSocket is immediately force closed (RST) and resources are freed");
 
             }
 
