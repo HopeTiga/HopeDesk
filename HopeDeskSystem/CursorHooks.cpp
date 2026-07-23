@@ -58,7 +58,7 @@ namespace hope {
             mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
 
             if (!mouseHook) {
-                LOG_ERROR("Failed to install mouse hook, error code: %s" , std::to_string(GetLastError()).c_str());
+                LOG_ERROR("Failed to install mouse hook, error code: %s", std::to_string(GetLastError()).c_str());
                 isRunning = false;
                 return;
             }
@@ -108,8 +108,6 @@ namespace hope {
 
             lastCursor = currentCursor;
 
-            LOG_DEBUG("Detected new cursor: %s" , std::to_string(reinterpret_cast<uintptr_t>(currentCursor)).c_str());
-
 #pragma pack(push,1)
             struct Cursors {
                 short type;
@@ -157,8 +155,6 @@ namespace hope {
                                 height = bm.bmHeight / 2;
                             }
 
-                            LOG_DEBUG("Cursor hotspot: ( %d , %d)", hotX,hotY);
-
                             // Clean up ICONINFO resources
                             if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
                             if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
@@ -197,7 +193,7 @@ namespace hope {
 
                 // Bounds check
                 if (index >= cursorHotPos.size() || index >= cursorSizes.size()) {
-                    LOG_ERROR("Invalid cursor cache index: %d" , index);
+                    LOG_ERROR("Invalid cursor cache index: %d", index);
                     return;
                 }
 
@@ -242,7 +238,7 @@ namespace hope {
             }
 
             if (!GetIconInfo(hCursor, &iconInfo)) {
-                LOG_ERROR("GetIconInfo failed, error code: %s" , std::to_string(GetLastError()).c_str());
+                LOG_ERROR("GetIconInfo failed, error code: %s", std::to_string(GetLastError()).c_str());
                 return;
             }
 
@@ -264,8 +260,6 @@ namespace hope {
                 LOG_WARN("Invalid cursor size: %dx%d", width, height); // 使用 %d 占位符
                 goto cleanup;
             }
-
-            LOG_DEBUG("Cursor size: %dx%d", width, height);
 
             // Calculate required memory size
             size = width * height * bytesPerPixel;
@@ -291,7 +285,7 @@ namespace hope {
                         LOG_DEBUG("Successfully got color cursor data (preserving original colors)");
                     }
                     else {
-                        LOG_ERROR("GetDIBits failed, error code: %s" , std::to_string(GetLastError()).c_str());
+                        LOG_ERROR("GetDIBits failed, error code: %s", std::to_string(GetLastError()).c_str());
                         delete[] data;
                         data = nullptr;
                         size = 0;
@@ -339,7 +333,6 @@ namespace hope {
                                 }
                             }
                         }
-                        LOG_DEBUG("Successfully got monochrome cursor data (preserving original black and white)");
 
                         // ====== Add black border ======
                         // Create temporary buffer to store original data
@@ -385,7 +378,6 @@ namespace hope {
                             }
                         }
                         delete[] tempData;
-                        LOG_DEBUG("Black border added (RGB)");
                     }
                     else {
                         delete[] data;
