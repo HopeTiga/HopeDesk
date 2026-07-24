@@ -11,14 +11,14 @@ CXXFLAGS += -w
 CXXFLAGS += -DTCMALLOC_AGGRESSIVE_DECOMMIT -DTCMALLOC_RELEASE_RATE=10.0
 CXXFLAGS += -DBOOST_ASIO_HAS_IO_URING
 CXXFLAGS += -DBOOST_SAM_HEADER_ONLY
-CXXFLAGS += -Iinclude/openssl -Iinclude/absl -Iinclude/boost -Iinclude/coroRpc
+CXXFLAGS += -Iinclude/openssl -Iinclude/abseil-cpp -Iinclude/boost -Iinclude/coroRpc
 
 # === ThinLTO + 协程优化核心 ===
 CXXFLAGS += -flto=thin
 
 BUILDDIR := release-x64
 
-LDFLAGS := -Llib/openssl -Llib/absl -Llib/boost -Llib/tcmalloc
+LDFLAGS := -Llib/openssl -Llib/abseil-cpp -Llib/boost -Llib/tcmalloc
 LDFLAGS += -Wl,-rpath,$ORIGIN
 LDFLAGS += -fuse-ld=lld
 LDFLAGS += -flto=thin
@@ -47,6 +47,7 @@ SRCS := main.cpp \
 	signal/HttpSocket.cpp \
 	signal/HttpClient.cpp \
 	rpc/CoroRpc.cpp \
+	rpc/CoroRpcHandlerImpl.cpp \
 	mysql/WebRTCMysqlManagerPools.cpp \
 	iocp/AsioProactors.cpp \
 	utils/Utils.cpp
