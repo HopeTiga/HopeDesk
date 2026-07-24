@@ -23,7 +23,7 @@ WebRTCSignalServer 是 WebRTC 信令面的中转服务：
 ## 2. 目录结构
 
 ```
-server/
+WebRTCSignalServer/
 ├── main.cpp                      # 组合根:读 ini、组装配置结构体、启动
 ├── Ssl.h / Ssl.cpp               # 全局 ssl::context + initSslContext/getSslContext
 ├── config.ini                    # 配置文件(ini)
