@@ -78,7 +78,7 @@ namespace hope {
 
 			if (asyncEvents.exchange(true)) return;
 
-			LOG_INFO("CoroRpc asyncEvent: coro_rpc_server async_start");
+			LOG_INFO("CoroRpc asyncEvent: coroRpcServer asyncStart");
 
 			coroRpcServer.async_start();
 
@@ -89,7 +89,7 @@ namespace hope {
 
 			if (!asyncEvents.exchange(false)) return;
 
-			LOG_INFO("CoroRpc closeEvent: coro_rpc_server stop");
+			LOG_INFO("CoroRpc closeEvent: coroRpcServer stop");
 
 			coroRpcServer.stop();
 
@@ -100,7 +100,7 @@ namespace hope {
 
 			if (this->clientPools) this->clientPools = nullptr;
 
-			LOG_INFO("CoroRpc createClientPools: recreating client_pools");
+			LOG_INFO("CoroRpc createClientPools: recreating clientPools");
 
 			coro_io::io_context_pool& ioContextPools = coroRpcServer.get_io_context_pool();
 
