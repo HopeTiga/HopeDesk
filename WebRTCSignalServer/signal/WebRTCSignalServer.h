@@ -12,6 +12,7 @@
 #include "AwaitableTask.h"
 
 #include "../rpc/CoroRpc.h"
+#include "../rpc/CoroRpcHandlerImpl.h"
 
 namespace hope {
 
@@ -100,6 +101,8 @@ namespace hope {
             WebRTCSignalConfig webrtcSignalConfig;
 
             TaskChannel taskQueues;
+
+            hope::rpc::CoroRpcHandlerImpl coroRpcHandlerImpl;
 
         };
     }

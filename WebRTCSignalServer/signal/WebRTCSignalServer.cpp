@@ -24,6 +24,7 @@ namespace hope {
 #endif
             , webrtcSignalManagers(webrtcSignalConfig.threadSize)
             , coroRpc(nullptr)
+            , coroRpcHandlerImpl(*this)
             , taskQueues(ioContext, webrtcSignalConfig.overload * (webrtcSignalConfig.threadSize + 1))
         {
 
@@ -64,6 +65,27 @@ namespace hope {
             if (webrtcSignalConfig.enableHttp == 1) {
 
                 LOG_INFO("WebRTCSginalServer Protocol: Https , Listen Accept Port: %zu", webrtcSignalConfig.httpPort);
+
+            }
+
+
+            if (webrtcSignalConfig.enableRpc == 1) {
+
+                coroRpc = std::make_shared<hope::rpc::CoroRpc>(webrtcSignalConfig.coroRpcServerConfig);
+
+                coroRpc->createClientPools();
+
+                std::vector<std::string> hosts;
+
+                coroRpc->createLoadBalancer(hosts);
+
+                coroRpcHandlerImpl.coroRpc = coroRpc;
+
+                coroRpcHandlerImpl.registerRpcHandler();
+
+                coroRpc->asyncEvent();
+
+                LOG_INFO("WebRTCSginalServer Protocol: CoroRpc , Listen Accept Port: %zu", webrtcSignalConfig.coroRpcServerConfig.port);
 
             }
 
@@ -182,22 +204,6 @@ namespace hope {
             for (int i = 0; i < webrtcSignalConfig.threadSize; i++) {
 
                 webrtcSignalManagers[i]->getLogicSystem()->asyncTaskExecute();
-
-            }
-
-            if (webrtcSignalConfig.enableRpc == 1) {
-            
-                coroRpc = std::make_shared<hope::rpc::CoroRpc>(webrtcSignalConfig.coroRpcServerConfig);
-
-                coroRpc->createClientPools();
-
-                std::vector<std::string> hosts;
-
-                coroRpc->createLoadBalancer(hosts);
-
-                coroRpc->asyncEvent();
-
-                LOG_INFO("WebRTCSginalServer Protocol: CoroRpc , Listen Accept Port: %zu", webrtcSignalConfig.coroRpcServerConfig.port);
 
             }
 
