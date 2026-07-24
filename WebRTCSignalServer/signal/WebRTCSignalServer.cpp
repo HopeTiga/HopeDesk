@@ -189,6 +189,12 @@ namespace hope {
             
                 coroRpc = std::make_shared<hope::rpc::CoroRpc>(webrtcSignalConfig.coroRpcServerConfig);
 
+                coroRpc->createClientPools();
+
+                std::vector<std::string> hosts;
+
+                coroRpc->createLoadBalancer(hosts);
+
                 coroRpc->asyncEvent();
 
                 LOG_INFO("WebRTCSginalServer Protocol: CoroRpc , Listen Accept Port: %zu", webrtcSignalConfig.coroRpcServerConfig.port);
@@ -211,6 +217,8 @@ namespace hope {
             if (!closeEvents.exchange(false)) return;
 
             LOG_INFO("WebRTCSignalServer CloseEvent...");
+
+            if (coroRpc) coroRpc->closeEvent();
 
             taskQueues.close();
       
