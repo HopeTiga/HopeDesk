@@ -7,13 +7,11 @@ namespace hope {
 
 namespace rtc {
 
-class WebRTCManager;
-
 class DataChannelObserverImpl : public webrtc::DataChannelObserver {
 
 public:
 
-    DataChannelObserverImpl(WebRTCManager * manager);
+    DataChannelObserverImpl();
 
     void setOnDataHandle(std::function<void(unsigned char*, size_t)> func);
 
@@ -24,8 +22,6 @@ public:
     void OnMessage(const webrtc::DataBuffer& buffer) ;
 
 private:
-
-    WebRTCManager* manager;
 
     std::function<void( unsigned char*, size_t)> onDataHandle;
 

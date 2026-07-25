@@ -1,5 +1,5 @@
 #include "VideoWidget.h"
-#include "WebRTCManager.h"
+#include "WebrtcManager.h"
 #include <QVBoxLayout>
 #include <QFile>
 #include <QCursor>
@@ -16,7 +16,7 @@ namespace rtc {
 
 VideoWidget::VideoWidget(QWidget* parent)
     : QRhiWidget(parent)
-    , manager(nullptr)
+    , webrtcManager(nullptr)
     , rhi(nullptr)
     , videoWidth(640)
     , videoHeight(480)
@@ -433,12 +433,12 @@ void VideoWidget::updateFPS()
     }
 }
 
-void VideoWidget::setWebRTCManager(std::shared_ptr<WebRTCManager> manager)
+void VideoWidget::setWebrtcManager(std::shared_ptr<WebrtcManager> webrtcManager)
 {
-    this->manager = manager;
+    this->webrtcManager = webrtcManager;
     interceptionHook = std::make_unique<InterceptionHook>();
     interceptionHook->setTargetWidget(this);
-    interceptionHook->setManager(manager);
+    interceptionHook->setWebrtcManager(webrtcManager);
     interceptionHook->setVideoSize(width(), height());
     interceptionHook->startCapture();
 }

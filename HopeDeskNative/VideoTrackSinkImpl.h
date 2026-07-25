@@ -5,17 +5,17 @@
 namespace hope {
 namespace rtc {
 
-class WebRTCManager;
+class WebrtcManager;
 
 class VideoTrackSinkImpl : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
-    VideoTrackSinkImpl(WebRTCManager* manager);
+    VideoTrackSinkImpl(WebrtcManager* webrtcManager);
     ~VideoTrackSinkImpl() override;
 
     void OnFrame(const webrtc::VideoFrame& frame) override;
 
 private:
-    WebRTCManager* manager;
+    WebrtcManager* webrtcManager;
 };
 
 }

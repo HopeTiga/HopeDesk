@@ -1,6 +1,6 @@
 #include "CreateDescriptionObserverImpl.h"
 
-#include "WebRTCManager.h"
+#include "WebrtcManager.h"
 
 #include "Utils.h"
 
@@ -57,7 +57,7 @@ namespace hope {
             boost::json::object msg;
             msg["type"] = "offer";
             msg["sdp"] = sdp;
-            manager->sendSignalingMessage(msg);
+            webrtcManager->sendSignalingMessage(msg);
         }
 
         void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
@@ -83,7 +83,7 @@ namespace hope {
             msg["type"] = "answer";
             msg["sdp"] = sdp;
 
-            manager->sendSignalingMessage(msg);
+            webrtcManager->sendSignalingMessage(msg);
         }
 
         void CreateAnswerObserverImpl::OnFailure(webrtc::RTCError error) {

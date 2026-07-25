@@ -14,7 +14,7 @@ namespace hope{
 
 namespace rtc{
 
-class WebRTCManager;
+class WebrtcManager;
 class VideoWidget;
 
 
@@ -28,7 +28,7 @@ public:
 
     // 设置目标窗口和客户端
     void setTargetWidget(VideoWidget* widget);
-    void setManager(std::shared_ptr<WebRTCManager> manager);
+    void setWebrtcManager(std::shared_ptr<WebrtcManager> manager);
 
     // 启动/停止捕获
     bool startCapture();
@@ -80,7 +80,7 @@ private:
 
     HWND targetHwnd;
     // 远程客户端
-    std::shared_ptr<WebRTCManager> manager;
+    std::shared_ptr<WebrtcManager> webrtcManager;
 
     // 捕获线程
     std::thread captureThread;

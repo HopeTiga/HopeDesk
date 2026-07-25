@@ -7,14 +7,14 @@ namespace hope {
 
 	namespace rtc {
 
-        class WebRTCManager;
+        class WebrtcManager;
 	
         class CreateOfferObserverImpl : public webrtc::CreateSessionDescriptionObserver {
 
         public:
 
             static webrtc::scoped_refptr<CreateOfferObserverImpl> Create(
-                WebRTCManager* manager,
+                WebrtcManager* manager,
                 webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc) {
 
                 return webrtc::scoped_refptr<CreateOfferObserverImpl>(
@@ -22,9 +22,9 @@ namespace hope {
 
             }
 
-            CreateOfferObserverImpl(WebRTCManager* manager,
+            CreateOfferObserverImpl(WebrtcManager* manager,
                 webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc)
-                : manager(manager), peerConnection(pc) {
+                : webrtcManager(webrtcManager), peerConnection(pc) {
             }
 
             void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
@@ -36,7 +36,7 @@ namespace hope {
             ~CreateOfferObserverImpl() override = default;
 
         private:
-            WebRTCManager* manager;
+            WebrtcManager* webrtcManager;
 
 
             webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection;
@@ -46,17 +46,17 @@ namespace hope {
         class CreateAnswerObserverImpl : public webrtc::CreateSessionDescriptionObserver {
         public:
             static webrtc::scoped_refptr<CreateAnswerObserverImpl> Create(
-                WebRTCManager* manager,
+                WebrtcManager* webrtcManager,
                 webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc) {
 
                 return webrtc::scoped_refptr<CreateAnswerObserverImpl>(
-                    new webrtc::RefCountedObject<CreateAnswerObserverImpl>(manager, pc));
+                    new webrtc::RefCountedObject<CreateAnswerObserverImpl>(webrtcManager, pc));
 
             }
 
-            CreateAnswerObserverImpl(WebRTCManager* manager,
+            CreateAnswerObserverImpl(WebrtcManager* webrtcManager,
                 webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc)
-                : manager(manager), peerConnection(pc) {
+                : webrtcManager(webrtcManager), peerConnection(pc) {
             }
 
             void OnSuccess(webrtc::SessionDescriptionInterface* desc) override;
@@ -69,7 +69,7 @@ namespace hope {
 
         private:
 
-            WebRTCManager* manager;
+            WebrtcManager* webrtcManager;
 
             webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection;
 

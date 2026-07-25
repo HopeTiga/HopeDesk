@@ -20,7 +20,7 @@
 namespace hope {
 namespace rtc {
 
-class WebRTCManager;
+class WebrtcManager;
 struct VideoFrame;
 
 class VideoWidget : public QRhiWidget
@@ -37,7 +37,7 @@ public:
     void enterFullScreen();
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
-    void setWebRTCManager(std::shared_ptr<WebRTCManager> manager);
+    void setWebrtcManager(std::shared_ptr<WebrtcManager> webrtcManager);
 
 Q_SIGNALS:
     void disConnectRemote();
@@ -75,7 +75,7 @@ private:
     // 当视频尺寸变化时重建纹理和绑定
     void ensureTexturesForSize(int width, int height);
 
-    std::shared_ptr<WebRTCManager> manager;
+    std::shared_ptr<WebrtcManager> webrtcManager;
     QRhi* rhi = nullptr;
 
     std::unique_ptr<QRhiGraphicsPipeline> pipeline;

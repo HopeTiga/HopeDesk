@@ -16,7 +16,7 @@ InterceptionHook::InterceptionHook(QObject* parent)
     , mouse(0)
     , targetWidget(nullptr)
     , targetHwnd(nullptr)
-    , manager(nullptr)
+    , webrtcManager(nullptr)
     , running(false)
     , initialized(false)
     , lastMouseX(0)
@@ -45,9 +45,9 @@ void InterceptionHook::setTargetWidget(VideoWidget* widget)
     }
 }
 
-void InterceptionHook::setManager(std::shared_ptr<WebRTCManager> manager)
+void InterceptionHook::setWebrtcManager(std::shared_ptr<WebrtcManager> webrtcManager)
 {
-    this->manager = manager;
+    this->webrtcManager = webrtcManager;
     LOG_INFO("Remote client set");
 }
 
@@ -308,7 +308,7 @@ bool InterceptionHook::isNumLockOn()
 
 void InterceptionHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)
 {
-    if (!manager) {
+    if (!webrtcManager) {
         return;
     }
 
@@ -323,12 +323,12 @@ void InterceptionHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifier
 #pragma pack(pop)
 
     KeyButton* keyButton = new KeyButton{type, windowsVK, modifiers};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(keyButton), sizeof(KeyButton));
+    webrtcManager->writerRemote(reinterpret_cast<unsigned char*>(keyButton), sizeof(KeyButton));
 }
 
 void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
 {
-    if (!manager) {
+    if (!webrtcManager) {
         return;
     }
 
@@ -346,12 +346,12 @@ void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
 #pragma pack(pop)
 
     MouseButton* mouseBtn = new MouseButton{type, button, normalizedX, normalizedY};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseBtn), sizeof(MouseButton));
+    webrtcManager->writerRemote(reinterpret_cast<unsigned char*>(mouseBtn), sizeof(MouseButton));
 }
 
 void InterceptionHook::sendMouseMoveEvent(int x, int y)
 {
-    if (!manager) return;
+    if (!webrtcManager) return;
 
 #pragma pack(push,1)
     struct MouseMove              // 6 字节
@@ -368,12 +368,12 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
 
     MouseMove* pkt = new MouseMove{0, normalizedX, normalizedY};
 
-    manager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
+    webrtcManager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
 }
 
 void InterceptionHook::sendWheelEvent(int delta)
 {
-    if (!manager) {
+    if (!webrtcManager) {
         return;
     }
 
@@ -386,7 +386,7 @@ void InterceptionHook::sendWheelEvent(int delta)
 #pragma pack(pop)
 
     MouseWheel* mouseWheel = new MouseWheel{5, delta, 0};
-    manager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
+    webrtcManager->writerRemote(reinterpret_cast<unsigned char*>(mouseWheel), sizeof(MouseWheel));
 }
 
 void InterceptionHook::convertClientToScreen(int& x, int& y)

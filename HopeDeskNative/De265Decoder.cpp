@@ -132,6 +132,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
                     .set_color_space(encodedImage.ColorSpace())
                     .build();
 
+
             decodeCompleteCallback->Decoded(decodedFrame, std::nullopt, std::nullopt);
 
         }

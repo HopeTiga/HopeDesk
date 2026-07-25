@@ -1,7 +1,7 @@
 #include "MainWindow.h"
 #include "ui_mainwindow.h"
 #include "VideoWidget.h"
-#include "WebRTCManager.h"
+#include "WebrtcManager.h"
 #include "ConfigManager.h"
 #include <QApplication>
 #include <QMessageBox>
@@ -23,7 +23,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , videoWidget(nullptr)
-    , manager(nullptr)
+    , webrtcManager(nullptr)
     , settings(nullptr)
     , isSignalConnected(false)
     , isRemoteConnected(false)
@@ -32,11 +32,11 @@ MainWindow::MainWindow(QWidget* parent)
 
     ui->setupUi(this);
 
-    settings = new QSettings("WebRTCmanager", "Settings", this);
+    settings = new QSettings("WebrtcManager", "Settings", this);
 
-    manager = std::make_shared<WebRTCManager>();
+    webrtcManager = std::make_shared<WebrtcManager>();
 
-    manager->asyncEvent();
+    webrtcManager->asyncEvent();
 
     // 2. 初始化
     initConfigAndSettings();
@@ -46,26 +46,26 @@ MainWindow::MainWindow(QWidget* parent)
     // 3. 检查登录 (不使用 Timer，直接调用，因为对象已创建)
     checkLoginStatus();
 
-    manager->onSignalServerConnectHandle = [this]() {
+    webrtcManager->onSignalServerConnectHandle = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             this->onConnectionStateChanged(true);
         }, Qt::QueuedConnection);
     };
 
-    manager->onSignalServerDisConnectHandle = [this]() {
+    webrtcManager->onSignalServerDisConnectHandle = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             if(isSignalConnected) this->onConnectionStateChanged(false);
             else QTimer::singleShot(3000, this, &MainWindow::startSignalServerConnection);
         }, Qt::QueuedConnection);
     };
 
-    manager->onRemoteSuccessFulHandle = [this]() {
+    webrtcManager->onRemoteSuccessFulHandle = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             if (remoteConnectionTimer) remoteConnectionTimer->stop();
             if (!videoWidget) {
                 videoWidget = new VideoWidget();
-                videoWidget->setWebRTCManager(manager);
-                manager->setOnVideoFrameHanlder([this](std::shared_ptr<VideoFrame> frame) {
+                videoWidget->setWebrtcManager(webrtcManager);
+                webrtcManager->setOnVideoFrameHanlder([this](std::shared_ptr<VideoFrame> frame) {
                     if (videoWidget) videoWidget->displayFrame(frame);
                 });
                 connect(videoWidget, &VideoWidget::disConnectRemote, this, [this](){
@@ -77,7 +77,7 @@ MainWindow::MainWindow(QWidget* parent)
                     ui->networkTypeBadge->setVisible(false);
                     if(videoWidget) { videoWidget->hide(); disconnect(videoWidget, nullptr, this, nullptr); delete videoWidget; videoWidget = nullptr; }
 
-                    if(manager) manager->disConnectRemote();
+                    if(webrtcManager) webrtcManager->disConnectRemote();
 
                 });
                 connect(videoWidget, &QWidget::destroyed, this, [this](){ videoWidget = nullptr; });
@@ -94,7 +94,7 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    manager->onRemoteFailedHandle = [this]() {
+    webrtcManager->onRemoteFailedHandle = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             if (remoteConnectionTimer) remoteConnectionTimer->stop();
             ui->btnStartControl->setEnabled(true);
@@ -104,15 +104,15 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    manager->onRTCStatsCollectorHandle = [this](int type) {
+    webrtcManager->onRTCStatsCollectorHandle = [this](int type) {
         QMetaObject::invokeMethod(this, [this, type]() {
             updateNetworkTypeUI(type);
         }, Qt::QueuedConnection);
     };
 
-    manager->onDisConnectRemoteHandle = [this]() { QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer", Qt::QueuedConnection); };
-    manager->onFollowRemoteHandle = [this]() { QMetaObject::invokeMethod(this, "onRemoteControlStarted", Qt::QueuedConnection); };
-    manager->onResetCursorHandle = [this]() { QMetaObject::invokeMethod(this, [this](){
+    webrtcManager->onDisConnectRemoteHandle = [this]() { QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer", Qt::QueuedConnection); };
+    webrtcManager->onFollowRemoteHandle = [this]() { QMetaObject::invokeMethod(this, "onRemoteControlStarted", Qt::QueuedConnection); };
+    webrtcManager->onResetCursorHandle = [this]() { QMetaObject::invokeMethod(this, [this](){
         #ifdef Q_OS_WIN
         SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
         #endif
@@ -128,7 +128,7 @@ MainWindow::~MainWindow()
         settings->setValue("webrtcLevels", webrtcLevels);
         settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
     }
-    if (manager) { manager->disConnect();}
+    if (webrtcManager) { webrtcManager->disConnect();}
     if (videoWidget) delete videoWidget;
     delete ui;
 }
@@ -578,9 +578,9 @@ void MainWindow::startSignalServerConnection()
 {
     if (isSignalConnected || currentDeviceId.isEmpty()) return;
     updateStatusUI("正在连接服务器...", "normal");
-    manager->setAccountId(currentDeviceId.toStdString());
+    webrtcManager->setAccountId(currentDeviceId.toStdString());
     QString url = QString("%1:%2").arg(defaultServerHost).arg(defaultServerPort);
-    manager->connect(url.toStdString());
+    webrtcManager->connect(url.toStdString());
 }
 
 void MainWindow::onConnectionStateChanged(bool connected)
@@ -615,7 +615,7 @@ void MainWindow::onBtnConnectClicked()
         this->showNormal();
         this->activateWindow();
 
-        if (manager) manager->disConnectRemote();
+        if (webrtcManager) webrtcManager->disConnectRemote();
         return;
     }
 
@@ -640,9 +640,9 @@ void MainWindow::onBtnConnectClicked()
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("连接中...");
 
-    manager->setTargetId(targetId.toStdString());
+    webrtcManager->setTargetId(targetId.toStdString());
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    manager->asyncReomteDesk(webrtcModulesType, webrtcLevels, videoCodec, webrtcAudioEnable,webrtcEnableNvidia);
+    webrtcManager->asyncReomteDesk(webrtcModulesType, webrtcLevels, videoCodec, webrtcAudioEnable,webrtcEnableNvidia);
 }
 
 void MainWindow::onBtnCopyCodeClicked()
@@ -702,7 +702,7 @@ void MainWindow::showWindow() {
 }
 
 void MainWindow::onLogoutClicked() {
-    if (manager) manager->disConnect();
+    if (webrtcManager) webrtcManager->disConnect();
     isSignalConnected = false;
     isRemoteConnected = false;
 

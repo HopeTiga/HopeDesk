@@ -2,15 +2,15 @@
 
 #include <boost/json.hpp>
 
-#include "WebRTCManager.h"
+#include "WebrtcManager.h"
 #include "RTCStatsCollectorHandle.h"
 #include "Utils.h"
 
 namespace hope {
 namespace rtc {
 
-PeerConnectionObserverImpl::PeerConnectionObserverImpl(WebRTCManager* manager)
-    : manager(manager) {}
+PeerConnectionObserverImpl::PeerConnectionObserverImpl(WebrtcManager* webrtcManager)
+    : webrtcManager(webrtcManager) {}
 
 void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
     switch (newState) {
@@ -37,11 +37,11 @@ void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::Dat
     LOG_INFO("Data channel received: %s", dataChannel->label().c_str());
 
     if (dataChannel->label() == "dataChannel") {
-        manager->dataChannel = dataChannel;
-        manager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>(manager);
-        manager->dataChannelObserver->setOnDataHandle(
-            std::bind(&WebRTCManager::handleCursor, manager, std::placeholders::_1, std::placeholders::_2));
-        dataChannel->RegisterObserver(manager->dataChannelObserver.get());
+        webrtcManager->dataChannel = dataChannel;
+        webrtcManager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>();
+        webrtcManager->dataChannelObserver->setOnDataHandle(
+            std::bind(&WebrtcManager::handleCursor, webrtcManager, std::placeholders::_1, std::placeholders::_2));
+        dataChannel->RegisterObserver(webrtcManager->dataChannelObserver.get());
     }
 }
 
@@ -73,21 +73,21 @@ void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterf
     msg["mid"] = candidate->sdp_mid();
     msg["mlineIndex"] = candidate->sdp_mline_index();
 
-    manager->sendSignalingMessage(msg);
+    webrtcManager->sendSignalingMessage(msg);
 }
 
 void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
     switch (newState) {
     case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
         LOG_INFO("WebRTC connection established");
-        manager->isRemote = true;
-        manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
-        if (manager->onRTCStatsCollectorHandle) {
-            manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = manager->onRTCStatsCollectorHandle;
+        webrtcManager->isRemote = true;
+        webrtcManager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
+        if (webrtcManager->onRTCStatsCollectorHandle) {
+            webrtcManager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = webrtcManager->onRTCStatsCollectorHandle;
         }
-        manager->peerConnection->GetStats(manager->rtcStatsCollectorHandle.get());
-        if (manager->onRemoteSuccessFulHandle) {
-            manager->onRemoteSuccessFulHandle();
+        webrtcManager->peerConnection->GetStats(webrtcManager->rtcStatsCollectorHandle.get());
+        if (webrtcManager->onRemoteSuccessFulHandle) {
+            webrtcManager->onRemoteSuccessFulHandle();
         }
         break;
     }
@@ -96,7 +96,7 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
         break;
     case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
         LOG_WARN("ICE connection disconnected");
-        manager->disConnectRemoteHandler();
+        webrtcManager->disConnectRemoteHandler();
         break;
     }
     case webrtc::PeerConnectionInterface::kIceConnectionClosed: {
@@ -132,17 +132,17 @@ void PeerConnectionObserverImpl::OnTrack(webrtc::scoped_refptr<webrtc::RtpTransc
     if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
         LOG_INFO("Video track received");
         receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
-        manager->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
+        webrtcManager->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
             static_cast<webrtc::VideoTrackInterface*>(track.release()));
-        manager->videoSinkImpl = std::make_unique<VideoTrackSinkImpl>(manager);
-        manager->videoTrack->AddOrUpdateSink(manager->videoSinkImpl.get(), webrtc::VideoSinkWants());
+        webrtcManager->videoSinkImpl = std::make_unique<VideoTrackSinkImpl>(webrtcManager);
+        webrtcManager->videoTrack->AddOrUpdateSink(webrtcManager->videoSinkImpl.get(), webrtc::VideoSinkWants());
         return;
     }
 
     if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
         LOG_INFO("Audio track received");
         receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
-        manager->audioTrack = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
+        webrtcManager->audioTrack = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
             static_cast<webrtc::AudioTrackInterface*>(track.release()));
     }
 }

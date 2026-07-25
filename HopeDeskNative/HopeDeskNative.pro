@@ -48,10 +48,10 @@ SOURCES += \
     Utils.cpp \
     VideoTrackSinkImpl.cpp \
     VideoWidget.cpp \
-    WebRTCVideoDecoderFactory.cpp \
-    WebRTCVideoEncoderFactory.cpp \
+    WebrtcManager.cpp \
+    WebrtcVideoDecoderFactory.cpp \
+    WebrtcVideoEncoderFactory.cpp \
     main.cpp \
-    WebRTCManager.cpp \
 
 # 头文件
 HEADERS += \
@@ -70,10 +70,10 @@ HEADERS += \
     Utils.h \
     VideoTrackSinkImpl.h \
     VideoWidget.h \
-    WebRTCVideoDecoderFactory.h \
-    WebRTCVideoEncoderFactory.h \
+    WebrtcManager.h \
+    WebrtcVideoDecoderFactory.h \
+    WebrtcVideoEncoderFactory.h \
     WindowsServiceManager.h \
-    WebRTCManager.h \
 
 
 win32 {
