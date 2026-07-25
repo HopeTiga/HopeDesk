@@ -314,13 +314,7 @@ private:
 
     std::string dataStr;
 
-    static constexpr std::chrono::seconds RESOLVE_TIMEOUT{5};
-
-    static constexpr std::chrono::seconds CONNECT_TIMEOUT{10};
-
-    static constexpr std::chrono::seconds SSL_HANDSHAKE_TIMEOUT{10};
-
-    static constexpr std::chrono::seconds WS_HANDSHAKE_TIMEOUT{10};
+    static constexpr std::chrono::seconds TIME_OUT{5};
 
 };
 

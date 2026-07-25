@@ -126,8 +126,6 @@ void WebRTCManager::connect(std::string ip)
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this(),host,port]()mutable->boost::asio::awaitable<void> {
 
-        // 本协程私有的 webSocket 引用：跨挂起点始终有效，
-        // 不受其它 connect()/disConnect() 改写成员影响。
         std::shared_ptr<boost::beast::websocket::stream<
             boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> ws;
 
@@ -137,17 +135,20 @@ void WebRTCManager::connect(std::string ip)
 
                 self->closeWebSocket();
 
+                self->webSocket = nullptr;
+
             }
 
             ws = std::make_shared<boost::beast::websocket::stream<
                 boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>>(self->ioContext, self->sslContext);
+
             self->webSocket = ws;
 
             boost::asio::ip::tcp::resolver resolver(self->ioContext);
 
             auto results = co_await resolver.async_resolve(
                 host, port,
-                boost::asio::cancel_after(RESOLVE_TIMEOUT, boost::asio::use_awaitable)
+                boost::asio::cancel_after(TIME_OUT, boost::asio::use_awaitable)
                 );
 
             if (results.empty()) {
@@ -157,15 +158,14 @@ void WebRTCManager::connect(std::string ip)
             co_await boost::asio::async_connect(
                 ws->next_layer().next_layer(),
                 results,
-                boost::asio::cancel_after(CONNECT_TIMEOUT, boost::asio::use_awaitable)
+                boost::asio::cancel_after(TIME_OUT, boost::asio::use_awaitable)
                 );
 
             // 3. SSL 握手（带超时）
             co_await ws->next_layer().async_handshake(
                 boost::asio::ssl::stream_base::client,
-                boost::asio::cancel_after(SSL_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
+                boost::asio::cancel_after(TIME_OUT, boost::asio::use_awaitable)
                 );
-
 
             ws->set_option(boost::beast::websocket::stream_base::decorator(
                 [accountId = self->accountId](boost::beast::websocket::request_type& req) {
@@ -174,7 +174,7 @@ void WebRTCManager::connect(std::string ip)
 
             co_await ws->async_handshake(
                 host, "/",
-                boost::asio::cancel_after(WS_HANDSHAKE_TIMEOUT, boost::asio::use_awaitable)
+                boost::asio::cancel_after(TIME_OUT, boost::asio::use_awaitable)
                 );
 
             self->webrtcAsioConcurrentQueue.reset();
@@ -223,7 +223,7 @@ void WebRTCManager::connect(std::string ip)
             self->initializePeerConnection();
 
             co_return;
-        }
+    }
 
     },boost::asio::detached);
 
