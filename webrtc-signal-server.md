@@ -42,7 +42,7 @@ WebRTCSignalServer/
 │   └── AwaitableTask.h           # TaskChannel:全局任务队列(concurrent_channel + moodycamel)
 ├── rpc/
 │   ├── CoroRpc.h/.cpp            # ylt/coro_rpc 封装(server+client pool+LB)
-│   └── CoroRpcHandlerImpl.h/.cpp # RPC handler 注册(rpcEcho 自由函数 + 全局访问 server)
+│   └── CoroRpcHandlerImpl.h/.cpp # RPC handler(requestForward 跨节点转发)+ 注册
 ├── mysql/
 │   ├── MysqlConfig.h             # 全局 MysqlConfig 结构体 + inline globalMysqlConfig
 │   ├── WebRTCMysqlManagerPools.* # boost::mysql 连接池(每通道一个)
@@ -431,15 +431,26 @@ else if (!r.value()) { /* RPC 业务失败 */ }
 else                 { auto& resp = r.value().value(); /* resp.request / resp.json */ }
 ```
 
-调用成员函数 handler（服务端按 `registerHandler<&Class::method>(obj)` 注册的）——`call` 的模板参数写成员函数指针：
+调用成员函数 handler（服务端按 `registerHandler<&Class::method>(obj)` 注册的）——`call` 的模板参数写成员函数指针。以本服务器的 `requestForward` 为例（`RpcForward{forwardChannel, forwardPacket}` → `RpcForwardResponse{state, message}`）：
 
 ```cpp
+// 跨节点转发:把一条信令包托付给"持有 targetId 连接"的那个节点。
 auto result = co_await rpc->asyncRpcRequest(
     "127.0.0.1:10011",
     [](coro_rpc::coro_rpc_client& client)
-    -> async_simple::coro::Lazy<coro_rpc::rpc_result<int>> {
-        co_return co_await client.call<&hope::rpc::CoroRpcHandlerImpl::rpcEcho>(20260724);  // 成员函数:call<&Class::method>
+    -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
+        // 成员函数:call<&Class::method>。client 侧无需 handler 实例——
+        // 成员指针只作编译期函数 id,服务端调用时才传入真正的 this。
+        RpcForward rpcForward{
+            0,                                              // forwardChannel:目标归属的桶通道
+            R"({"accountId":"396887208@qq.com","targetId":"913140924@qq.com","requestType":1})"
+        };
+        co_return co_await client.call<&hope::rpc::CoroRpcHandlerImpl::requestForward>(rpcForward);
     });
+
+if (!result)              { /* 连接层失败 */ }
+else if (!result.value()) { /* RPC 业务失败 */ }
+else                      { auto& resp = result.value().value(); /* resp.state / resp.message */ }
 ```
 
 **负载均衡版** `asyncLbRpcRequest(op)`：用 `createLoadBalancer` 配好的 host 列表轮询 / 加权分发，`op` 多一个 `string_view host` 参数告诉你这次落到哪台：
@@ -515,53 +526,87 @@ coroRpc->createClientPools();
 std::vector<std::string> hosts;               // 当前为空,暂无下游 LB(hosts 为空时 createLoadBalancer 直接返回)
 coroRpc->createLoadBalancer(hosts);
 coroRpcHandlerImpl.coroRpc = coroRpc;          // 把 rpc 赋给 handler 对象
-coroRpcHandlerImpl.registerRpcHandler();       // 注册 rpcEcho
+coroRpcHandlerImpl.registerRpcHandler();       // 注册 requestForward
 coroRpc->asyncEvent();                         // coro_rpc_server.async_start()
 ```
 
 `coroRpc` 是 `WebRTCSignalServer` 的 `shared_ptr<CoroRpc>` 成员；`coroRpcHandlerImpl` 是 `CoroRpcHandlerImpl` **值成员**，在 `WebRTCSignalServer` 构造列表里以 `coroRpcHandlerImpl(*this)` 初始化（此时只绑 server，`coroRpc` 还是 nullptr），到 `asyncEvent` 才把 `coroRpc` 赋进去再注册。`closeEvent()` 里 `if (coroRpc) coroRpc->closeEvent();` 停 RPC server。
 
-handler 注册由 `rpc/CoroRpcHandlerImpl.*` 负责。`rpcEcho` 是 `CoroRpcHandlerImpl` 的**私有成员函数**，`registerRpcHandler()` 调 `coroRpc->registerHandler<&CoroRpcHandlerImpl::rpcEcho>(this)` 注册——`this` 携带 `webrtcSignalServer`，无需全局：
+handler 注册由 `rpc/CoroRpcHandlerImpl.*` 负责。唯一注册的 handler 是 `requestForward`——`CoroRpcHandlerImpl` 的**私有成员函数**，`registerRpcHandler()` 调 `coroRpc->registerHandler<&CoroRpcHandlerImpl::requestForward>(this)` 注册——`this` 携带 `webrtcSignalServer`，无需全局：
 
 ```cpp
+struct RpcForward {        // 请求
+    int forwardChannel;    // 目标归属的桶通道(= hasher(targetId)%hashSize 所在 manager 的 index)
+    std::string forwardPacket;  // 信令 JSON:{"accountId":..,"targetId":..,"requestType":..}
+};
+struct RpcForwardResponse { // 回包
+    int state;             // 200 成功 / 404 未登记 / 400 坏包 / 500 内错
+    std::string message;
+};
+
 class CoroRpcHandlerImpl {
 public:
     CoroRpcHandlerImpl(hope::signal::WebRTCSignalServer& webrtcSignalServer);
     void registerRpcHandler();
 private:
-    async_simple::coro::Lazy<int> rpcEcho(int value);
+    async_simple::coro::Lazy<RpcForwardResponse> requestForward(RpcForward rpcforward);
 public:
     std::shared_ptr<CoroRpc> coroRpc;                 // 由 WebRTCSignalServer 在 asyncEvent 赋值
     hope::signal::WebRTCSignalServer& webrtcSignalServer;
 };
 
-CoroRpcHandlerImpl::CoroRpcHandlerImpl(WebRTCSignalServer& s)
-    : webrtcSignalServer(s), coroRpc(nullptr) {}
-
 void CoroRpcHandlerImpl::registerRpcHandler() {
     if (!coroRpc) return;
-    coroRpc->registerHandler<&CoroRpcHandlerImpl::rpcEcho>(this);  // this 携带 server
-}
-
-async_simple::coro::Lazy<int> CoroRpcHandlerImpl::rpcEcho(int value) {
-    LOG_INFO("rpcEcho value: %d", value);
-    co_return static_cast<int>(webrtcSignalServer.getChannelNumbers());  // 经 this 用 server
+    coroRpc->registerHandler<&CoroRpcHandlerImpl::requestForward>(this);  // this 携带 server
 }
 ```
 
-`webrtcSignalServer` 是对象引用成员，这就是「把 server 传进 handler」的方式（ylt 按成员函数指针注册，对象指针在调用时传入）。`coroRpcHandlerImpl` 作为 `WebRTCSignalServer` 的值成员，生命周期随 server。注意：`&CoroRpcHandlerImpl::rpcEcho` 必须是**完全限定**的成员函数指针（不能写 `&rpcEcho`），且成员函数注册必须传 `this`，否则 ylt 会 `static_assert` 报 "register member function but lack of the parent object"。
+`webrtcSignalServer` 是对象引用成员，这就是「把 server 传进 handler」的方式（ylt 按成员函数指针注册，对象指针在调用时传入）。`coroRpcHandlerImpl` 作为 `WebRTCSignalServer` 的值成员，生命周期随 server。注意：`&CoroRpcHandlerImpl::requestForward` 必须是**完全限定**的成员函数指针（不能写 `&requestForward`），且成员函数注册必须传 `this`，否则 ylt 会 `static_assert` 报 "register member function but lack of the parent object"。
+
+#### 8.5.1 `requestForward` 语义：跨节点转发的 RPC 入口
+
+`requestForward` 是 §5.5「forward 三级寻址」的**跨节点外露入口**。当一条信令要送到 `targetId`、而 `targetId` 的连接不在本节点时，调用方（另一节点）通过 RPC 把这条信令托付给"持有 targetId"的本节点，本节点在本地通道间寻址并最终 `asyncWrite` 到目标 socket。即：RPC 把"节点间"的寻址收敛到一次 `call`，节点内的"通道间"寻址复用 §5.5 同一套 `actorSocketMappingIndex` / `webrtcSocketMap` 逻辑。
+
+流程（对应 `CoroRpcHandlerImpl::requestForward`）：
+
+```
+1. 解析 forwardPacket(try/catch) -> accountId, targetId;失败回 {400,"Bad Forward Packet"}
+2. 校验 forwardChannel 范围(0..managerCount);越界回 {400,"Invalid Forward Channel"}
+3. hashSize==0 守卫;回 {500,"Hash Size Zero"}
+4. bucketManager = managers[forwardChannel]
+   mapChannelIndex = bucketManager.hasher(targetId) % bucketManager.hashSize
+5. Promise/Future 桥接(asio awaitable -> async_simple Lazy)
+6. postTaskAsync(mapChannelIndex, 在桶 manager 上):
+   ├─ actorSocketMappingIndex[targetId] 未登记 -> {404,"TargetId Not Register..."}
+   └─ channelIndex = entry.channelIndex
+      ├─ channelIndex == 桶 manager 通道:直接 forwardOnManager
+      └─ 否则:postTaskAsync(channelIndex, forwardOnManager)
+7. forwardOnManager(统一 lambda,消除同/跨通道重复):
+   ├─ webrtcSocketMap[targetId] 命中 -> 写回 {state:200,...} + asyncWrite + {200,"Forward Success"}
+   └─ 未命中 -> {404,"TargetId Not Register..."}
+8. co_await future -> RpcForwardResponse
+```
+
+实现要点（已优化）：
+
+- **去重**：同通道 / 跨通道两路原本逐字重复的「查 socket → 写回 → 设 state → `promise.setValue`」抽成一个 captureless lambda `forwardOnManager`，两路最终都落到它；captureless 拷贝零成本，可在两处 init-capture 安全复用。
+- **三层入参防护**：`forwardPacket` 解析异常、`forwardChannel` 越界、`hashSize==0` 除零，任一失败立即回错码 `co_return`，不让坏请求进入路由逻辑把 handler 打挂。
+- **Promise/Future 桥接保留**：这是把 `postTaskAsync` 的 `boost::asio::awaitable`（跑在目标通道 io 上）桥接回 `async_simple::coro::Lazy`（coro_rpc handler 返回类型）的正确手段——`postTaskAsync` 跨通道后才 `promise.setValue`，handler 侧 `co_await future` 等到结果再回 RPC。
+- **路由与 §5.5 同构**：同样 `hasher(targetId)%hashSize` 定 home 桶、同样查 `actorSocketMappingIndex`、同样命中即转发 / 未登记回 404，只是入口从"本节点信令 handler"换成"跨节点 RPC"。
 
 ylt/coro_rpc 是头文件库，无需额外链接库；`rpc/CoroRpcHandlerImpl.cpp` 需列入 makefile `SRCS`。
 
-### 8.6 RPC 自调时序（Mermaid）
+### 8.6 RPC 转发时序（Mermaid）
 
 ```mermaid
 sequenceDiagram
-  participant Cli as 外部 RPC 客户端
+  participant Cli as 外部 RPC 客户端(另一节点)
   participant Srv as WebRTCSignalServer
   participant Rpc as CoroRpc(coro_rpc_server)
   participant Impl as CoroRpcHandlerImpl
-  participant Fn as Impl::rpcEcho(成员函数)
+  participant Fn as Impl::requestForward(成员函数)
+  participant Mb as Manager(home(B)/owns(B))
+  participant B as 客户端 B
   Note over Srv,Impl: WebRTCSignalServer 构造期
   Srv->>Impl: coroRpcHandlerImpl(*this) 值成员,绑 server
   Note over Srv,Impl: asyncEvent, enableRpc=1
@@ -569,14 +614,115 @@ sequenceDiagram
   Srv->>Rpc: createClientPools()
   Srv->>Rpc: createLoadBalancer(hosts 空)
   Srv->>Impl: coroRpcHandlerImpl.coroRpc = coroRpc
-  Impl->>Rpc: registerHandler<&CoroRpcHandlerImpl::rpcEcho>(this)
+  Impl->>Rpc: registerHandler<&CoroRpcHandlerImpl::requestForward>(this)
   Srv->>Rpc: asyncEvent() → async_start,监听 [CoroRpc].port
-  Note over Cli,Fn: 运行期
-  Cli->>Rpc: call<&CoroRpcHandlerImpl::rpcEcho>(value) over TLS
-  Rpc->>Fn: this->rpcEcho(反序列化 value)
-  Fn->>Fn: LOG_INFO + co_return value
-  Rpc->>Cli: 序列化回 int
+  Note over Cli,B: 运行期:另一节点要把信令送到 B,而 B 连在本节点
+  Cli->>Rpc: call<&CoroRpcHandlerImpl::requestForward>(RpcForward) over TLS
+  Rpc->>Fn: this->requestForward(反序列化 RpcForward)
+  Fn->>Fn: 解析+校验 forwardChannel/hashSize
+  Fn->>Mb: postTaskAsync(hasher(targetId)%hashSize) 查 actorSocketMappingIndex[B]
+  Mb->>Mb: 命中归属通道 -> postTaskAsync(归属通道)
+  Mb->>Mb: webrtcSocketMap[B] 命中
+  Mb->>B: asyncWrite 转发 {state:200,...}
+  Mb-->>Fn: promise.setValue({200,"Forward Success"})
+  Fn-->>Rpc: co_await future -> RpcForwardResponse
+  Rpc->>Cli: 序列化回 RpcForwardResponse{state,message}
 ```
+
+### 8.7 使用指南：信令 handler 与 RPC 怎么交互
+
+RPC 这块的困惑点通常在两处：**服务端 handler 怎么把"跑在 asio 协程里、还要跨通道跳线程"的活儿桥接回 `async_simple::coro::Lazy`**；**客户端（信令 handler 里）怎么发起一次跨节点 RPC 并处理两层错误**。下面给两段可直接套用的模板。
+
+#### A. 服务端 handler 写法：`async_simple::Promise/Future` 桥接模板
+
+coro_rpc 的 handler 必须返回 `async_simple::coro::Lazy<R>`，但信令侧的真正干活逻辑是 `boost::asio::awaitable<void>`、且往往要通过 `postTaskAsync` 跳到别的通道 io 上跑。两边协程框架不同，不能直接 `co_await`。`requestForward` 的解法是 `Promise/Future` 桥接——一个固定 5 步的模板：
+
+```cpp
+async_simple::coro::Lazy<RpcForwardResponse>
+CoroRpcHandlerImpl::requestForward(RpcForward rpcforward) {
+
+    // 1. 在本协程里能同步算的(解析、校验)先算完,坏入参直接 co_return 错码。
+
+    // 2. 建 Promise/Future 对。Promise 跟着干活 lambda 走,Future 留在本协程等。
+    async_simple::Promise<RpcForwardResponse> promise;
+    async_simple::Future<RpcForwardResponse> future = promise.getFuture();
+
+    // 3. 把 promise 用 std::move 塞进 postTaskAsync 的 lambda(它是 asio awaitable)。
+    //    lambda 在目标通道 io 上跑完,拿到结果后调 promise.setValue(resp)。
+    webrtcSignalServer.postTaskAsync(channelIndex,
+        [promise = std::move(promise), /*...其它捕获...*/]
+        (std::shared_ptr<WebrtcSignalManager> m) mutable
+        -> boost::asio::awaitable<void> {
+            RpcForwardResponse resp = /* 干活,查表,转发 */;
+            promise.setValue(resp);          // ★ 结果回灌
+            co_return;
+        });
+
+    // 4. 本协程 co_await future,挂起直到对端 setValue。
+    //    ★ 这是 async_simple::Future 的标准用法:它本身就是 awaitable,
+    //       直接 co_await 即可,不要去 poll、也不要 syncAwait。
+    co_return co_await std::move(future);   // 5. 把结果作为 RPC 回包返回
+}
+```
+
+要点：
+
+- **谁持有 Promise、谁持有 Future**：Promise `std::move` 进干活 lambda（随它跨线程跑），Future 留在 handler 协程。两者由 `getFuture()` 配对，一次性。
+- **`co_await std::move(future)` 就是 `async_simple::future` 的全部用法**——它是 awaitable，挂起协程直到 `setValue`。不要 `syncAwait`（会阻塞线程）、不要轮询 `.hasResult()`。
+- **跨线程安全**：`setValue` 在目标通道 io 线程调用，`co_await future` 在 handler 所在 io 线程恢复——`async_simple::Promise/Future` 本就支持跨线程 `setValue`，无需自己加锁。
+- **多路只设一次**：一个 Promise 只能 `setValue` 一次。同/跨通道两条分支无论走哪条，都只 `setValue` 一次后 `co_return`，别重复设。
+- **异常不漏**：干活 lambda 里若可能抛异常，捕获后 `promise.setValue({500, "..."})`，**别让 lambda 析构时 Promise 仍未 setValue**——否则 `co_await future` 永远挂起，RPC 超时。
+
+#### B. 客户端写法：从信令 handler 发起跨节点 RPC
+
+信令 handler（`WebRTCLogicSystem` 里）是 `boost::asio::awaitable<void>` 协程，而 `CoroRpc::asyncRpcRequest` 返回 `async_simple::coro::Lazy`——**两个协程框架不能互 `co_await`**。所以发起 RPC 要走 `rpc->asyncAwait(lazy)`：把 `async_simple::Lazy` 扔到 rpc 的 io 池异步跑，回调里处理结果，**不阻塞当前 asio 协程**。
+
+```cpp
+// 假设已知 targetId 归属节点 host,把信令托付过去。
+auto rpc = webrtcSignalServer->coroRpc;          // WebRTCSignalServer::coroRpc(shared_ptr)
+std::string targetHost = "10.0.0.2:10011";
+
+RpcForward req{
+    mapChannelIndex,                             // forwardChannel:本侧算好的桶通道
+    boost::json::serialize(forwardPacketJson)    // forwardPacket:信令 JSON
+};
+
+// ★ asyncAwait 把 Lazy 扔到 rpc 的 io 池异步跑、立即返回,不在当前 asio 协程里等。
+//   因 Lazy 是 detached 异步跑的,捕获务必按值(rpc 是 shared_ptr 副本、req/目标 host
+//   拷贝/移动进去),别用 [&] 捕获栈上局部——当前 asio 协程一返回引用就悬空了。
+rpc->asyncAwait([rpc, req = std::move(req), targetHost = std::move(targetHost)]()
+    -> async_simple::coro::Lazy<void> {
+    auto r = co_await rpc->asyncRpcRequest(
+        targetHost,
+        [req](coro_rpc::coro_rpc_client& cli)
+        -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
+            co_return co_await cli.call<&CoroRpcHandlerImpl::requestForward>(req);
+        });
+
+    // ★ 两层错误模型,逐层判:
+    if (!r) {
+        // 外层 expected 未就绪 -> 连接层错误(池未就绪 / host 不通 / 被拉黑)
+        LOG_ERROR("forward rpc connect failed: %d", (int)r.error());
+        co_return;
+    }
+    if (!r.value()) {
+        // 内层 rpc_result 未就绪 -> RPC 业务层错误
+        LOG_ERROR("forward rpc biz failed");
+        co_return;
+    }
+    auto& resp = r.value().value();              // resp.state / resp.message
+    LOG_INFO("forward rpc ok: state=%d", resp.state);
+    co_return;
+}());
+// asyncAwait 立即返回,当前 asio 协程继续往下走(不等待 RPC 结果)
+```
+
+要点：
+
+- **何时用 `asyncAwait` vs 直接 `co_await`**：在 asio 协程里发起 RPC 一律用 `asyncAwait`（异步、不阻塞、不互 await）；在纯 `async_simple::Lazy` 上下文里才直接 `co_await rpc->asyncRpcRequest(...)`。
+- **两层判 `r`**：`!r` = 连接层错（`std::errc`，拿 `r.error()`）；`!r.value()` = RPC 业务错；都通过才 `r.value().value()` 取返回值。**别一上来就 `.value().value()`**——任一层未就绪都会触发未定义行为/断言。
+- **host 黑名单**：对端下线后调 `rpc->removeHost(host)`（或服务发现回调里 `removeHostsNotIn(在线清单)`），后续 `asyncRpcRequest` 对该 host 直接回 `std::errc::not_connected`，不走网络。
+- **现状提醒**：当前 `WebRTCSignalServer::asyncEvent()` 里 `createLoadBalancer(hosts)` 传的是**空** `hosts`，且信令 handler 暂未发起 RPC——即 RPC handler 已就绪可被外部节点调用，但本节点作为 RPC 客户端去 forward 的链路尚未接通。要启用跨节点转发，需：①用服务发现（§7.2 Polaris）填充 `hosts` 并 `createLoadBalancer`；②在上面的 forward handler 里，当本地三级寻址全 miss 时，改用 `asyncLbRpcRequest`/`asyncRpcRequest` 调远端 `requestForward`。
 
 ---
 
