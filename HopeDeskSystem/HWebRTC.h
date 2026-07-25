@@ -4,20 +4,9 @@
 
 namespace hope {
 
-	namespace rtc {
+    namespace rtc {
 
-        enum class WebRTCRemoteState {
-            nullRemote = 0,
-            masterRemote = 1,
-            followerRemote = 2,
-        };
-
-        enum class WebRTCConnetState {
-            none,
-            connect,
-        };
-
-        enum class WebRTCRequestState {
+        enum class WebrtcRequestState {
             REGISTER = 0,
             REQUEST = 1,
             RESTART = 2,
@@ -29,7 +18,7 @@ namespace hope {
             STATS = 8
         };
 
-        enum class WebRTCVideoCodec {
+        enum class WebrtcVideoCodec {
             VP8,
             VP9,
             H264,
@@ -72,6 +61,6 @@ namespace hope {
             size_t size;
         };
 
-	}
+    }
 
 }

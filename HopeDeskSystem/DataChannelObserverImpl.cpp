@@ -1,14 +1,12 @@
 #include "DataChannelObserverImpl.h"
 
-#include "WebRTCManager.h"
-
 #include "Utils.h"
 
 namespace hope {
 
     namespace rtc {
 
-        DataChannelObserverImpl::DataChannelObserverImpl(WebRTCManager* manager) :manager(manager) {
+        DataChannelObserverImpl::DataChannelObserverImpl(){
         }
 
         void DataChannelObserverImpl::setOnDataHandle(std::function<void(unsigned char*, size_t)> func)

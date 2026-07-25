@@ -2,8 +2,12 @@
 #include "api/video_codecs/video_encoder.h"
 #include <modules/video_coding/include/video_codec_interface.h>
 #include <modules/video_coding/include/video_error_codes.h>
+namespace x265 {
 #include <x265/x265.h>
+}
 #include <vector>
+
+using namespace x265;
 
 namespace hope {
     namespace rtc {

@@ -1,5 +1,5 @@
 #include "NvencH264Encoder.h"
-#include "WebRTCD3D11TextureBuffer.h"
+#include "WebrtcD3D11TextureBuffer.h"
 #include <api/video/encoded_image.h>
 #include <third_party/libyuv/include/libyuv.h>
 #include <dxgi.h>
@@ -195,7 +195,7 @@ namespace hope {
 
             NV_ENC_MAP_INPUT_RESOURCE map = { NV_ENC_MAP_INPUT_RESOURCE_VER };
             if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative) {
-                auto* d3dBuffer = static_cast<WebRTCD3D11TextureBuffer*>(buffer.get());
+                auto* d3dBuffer = static_cast<WebrtcD3D11TextureBuffer*>(buffer.get());
                 HANDLE h = d3dBuffer->GetSharedHandle();
 
                 auto& cached = resourceCache[h];
@@ -341,7 +341,7 @@ namespace hope {
                         if (pendingInputs[curBitstream].km)
                             pendingInputs[curBitstream].km->ReleaseSync(0);
                         if (pendingInputs[curBitstream].buffer) {
-                            auto* d3d = static_cast<WebRTCD3D11TextureBuffer*>(pendingInputs[curBitstream].buffer.get());
+                            auto* d3d = static_cast<WebrtcD3D11TextureBuffer*>(pendingInputs[curBitstream].buffer.get());
                             if (d3d) d3d->FreeSharedSlot();
                         }
                         pendingInputs[curBitstream].km.Reset();
@@ -388,7 +388,7 @@ namespace hope {
                     if (p.isShared) {
                         if (p.km) p.km->ReleaseSync(0);
                         if (p.buffer) {
-                            auto* d3d = static_cast<WebRTCD3D11TextureBuffer*>(p.buffer.get());
+                            auto* d3d = static_cast<WebrtcD3D11TextureBuffer*>(p.buffer.get());
                             if (d3d) d3d->FreeSharedSlot();
                         }
                         p.km.Reset();

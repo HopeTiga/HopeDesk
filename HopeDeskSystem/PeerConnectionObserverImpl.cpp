@@ -3,14 +3,14 @@
 #include <boost/json.hpp>
 #include <sstream>
 
-#include "WebRTCManager.h"
+#include "WebrtcManager.h"
 #include "Utils.h"
 
 namespace hope {
     namespace rtc {
 
-        PeerConnectionObserverImpl::PeerConnectionObserverImpl(WebRTCManager* manager)
-            : manager(manager) {
+        PeerConnectionObserverImpl::PeerConnectionObserverImpl(WebrtcManager* webrtcManager)
+            : webrtcManager(webrtcManager) {
         }
   
         void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
@@ -52,7 +52,7 @@ namespace hope {
             msg["mid"] = candidate->sdp_mid();
             msg["mlineIndex"] = candidate->sdp_mline_index();
 
-            manager->sendSignalingMessage(msg);
+            webrtcManager->sendSignalingMessage(msg);
         }
 
         void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
@@ -60,7 +60,7 @@ namespace hope {
             case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
                 LOG_INFO("ICE connection established");
 
-                auto localDesc = manager->peerConnection->local_description();
+                auto localDesc = webrtcManager->peerConnection->local_description();
                 if (localDesc) {
                     std::string sdp;
                     localDesc->ToString(&sdp);
@@ -84,21 +84,21 @@ namespace hope {
                 }
 
                 boost::json::object json;
-                json["requestType"] = static_cast<int64_t>(WebRTCRequestState::START);
+                json["requestType"] = static_cast<int64_t>(WebrtcRequestState::START);
                 std::string jsonStr = boost::json::serialize(json);
                 std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-                manager->asyncWrite(data);
+                webrtcManager->asyncWrite(data);
 
-                manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
-                manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = [this](int connectionType) {
+                webrtcManager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
+                webrtcManager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = [this](int connectionType) {
                     boost::json::object json;
-                    json["requestType"] = static_cast<int64_t>(WebRTCRequestState::STATS);
+                    json["requestType"] = static_cast<int64_t>(WebrtcRequestState::STATS);
                     json["connectionType"] = connectionType;
                     std::string jsonStr = boost::json::serialize(json);
                     std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-                    manager->asyncWrite(data);
+                    webrtcManager->asyncWrite(data);
                     };
-                manager->peerConnection->GetStats(manager->rtcStatsCollectorHandle.get());
+                webrtcManager->peerConnection->GetStats(webrtcManager->rtcStatsCollectorHandle.get());
                 break;
             }
 
@@ -108,10 +108,10 @@ namespace hope {
             case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
                 LOG_INFO("ICE connection disconnected");
                 boost::json::object json;
-                json["requestType"] = static_cast<int64_t>(WebRTCRequestState::CLOSE);
+                json["requestType"] = static_cast<int64_t>(WebrtcRequestState::CLOSE);
                 std::string jsonStr = boost::json::serialize(json);
                 std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-                manager->asyncWrite(data);
+                webrtcManager->asyncWrite(data);
                 break;
             }
             default:

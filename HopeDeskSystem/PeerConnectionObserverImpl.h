@@ -5,11 +5,11 @@
 namespace hope {
     namespace rtc {
 
-        class WebRTCManager;
+        class WebrtcManager;
 
         class PeerConnectionObserverImpl : public webrtc::PeerConnectionObserver {
         public:
-            explicit PeerConnectionObserverImpl(WebRTCManager* manager);   // 仅声明
+            explicit PeerConnectionObserverImpl(WebrtcManager* webrtcManager);   // 仅声明
 
             void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) override;
             void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) override;
@@ -34,7 +34,7 @@ namespace hope {
             void OnInterestingUsage(int usagePattern) override;
 
         private:
-            WebRTCManager* manager;
+            WebrtcManager* webrtcManager;
         };
 
     } // namespace rtc

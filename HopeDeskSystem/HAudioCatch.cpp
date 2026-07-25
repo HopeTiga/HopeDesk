@@ -88,21 +88,21 @@ namespace hope {
             startTick = GetTickCount();
             LOG_INFO("Event loop thread started");
 
-            // ´ËÊ± iAudioClient ÒÑ¾­ÔÚ initlize ÖÐ Start() ¹ýÁË£¬²»ÒªÔÙ¶¯Ëü
+            // ï¿½ï¿½Ê± iAudioClient ï¿½Ñ¾ï¿½ï¿½ï¿½ initlize ï¿½ï¿½ Start() ï¿½ï¿½ï¿½Ë£ï¿½ï¿½ï¿½Òªï¿½Ù¶ï¿½ï¿½ï¿½
 
-            // ×¢Òâ£º²»ÒªÔÚÕâÀï´« &silenceBuffer£¬ÒªÔÚÏß³ÌÄÚ²¿´´½¨£¬·ÀÖ¹Ò°Ö¸Õë
+            // ×¢ï¿½â£ºï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ï¿½ï´« &silenceBufferï¿½ï¿½Òªï¿½ï¿½ï¿½ß³ï¿½ï¿½Ú²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¹Ò°Ö¸ï¿½ï¿½
             eventLoopThread = std::thread([this] {
-                // ÔÚÐÂÏß³Ì³õÊ¼»¯ COM (·ÀÖ¹²¿·ÖÏµÍ³ÉÏµ÷ÓÃ WASAPI ½Ó¿Ú±ÀÀ£)
+                // ï¿½ï¿½ï¿½ï¿½ï¿½ß³Ì³ï¿½Ê¼ï¿½ï¿½ COM (ï¿½ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½ÏµÍ³ï¿½Ïµï¿½ï¿½ï¿½ WASAPI ï¿½Ó¿Ú±ï¿½ï¿½ï¿½)
                 CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-                // 1. ¼ÆËã 10ms Êý¾ÝÁ¿ (WebRTC ÍÆ¼ö 10ms ÇÐÆ¬)
+                // 1. ï¿½ï¿½ï¿½ï¿½ 10ms ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (WebRTC ï¿½Æ¼ï¿½ 10ms ï¿½ï¿½Æ¬)
                 const size_t bytesPerFrame = pwfx->nBlockAlign;
                 const size_t samplesPerSec = pwfx->nSamplesPerSec;
-                // 10ms µÄÖ¡Êý = ²ÉÑùÂÊ / 100
+                // 10ms ï¿½ï¿½Ö¡ï¿½ï¿½ = ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ / 100
                 const size_t framesPer10ms = samplesPerSec / 100;
                 const size_t bytesPer10ms = framesPer10ms * bytesPerFrame;
 
-                // 2. ×¼±¸È« 0 µÄ¾²Òô°ü (ÔÚÏß³ÌÕ»ÉÏ·ÖÅä£¬°²È«)
+                // 2. ×¼ï¿½ï¿½È« 0 ï¿½Ä¾ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ß³ï¿½Õ»ï¿½Ï·ï¿½ï¿½ä£¬ï¿½ï¿½È«)
                 std::vector<BYTE> silence10ms(bytesPer10ms, 0);
 
                 while (eventLoopRunning.load()) {
@@ -110,7 +110,7 @@ namespace hope {
                     UINT32 packetSize = 0;
                     HRESULT hr = iAudioCaptureClient->GetNextPacketSize(&packetSize);
 
-                    // Ñ­»·¶ÁÈ¡»º³åÇøÀï»ýÑ¹µÄËùÓÐÊý¾Ý
+                    // Ñ­ï¿½ï¿½ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                     while (SUCCEEDED(hr) && packetSize > 0) {
                         hasData = true;
                         BYTE* data;
@@ -121,42 +121,42 @@ namespace hope {
                         if (SUCCEEDED(hr)) {
                             size_t currentBytes = frames * bytesPerFrame;
 
-                            // === ÒôÖÊÐÞ¸´ºËÐÄ ===
+                            // === ï¿½ï¿½ï¿½ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½ï¿½ ===
                             if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-                                // ¼ÈÈ»ÊÇ¾²Òô£¬·¢È«0Êý¾Ý¡£
-                                // ¹Ø¼ü£º±ØÐë°´ÕÕµ±Ç° frames µÄ³¤¶È·¢£¬²»ÄÜÏ¹·¢¹Ì¶¨³¤¶È
+                                // ï¿½ï¿½È»ï¿½Ç¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È«0ï¿½ï¿½ï¿½Ý¡ï¿½
+                                // ï¿½Ø¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ë°´ï¿½Õµï¿½Ç° frames ï¿½Ä³ï¿½ï¿½È·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¹ï¿½ï¿½ï¿½Ì¶ï¿½ï¿½ï¿½ï¿½ï¿½
                                 if (currentBytes == bytesPer10ms) {
-                                    // ÓÅ»¯£ºÈç¹ûÊÇ±ê×¼µÄ 10ms£¬Ö±½ÓÓÃÔ¤·ÖÅäºÃµÄ
+                                    // ï¿½Å»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç±ï¿½×¼ï¿½ï¿½ 10msï¿½ï¿½Ö±ï¿½ï¿½ï¿½ï¿½Ô¤ï¿½ï¿½ï¿½ï¿½Ãµï¿½
                                     dataHandle(silence10ms.data(), bytesPer10ms);
                                 }
                                 else {
-                                    // Ö»ÓÐ³¤¶È²»±ê×¼Ê±²ÅÁÙÊ±·ÖÅä£¬¼õÉÙÐÔÄÜ¿ªÏú
+                                    // Ö»ï¿½Ð³ï¿½ï¿½È²ï¿½ï¿½ï¿½×¼Ê±ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ä£¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü¿ï¿½ï¿½ï¿½
                                     std::vector<BYTE> tempSilence(currentBytes, 0);
                                     dataHandle(tempSilence.data(), currentBytes);
                                 }
                             }
                             else {
-                                // Õý³£ÓÐÉùÒôµÄÊý¾Ý
+                                // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                                 dataHandle(data, currentBytes);
                             }
 
                             iAudioCaptureClient->ReleaseBuffer(frames);
                         }
 
-                        // ¼ì²éÏÂÒ»°ü
+                        // ï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½
                         hr = iAudioCaptureClient->GetNextPacketSize(&packetSize);
                     }
 
                     if (!hasData) {
-                        // === ¶µµ×Âß¼­ ===
-                        // Ö»ÓÐÔÚÍêÈ«¶Á²»µ½Êý¾Ý£¨Loopback Ã»ÉùÒô»ò buffer ¿ÕÁË£©Ê±
-                        // ÊÊµ± sleep ·ÀÖ¹ CPU 100%
-                        // ÒòÎªÄãÓÐ dummyRenderClient£¬ÀíÂÛÉÏÕâÀï¼«ÉÙ»á³¤Ê±¼äÃ»Êý¾Ý
+                        // === ï¿½ï¿½ï¿½ï¿½ï¿½ß¼ï¿½ ===
+                        // Ö»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý£ï¿½Loopback Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ buffer ï¿½ï¿½ï¿½Ë£ï¿½Ê±
+                        // ï¿½Êµï¿½ sleep ï¿½ï¿½Ö¹ CPU 100%
+                        // ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½ dummyRenderClientï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¼«ï¿½Ù»á³¤Ê±ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½
                         Sleep(3);
                     }
                     else {
-                        // Èç¹û¶Áµ½ÁËÊý¾Ý£¬²»Òª sleep£¬Á¢¿Ì³¢ÊÔ¶ÁÏÂÒ»¿é£¬Ö±µ½¶Á¿Õ
-                        // ÕâÑùÄÜ½µµÍÑÓ³Ù
+                        // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý£ï¿½ï¿½ï¿½Òª sleepï¿½ï¿½ï¿½ï¿½ï¿½Ì³ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½Ò»ï¿½é£¬Ö±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+                        // ï¿½ï¿½ï¿½ï¿½ï¿½Ü½ï¿½ï¿½ï¿½ï¿½Ó³ï¿½
                     }
                 }
 
@@ -171,17 +171,17 @@ namespace hope {
         {
             if (!eventLoopRunning.load()) return;
 
-            // 1. ÏÈÖÃ±êÖ¾Î»
+            // 1. ï¿½ï¿½ï¿½Ã±ï¿½Ö¾Î»
             eventLoopRunning.store(false);
 
-            // 2. ¡¾¹Ø¼ü¡¿±ØÐëµÈ´ýÏß³ÌÍêÈ«ÍË³ö£¬·ñÔòÏß³ÌÀï»¹ÔÚÓÃ captureClient Ê±Äã¾Í°ÑËü Release ÁË
+            // 2. ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È´ï¿½ï¿½ß³ï¿½ï¿½ï¿½È«ï¿½Ë³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ß³ï¿½ï¿½ï»¹ï¿½ï¿½ï¿½ï¿½ captureClient Ê±ï¿½ï¿½Í°ï¿½ï¿½ï¿½ Release ï¿½ï¿½
             if (eventLoopThread.joinable()) {
                 eventLoopThread.join();
             }
 
             LOG_INFO("Stopping audio capture resources");
 
-            // 3. °²È«Í£Ö¹ºÍÊÍ·Å×ÊÔ´
+            // 3. ï¿½ï¿½È«Í£Ö¹ï¿½ï¿½ï¿½Í·ï¿½ï¿½ï¿½Ô´
             if (iAudioClient) {
                 iAudioClient->Stop();
             }
@@ -214,11 +214,11 @@ namespace hope {
                 pwfx = nullptr;
             }
 
-            // initlize ÀïµÄ CoInitializeEx ¶ÔÓ¦ÕâÀïµÄ Uninitialize
-            // µ«ÄãÔÚ initlize Àïµ÷ÁËÒ»´Î£¬ÔÚÀàÎö¹¹»ò stop Ê±µ÷Ò»´Î¼´¿É
+            // initlize ï¿½ï¿½ï¿½ CoInitializeEx ï¿½ï¿½Ó¦ï¿½ï¿½ï¿½ï¿½ï¿½ Uninitialize
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ initlize ï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½Î£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ stop Ê±ï¿½ï¿½Ò»ï¿½Î¼ï¿½ï¿½ï¿½
             CoUninitialize();
 
-            initlized.store(false); // ÖØÖÃ³õÊ¼»¯×´Ì¬£¬ÔÊÐíÔÙ´Î init
+            initlized.store(false); // ï¿½ï¿½ï¿½Ã³ï¿½Ê¼ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ù´ï¿½ init
             LOG_INFO("HAudioCatch released");
         }
 
