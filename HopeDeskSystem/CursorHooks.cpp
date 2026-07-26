@@ -99,15 +99,6 @@ namespace hope {
                 return;
             }
 
-            HCURSOR currentCursor = cursorInfo.hCursor;
-
-            // Cursor unchanged, return directly
-            if (currentCursor == lastCursor) {
-                return;
-            }
-
-            lastCursor = currentCursor;
-
 #pragma pack(push,1)
             struct Cursors {
                 short type;
@@ -118,6 +109,41 @@ namespace hope {
                 int hotY;
             };
 #pragma pack(pop)
+
+            HCURSOR currentCursor = cursorInfo.hCursor;
+
+            // 游戏隐藏光标(ShowCursor(false) 累计<0 或 SetCursor(NULL))
+            // 此时进入相对鼠标模式，通知对端隐藏本地光标 + 切相对移动
+            // CURSOR_SHOWING(0x0001) 置位表示光标可见；该位为 0 即被隐藏。
+#ifndef CURSOR_SHOWING
+#define CURSOR_SHOWING 0x0001
+#endif
+            bool hidden = !(cursorInfo.flags & CURSOR_SHOWING) || (currentCursor == NULL);
+            if (hidden) {
+                // 仅在 可见 -> 隐藏 的边沿发送一次
+                if (lastCursor != nullptr) {
+                    lastCursor = nullptr;
+                    unsigned char* data = new unsigned char[sizeof(Cursors)];
+                    Cursors* c = reinterpret_cast<Cursors*>(data);
+                    c->type = 2;  // 隐藏光标
+                    c->index = 0;
+                    c->width = 0;
+                    c->height = 0;
+                    c->hotX = 0;
+                    c->hotY = 0;
+                    if (cursorHandler) {
+                        cursorHandler(data, sizeof(Cursors));
+                    }
+                }
+                return;
+            }
+
+            // Cursor unchanged, return directly
+            if (currentCursor == lastCursor) {
+                return;
+            }
+
+            lastCursor = currentCursor;
 
             if (cursorCaches.find(currentCursor) == cursorCaches.end()) {
                 cursorCaches[currentCursor] = cursorCaches.size();

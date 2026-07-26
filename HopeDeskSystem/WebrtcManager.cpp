@@ -746,6 +746,28 @@ namespace hope {
                 break;
             }
 
+            case 6: { // Mouse relative move (游戏视角，相对增量)
+                if (size < sizeof(short) + 2 * sizeof(uint32_t)) return;
+
+#pragma pack(push,1)
+                struct MouseMove              // 6 字节
+                {
+                    short  type;              // 6
+                    uint32_t x;               // dx (按 int32 解释)
+                    uint32_t y;               // dy
+                };
+#pragma pack(pop)
+
+                const MouseMove* mouseMove = reinterpret_cast<const MouseMove*>(data);
+
+                int dx = static_cast<int32_t>(mouseMove->x);
+                int dy = static_cast<int32_t>(mouseMove->y);
+
+                keyMouseSim->MouseMove(dx, dy, false);
+
+                break;
+            }
+
             case 1:  // Mouse button down
             case 2: { // Mouse button up
                 constexpr std::size_t kMinSize = sizeof(short) * 2 + 2 * sizeof(int);
@@ -755,6 +777,16 @@ namespace hope {
                 const auto* p = reinterpret_cast<const int16_t*>(data);
                 const int16_t  mouseType = p[1];               // 2 字节
                 const int32_t* coordPtr = reinterpret_cast<const int32_t*>(p + 2); // 8 字节
+
+                // 哨兵 0xFFFFFFFF：相对模式下按键不带坐标，跳过绝对定位
+                // (避免把游戏已锁定的光标 warp 到角落)
+                if (coordPtr[0] == 0xFFFFFFFFu && coordPtr[1] == 0xFFFFFFFFu) {
+                    if (eventType == 1)
+                        keyMouseSim->MouseButtonDown(mouseType, -1, -1);
+                    else
+                        keyMouseSim->MouseButtonUp(mouseType);
+                    break;
+                }
 
                 // 0-65535 固定点 → 屏幕坐标，一次 64-bit 乘
                 const uint32_t scaleX = (static_cast<uint64_t>(coordPtr[0]) * screenWidth) >> 16;
