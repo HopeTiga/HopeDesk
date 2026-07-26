@@ -127,6 +127,7 @@ MainWindow::~MainWindow()
         settings->setValue("videoCodec", videoCodec);
         settings->setValue("webrtcLevels", webrtcLevels);
         settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
+        settings->setValue("webrtcEnableNvidia", webrtcEnableNvidia);
     }
     if (webrtcManager) { webrtcManager->disConnect();}
     if (videoWidget) delete videoWidget;
@@ -166,11 +167,13 @@ void MainWindow::initConfigAndSettings()
     videoCodec = settings->value("videoCodec", 4).toInt();
     webrtcLevels = settings->value("webrtcLevels", 2).toInt();
     webrtcAudioEnable = settings->value("webrtcAudioEnable", 0).toInt();
+    webrtcEnableNvidia = settings->value("webrtcEnableNvidia", 0).toInt();
 
     ui->modeComboBox->setCurrentIndex(webrtcModulesType);
     ui->codecComboBox->setCurrentIndex(videoCodec);
     ui->accelerationComboBox->setCurrentIndex(webrtcLevels);
     ui->checkAudio->setChecked(webrtcAudioEnable == 1);
+    ui->checkHwAccel->setChecked(webrtcEnableNvidia == 1);
 }
 
 // ==========================================
@@ -564,10 +567,22 @@ void MainWindow::onDeviceItemClicked(QListWidgetItem* item) {
     }
 }
 
-void MainWindow::onModeChanged(int index) { webrtcModulesType = index; }
-void MainWindow::onCodecChanged(int index) { videoCodec = index; }
-void MainWindow::onAccelerationChanged(int index) { webrtcLevels = index; }
-void MainWindow::onAudioChecked(bool checked) { webrtcAudioEnable = checked ? 1 : 0; }
+void MainWindow::onModeChanged(int index) {
+    webrtcModulesType = index;
+    if (settings) settings->setValue("webrtcModulesType", webrtcModulesType);
+}
+void MainWindow::onCodecChanged(int index) {
+    videoCodec = index;
+    if (settings) settings->setValue("videoCodec", videoCodec);
+}
+void MainWindow::onAccelerationChanged(int index) {
+    webrtcLevels = index;
+    if (settings) settings->setValue("webrtcLevels", webrtcLevels);
+}
+void MainWindow::onAudioChecked(bool checked) {
+    webrtcAudioEnable = checked ? 1 : 0;
+    if (settings) settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
+}
 void MainWindow::onAutoStartChecked(bool checked) { Q_UNUSED(checked); }
 
 void MainWindow::onNavHomeClicked() { ui->mainStackedWidget->setCurrentIndex(0); }
@@ -764,11 +779,10 @@ void MainWindow::on_checkHwAccel_checkStateChanged(const Qt::CheckState &state)
 {
     if(state != Qt::Unchecked) {
         webrtcEnableNvidia = 1;
-
     } else {
-
         webrtcEnableNvidia = 0;
     }
+    if (settings) settings->setValue("webrtcEnableNvidia", webrtcEnableNvidia);
 }
 
 

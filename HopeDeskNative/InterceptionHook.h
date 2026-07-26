@@ -63,6 +63,9 @@ private:
 
     void sendMouseMoveEvent(int x, int y);
 
+    // 相对移动：转发 Interception 原始硬件增量(dx/dy)，用于游戏视角
+    void sendMouseRelativeEvent(int dx, int dy);
+
     void sendWheelEvent(int delta);
 
     // 坐标转换：窗口客户区坐标转屏幕坐标
@@ -108,3 +111,4 @@ private:
 }
 
 #endif // INTERCEPTIONHOOK_H
+

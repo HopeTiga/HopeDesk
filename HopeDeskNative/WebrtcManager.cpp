@@ -964,7 +964,8 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 #pragma pack(pop)
 
     switch(type) {
-    case 0: { // Cursor index message
+    case 0: { // Cursor index message (隐式：光标可见 -> 绝对模式)
+        relativeMouseMode = false;
         if (size < sizeof(CursorMessage)) {
             LOG_ERROR("Invalid cursor index message size");
             break;
@@ -1010,7 +1011,8 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         break;
     }
 
-    case 1: { // New cursor data
+    case 1: { // New cursor data (隐式：光标可见 -> 绝对模式)
+        relativeMouseMode = false;
         if (size < sizeof(CursorMessage)) {
             LOG_ERROR("Invalid new cursor message size");
             break;
@@ -1072,6 +1074,25 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
             lastCursor = CopyCursor(cursor);
             SetSystemCursor(lastCursor, 32512);
             DestroyCursor(cursor); // Clean up the temporary cursor
+        }
+        break;
+    }
+
+    case 2: { // 隐藏光标 -> 进入相对鼠标模式(游戏视角)
+        relativeMouseMode = true;
+
+        // 用 1x1 全透明光标替换系统普通光标，实现本地隐藏
+        static HCURSOR transparentCursor = nullptr;
+        if (!transparentCursor) {
+            unsigned char zero[4] = { 0, 0, 0, 0 }; // RGBA 全 0，alpha=0 -> 全透明
+            transparentCursor = CreateCursorFromRGBA(zero, 1, 1, 0, 0);
+        }
+        if (transparentCursor) {
+            // SetSystemCursor 会销毁传入的句柄，需每次拷贝一份
+            HCURSOR copy = CopyCursor(transparentCursor);
+            if (copy) {
+                SetSystemCursor(copy, 32512); // OCR_NORMAL
+            }
         }
         break;
     }

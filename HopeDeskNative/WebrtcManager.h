@@ -218,6 +218,10 @@ private:
 
     boost::asio::awaitable<void> webrtcWriteCoroutine();
 
+public:
+
+    std::atomic<bool> relativeMouseMode{false};
+
 private:
 
     std::string accountId;

@@ -170,7 +170,12 @@ void InterceptionHook::captureThreadFunc()
         }
         else if (interception_is_mouse(device)) {
             InterceptionMouseStroke* mousestroke = reinterpret_cast<InterceptionMouseStroke*>(&stroke);
-            if (isInTargetWindow()) {
+            // 相对模式(游戏视角)：本地光标已隐藏且会漂移甚至离开窗口，
+            // 不能再用 isInTargetWindow() 做门控，否则视角会卡死
+            if (webrtcManager && webrtcManager->relativeMouseMode.load()) {
+                processMouseEvent(*mousestroke);
+            }
+            else if (isInTargetWindow()) {
                 processMouseEvent(*mousestroke);
             }
         }
@@ -225,45 +230,64 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 
 void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
 {
-    // Get current mouse position
-    POINT cursorPos;
-    GetCursorPos(&cursorPos);
+    // 远程光标被游戏隐藏 -> 相对模式(转发硬件增量用于视角)
+    // 否则 -> 绝对模式(所见即所得)
+    const bool relative = webrtcManager && webrtcManager->relativeMouseMode.load();
 
-    // Convert to window client area coordinates
-    POINT clientPt = cursorPos;
-    if (targetHwnd) {
-        ScreenToClient(targetHwnd, &clientPt);
+    int x = 0;
+    int y = 0;
 
-        // Get window client area size
-        RECT clientRect;
-        GetClientRect(targetHwnd, &clientRect);
-        int windowWidth  = clientRect.right - clientRect.left;
-        int windowHeight = clientRect.bottom - clientRect.top;
-
-        // Map window coordinates to screen coordinate system (maintain relative position)
-        if (windowWidth > 0 && windowHeight > 0) {
-            clientPt.x = (clientPt.x * screenWidth)  / windowWidth;
-            clientPt.y = (clientPt.y * screenHeight) / windowHeight;
-
-            // Boundary check
-            if (clientPt.x < 0) clientPt.x = 0;
-            if (clientPt.x >= screenWidth)  clientPt.x = screenWidth  - 1;
-            if (clientPt.y < 0) clientPt.y = 0;
-            if (clientPt.y >= screenHeight) clientPt.y = screenHeight - 1;
+    if (relative) {
+        // 相对模式：直接转发 Interception 原始增量，不做阈值过滤(1px 也是有效输入)
+        if (mousestroke.x != 0 || mousestroke.y != 0) {
+            sendMouseRelativeEvent(mousestroke.x, mousestroke.y);
         }
+        // 按键不带坐标(哨兵 -1)，避免 System 端 MouseButtonDown 内部绝对定位
+        // 把游戏已锁定的光标 warp 到角落
+        x = -1;
+        y = -1;
     }
+    else {
+        // 绝对模式：取本机光标位置 -> 屏幕坐标
+        POINT cursorPos;
+        GetCursorPos(&cursorPos);
 
-    int x = clientPt.x;
-    int y = clientPt.y;
+        // Convert to window client area coordinates
+        POINT clientPt = cursorPos;
+        if (targetHwnd) {
+            ScreenToClient(targetHwnd, &clientPt);
 
-    // ===== 1+2 合并：取消计数器节流，改用 3 像素距离阈值 =====
-    constexpr int kMoveThreshold2 = 2 * 2;          // 平方距离，省 sqrt
-    int dx = x - lastMouseX.load();
-    int dy = y - lastMouseY.load();
-    if (dx * dx + dy * dy >= kMoveThreshold2) {
-        sendMouseMoveEvent(x, y);
-        lastMouseX = x;
-        lastMouseY = y;
+            // Get window client area size
+            RECT clientRect;
+            GetClientRect(targetHwnd, &clientRect);
+            int windowWidth  = clientRect.right - clientRect.left;
+            int windowHeight = clientRect.bottom - clientRect.top;
+
+            // Map window coordinates to screen coordinate system (maintain relative position)
+            if (windowWidth > 0 && windowHeight > 0) {
+                clientPt.x = (clientPt.x * screenWidth)  / windowWidth;
+                clientPt.y = (clientPt.y * screenHeight) / windowHeight;
+
+                // Boundary check
+                if (clientPt.x < 0) clientPt.x = 0;
+                if (clientPt.x >= screenWidth)  clientPt.x = screenWidth  - 1;
+                if (clientPt.y < 0) clientPt.y = 0;
+                if (clientPt.y >= screenHeight) clientPt.y = screenHeight - 1;
+            }
+        }
+
+        x = clientPt.x;
+        y = clientPt.y;
+
+        // ===== 1+2 合并：取消计数器节流，改用 3 像素距离阈值 =====
+        constexpr int kMoveThreshold2 = 2 * 2;          // 平方距离，省 sqrt
+        int dx = x - lastMouseX.load();
+        int dy = y - lastMouseY.load();
+        if (dx * dx + dy * dy >= kMoveThreshold2) {
+            sendMouseMoveEvent(x, y);
+            lastMouseX = x;
+            lastMouseY = y;
+        }
     }
 
     // Process mouse buttons
@@ -332,9 +356,17 @@ void InterceptionHook::sendMouseEvent(short type, short button, int x, int y)
         return;
     }
 
-    // Normalize coordinates to 0-65535 range
-    uint32_t normalizedX = (x << 16) / screenWidth;
-    uint32_t normalizedY = (y << 16) / screenHeight;
+    // x<0 / y<0 : 哨兵值(相对模式下按键不带坐标)，System 端跳过绝对定位
+    uint32_t normalizedX;
+    uint32_t normalizedY;
+    if (x < 0 || y < 0) {
+        normalizedX = 0xFFFFFFFFu;
+        normalizedY = 0xFFFFFFFFu;
+    } else {
+        // Normalize coordinates to 0-65535 range
+        normalizedX = (x << 16) / screenWidth;
+        normalizedY = (y << 16) / screenHeight;
+    }
 
 #pragma pack(push,1)
     struct MouseButton {
@@ -369,6 +401,24 @@ void InterceptionHook::sendMouseMoveEvent(int x, int y)
     MouseMove* pkt = new MouseMove{0, normalizedX, normalizedY};
 
     webrtcManager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseMove));
+}
+
+void InterceptionHook::sendMouseRelativeEvent(int dx, int dy)
+{
+    if (!webrtcManager) return;
+
+#pragma pack(push,1)
+    struct MouseRelative         // 10 字节
+    {
+        short  type;              // 6
+        uint32_t x;               // dx (按 int32 在 System 端解释)
+        uint32_t y;               // dy
+    };
+#pragma pack(pop)
+
+    MouseRelative* pkt = new MouseRelative{6, static_cast<uint32_t>(dx), static_cast<uint32_t>(dy)};
+
+    webrtcManager->writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(MouseRelative));
 }
 
 void InterceptionHook::sendWheelEvent(int delta)
@@ -408,3 +458,4 @@ void InterceptionHook::convertClientToScreen(int& x, int& y)
     }
 
 }
+
