@@ -115,9 +115,9 @@ namespace hope {
             // 游戏隐藏光标(ShowCursor(false) 累计<0 或 SetCursor(NULL))
             // 此时进入相对鼠标模式，通知对端隐藏本地光标 + 切相对移动
             // CURSOR_SHOWING(0x0001) 置位表示光标可见；该位为 0 即被隐藏。
-#ifndef CURSOR_SHOWING
-#define CURSOR_SHOWING 0x0001
-#endif
+            #ifndef CURSOR_SHOWING
+            #define CURSOR_SHOWING 0x0001
+            #endif
             bool hidden = !(cursorInfo.flags & CURSOR_SHOWING) || (currentCursor == NULL);
             if (hidden) {
                 // 仅在 可见 -> 隐藏 的边沿发送一次
@@ -146,9 +146,10 @@ namespace hope {
             lastCursor = currentCursor;
 
             if (cursorCaches.find(currentCursor) == cursorCaches.end()) {
-                cursorCaches[currentCursor] = cursorCaches.size();
-
-                // If handler exists, get cursor data and call it
+                // 新光标：只有成功提取位图并已排队发送时才分配 index。
+                // 若先占 index 再提取，提取失败会留下 index 空洞，
+                // 导致对端 cursorArray 下标错位：后续 type=0 引用空洞、
+                // 新光标 index>size 被对端拒收，连锁失步(重连才恢复)。
                 if (cursorHandler && currentCursor) {
                     unsigned char* bitmapData = nullptr;
                     size_t bitmapSize = 0;
@@ -156,8 +157,6 @@ namespace hope {
                     getCursorBitmapData(currentCursor, bitmapData, bitmapSize);
 
                     if (bitmapData && bitmapSize > 0) {
-                        int index = cursorCaches[currentCursor];
-
                         // Get cursor information
                         ICONINFO iconInfo = { 0 };
                         int hotX = 0, hotY = 0;
@@ -186,31 +185,38 @@ namespace hope {
                             if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
                         }
 
-                        cursorHotPos.emplace_back(hotX, hotY);
-                        cursorSizes.emplace_back(width, height);
+                        // 与对端校验一致：尺寸非法(>256 或 <=0)则不缓存，
+                        // 否则对端 type=1 会拒收但仍占 index，同样产生空洞。
+                        if (width > 0 && width <= 256 && height > 0 && height <= 256) {
+                            int index = static_cast<int>(cursorCaches.size());
+                            cursorCaches[currentCursor] = index;  // 成功才提交 index
 
-                        // Allocate memory: struct + bitmap data
-                        size_t totalSize = sizeof(Cursors) + bitmapSize;
-                        unsigned char* finalData = new unsigned char[totalSize];
+                            cursorHotPos.emplace_back(hotX, hotY);
+                            cursorSizes.emplace_back(width, height);
 
-                        // Write struct directly to buffer
-                        Cursors* cursors = reinterpret_cast<Cursors*>(finalData);
-                        cursors->type = 1;  // New cursor data
-                        cursors->index = index;
-                        cursors->width = width;
-                        cursors->height = height;
-                        cursors->hotX = hotX;
-                        cursors->hotY = hotY;
+                            // Allocate memory: struct + bitmap data
+                            size_t totalSize = sizeof(Cursors) + bitmapSize;
+                            unsigned char* finalData = new unsigned char[totalSize];
 
-                        // Copy bitmap data after struct
-                        fastCopy(finalData + sizeof(Cursors), bitmapData, bitmapSize);
+                            // Write struct directly to buffer
+                            Cursors* cursors = reinterpret_cast<Cursors*>(finalData);
+                            cursors->type = 1;  // New cursor data
+                            cursors->index = index;
+                            cursors->width = width;
+                            cursors->height = height;
+                            cursors->hotX = hotX;
+                            cursors->hotY = hotY;
 
-                        if (cursorHandler) {
+                            // Copy bitmap data after struct
+                            fastCopy(finalData + sizeof(Cursors), bitmapData, bitmapSize);
+
                             cursorHandler(finalData, totalSize);
                         }
+                        // else: 尺寸非法，不缓存(无空洞)，下次光标变化再重试
 
                         delete[] bitmapData;
                     }
+                    // else: 位图提取失败，不缓存(无空洞)，下次光标变化再重试
                 }
             }
             else {
