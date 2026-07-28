@@ -230,7 +230,10 @@ public:
 
     std::function<void()> onResetCursorHandle;
 
-    std::function<void(int)> onRTCStatsCollectorHandle;
+    std::function<void(int, double)> onRTCStatsCollectorHandle;
+
+    // 主动请求一次 WebRTC 统计(触发 onRTCStatsCollectorHandle 回调,用于刷新 RTT)
+    void requestStats();
 
     void disConnectHandle();
 

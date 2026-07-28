@@ -88,6 +88,7 @@ MainWindow::MainWindow(QWidget* parent)
                 });
                 connect(videoWidget, &VideoWidget::disConnectRemote, this, [this](){
                     isRemoteConnected = false;
+                    if (statsTimer) statsTimer->stop();
                     ui->btnStartControl->setEnabled(true);
                     ui->btnStartControl->setText("立即连接");
                     ui->btnSendCtrlAltF->setEnabled(false);
@@ -112,6 +113,13 @@ MainWindow::MainWindow(QWidget* parent)
             ui->remoteStatusLabel->setText("🟢 远程连接已建立");
             ui->remoteStatusLabel->setStyleSheet("color: #10B981;");
             addToHistory(ui->remoteIdEdit->text());
+
+            // 开始周期刷新 RTT,并立即拉一次(仅在设置开启时)
+            lastRttMs = -1.0;
+            if (showRttEnabled) {
+                if (statsTimer) statsTimer->start();
+                if (webrtcManager) webrtcManager->requestStats();
+            }
         }, Qt::QueuedConnection);
     };
 
@@ -125,9 +133,9 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onRTCStatsCollectorHandle = [this](int type) {
-        QMetaObject::invokeMethod(this, [this, type]() {
-            updateNetworkTypeUI(type);
+    webrtcManager->onRTCStatsCollectorHandle = [this](int type, double rttMs) {
+        QMetaObject::invokeMethod(this, [this, type, rttMs]() {
+            updateNetworkTypeUI(type, rttMs);
         }, Qt::QueuedConnection);
     };
 
@@ -148,6 +156,7 @@ MainWindow::~MainWindow()
         settings->setValue("videoCodec", videoCodec);
         settings->setValue("webrtcLevels", webrtcLevels);
         settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
+        settings->setValue("showRtt", showRttEnabled);
         settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
         settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
     }
@@ -201,6 +210,9 @@ void MainWindow::initConfigAndSettings()
     ui->checkAudio->setChecked(webrtcAudioEnable == 1);
     ui->checkHwAccel->setChecked(webrtcEnableNvenc == 1);
     ui->checkHwDec->setChecked(webrtcEnableNvdec == 1);
+
+    showRttEnabled = settings->value("showRtt", false).toBool();
+    ui->checkShowRtt->setChecked(showRttEnabled);
 }
 
 // ==========================================
@@ -456,18 +468,39 @@ void MainWindow::updateDeviceListUI(bool showFavorites) {
     }
 }
 
-void MainWindow::updateNetworkTypeUI(int type) {
+void MainWindow::updateNetworkTypeUI(int type, double rttMs) {
+    lastConnectionType = type;
+    // 服务器 STATS 路径不携带 RTT(传 -1),沿用上次值,避免把显示刷掉
+    if (rttMs >= 0) lastRttMs = rttMs;
+
     ui->networkTypeBadge->setVisible(true);
     ui->networkTypeBadge->style()->unpolish(ui->networkTypeBadge);
 
+    QString baseText;
     if (type == 0) { // P2P
         ui->networkTypeBadge->setProperty("type", "p2p");
-        ui->networkTypeBadge->setText("⚡ P2P直连");
+        baseText = "⚡ P2P直连";
     } else { // Relay
         ui->networkTypeBadge->setProperty("type", "relay");
-        ui->networkTypeBadge->setText("🔄 中继转发");
+        baseText = "🔄 中继转发";
     }
+
+    // 仅在开启 RTT 显示时拼接延迟数字
+    if (showRttEnabled) {
+        if (lastRttMs >= 0) {
+            baseText += QString(" · %1 ms").arg(static_cast<int>(lastRttMs + 0.5));
+        } else {
+            baseText += " · -- ms";
+        }
+    }
+    ui->networkTypeBadge->setText(baseText);
     ui->networkTypeBadge->style()->polish(ui->networkTypeBadge);
+}
+
+void MainWindow::refreshNetworkBadge()
+{
+    // 用缓存的类型与 RTT 重绘:用于设置开关切换后立即生效(不触发新的统计请求)
+    updateNetworkTypeUI(lastConnectionType, -1.0);
 }
 
 void MainWindow::moveToCenter()
@@ -526,6 +559,13 @@ void MainWindow::setupSignalSlots()
     remoteConnectionTimer->setSingleShot(true);
     connect(remoteConnectionTimer, &QTimer::timeout, this, &MainWindow::onRemoteConnectionTimeout);
 
+    // 周期性拉取 WebRTC 统计以刷新网络 RTT 显示
+    statsTimer = new QTimer(this);
+    statsTimer->setInterval(3000);
+    connect(statsTimer, &QTimer::timeout, this, [this]() {
+        if (webrtcManager && isRemoteConnected) webrtcManager->requestStats();
+    });
+
     connect(ui->modeComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onModeChanged);
     connect(ui->codecComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onCodecChanged);
     connect(ui->accelerationComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAccelerationChanged);
@@ -534,6 +574,7 @@ void MainWindow::setupSignalSlots()
         if (webrtcManager && isRemoteConnected) webrtcManager->sendKeyComboCtrlAltF();
     });
     connect(ui->checkAutoStart, &QCheckBox::clicked, this, &MainWindow::onAutoStartChecked);
+    connect(ui->checkShowRtt, &QCheckBox::clicked, this, &MainWindow::onShowRttChecked);
 }
 
 void MainWindow::onAddDeviceClicked() {
@@ -615,6 +656,27 @@ void MainWindow::onAudioChecked(bool checked) {
 }
 void MainWindow::onAutoStartChecked(bool checked) { Q_UNUSED(checked); }
 
+void MainWindow::onShowRttChecked(bool checked)
+{
+    showRttEnabled = checked;
+    if (settings) settings->setValue("showRtt", showRttEnabled);
+
+    // 立即生效:已连接时按需启停 RTT 轮询
+    if (showRttEnabled) {
+        if (isRemoteConnected && statsTimer) {
+            statsTimer->start();
+            if (webrtcManager) webrtcManager->requestStats();
+        }
+    } else {
+        if (statsTimer) statsTimer->stop();
+    }
+
+    // 重绘徽章:去掉或补上 RTT
+    if (ui->networkTypeBadge->isVisible()) {
+        refreshNetworkBadge();
+    }
+}
+
 void MainWindow::onNavHomeClicked() { ui->mainStackedWidget->setCurrentIndex(0); }
 void MainWindow::onNavDevicesClicked() { ui->mainStackedWidget->setCurrentIndex(1); }
 void MainWindow::onNavSettingsClicked() { ui->mainStackedWidget->setCurrentIndex(2); }
@@ -651,6 +713,7 @@ void MainWindow::onBtnConnectClicked()
     if (ui->btnStartControl->text() == "断开连接") {
 
         isRemoteConnected = false;
+        if (statsTimer) statsTimer->stop();
         ui->btnStartControl->setEnabled(true);
         ui->btnStartControl->setText("立即连接");
         ui->btnSendCtrlAltF->setEnabled(false);   // 手动断开:禁用
@@ -717,6 +780,7 @@ void MainWindow::onRemoteControlStarted()
 void MainWindow::onRemoteDisconnectedByPeer()
 {
     isRemoteConnected = false;
+    if (statsTimer) statsTimer->stop();
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
     ui->btnSendCtrlAltF->setEnabled(false);   // 断开:无连接可发,禁用
@@ -735,6 +799,7 @@ void MainWindow::onRemoteDisconnectedByPeer()
 
 void MainWindow::onRemoteConnectionTimeout()
 {
+    if (statsTimer) statsTimer->stop();
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
     ui->remoteStatusLabel->setText("连接请求超时");

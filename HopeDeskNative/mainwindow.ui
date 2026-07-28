@@ -1229,6 +1229,16 @@ QComboBox::drop-down {
              </property>
             </widget>
            </item>
+           <item row="8" column="0" colspan="2">
+            <widget class="QCheckBox" name="checkShowRtt">
+             <property name="toolTip">
+              <string>开启后,远程连接时在连接类型旁显示网络往返延迟(RTT)</string>
+             </property>
+             <property name="text">
+              <string>显示网络延迟 (RTT)</string>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>

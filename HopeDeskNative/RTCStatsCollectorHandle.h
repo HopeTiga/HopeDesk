@@ -15,7 +15,8 @@ namespace hope {
 
         public:
 
-            std::function<void(int)> onRTCStatsCollectorHandle;
+            // type: 0=P2P 1=Relay; rttMs: 网络往返延迟(毫秒), <0 表示本轮无数据
+            std::function<void(int, double)> onRTCStatsCollectorHandle;
 	
 		};
 	} // namespace rtc

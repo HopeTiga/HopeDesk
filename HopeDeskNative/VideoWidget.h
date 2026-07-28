@@ -110,9 +110,9 @@ private:
     std::atomic<double> currentFPS{0.0};
     std::atomic<bool> hasVideo{false};
 
-    bool isFullScreenMode;
+    bool isFullScreenMode = false;
     QRect normalGeometry;
-    Qt::WindowStates normalWindowState;
+    Qt::WindowStates normalWindowState = Qt::WindowNoState;
 
     std::unique_ptr<InterceptionHook> interceptionHook;
 

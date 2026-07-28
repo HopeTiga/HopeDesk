@@ -74,6 +74,7 @@ private Q_SLOTS:
     void onAccelerationChanged(int index);
     void onAudioChecked(bool checked);
     void onAutoStartChecked(bool checked);
+    void onShowRttChecked(bool checked);
 
     void on_checkHwAccel_checkStateChanged(const Qt::CheckState &arg1);
     void on_checkHwDec_checkStateChanged(const Qt::CheckState &arg1);
@@ -95,7 +96,8 @@ private:
     void updateRecentListUI();
     void updateDeviceListUI(bool showFavorites);
     void updateStatusUI(const QString& status, const QString& styleClass);
-    void updateNetworkTypeUI(int type);
+    void updateNetworkTypeUI(int type, double rttMs);
+    void refreshNetworkBadge();  // 用缓存的类型/RTT 重绘徽章(开关切换时调用)
 
     void moveToCenter();
 private:
@@ -113,6 +115,9 @@ private:
     int reConnectNums;
     QTimer* reconnectTimer;
     QTimer* remoteConnectionTimer;
+    QTimer* statsTimer = nullptr;        // 周期性拉取 WebRTC 统计以刷新 RTT
+    double lastRttMs = -1.0;             // 缓存上一次 RTT(服务器 STATS 路径无 RTT 时沿用)
+    int lastConnectionType = 0;          // 缓存上一次连接类型,开关切换时用于重绘徽章
     static const int REMOTE_CONNECTION_TIMEOUT = 15000;
 
     QString defaultServerHost;
@@ -135,6 +140,8 @@ private:
     int webrtcAudioEnable = 0;
     int webrtcEnableNvenc = 0;  // 硬件编码(NVENC),连接时发给 System
     int webrtcEnableNvdec = 0;  // 硬件解码(MF/D3D11),Native 本地
+
+    bool showRttEnabled = false;  // 是否在连接徽章上显示网络 RTT(可配置)
 };
 
 }

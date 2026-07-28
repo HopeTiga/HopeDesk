@@ -33,6 +33,13 @@ namespace hope {
 
             const auto& candidatePair = pairStat->cast_to<webrtc::RTCIceCandidatePairStats>();
 
+            // 网络 RTT(秒):consent freshness / STUN 往返,转毫秒;无值时用 -1 表示未知
+            double rttMs = -1.0;
+            if (candidatePair.current_round_trip_time.has_value()) {
+                rttMs = *candidatePair.current_round_trip_time * 1000.0;
+            }
+            LOG_INFO("  Network RTT: %.1f ms", rttMs);
+
             // 获取本地和远端候选者的 ID
             std::string localCandidateId = *candidatePair.local_candidate_id;
             std::string remoteCandidateId = *candidatePair.remote_candidate_id;
@@ -65,7 +72,7 @@ namespace hope {
 
                     if(onRTCStatsCollectorHandle){
 
-                        onRTCStatsCollectorHandle(1);
+                        onRTCStatsCollectorHandle(1, rttMs);
 
                     }
 
@@ -75,7 +82,7 @@ namespace hope {
 
                     if(onRTCStatsCollectorHandle){
 
-                        onRTCStatsCollectorHandle(0);
+                        onRTCStatsCollectorHandle(0, rttMs);
 
                     }
                 }

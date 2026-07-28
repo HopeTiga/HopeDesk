@@ -457,6 +457,18 @@ void WebrtcManager::disConnectRemote()
 
 }
 
+void WebrtcManager::requestStats()
+{
+    if (!peerConnection) return;
+
+    // 每次新建一个回调对象,避免复用同一对象带来的状态/时序问题
+    auto handle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
+    if (onRTCStatsCollectorHandle) {
+        handle->onRTCStatsCollectorHandle = onRTCStatsCollectorHandle;
+    }
+    peerConnection->GetStats(handle.get());
+}
+
 void WebrtcManager::disConnectRemoteHandler()
 {
 
@@ -1255,7 +1267,7 @@ void WebrtcManager::receiveCoroutineAysnc()
 
                 if(onRTCStatsCollectorHandle){
 
-                    onRTCStatsCollectorHandle(type);
+                    onRTCStatsCollectorHandle(type, -1.0);
 
                 }
 
