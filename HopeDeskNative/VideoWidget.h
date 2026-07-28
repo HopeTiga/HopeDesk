@@ -21,6 +21,9 @@ namespace hope {
 namespace rtc {
 
 class WebrtcManager;
+
+enum class FrameFormat;
+
 struct VideoFrame;
 
 class VideoWidget : public QRhiWidget
@@ -48,20 +51,14 @@ protected:
     void releaseResources() override;
     void resizeEvent(QResizeEvent* event) override;
     void enterEvent(QEnterEvent* event) override;
-    void leaveEvent(QEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
     void closeEvent(QCloseEvent *event) override;
 
 private Q_SLOTS:
     void updateFPS();
     void onFullScreenClicked();
     void onExitFullScreenClicked();
-    void hideSidebar();
 
 private:
-    void initializeControls();
-    void updateControlsPosition();
-    void showSidebar();
     bool initializeResources(QRhiCommandBuffer* cb);
     void createBuffers();
     void createTextures(int width, int height);     // 现在接受尺寸
@@ -75,6 +72,10 @@ private:
     // 当视频尺寸变化时重建纹理和绑定
     void ensureTexturesForSize(int width, int height);
 
+private:
+
+    FrameFormat currentFrameFormat;
+
     std::shared_ptr<WebrtcManager> webrtcManager;
     QRhi* rhi = nullptr;
 
@@ -86,7 +87,12 @@ private:
     std::unique_ptr<QRhiTexture> videoTextureY;
     std::unique_ptr<QRhiTexture> videoTextureU;
     std::unique_ptr<QRhiTexture> videoTextureV;
+    std::unique_ptr<QRhiTexture> videoTextureUV;   // NV12 交错 UV 平面(RG8)
     std::unique_ptr<QRhiShaderResourceBindings> srb;
+
+    // NV12 渲染管线(硬解路径;I420 用上面的 pipeline/srb,软解保持不变)
+    std::unique_ptr<QRhiGraphicsPipeline> nv12Pipeline;
+    std::unique_ptr<QRhiShaderResourceBindings> nv12Srb;
 
     // 当前纹理的实际尺寸（与最新视频帧匹配）
     int texWidth = 0;
@@ -104,20 +110,9 @@ private:
     std::atomic<double> currentFPS{0.0};
     std::atomic<bool> hasVideo{false};
 
-    QPushButton* fullScreenButton;
-    QWidget* sidebar;
-    QPushButton* sidebarExitButton;
-    QTimer* hideTimer;
-    QPropertyAnimation* sidebarAnimation;
-
     bool isFullScreenMode;
     QRect normalGeometry;
     Qt::WindowStates normalWindowState;
-    bool sidebarVisible;
-
-    static constexpr int SIDEBAR_WIDTH = 30;
-    static constexpr int SIDEBAR_TRIGGER_ZONE = 1;
-    static constexpr int HIDE_DELAY = 1500;
 
     std::unique_ptr<InterceptionHook> interceptionHook;
 

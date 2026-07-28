@@ -38,6 +38,24 @@ MainWindow::MainWindow(QWidget* parent)
 
     webrtcManager->asyncEvent();
 
+    // 操控端:解码状态 -> label(只显示解码;编码状态在被控端 Native 显示)
+    webrtcManager->onCodecStatusHandle = [this](const std::string& codec, bool hardDecode) {
+        QString codecQ = QString::fromStdString(codec).toUpper();
+        QString text = QString("解码: %1 %2").arg(codecQ).arg(hardDecode ? "硬解" : "软解");
+        QMetaObject::invokeMethod(this, [this, text]() {
+            if (ui && ui->labelCodecStatus) ui->labelCodecStatus->setText(text);
+        }, Qt::QueuedConnection);
+    };
+
+    // 被控端:本机 System 经本地 TCP(ENCODE_STATUS)上报当前编码 codec + 硬编/软编 -> label
+    webrtcManager->onEncodeStatusHandle = [this](const std::string& codec, bool hardEncode) {
+        QString codecQ = QString::fromStdString(codec).toUpper();
+        QString text = QString("编码: %1 %2").arg(codecQ).arg(hardEncode ? "硬编" : "软编");
+        QMetaObject::invokeMethod(this, [this, text]() {
+            if (ui && ui->labelCodecStatus) ui->labelCodecStatus->setText(text);
+        }, Qt::QueuedConnection);
+    };
+
     // 2. 初始化
     initConfigAndSettings();
     setupUI();
@@ -72,9 +90,11 @@ MainWindow::MainWindow(QWidget* parent)
                     isRemoteConnected = false;
                     ui->btnStartControl->setEnabled(true);
                     ui->btnStartControl->setText("立即连接");
+                    ui->btnSendCtrlAltF->setEnabled(false);
                     ui->remoteStatusLabel->setText("远程连接已结束");
                     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
                     ui->networkTypeBadge->setVisible(false);
+                    if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
                     if(videoWidget) { videoWidget->hide(); disconnect(videoWidget, nullptr, this, nullptr); delete videoWidget; videoWidget = nullptr; }
 
                     if(webrtcManager) webrtcManager->disConnectRemote();
@@ -88,6 +108,7 @@ MainWindow::MainWindow(QWidget* parent)
             isRemoteConnected = true;
             ui->btnStartControl->setText("控制中...");
             ui->btnStartControl->setEnabled(false);
+            ui->btnSendCtrlAltF->setEnabled(true);
             ui->remoteStatusLabel->setText("🟢 远程连接已建立");
             ui->remoteStatusLabel->setStyleSheet("color: #10B981;");
             addToHistory(ui->remoteIdEdit->text());
@@ -127,7 +148,8 @@ MainWindow::~MainWindow()
         settings->setValue("videoCodec", videoCodec);
         settings->setValue("webrtcLevels", webrtcLevels);
         settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
-        settings->setValue("webrtcEnableNvidia", webrtcEnableNvidia);
+        settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
+        settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
     }
     if (webrtcManager) { webrtcManager->disConnect();}
     if (videoWidget) delete videoWidget;
@@ -167,13 +189,18 @@ void MainWindow::initConfigAndSettings()
     videoCodec = settings->value("videoCodec", 4).toInt();
     webrtcLevels = settings->value("webrtcLevels", 2).toInt();
     webrtcAudioEnable = settings->value("webrtcAudioEnable", 0).toInt();
-    webrtcEnableNvidia = settings->value("webrtcEnableNvidia", 0).toInt();
+    // 拆分后的硬编/硬解开关;新键不存在时从旧 webrtcEnableNvidia 迁移
+    webrtcEnableNvenc = settings->value("webrtcEnableNvenc",
+        settings->value("webrtcEnableNvidia", 0).toInt()).toInt();
+    webrtcEnableNvdec = settings->value("webrtcEnableNvdec",
+        settings->value("webrtcEnableNvidia", 0).toInt()).toInt();
 
     ui->modeComboBox->setCurrentIndex(webrtcModulesType);
     ui->codecComboBox->setCurrentIndex(videoCodec);
     ui->accelerationComboBox->setCurrentIndex(webrtcLevels);
     ui->checkAudio->setChecked(webrtcAudioEnable == 1);
-    ui->checkHwAccel->setChecked(webrtcEnableNvidia == 1);
+    ui->checkHwAccel->setChecked(webrtcEnableNvenc == 1);
+    ui->checkHwDec->setChecked(webrtcEnableNvdec == 1);
 }
 
 // ==========================================
@@ -503,6 +530,9 @@ void MainWindow::setupSignalSlots()
     connect(ui->codecComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onCodecChanged);
     connect(ui->accelerationComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAccelerationChanged);
     connect(ui->checkAudio, &QCheckBox::clicked, this, &MainWindow::onAudioChecked);
+    connect(ui->btnSendCtrlAltF, &QPushButton::clicked, this, [this]() {
+        if (webrtcManager && isRemoteConnected) webrtcManager->sendKeyComboCtrlAltF();
+    });
     connect(ui->checkAutoStart, &QCheckBox::clicked, this, &MainWindow::onAutoStartChecked);
 }
 
@@ -623,6 +653,7 @@ void MainWindow::onBtnConnectClicked()
         isRemoteConnected = false;
         ui->btnStartControl->setEnabled(true);
         ui->btnStartControl->setText("立即连接");
+        ui->btnSendCtrlAltF->setEnabled(false);   // 手动断开:禁用
         ui->remoteStatusLabel->setText("远程连接已结束");
         ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
         ui->networkTypeBadge->setVisible(false);
@@ -657,7 +688,8 @@ void MainWindow::onBtnConnectClicked()
 
     webrtcManager->setTargetId(targetId.toStdString());
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    webrtcManager->asyncReomteDesk(webrtcModulesType, webrtcLevels, videoCodec, webrtcAudioEnable,webrtcEnableNvidia);
+    webrtcManager->asyncReomteDesk({webrtcModulesType, webrtcLevels, videoCodec,
+                                    webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec});
 }
 
 void MainWindow::onBtnCopyCodeClicked()
@@ -677,6 +709,9 @@ void MainWindow::onRemoteControlStarted()
     ui->btnStartControl->setEnabled(true);
     ui->remoteStatusLabel->setText("⚠️ 正在被远程控制中");
     ui->remoteStatusLabel->setStyleSheet("color: #EF4444; font-weight: bold;");
+    // 被控端不发 Ctrl+Alt+F(那是操控端发给被控端的),禁用按钮
+    ui->btnSendCtrlAltF->setEnabled(false);
+    // 编码状态由 System 经本地 TCP(ENCODE_STATUS)上报后写入 label,这里不重复设置
 }
 
 void MainWindow::onRemoteDisconnectedByPeer()
@@ -684,11 +719,18 @@ void MainWindow::onRemoteDisconnectedByPeer()
     isRemoteConnected = false;
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
+    ui->btnSendCtrlAltF->setEnabled(false);   // 断开:无连接可发,禁用
     ui->remoteStatusLabel->setText("远程连接已结束");
     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
     ui->networkTypeBadge->setVisible(false);
-
-    if (videoWidget) videoWidget->hide();
+    // 断开清空状态:编/解码 label + VideoWidget 显示状态(避免残留上一帧/旧状态)
+    if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
+    if (videoWidget) {
+        videoWidget->clearDisplay();
+        videoWidget->hide();
+    }
+    // 清空本地光标缓存(下次新连接会重新从 index 0 同步)
+    if (webrtcManager) webrtcManager->resetCursorCache();
 }
 
 void MainWindow::onRemoteConnectionTimeout()
@@ -777,12 +819,14 @@ void MainWindow::onSystemTrayActivated(QSystemTrayIcon::ActivationReason reason)
 
 void MainWindow::on_checkHwAccel_checkStateChanged(const Qt::CheckState &state)
 {
-    if(state != Qt::Unchecked) {
-        webrtcEnableNvidia = 1;
-    } else {
-        webrtcEnableNvidia = 0;
-    }
-    if (settings) settings->setValue("webrtcEnableNvidia", webrtcEnableNvidia);
+    webrtcEnableNvenc = (state != Qt::Unchecked) ? 1 : 0;
+    if (settings) settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
+}
+
+void MainWindow::on_checkHwDec_checkStateChanged(const Qt::CheckState &state)
+{
+    webrtcEnableNvdec = (state != Qt::Unchecked) ? 1 : 0;
+    if (settings) settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
 }
 
 

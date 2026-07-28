@@ -1,4 +1,5 @@
 #include "WebrtcManager.h"
+#include "NvdecDecoder.h"
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -194,7 +195,18 @@ void WebrtcManager::connect(std::string ip)
         }
         catch (std::exception & e) {
 
-            LOG_ERROR("WebSocket Connect Error : %s",e.what());
+            // 取消/eof/断开属拆除或重连取消在途 connect 的预期情况,降 WARN;
+            // 其余(服务器不可达、握手失败等)仍记 ERROR。
+            bool aborted = false;
+            if (auto se = dynamic_cast<const boost::system::system_error*>(&e)) {
+                auto ec = se->code();
+                aborted = ec == boost::asio::error::operation_aborted ||
+                          ec == boost::asio::error::eof ||
+                          ec == boost::asio::error::connection_aborted ||
+                          ec == boost::asio::error::connection_reset;
+            }
+            if (aborted) LOG_WARN("WebSocket Connect aborted: %s", e.what());
+            else LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
             if (self->webSocket == ws && ws) {
                 self->closeWebSocket();
@@ -499,7 +511,8 @@ void WebrtcManager::closeWebSocket()
     auto& tcpSocket = webSocket->next_layer().next_layer();
     tcpSocket.cancel(ec);
     if (ec) {
-        LOG_ERROR("WebrtcManager::closeSocket() can't cancel Socket: %s", ec.message().c_str());
+        // 拆除时 socket 多已被对端/取消中止,cancel 失败属预期,降为 WARN 避免污染 error 日志
+        LOG_WARN("WebrtcManager::closeSocket() can't cancel Socket: %s", ec.message().c_str());
     }
     // WebSocket 关闭帧
     if (webSocket->is_open()) {
@@ -770,7 +783,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                         initializePeerConnection();
 
-                        asyncReomteDesk();
+                        asyncReomteDesk(webrtcDeskConfig);
                     }
                 }else if(WebrtcRequestState(requestType) == WebrtcRequestState::STOPREMOTE){
 
@@ -820,7 +833,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                     if(responseState == 200){
 
-                        asyncReomteDesk();
+                        asyncReomteDesk(webrtcDeskConfig);
 
                     }
 
@@ -832,7 +845,18 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
     }catch(std::exception & e){
 
-        LOG_ERROR("WebSocket Connect Error : %s",e.what());
+        // 取消/eof/断开属拆除或重连取消在途 connect 的预期情况,降 WARN;
+        // 其余(服务器不可达、握手失败等)仍记 ERROR。
+        bool aborted = false;
+        if (auto se = dynamic_cast<const boost::system::system_error*>(&e)) {
+            auto ec = se->code();
+            aborted = ec == boost::asio::error::operation_aborted ||
+                      ec == boost::asio::error::eof ||
+                      ec == boost::asio::error::connection_aborted ||
+                      ec == boost::asio::error::connection_reset;
+        }
+        if (aborted) LOG_WARN("WebSocket Connect aborted: %s", e.what());
+        else LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
         // 仅当当前活跃 webSocket 仍是本协程持有的那个时才关闭，
         // 否则说明已被新的 connect() 替换，不要误关新连接。
@@ -938,10 +962,22 @@ void WebrtcManager::setSystemServiceExe(std::string webrtcExe)
     this->systemServiceExe = webrtcExe;
 }
 
+void WebrtcManager::resetCursorCache()
+{
+    cursorArray.clear();
+    cursorCacheDirty = true;  // handleCursor 首次执行时据此重置 lastCursor
+}
+
 void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 {
     // Use thread-local storage to avoid thread safety issues
     static thread_local HCURSOR lastCursor = nullptr;
+
+    // 重连清缓存:新会话首次执行时重置 lastCursor,使光标样式从 type=1 重新全量同步,
+    // 避免与对端(每连接 index 从 0)错位产生 Invalid cursor index。
+    if (cursorCacheDirty.exchange(false)) {
+        lastCursor = nullptr;
+    }
 
     // Minimum size check
     if (size < sizeof(short)) {
@@ -1223,6 +1259,15 @@ void WebrtcManager::receiveCoroutineAysnc()
 
                 }
 
+            }else if(WebrtcRequestState(json["requestType"].as_int64()) == WebrtcRequestState::ENCODE_STATUS){
+
+                // 被控端:本机 System 经本地 TCP 上报当前编码 codec + 硬编/软编
+                std::string codec = json.contains("codec") ? json["codec"].as_string().c_str() : "";
+                bool hard = json.contains("hard") ? (json["hard"].as_bool()) : false;
+                LOG_INFO("Encode status from System: codec=%s hard=%d", codec.c_str(), hard ? 1 : 0);
+                if (onEncodeStatusHandle) onEncodeStatusHandle(codec, hard);
+
+                continue;  // 状态消息不再转发给信号服务器
             }
 
             if(webSocket && webSocket->is_open()){
@@ -1239,7 +1284,8 @@ void WebrtcManager::receiveCoroutineAysnc()
                               }
                               catch (const std::exception& e) {
                                   handleAsioException();
-                                  LOG_ERROR("Reader coroutine handler exception: %s", e.what());
+                                  // 读协程在断连/拆除时退出属预期(连接中止、操作取消),降为 WARN
+                                  LOG_WARN("Reader coroutine handler exception: %s", e.what());
                               }
                           });
 }
@@ -1373,9 +1419,12 @@ void WebrtcManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
-void WebrtcManager::asyncReomteDesk(int webrtcModulesType,int webrtcUseLevels,int videoCodec,int webrtcAudioEnable,int webrtcEnableNvidia)
+void WebrtcManager::asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig)
 {
-    boost::asio::co_spawn(ioContext,[=,self = shared_from_this()]()->boost::asio::awaitable<void>{
+
+    this->webrtcDeskConfig = webrtcDeskConfig;
+
+    boost::asio::co_spawn(ioContext,[self = shared_from_this()]()->boost::asio::awaitable<void>{
 
         if(self->peerConnection == nullptr){
 
@@ -1383,7 +1432,20 @@ void WebrtcManager::asyncReomteDesk(int webrtcModulesType,int webrtcUseLevels,in
 
         }
 
-        if (targetId.empty()) {
+        // 把硬件解码开关下发给解码工厂(优先硬解,失败回退 WebRTC 软解)
+        if (self->webrtcVideoDecoderFactory) {
+            self->webrtcVideoDecoderFactory->webrtcEnableNvdec = self->webrtcDeskConfig.webrtcEnableNvdec;
+            // 解码状态 -> 转发给 onCodecStatusHandle(MainWindow 据此更新主页 label)
+            self->webrtcVideoDecoderFactory->onDecoderStatusHandle =
+                [self](const std::string& codec, bool hardDecode) {
+                    if (self->onCodecStatusHandle) self->onCodecStatusHandle(codec, hardDecode);
+                };
+            LOG_INFO("asyncReomteDesk: set decoder factory webrtcEnableNvdec=%d", self->webrtcDeskConfig.webrtcEnableNvdec);
+        } else {
+            LOG_WARN("asyncReomteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
+        }
+
+        if (self->targetId.empty()) {
             LOG_ERROR("Target ID not set");
             co_return;
         }
@@ -1400,17 +1462,17 @@ void WebrtcManager::asyncReomteDesk(int webrtcModulesType,int webrtcUseLevels,in
             message["targetId"] = self->targetId;
             message["requestType"] = static_cast<int64_t>(WebrtcRequestState::REQUEST);
             message["type"] = "request";
-            message["webrtcModulesType"] = webrtcModulesType;
-            message["webrtcUseLevels"] = webrtcUseLevels;
-            message["codec"] = videoCodec;
-            message["webrtcAudioEnable"] = webrtcAudioEnable;
-            message["webrtcEnableNvidia"] = webrtcEnableNvidia;
+            message["webrtcModulesType"] = self->webrtcDeskConfig.webrtcModulesType;
+            message["webrtcUseLevels"] = self->webrtcDeskConfig.webrtcUseLevels;
+            message["codec"] = self->webrtcDeskConfig.videoCodec;
+            message["webrtcAudioEnable"] = self->webrtcDeskConfig.webrtcAudioEnable;
+            message["webrtcEnableNvenc"] = self->webrtcDeskConfig.webrtcEnableNvenc;
 
             self->webrtcAsyncWrite(boost::json::serialize(message));
 
-            LOG_INFO("Request sent to target: %s", targetId.c_str());
+            LOG_INFO("Request sent to target: %s", self->targetId.c_str());
 
-            boost::asio::co_spawn(ioContext,[self = self->shared_from_this()]()mutable->boost::asio::awaitable<void>{
+            boost::asio::co_spawn(self->ioContext,[self = self->shared_from_this()]()mutable->boost::asio::awaitable<void>{
 
                 self->reloadTimer.expires_after(std::chrono::seconds(15));;
 
@@ -1458,6 +1520,29 @@ std::string WebrtcManager::getTargetId() const
 void WebrtcManager::setTargetId(const std::string &newTargetId)
 {
     targetId = newTargetId;
+}
+
+void WebrtcManager::sendKeyComboCtrlAltF()
+{
+    if (!dataChannel) {
+        LOG_ERROR("sendKeyComboCtrlAltF: dataChannel null");
+        return;
+    }
+#pragma pack(push,1)
+    struct KeyButton { short type; DWORD buttonId; char modifiers; };
+#pragma pack(pop)
+    // 对端 KeyDown/KeyUp 逐键发扫描码(modifiers 字段忽略),所以按顺序发
+    // Ctrl↓ Alt↓ F↓ F↑ Alt↑ Ctrl↑ 即可让对端 OS 收到 Ctrl+Alt+F 组合。
+    struct Step { short type; DWORD vk; };
+    const Step steps[] = {
+        {3, VK_CONTROL}, {3, VK_MENU}, {3, static_cast<DWORD>('F')},
+        {4, static_cast<DWORD>('F')}, {4, VK_MENU}, {4, VK_CONTROL},
+    };
+    for (const auto& s : steps) {
+        KeyButton* pkt = new KeyButton{s.type, s.vk, 0};
+        writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(KeyButton));
+    }
+    LOG_INFO("sendKeyComboCtrlAltF sent");
 }
 
 void WebrtcManager::writerRemote(unsigned char *data, size_t size)

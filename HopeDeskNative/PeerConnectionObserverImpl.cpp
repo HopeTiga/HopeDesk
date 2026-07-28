@@ -38,6 +38,8 @@ void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::Dat
 
     if (dataChannel->label() == "dataChannel") {
         webrtcManager->dataChannel = dataChannel;
+        // 新连接:清空 cursor 缓存,使 index 与对端(每连接从 0)重新对齐
+        webrtcManager->resetCursorCache();
         webrtcManager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>();
         webrtcManager->dataChannelObserver->setOnDataHandle(
             std::bind(&WebrtcManager::handleCursor, webrtcManager, std::placeholders::_1, std::placeholders::_2));

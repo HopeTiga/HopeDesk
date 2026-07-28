@@ -1,5 +1,6 @@
 #include "VideoWidget.h"
 #include "WebrtcManager.h"
+#include <rhi/qrhi_platform.h>
 #include <QVBoxLayout>
 #include <QFile>
 #include <QCursor>
@@ -21,14 +22,8 @@ VideoWidget::VideoWidget(QWidget* parent)
     , videoWidth(640)
     , videoHeight(480)
     , resourcesInitialized(false)
-    , fullScreenButton(nullptr)
-    , sidebar(nullptr)
-    , sidebarExitButton(nullptr)
-    , hideTimer(nullptr)
-    , sidebarAnimation(nullptr)
-    , isFullScreenMode(false)
-    , sidebarVisible(false)
     , interceptionHook(nullptr)
+    , currentFrameFormat(FrameFormat::Unknown)
 {
     qputenv("QSG_RENDER_LOOP", "basic");
     qputenv("QT_QSG_NO_VSYNC", "1");
@@ -55,7 +50,6 @@ VideoWidget::VideoWidget(QWidget* parent)
     lastUniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
     lastUniformData.uvScale = QVector2D(1.0f, 1.0f);
 
-    initializeControls();
     LOG_INFO("VideoWidget init finished");
 }
 
@@ -160,6 +154,13 @@ void VideoWidget::createTextures(int width, int height)
     videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
     videoTextureV->create();
 
+    // NV12 交错 UV 平面(RG8),与 U/V 同尺寸
+    videoTextureUV.reset(rhi->newTexture(QRhiTexture::RG8, QSize(chromaWidth, chromaHeight), 1));
+    if (!videoTextureUV || !videoTextureUV->create()) {
+        LOG_ERROR("NV12: videoTextureUV(RG8 %dx%d) create failed", chromaWidth, chromaHeight);
+        videoTextureUV.reset();
+    }
+
     texWidth = width;
     texHeight = height;
 }
@@ -193,6 +194,26 @@ void VideoWidget::createShaderResourceBindings()
             videoTextureV.get(), sampler.get())
     });
     srb->create();
+
+    // NV12 管线:Y(R8, binding1) + UV 交错(RG8, binding2)
+    if (videoTextureY && videoTextureUV) {
+        nv12Srb.reset(rhi->newShaderResourceBindings());
+        nv12Srb->setBindings({
+            QRhiShaderResourceBinding::uniformBuffer(
+                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                uniformBuffer.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                1, QRhiShaderResourceBinding::FragmentStage,
+                videoTextureY.get(), sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                2, QRhiShaderResourceBinding::FragmentStage,
+                videoTextureUV.get(), sampler.get())
+        });
+        if (!nv12Srb->create()) {
+            LOG_ERROR("NV12: nv12Srb create failed");
+            nv12Srb.reset();
+        }
+    }
 }
 
 void VideoWidget::createPipeline()
@@ -228,6 +249,30 @@ void VideoWidget::createPipeline()
     pipeline->setDepthWrite(false);
     pipeline->setCullMode(QRhiGraphicsPipeline::None);
     pipeline->create();
+
+    if (nv12Srb) {
+        nv12Pipeline.reset(rhi->newGraphicsPipeline());
+        QShader nv12Frag = getShader(":/shaders/res/video_nv12.frag.qsb");
+        if (nv12Frag.isValid()) {
+            nv12Pipeline->setShaderStages({
+                { QRhiShaderStage::Vertex, vertShader },
+                { QRhiShaderStage::Fragment, nv12Frag }
+            });
+            nv12Pipeline->setVertexInputLayout(inputLayout);
+            nv12Pipeline->setShaderResourceBindings(nv12Srb.get());
+            nv12Pipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+            nv12Pipeline->setDepthTest(false);
+            nv12Pipeline->setDepthWrite(false);
+            nv12Pipeline->setCullMode(QRhiGraphicsPipeline::None);
+            if (!nv12Pipeline->create()) {
+                LOG_ERROR("NV12: nv12Pipeline create failed (video_nv12.frag.qsb 与当前 RHI 后端不兼容?)");
+                nv12Pipeline.reset();
+            }
+        } else {
+            LOG_ERROR("Invalid video_nv12.frag shader");
+            nv12Pipeline.reset();
+        }
+    }
 }
 
 void VideoWidget::clearDisplay()
@@ -241,7 +286,8 @@ void VideoWidget::clearDisplay()
 
 void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 {
-    if (!frame || !frame->buffer) return;
+    if (!frame) return;
+    if (!frame->buffer && !frame->nv12Buffer) return;
 
     // 强制切换到 GUI 线程，确保窗口操作线程安全
     if (QThread::currentThread() != this->thread()) {
@@ -267,22 +313,36 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 
 void VideoWidget::ensureTexturesForSize(int width, int height)
 {
-    if (width == texWidth && height == texHeight && videoTextureY && videoTextureU && videoTextureV)
+    if (width == texWidth && height == texHeight && videoTextureY && videoTextureU && videoTextureV && videoTextureUV)
         return; // 尺寸未变，纹理有效
 
     // 销毁旧纹理并重建，同时重建 SRB/pipeline（因为纹理绑定变了）
     videoTextureY.reset();
     videoTextureU.reset();
     videoTextureV.reset();
+    videoTextureUV.reset();
 
-    createTextures(width, height);
+    videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height), 1));
+    videoTextureY->create();
+
+    int chromaWidth = (width + 1) / 2;
+    int chromaHeight = (height + 1) / 2;
+    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
+    videoTextureU->create();
+    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
+    videoTextureV->create();
+    videoTextureUV.reset(rhi->newTexture(QRhiTexture::RG8, QSize(chromaWidth, chromaHeight), 1));
+    videoTextureUV->create();
+
+    texWidth = width;
+    texHeight = height;
     createShaderResourceBindings(); // SRB 需要重新绑定新纹理
     createPipeline();               // pipeline 依赖于 SRB
 }
 
-void VideoWidget::render(QRhiCommandBuffer* cb)
-{
-    if (!rhi || !resourcesInitialized || !pipeline || !renderTarget()) {
+void VideoWidget::render(QRhiCommandBuffer* cb) {
+    // 基础检查
+    if (!rhi || !resourcesInitialized || !renderTarget()) {
         if (renderTarget()) {
             const QColor clearColor(32, 32, 32);
             cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 });
@@ -291,88 +351,154 @@ void VideoWidget::render(QRhiCommandBuffer* cb)
         return;
     }
 
+    // 1. 获取当前待渲染帧
     VideoFrame* frameToRender = currentFramePtr.exchange(nullptr, std::memory_order_acq_rel);
 
-    if (frameToRender && frameToRender->buffer) {
-        auto* i420 = frameToRender->buffer.get();
-        int srcWidth = i420->width();
-        int srcHeight = i420->height();
+    // 不再默认使用 pipeline (I420)，初始化为 nullptr，防止无帧时用错管线
+    QRhiGraphicsPipeline* activePipeline = nullptr;
+    QRhiShaderResourceBindings* activeSrb = nullptr;
+
+    // 2. 如果有新帧，进行纹理上传和管线选择
+    if (frameToRender && (frameToRender->buffer || frameToRender->nv12Buffer)) {
+        int srcWidth = frameToRender->width;
+        int srcHeight = frameToRender->height;
 
         // 动态调整纹理尺寸
         ensureTexturesForSize(srcWidth, srcHeight);
 
-        if (videoTextureY && videoTextureU && videoTextureV) {
-            QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
+        QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
+        bool uploaded = false;
 
-            // Y 平面
-            QRhiTextureSubresourceUploadDescription subDescY(
-                i420->DataY(), i420->StrideY() * srcHeight);
+        // --- NV12 硬解路径(NVDEC -> cuMemcpyDtoH -> NV12Buffer -> 上传) ---
+        if (frameToRender->format == FrameFormat::Nv12 && frameToRender->nv12Buffer &&
+            videoTextureY && videoTextureUV && nv12Pipeline && nv12Srb) {
+
+            auto* nv12 = frameToRender->nv12Buffer.get();
+            int chromaW = (srcWidth + 1) / 2;
+            int chromaH = (srcHeight + 1) / 2;
+
+            // 上传 Y 平面
+            QRhiTextureSubresourceUploadDescription subY(nv12->DataY(), nv12->StrideY() * srcHeight);
+            subY.setSourceSize(QSize(srcWidth, srcHeight));
+            subY.setDataStride(nv12->StrideY());
+            batch->uploadTexture(videoTextureY.get(), QRhiTextureUploadDescription{{0, 0, subY}});
+
+            // 上传 UV 交错平面
+            QRhiTextureSubresourceUploadDescription subUV(nv12->DataUV(), nv12->StrideUV() * chromaH);
+            subUV.setSourceSize(QSize(chromaW, chromaH));
+            subUV.setDataStride(nv12->StrideUV());
+            batch->uploadTexture(videoTextureUV.get(), QRhiTextureUploadDescription{{0, 0, subUV}});
+
+            activePipeline = nv12Pipeline.get();
+            activeSrb = nv12Srb.get();
+            currentFrameFormat = FrameFormat::Nv12; // 记录格式
+            uploaded = true;
+
+        }
+        // --- I420 软解路径 ---
+        else if (frameToRender->buffer && videoTextureY && videoTextureU && videoTextureV && pipeline && srb) {
+            auto* i420 = frameToRender->buffer.get();
+
+            // 上传 Y
+            QRhiTextureSubresourceUploadDescription subDescY(i420->DataY(), i420->StrideY() * srcHeight);
             subDescY.setSourceSize(QSize(srcWidth, srcHeight));
             subDescY.setDataStride(i420->StrideY());
             batch->uploadTexture(videoTextureY.get(), QRhiTextureUploadDescription{{0, 0, subDescY}});
 
             int chromaW = (srcWidth + 1) / 2;
             int chromaH = (srcHeight + 1) / 2;
-            QRhiTextureSubresourceUploadDescription subDescU(
-                i420->DataU(), i420->StrideU() * chromaH);
+
+            // 上传 U
+            QRhiTextureSubresourceUploadDescription subDescU(i420->DataU(), i420->StrideU() * chromaH);
             subDescU.setSourceSize(QSize(chromaW, chromaH));
             subDescU.setDataStride(i420->StrideU());
             batch->uploadTexture(videoTextureU.get(), QRhiTextureUploadDescription{{0, 0, subDescU}});
 
-            QRhiTextureSubresourceUploadDescription subDescV(
-                i420->DataV(), i420->StrideV() * chromaH);
+            // 上传 V
+            QRhiTextureSubresourceUploadDescription subDescV(i420->DataV(), i420->StrideV() * chromaH);
             subDescV.setSourceSize(QSize(chromaW, chromaH));
             subDescV.setDataStride(i420->StrideV());
             batch->uploadTexture(videoTextureV.get(), QRhiTextureUploadDescription{{0, 0, subDescV}});
 
-            // UV Scale 固定 (1,1)，因为纹理尺寸＝帧尺寸
+            activePipeline = pipeline.get();
+            activeSrb = srb.get();
+            currentFrameFormat = FrameFormat::I420; // 记录格式
+            uploaded = true;
+        }
+
+        // 如果上传成功，更新 Uniform 并提交资源
+        if (uploaded) {
             UniformData uniformData;
             uniformData.mvp.setToIdentity();
             uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
             uniformData.uvScale = QVector2D(1.0f, 1.0f);
+
             if (uniformData != lastUniformData) {
                 batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
                 lastUniformData = uniformData;
             }
 
             cb->resourceUpdate(batch);
-
             hasVideo = true;
             videoWidth = srcWidth;
             videoHeight = srcHeight;
             frameCount++;
+        } else {
+            // 上传失败（格式不匹配等），清理帧，避免内存泄漏
+            delete frameToRender;
+            frameToRender = nullptr;
         }
     }
+    // 3. 如果没有新帧，但之前有视频，保持使用上一次的管线状态
+    // 解决切换窗口回来瞬间 "activePipeline为空或错误" 导致的绿屏
+    else if (hasVideo) {
+        if (currentFrameFormat == FrameFormat::Nv12) {
+            activePipeline = nv12Pipeline.get();
+            activeSrb = nv12Srb.get();
+        } else if (currentFrameFormat == FrameFormat::I420) {
+            activePipeline = pipeline.get();
+            activeSrb = srb.get();
+        }
+        // 此时不需要提交资源更新，只是复用上一帧的纹理状态进行绘制
+    }
 
-    // 绘制
+    // 4. 开始绘制
     const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
     cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, nullptr);
 
-    if (hasVideo && srb && pipeline) {
+    // 只有当管线和资源绑定有效时才绘制
+    if (hasVideo && activePipeline && activeSrb) {
         const QSize outputSize = renderTarget()->pixelSize();
-        cb->setGraphicsPipeline(pipeline.get());
+        cb->setGraphicsPipeline(activePipeline);
         cb->setViewport(QRhiViewport{0.0f, 0.0f, float(outputSize.width()), float(outputSize.height()), 0.0f, 1.0f});
-        cb->setShaderResources(srb.get());
+        cb->setShaderResources(activeSrb);
+
         const QRhiCommandBuffer::VertexInput vbufBinding(vertexBuffer.get(), 0);
         cb->setVertexInput(0, 1, &vbufBinding);
         cb->draw(6);
     }
+
     cb->endPass();
 
+    // 5. 清理旧帧资源
     if (frameToRender) {
         VideoFrame* oldRelease = frameToReleasePtr.exchange(frameToRender, std::memory_order_acq_rel);
         if (oldRelease) delete oldRelease;
     }
 }
 
+
 void VideoWidget::releaseResources()
 {
     pipeline.reset();
     srb.reset();
+    nv12Pipeline.reset();
+    nv12Srb.reset();
     uniformBuffer.reset();
     videoTextureY.reset();
     videoTextureU.reset();
     videoTextureV.reset();
+    videoTextureUV.reset();
     sampler.reset();
     vertexBuffer.reset();
     resourcesInitialized = false;
@@ -443,111 +569,12 @@ void VideoWidget::setWebrtcManager(std::shared_ptr<WebrtcManager> webrtcManager)
     interceptionHook->startCapture();
 }
 
-void VideoWidget::initializeControls()
-{
-    sidebar = new QWidget(this);
-    sidebar->setFixedWidth(SIDEBAR_WIDTH);
-    sidebar->setStyleSheet(R"(
-        QWidget {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 rgba(0, 0, 0, 220),
-                        stop:0.8 rgba(0, 0, 0, 200),
-                        stop:1 rgba(0, 0, 0, 150));
-            border-top-right-radius: 10px;
-            border-bottom-right-radius: 10px;
-        }
-    )");
-    sidebar->setVisible(false);
-
-    QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
-    sidebarLayout->setContentsMargins(5, 10, 5, 10);
-    sidebarLayout->setSpacing(5);
-
-    fullScreenButton = new QPushButton("全\n屏", sidebar);
-    fullScreenButton->setFixedSize(20, 20);
-    fullScreenButton->setStyleSheet(R"(
-        QPushButton {
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #667EEA, stop:1 #764BA2);
-            color: white;
-            border: none;
-            border-radius: 2px;
-            font-size: 8px;
-            font-weight: 600;
-        }
-        QPushButton:hover {
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #5A67D8, stop:1 #6B46C1);
-        }
-    )");
-    connect(fullScreenButton, &QPushButton::clicked, this, &VideoWidget::onFullScreenClicked);
-    fullScreenButton->setVisible(true);
-
-    sidebarExitButton = new QPushButton("退出\n全屏", sidebar);
-    sidebarExitButton->setFixedSize(20, 20);
-    sidebarExitButton->setStyleSheet(R"(
-        QPushButton {
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #F56565, stop:1 #E53E3E);
-            color: white;
-            border: none;
-            border-radius: 2px;
-            font-size: 8px;
-            font-weight: 600;
-        }
-        QPushButton:hover {
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #E53E3E, stop:1 #C53030);
-        }
-    )");
-    sidebarExitButton->setVisible(false);
-    connect(sidebarExitButton, &QPushButton::clicked, this, &VideoWidget::onExitFullScreenClicked);
-
-    sidebarLayout->addWidget(fullScreenButton);
-    sidebarLayout->addWidget(sidebarExitButton);
-    sidebarLayout->addStretch();
-
-    sidebarAnimation = new QPropertyAnimation(sidebar, "pos", this);
-    sidebarAnimation->setDuration(250);
-    sidebarAnimation->setEasingCurve(QEasingCurve::OutCubic);
-
-    hideTimer = new QTimer(this);
-    hideTimer->setSingleShot(true);
-    hideTimer->setInterval(HIDE_DELAY);
-    connect(hideTimer, &QTimer::timeout, this, &VideoWidget::hideSidebar);
-
-    sidebar->setVisible(true);
-    sidebarVisible = true;
-    updateControlsPosition();
-}
-
-void VideoWidget::updateControlsPosition()
-{
-    if (!sidebar) return;
-
-    int sidebarHeight = height() * 0.4;
-    int sidebarY = (height() - sidebarHeight) / 2;
-
-    sidebar->setFixedHeight(sidebarHeight);
-
-    if (sidebarVisible) {
-        sidebar->move(0, sidebarY);
-    } else {
-        sidebar->move(-SIDEBAR_WIDTH + 3, sidebarY);
-    }
-
-    if (isFullScreenMode) {
-        fullScreenButton->setVisible(false);
-        sidebarExitButton->setVisible(true);
-    } else {
-        fullScreenButton->setVisible(true);
-        sidebarExitButton->setVisible(false);
-    }
-}
-
 void VideoWidget::resizeEvent(QResizeEvent* event)
 {
     QRhiWidget::resizeEvent(event);
     if (interceptionHook) {
         interceptionHook->setVideoSize(event->size().width(), event->size().height());
     }
-    updateControlsPosition();
 }
 
 void VideoWidget::enterFullScreen()
@@ -558,9 +585,8 @@ void VideoWidget::enterFullScreen()
     normalWindowState = windowState();
 
     isFullScreenMode = true;
-    setWindowState(Qt::WindowFullScreen);
+    showFullScreen();   // 覆盖整个屏幕(含任务栏)
 
-    updateControlsPosition();
     LOG_INFO("Entering full screen mode");
 }
 
@@ -568,17 +594,14 @@ void VideoWidget::exitFullScreen()
 {
     if (!isFullScreenMode) return;
 
-    sidebar->setVisible(false);
-    sidebarVisible = false;
-
     isFullScreenMode = false;
-    setWindowState(normalWindowState);
-    setGeometry(normalGeometry);
-
-    sidebar->setVisible(true);
-    sidebarVisible = true;
-
-    updateControlsPosition();
+    // 按进入全屏前的状态恢复:最大化 -> showMaximized;普通窗口 -> showNormal + 还原几何
+    if (normalWindowState & Qt::WindowMaximized) {
+        showMaximized();
+    } else {
+        showNormal();
+        setGeometry(normalGeometry);
+    }
     LOG_INFO("Exiting full screen mode");
 }
 
@@ -592,85 +615,12 @@ void VideoWidget::onExitFullScreenClicked()
     exitFullScreen();
 }
 
-// 采用事件驱动机制响应鼠标移动，替代高频定时器
-void VideoWidget::mouseMoveEvent(QMouseEvent* event)
-{
-    QRhiWidget::mouseMoveEvent(event);
-
-    QPoint localMousePos = event->pos();
-
-    // 判断鼠标是否处于触发区域
-    bool shouldShowSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_TRIGGER_ZONE);
-    bool mouseInSidebar = (localMousePos.x() >= 0 && localMousePos.x() <= SIDEBAR_WIDTH &&
-                           localMousePos.y() >= sidebar->y() &&
-                           localMousePos.y() <= sidebar->y() + sidebar->height());
-
-    if (shouldShowSidebar || mouseInSidebar) {
-        if (!sidebarVisible) {
-            showSidebar();
-        }
-        hideTimer->stop();
-    } else if (sidebarVisible) {
-        if (!hideTimer->isActive()) {
-            hideTimer->start();
-        }
-    }
-}
-
-void VideoWidget::showSidebar()
-{
-    if (sidebarVisible) return;
-
-    sidebarVisible = true;
-    sidebar->setVisible(true);
-
-    int sidebarHeight = height() * 0.4;
-    int sidebarY = (height() - sidebarHeight) / 2;
-
-    sidebarAnimation->stop();
-    sidebarAnimation->setStartValue(QPoint(-SIDEBAR_WIDTH + 3, sidebarY));
-    sidebarAnimation->setEndValue(QPoint(0, sidebarY));
-    sidebarAnimation->start();
-}
-
-void VideoWidget::hideSidebar()
-{
-    if (!sidebarVisible) return;
-
-    sidebarVisible = false;
-
-    int sidebarHeight = height() * 0.4;
-    int sidebarY = (height() - sidebarHeight) / 2;
-
-    sidebarAnimation->stop();
-    sidebarAnimation->setStartValue(QPoint(0, sidebarY));
-    sidebarAnimation->setEndValue(QPoint(-SIDEBAR_WIDTH + 3, sidebarY));
-
-    disconnect(sidebarAnimation, &QPropertyAnimation::finished, nullptr, nullptr);
-    connect(sidebarAnimation, &QPropertyAnimation::finished, this, [this]() {
-        if (!sidebarVisible) {
-            sidebar->setVisible(false);
-        }
-    });
-    sidebarAnimation->start();
-}
 
 void VideoWidget::enterEvent(QEnterEvent* event)
 {
     QRhiWidget::enterEvent(event);
 }
 
-void VideoWidget::leaveEvent(QEvent* event)
-{
-    QRhiWidget::leaveEvent(event);
-    if (sidebarVisible && isFullScreenMode) {
-        if (!hideTimer->isActive()) {
-            hideTimer->start();
-        }
-    }
-
-    SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
-}
 
 } // namespace rtc
 } // namespace hope

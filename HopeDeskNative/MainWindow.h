@@ -76,6 +76,7 @@ private Q_SLOTS:
     void onAutoStartChecked(bool checked);
 
     void on_checkHwAccel_checkStateChanged(const Qt::CheckState &arg1);
+    void on_checkHwDec_checkStateChanged(const Qt::CheckState &arg1);
 
 private:
     void setupUI();
@@ -132,7 +133,8 @@ private:
     int webrtcLevels = 2;
     int videoCodec = 4;
     int webrtcAudioEnable = 0;
-    int webrtcEnableNvidia = 0;
+    int webrtcEnableNvenc = 0;  // 硬件编码(NVENC),连接时发给 System
+    int webrtcEnableNvdec = 0;  // 硬件解码(MF/D3D11),Native 本地
 };
 
 }

@@ -28,8 +28,6 @@ namespace hope {
 
 		public:
 
-			int webrtcEnableNvidia = 0;
-
 		private:
 
 			const std::unique_ptr<VideoEncoderFactory> internalEncoderFactory;

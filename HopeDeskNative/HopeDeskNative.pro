@@ -40,6 +40,7 @@ SOURCES += \
     CreateDescriptionObserverImpl.cpp \
     DataChannelObserverImpl.cpp \
     De265Decoder.cpp \
+    NvdecDecoder.cpp \
     InterceptionHook.cpp \
     MainWindow.cpp \
     PeerConnectionObserverImpl.cpp \
@@ -62,6 +63,8 @@ HEADERS += \
     CustomDialogs.h \
     DataChannelObserverImpl.h \
     De265Decoder.h \
+    Nvdec.h \
+    NvdecDecoder.h \
     InterceptionHook.h \
     MainWindow.h \
     PeerConnectionObserverImpl.h \
@@ -83,6 +86,7 @@ win32 {
     INCLUDEPATH += $$PWD/include/interception
     INCLUDEPATH += $$PWD/include/openssl
     INCLUDEPATH += $$PWD/include/libde265
+    INCLUDEPATH += $$PWD/include/nvidia
 
     LIBS += -L$$PWD/lib/boost/
     LIBS += -L$$PWD/lib/webrtc/

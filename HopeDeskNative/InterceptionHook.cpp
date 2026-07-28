@@ -224,6 +224,26 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 
     if(keystroke.code == 77 && (keystroke.state==2 || keystroke.state==3)) vkCode = VK_RIGHT;
 
+    // 跟踪 Ctrl/Alt 物理按下状态(拦截后 OS 看不到,不能用 GetAsyncKeyState)
+    if (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL) ctrlDown = isPress;
+    if (vkCode == VK_MENU || vkCode == VK_LMENU || vkCode == VK_RMENU) altDown = isPress;
+
+    // Ctrl+Alt+F:本地切换全屏,不转发对端(F 完全消费)
+    if (vkCode == 'F' && targetWidget) {
+        if (isPress && ctrlDown && altDown) {
+            if (!fullscreenHotkeyConsumed) {
+                fullscreenHotkeyConsumed = true;
+                VideoWidget* w = targetWidget;
+                QMetaObject::invokeMethod(w, [w]() {
+                    if (w->isInFullScreenMode()) w->exitFullScreen();
+                    else w->enterFullScreen();
+                }, Qt::QueuedConnection);
+            }
+            return;  // 不转发 F
+        }
+        if (!isPress) fullscreenHotkeyConsumed = false;  // F 抬起,允许下次再切
+    }
+
     char modifiers = getCurrentModifiers();
     sendKeyEvent(isPress, vkCode, modifiers);
 }
@@ -458,4 +478,3 @@ void InterceptionHook::convertClientToScreen(int& x, int& y)
     }
 
 }
-

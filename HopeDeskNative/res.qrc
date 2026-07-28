@@ -6,6 +6,7 @@
     <qresource prefix="/shaders">
         <file>res/video.frag.qsb</file>
         <file>res/video.vert.qsb</file>
+        <file>res/video_nv12.frag.qsb</file>
     </qresource>
     <qresource prefix="/new/prefix1"/>
 </RCC>

@@ -104,6 +104,12 @@ private:
 
     std::atomic<bool> numLockState;
 
+    // Ctrl/Alt 物理按下状态(拦截后 OS 看不到,不能用 GetAsyncKeyState,自行跟踪)
+    bool ctrlDown = false;
+    bool altDown = false;
+    // Ctrl+Alt+F 全屏热键:按一次切一次,防止自动连按重复切换
+    bool fullscreenHotkeyConsumed = false;
+
 };
 
 }
@@ -111,4 +117,3 @@ private:
 }
 
 #endif // INTERCEPTIONHOOK_H
-

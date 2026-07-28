@@ -58,8 +58,6 @@
 
 #include <boost/json.hpp>
 
-
-
 #include "WindowsServiceManager.h"
 #include "Utils.h"
 #include "AsioConcurrentQueue.h"
@@ -68,6 +66,9 @@
 #ifndef NTSTATUS
 typedef LONG NTSTATUS;
 #endif
+
+// 前向声明 D3D11 接口，避免在本头里拉入 <d3d11.h>
+struct ID3D11Texture2D;
 
 namespace hope{
 
@@ -82,11 +83,27 @@ enum class WebrtcRequestState {
     CLOSE = 5,
     CLOSESYSTEM = 6,
     SYSTEMREADLY = 7,
-    STATS = 8
+    STATS = 8,
+    ENCODE_STATUS = 9   // System -> 被控 Native:上报当前编码 codec + 硬编/软编
+};
+
+// 解码输出帧的承载格式。
+//   I420      —— 软解(libde265/dav1d/内置H264)：主机 I420，现有上传管线
+//   D3D11Nv12 —— 硬解(Media Foundation)：显存 D3D11 NV12 纹理，零拷贝直采
+enum class FrameFormat {
+    Unknown,
+    I420,
+    Nv12
 };
 
 struct VideoFrame {
+    FrameFormat format = FrameFormat::I420;
+
+    // I420 路径(软解)
     webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer;
+
+    // NV12 路径(硬解,主机 NV12)
+    webrtc::scoped_refptr<const webrtc::NV12BufferInterface> nv12Buffer;
 
     int width = 0;
     int height = 0;
@@ -97,6 +114,7 @@ struct VideoFrame {
         buffer = frame.video_frame_buffer()->ToI420();
         width = frame.width();
         height = frame.height();
+        format = FrameFormat::I420;
     }
 };
 
@@ -126,6 +144,17 @@ public:
     size_t size;
 };
 
+struct WebrtcDeskConfig {
+    int webrtcModulesType = 0;   // 0=游戏模式 1=办公模式
+    int webrtcUseLevels = 2;     // 加速策略/采集层级
+    int videoCodec = 4;          // 视频编码索引
+    int webrtcAudioEnable = 0;   // 是否传音频
+    int webrtcEnableNvenc = 0;    // 硬件编码(NVENC),发给 System
+    int webrtcEnableNvdec = 0;   // 硬件解码(MF/D3D11),Native 本地
+};
+
+
+// (NvdecDecoder 仅在解码工厂内部使用,WebrtcManager 不直接引用)
 
 class WebrtcManager : public std::enable_shared_from_this<WebrtcManager>
 {
@@ -147,7 +176,17 @@ public:
 
     void closeEvent();
 
-    void asyncReomteDesk(int webrtcModulesType = 0,int webrtcUseLevels = 2,int videoCodec = 4,int webrtcAudioEnable = 0,int webrtcEnableNvidia = 0);
+    void asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig);
+
+    // 给对端发送 Ctrl+Alt+F 组合键(逐键 down/up 序列)
+    void sendKeyComboCtrlAltF();
+
+    // 重连时清空 cursor 缓存(新 datachannel 到来调用),使 index 与对端重新对齐
+    void resetCursorCache();
+
+    // 编/解码状态 handle:codec(H264/H265/AV1/VP8...)+ 是否硬解
+    // 由解码工厂在 Configure 后触发,MainWindow 据此更新主页 label
+    std::function<void(const std::string& codec, bool hardDecode)> onCodecStatusHandle;
 
     void connect(std::string ip);
 
@@ -162,6 +201,10 @@ public:
     void setAccountId(const std::string& newAccountID);
 
     std::string getTargetId() const;
+
+    // 被控端:由本机 System 经本地 TCP 控制通道(ENCODE_STATUS 消息)上报当前编码
+    // codec + 硬编/软编,MainWindow 据此更新 label。
+    std::function<void(const std::string& codec, bool hardEncode)> onEncodeStatusHandle;
 
     void setTargetId(const std::string& newTargetID);
 
@@ -310,9 +353,15 @@ private:
 
     std::vector<std::vector<unsigned char>> cursorArray ;
 
+    // 重连清空 cursor 缓存标志:新 datachannel 到来时置位,handleCursor 首次执行时
+    // 清掉 lastCursor,使光标样式重新从 type=1 全量同步,避免与对端 index 错位。
+    std::atomic<bool> cursorCacheDirty{false};
+
     std::string dataStr;
 
     static constexpr std::chrono::seconds TIME_OUT{5};
+
+    WebrtcDeskConfig webrtcDeskConfig;
 
 };
 
