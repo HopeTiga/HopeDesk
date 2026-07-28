@@ -184,6 +184,10 @@ public:
     // 重连时清空 cursor 缓存(新 datachannel 到来调用),使 index 与对端重新对齐
     void resetCursorCache();
 
+    // 碰到 Invalid cursor index 时:清空本地 cursorArray,并给对端发 type=7
+    // 请求双方清空光标索引、从 0 重新全量发送。带节流(见 cursorResyncRequested)。
+    void requestCursorResync();
+
     // 编/解码状态 handle:codec(H264/H265/AV1/VP8...)+ 是否硬解
     // 由解码工厂在 Configure 后触发,MainWindow 据此更新主页 label
     std::function<void(const std::string& codec, bool hardDecode)> onCodecStatusHandle;
@@ -359,6 +363,10 @@ private:
     // 重连清空 cursor 缓存标志:新 datachannel 到来时置位,handleCursor 首次执行时
     // 清掉 lastCursor,使光标样式重新从 type=1 全量同步,避免与对端 index 错位。
     std::atomic<bool> cursorCacheDirty{false};
+
+    // 光标索引重同步节流:碰到 Invalid cursor 时只发一次 type=7 请求,
+    // 直到对端重新全量发回数据(成功 store/apply)才允许再次请求,避免连发刷屏。
+    std::atomic<bool> cursorResyncRequested{false};
 
     std::string dataStr;
 

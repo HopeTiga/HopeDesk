@@ -98,6 +98,7 @@ private:
     void updateStatusUI(const QString& status, const QString& styleClass);
     void updateNetworkTypeUI(int type, double rttMs);
     void refreshNetworkBadge();  // 用缓存的类型/RTT 重绘徽章(开关切换时调用)
+    void hideNetworkBadge();     // 断开/超时时统一隐藏徽章并清空 RTT 缓存
 
     void moveToCenter();
 private:

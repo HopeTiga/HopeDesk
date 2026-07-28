@@ -88,13 +88,12 @@ MainWindow::MainWindow(QWidget* parent)
                 });
                 connect(videoWidget, &VideoWidget::disConnectRemote, this, [this](){
                     isRemoteConnected = false;
-                    if (statsTimer) statsTimer->stop();
+                    hideNetworkBadge();
                     ui->btnStartControl->setEnabled(true);
                     ui->btnStartControl->setText("立即连接");
                     ui->btnSendCtrlAltF->setEnabled(false);
                     ui->remoteStatusLabel->setText("远程连接已结束");
                     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
-                    ui->networkTypeBadge->setVisible(false);
                     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
                     if(videoWidget) { videoWidget->hide(); disconnect(videoWidget, nullptr, this, nullptr); delete videoWidget; videoWidget = nullptr; }
 
@@ -503,6 +502,17 @@ void MainWindow::refreshNetworkBadge()
     updateNetworkTypeUI(lastConnectionType, -1.0);
 }
 
+void MainWindow::hideNetworkBadge()
+{
+    // 操控端与被控端共用同一个徽章:断开时必须清掉 RTT 缓存,
+    // 否则下一次会话(或换角色)会带上一次的残留 RTT 显示
+    if (statsTimer) statsTimer->stop();
+    lastRttMs = -1.0;
+    lastConnectionType = 0;
+    ui->networkTypeBadge->setVisible(false);
+    ui->networkTypeBadge->setText("");
+}
+
 void MainWindow::moveToCenter()
 {
     move(QGuiApplication::primaryScreen()->availableGeometry().center() - rect().center());
@@ -713,13 +723,12 @@ void MainWindow::onBtnConnectClicked()
     if (ui->btnStartControl->text() == "断开连接") {
 
         isRemoteConnected = false;
-        if (statsTimer) statsTimer->stop();
+        hideNetworkBadge();
         ui->btnStartControl->setEnabled(true);
         ui->btnStartControl->setText("立即连接");
         ui->btnSendCtrlAltF->setEnabled(false);   // 手动断开:禁用
         ui->remoteStatusLabel->setText("远程连接已结束");
         ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
-        ui->networkTypeBadge->setVisible(false);
 
         this->showNormal();
         this->activateWindow();
@@ -780,13 +789,12 @@ void MainWindow::onRemoteControlStarted()
 void MainWindow::onRemoteDisconnectedByPeer()
 {
     isRemoteConnected = false;
-    if (statsTimer) statsTimer->stop();
+    hideNetworkBadge();
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
     ui->btnSendCtrlAltF->setEnabled(false);   // 断开:无连接可发,禁用
     ui->remoteStatusLabel->setText("远程连接已结束");
     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
-    ui->networkTypeBadge->setVisible(false);
     // 断开清空状态:编/解码 label + VideoWidget 显示状态(避免残留上一帧/旧状态)
     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
     if (videoWidget) {
@@ -799,7 +807,7 @@ void MainWindow::onRemoteDisconnectedByPeer()
 
 void MainWindow::onRemoteConnectionTimeout()
 {
-    if (statsTimer) statsTimer->stop();
+    hideNetworkBadge();
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
     ui->remoteStatusLabel->setText("连接请求超时");

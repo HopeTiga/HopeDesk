@@ -978,6 +978,28 @@ void WebrtcManager::resetCursorCache()
 {
     cursorArray.clear();
     cursorCacheDirty = true;  // handleCursor 首次执行时据此重置 lastCursor
+    cursorResyncRequested = false;  // 新连接:重置节流,允许按需重同步
+}
+
+void WebrtcManager::requestCursorResync()
+{
+    // 节流:同一轮"无效索引连发"只发一次重同步请求,直到对端重新全量发回数据
+    if (cursorResyncRequested.exchange(true)) return;
+
+    // 清空本地索引缓存,与对端一起回到 index 从 0 开始的干净状态
+    cursorArray.clear();
+    LOG_WARN("Cursor index invalid -> request peer resync (type=7), local cache cleared");
+
+    if (!dataChannel) return;
+
+    // type=7:请求对端清空全部光标索引缓存,并从 index 0 重新全量发送(type=1 数据 + type=0 引用)
+#pragma pack(push, 1)
+    struct CursorResyncReq {
+        short type;   // 7
+    };
+#pragma pack(pop)
+    CursorResyncReq* pkt = new CursorResyncReq{7};
+    writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(CursorResyncReq));
 }
 
 void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
@@ -1024,6 +1046,8 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // CRITICAL: Validate index bounds
         if (msg->index < 0 || msg->index >= this->cursorArray.size()) {
             LOG_ERROR("Invalid cursor index: %d (array size: %zu)", msg->index, this->cursorArray.size());
+            // 本地缓存与对端索引错位:请求双方清空、从 0 重新全量同步
+            requestCursorResync();
             break;
         }
 
@@ -1055,6 +1079,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
             lastCursor = CopyCursor(cursor);
             SetSystemCursor(lastCursor, 32512);
             DestroyCursor(cursor); // Clean up the temporary cursor
+            cursorResyncRequested = false;  // 已成功应用,重同步完成,允许下次再请求
         }
         break;
     }
@@ -1078,6 +1103,8 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Validate index
         if (msg->index < 0 || msg->index > this->cursorArray.size()) {
             LOG_ERROR("Invalid cursor index for storage: %d", msg->index);
+            // 索引跳号/乱序:本地无法按 vector 顺序存储,请求双方清空、从 0 重新全量同步
+            requestCursorResync();
             break;
         }
 
@@ -1122,6 +1149,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
             lastCursor = CopyCursor(cursor);
             SetSystemCursor(lastCursor, 32512);
             DestroyCursor(cursor); // Clean up the temporary cursor
+            cursorResyncRequested = false;  // 已成功存储并应用,重同步完成
         }
         break;
     }
