@@ -522,14 +522,14 @@ namespace hope {
             webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::DataChannelInterface>> dataChannelResult = peerConnection->CreateDataChannelOrError("dataChannel", dataChannelConfig.get());
 
             if (!dataChannelResult.ok()) {
-            
+
                 LOG_ERROR("Failed to add dataChannel: %s", dataChannelResult.error().message());
 
                 return false;
 
             }
 
-			dataChannel = dataChannelResult.MoveValue();
+            dataChannel = dataChannelResult.MoveValue();
 
             dataChannelObserver = std::make_unique<DataChannelObserverImpl>();
 
@@ -608,13 +608,13 @@ namespace hope {
                 if (releaseFlag) {
 
                     if (levels == CaptureLevels::GPU) {
-                    
-						buffer = webrtc::make_ref_counted<WebrtcManagerI420Buffer>(data, width, height, releaseFlag, stride);
+
+                        buffer = webrtc::make_ref_counted<WebrtcManagerI420Buffer>(data, width, height, releaseFlag, stride);
 
                     }
 
                     else if (levels == CaptureLevels::PRO) {
-                    
+
                         buffer = webrtc::make_ref_counted<WebrtcManagerNV12Buffer>(data, width, height, releaseFlag, stride);
 
                     }
@@ -825,6 +825,12 @@ namespace hope {
                 break;
             }
 
+            case 7: {
+
+                cursorHooks->clearCursorCache();
+
+            }
+
             default:
                 break;
             }
@@ -923,13 +929,13 @@ namespace hope {
                             else if (WebrtcRequestState(requestType) == WebrtcRequestState::REQUEST) {
 
                                 if (responseState == 200) {
-                
+
                                     if (json.contains("type")) {
 
                                         std::string type(json["type"].as_string().c_str());
 
                                         if (type == "request") {
-                                        
+
                                             if (json.contains("codec")) {
                                                 codec = static_cast<WebrtcVideoCodec>(json["codec"].as_int64());
                                             }
@@ -966,7 +972,7 @@ namespace hope {
                                                     std::string s = boost::json::serialize(o);
                                                     auto data = std::make_shared<WriterData>(const_cast<char*>(s.data()), s.size());
                                                     asyncWrite(data);
-                                                };
+                                                    };
 
                                             }
 

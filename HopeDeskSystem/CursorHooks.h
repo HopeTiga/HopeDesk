@@ -4,19 +4,24 @@
 #include <atomic>
 #include <thread>
 #include <unordered_map>
+#include <mutex>
 
 namespace hope {
 
-	namespace rtc {
-	
+    namespace rtc {
+
         class CursorHooks {
         public:
             CursorHooks() = default;
             ~CursorHooks();
 
             void setCursorHandle(std::function<void(unsigned char*, size_t)> handler);
+
             void startHooks();
+
             void stopHooks();
+
+            void clearCursorCache();
 
         private:
             // 低级鼠标钩子处理
@@ -32,8 +37,11 @@ namespace hope {
             void checkCursorChange();
 
         private:
+
             static CursorHooks* instance;
+
             std::function<void(unsigned char*, size_t)> cursorHandle;
+
             std::atomic<bool> isRunning{ false };
 
             HHOOK mouseHook = nullptr;
@@ -42,14 +50,15 @@ namespace hope {
 
             std::thread hookThread;
 
-            // 用于缓存已处理的光标，避免重复处理
             std::unordered_map<HCURSOR, int> cursorCaches;
 
             std::vector<std::pair<int, int>> cursorHotPos;
 
             std::vector<std::pair<int, int>> cursorSizes;
+
+            std::mutex mutexs;
         };
-	
-	}
+
+    }
 
 }

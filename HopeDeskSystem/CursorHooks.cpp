@@ -115,9 +115,9 @@ namespace hope {
             // 游戏隐藏光标(ShowCursor(false) 累计<0 或 SetCursor(NULL))
             // 此时进入相对鼠标模式，通知对端隐藏本地光标 + 切相对移动
             // CURSOR_SHOWING(0x0001) 置位表示光标可见；该位为 0 即被隐藏。
-            #ifndef CURSOR_SHOWING
-            #define CURSOR_SHOWING 0x0001
-            #endif
+#ifndef CURSOR_SHOWING
+#define CURSOR_SHOWING 0x0001
+#endif
             bool hidden = !(cursorInfo.flags & CURSOR_SHOWING) || (currentCursor == NULL);
             if (hidden) {
                 // 仅在 可见 -> 隐藏 的边沿发送一次
@@ -145,11 +145,10 @@ namespace hope {
 
             lastCursor = currentCursor;
 
+            std::lock_guard<std::mutex> lockGuard(mutexs);
+
             if (cursorCaches.find(currentCursor) == cursorCaches.end()) {
-                // 新光标：只有成功提取位图并已排队发送时才分配 index。
-                // 若先占 index 再提取，提取失败会留下 index 空洞，
-                // 导致对端 cursorArray 下标错位：后续 type=0 引用空洞、
-                // 新光标 index>size 被对端拒收，连锁失步(重连才恢复)。
+
                 if (cursorHandle && currentCursor) {
                     unsigned char* bitmapData = nullptr;
                     size_t bitmapSize = 0;
@@ -248,6 +247,19 @@ namespace hope {
                     cursorHandle(data, sizeof(Cursors));
                 }
             }
+        }
+
+
+        void CursorHooks::clearCursorCache() {
+
+            std::lock_guard<std::mutex> lockGuard(mutexs);
+
+            cursorCaches.clear();
+
+            cursorHotPos.clear();
+
+            cursorSizes.clear();
+
         }
 
         void CursorHooks::getCursorBitmapData(HCURSOR hCursor, unsigned char*& data, size_t& size)
