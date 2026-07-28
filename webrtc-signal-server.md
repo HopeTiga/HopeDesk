@@ -1,14 +1,14 @@
-# WebRTCSignalServer 架构文档
+# WebrtcSignalServer 架构文档
 
-> 一台多通道、协程化、SSL 可选的 WebRTC 信令服务器。WebSocket 承载信令转发，HTTP 承载运维查询，预留 CoroRpc 做节点间 RPC、HttpClient 做服务注册发现（Polaris）。
+> 一台多通道、协程化、SSL 可选的 Webrtc 信令服务器。WebSocket 承载信令转发，HTTP 承载运维查询，预留 CoroRpc 做节点间 RPC、HttpClient 做服务注册发现（Polaris）。
 >
-> 本文按「架构 → 流程 → 性能 → 使用方式 → 信令 → HTTP → HttpClient → CoroRpc → MySQL」组织，对应代码目录 `WebRTCSignalServer/`。
+> 本文按「架构 → 流程 → 性能 → 使用方式 → 信令 → HTTP → HttpClient → CoroRpc → MySQL」组织，对应代码目录 `WebrtcSignalServer/`。
 
 ---
 
 ## 1. 概述
 
-WebRTCSignalServer 是 WebRTC 信令面的中转服务：
+WebrtcSignalServer 是 Webrtc 信令面的中转服务：
 
 - **信令通道**：WebSocket（`wss://` 默认开 SSL），客户端用 `accountId` 鉴权接入，服务器按 `requestType` 处理/转发信令到 `targetId`。
 - **运维通道**：HTTPS，提供通道/连接统计接口。
@@ -23,7 +23,7 @@ WebRTCSignalServer 是 WebRTC 信令面的中转服务：
 ## 2. 目录结构
 
 ```
-WebRTCSignalServer/
+WebrtcSignalServer/
 ├── main.cpp                      # 组合根:读 ini、组装配置结构体、启动
 ├── Ssl.h / Ssl.cpp               # 全局 ssl::context + initSslContext/getSslContext
 ├── config.ini                    # 配置文件(ini)
@@ -31,11 +31,11 @@ WebRTCSignalServer/
 ├── iocp/
 │   └── AsioProactors.h/.cpp      # io_context 池(每线程一个 io_context)
 ├── signal/                       # 信令+HTTP 主体
-│   ├── WebRTCSignalServer.*      # 顶层服务:acceptor、全局任务队列、通道编排
-│   ├── WebRTCSignalManager.*     # 单通道:socket 表、actor 路由索引、LogicSystem
-│   ├── WebRTCSignalSocket.*      # WebSocket 连接:握手、收发协程、keepalive
-│   ├── WebRTCLogicSystem.*       # 业务派发:handler 表、过载调度、forward 路由、HTTP 路由
-│   ├── WebRTCSignalPacket.*      # 信令包:socket+json request+requestType
+│   ├── WebrtcSignalServer.*      # 顶层服务:acceptor、全局任务队列、通道编排
+│   ├── WebrtcSignalManager.*     # 单通道:socket 表、actor 路由索引、LogicSystem
+│   ├── WebrtcSignalSocket.*      # WebSocket 连接:握手、收发协程、keepalive
+│   ├── WebrtcLogicSystem.*       # 业务派发:handler 表、过载调度、forward 路由、HTTP 路由
+│   ├── WebrtcSignalPacket.*      # 信令包:socket+json request+requestType
 │   ├── HttpSocket.*              # HTTPS 连接:握手、keep-alive、读写
 │   ├── HttpClient.*              # 出站 HTTP 客户端(对接 Polaris 等服务发现)
 │   ├── AsioConcurrentQueue.h     # moodycamel 队列 + sam 信号量 的 awaitable 封装
@@ -45,7 +45,7 @@ WebRTCSignalServer/
 │   └── CoroRpcHandlerImpl.h/.cpp # RPC handler(requestForward 跨节点转发)+ 注册
 ├── mysql/
 │   ├── MysqlConfig.h             # 全局 MysqlConfig 结构体 + inline globalMysqlConfig
-│   ├── WebRTCMysqlManagerPools.* # boost::mysql 连接池(每通道一个)
+│   ├── WebrtcMysqlManagerPools.* # boost::mysql 连接池(每通道一个)
 │   └── AsyncTransactionGuard.h   # 事务 RAII(START TRANSACTION / COMMIT / ROLLBACK)
 └── utils/
     ├── ConfigManager.h           # ini/json/xml 配置单例(只在 main 用)
@@ -61,8 +61,8 @@ WebRTCSignalServer/
 ```mermaid
 flowchart TB
   main["main.cpp 组合根<br/>ConfigManager.Load → 组装配置<br/>initSslContext / AsioProactors::init(threadSize)"]
-  server["WebRTCSignalServer<br/>main io_context(单线程)<br/>acceptor + httpAcceptor<br/>全局 TaskChannel 排水<br/>signal_set(SIGINT/SIGTERM)"]
-  main -->|"构造注入 WebRTCSignalConfig"| server
+  server["WebrtcSignalServer<br/>main io_context(单线程)<br/>acceptor + httpAcceptor<br/>全局 TaskChannel 排水<br/>signal_set(SIGINT/SIGTERM)"]
+  main -->|"构造注入 WebrtcSignalConfig"| server
 
   subgraph pool["AsioProactors: io_context × threadSize (每通道一个 worker 线程)"]
     ch0["Manager ch0<br/>io_context#0<br/>── LogicSystem(handlers/过载/路由)<br/>── MysqlPool<br/>── socketMap / actorSocketMappingIndex"]
@@ -84,12 +84,12 @@ flowchart TB
 | worker × `threadSize` | `AsioProactors` 池中各自一个 | 本通道连接的握手/读写协程、handler 执行、MySQL pool |
 
 - **连接绑定通道**：accept 后 `loadBalanceWebrtcManger()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
-- **跨通道通信**：通过 `WebRTCSignalServer::postTaskAsync(channelIndex, lambda)`，内部 `co_spawn` 到目标通道 io_context，lambda 收到 `shared_ptr<WebRTCSignalManager>`。这是路由转发的线程跳转原语。
+- **跨通道通信**：通过 `WebrtcSignalServer::postTaskAsync(channelIndex, lambda)`，内部 `co_spawn` 到目标通道 io_context，lambda 收到 `shared_ptr<WebrtcSignalManager>`。这是路由转发的线程跳转原语。
 - **条件编译**：
-  - `__linux__`：accept 走每通道 `SO_REUSEPORT` 多 acceptor（`WebRTCSignalManager::asyncAccept`），Linux 专用路径。
+  - `__linux__`：accept 走每通道 `SO_REUSEPORT` 多 acceptor（`WebrtcSignalManager::asyncAccept`），Linux 专用路径。
   - 非 Linux（含 Windows）：单 acceptor 在 main loop，accept 后分发。
   - `HOPE_RTC_SIGNAL_SERVER_LOGIC`：LogicSystem 用独立 logic io 池（`AsioProactors::getLogicInstance`）而非本通道 io。
-  - `WEBRTC_SIGNAL_SOCKET_DISABLE_SSL` / `WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL`：关闭对应连接的 SSL。
+  - `Webrtc_SIGNAL_SOCKET_DISABLE_SSL` / `Webrtc_SIGNAL_HTTP_SOCKET_DISABLE_SSL`：关闭对应连接的 SSL。
 
 ### 3.3 配置解耦（重点）
 
@@ -97,15 +97,15 @@ flowchart TB
 
 ```
 main.cpp: ConfigManager.Instance().Load("config.ini")
-        → 读 [WebRTCSignalServer] 填 WebRTCSignalConfig(构造注入)
-        → 读 [CoroRpc]          填 WebRTCSignalConfig.coroRpcServerConfig + enableRpc
+        → 读 [WebrtcSignalServer] 填 WebrtcSignalConfig(构造注入)
+        → 读 [CoroRpc]          填 WebrtcSignalConfig.coroRpcServerConfig + enableRpc
         → 读 [Mysql]            填 globalMysqlConfig(全局)
 ```
 
 两条注入路径：
 
-1. **浅层(3 跳)走构造注入**：`WebRTCSignalConfig` → `WebRTCSignalServer` → `WebRTCSignalManager`（用标量小结构体 `WebRTCSignalChannelConfig` 收拢，避免把 CoroRpc 头拖进 Manager）→ `WebRTCLogicSystem`（threshold/exitThreshold/asyncThreshold）/ `WebRTCSignalSocket`（socketWaitTime）。
-2. **深层(4 跳、跨子系统)走全局**：`mysql/MysqlConfig.h` 里 `inline MysqlConfig globalMysqlConfig;`，main 填一次，`WebRTCMysqlManagerPools` 读。穿透 server→manager→logicSystem→pools 四层，中间三层不关心 mysql 参数，故按约定走全局而非透传。
+1. **浅层(3 跳)走构造注入**：`WebrtcSignalConfig` → `WebrtcSignalServer` → `WebrtcSignalManager`（用标量小结构体 `WebrtcSignalChannelConfig` 收拢，避免把 CoroRpc 头拖进 Manager）→ `WebrtcLogicSystem`（threshold/exitThreshold/asyncThreshold）/ `WebrtcSignalSocket`（socketWaitTime）。
+2. **深层(4 跳、跨子系统)走全局**：`mysql/MysqlConfig.h` 里 `inline MysqlConfig globalMysqlConfig;`，main 填一次，`WebrtcMysqlManagerPools` 读。穿透 server→manager→logicSystem→pools 四层，中间三层不关心 mysql 参数，故按约定走全局而非透传。
 
 业务类内部**不再出现 `ConfigManager::Instance()`**。
 
@@ -118,16 +118,16 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 1. 设置控制台 UTF-8。
 2. `ConfigManager.Load("config.ini")`，`initLogger()`，按 `DEBUG/INFO/WARN/ERROR` 设控制台日志级别。
 3. `initSslContext(certificateFile, privateKeyFile)`（主 WebSocket/HTTP 的 SSL 上下文）。
-4. 组装 `WebRTCSignalConfig`（port/httpPort/enableHttp/enablePublicPort/threadSize/overload/threshold/exitThreshold/asyncThreshold/socketWaitTime + `[CoroRpc]` 子配置）与 `globalMysqlConfig`。
+4. 组装 `WebrtcSignalConfig`（port/httpPort/enableHttp/enablePublicPort/threadSize/overload/threshold/exitThreshold/asyncThreshold/socketWaitTime + `[CoroRpc]` 子配置）与 `globalMysqlConfig`。
 5. `AsioProactors::init(threadSize)` 启动 worker 线程池。
-6. 构造 `WebRTCSignalServer(ioContext, webrtcSignalConfig)`（内部 `initialize()` 建 N 个 Manager，每个 Manager 建 LogicSystem+MysqlPool 并 `asyncEvent()`）。
-7. `webrtcSignalServer->asyncEvent()`：开 accept 协程、全局任务队列排水协程、各 LogicSystem 的 `asyncTaskExecute()`。
+6. 构造 `WebrtcSignalServer(ioContext, WebrtcSignalConfig)`（内部 `initialize()` 建 N 个 Manager，每个 Manager 建 LogicSystem+MysqlPool 并 `asyncEvent()`）。
+7. `WebrtcSignalServer->asyncEvent()`：开 accept 协程、全局任务队列排水协程、各 LogicSystem 的 `asyncTaskExecute()`。
 8. `signal_set(SIGINT/SIGTERM).async_wait(...)`。
 9. `ioContext.run()`。
 
 ### 关闭（收到 SIGINT/SIGTERM）
 
-1. `webrtcSignalServer->closeEvent()`：`taskQueues.close()`、清空 managers（触发各 Manager/LogicSystem/MysqlPool 析构 → `pool->cancel()`）。
+1. `WebrtcSignalServer->closeEvent()`：`taskQueues.close()`、清空 managers（触发各 Manager/LogicSystem/MysqlPool 析构 → `pool->cancel()`）。
 2. `work.reset()` + `ioContext.stop()`。
 3. `closeLogger()`。
 4. `AsioProactors` 析构：各 worker `work.reset()`→`io_context.stop()`→`join`。
@@ -136,7 +136,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 ## 5. 信令流程（WebSocket）
 
-### 5.1 接入握手（`WebRTCSignalSocket::handShake`）
+### 5.1 接入握手（`WebrtcSignalSocket::handShake`）
 
 1. （SSL 时）`async_handshake(server)`，带 `cancel_after(handshakeTimeout)`（`socketWaitTime` ms，注入）。
 2. `async_read` 读 HTTP Upgrade 请求。
@@ -146,13 +146,13 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 6. `setTcpKeepAlive`（按平台调 SO_KEEPALIVE / TCP_KEEPIDLE/INTVL/CNT）。
 7. `manager->registerSocket(accountId, this)`：
    - 若同 `accountId` 已有旧连接 → 旧连接 `closeEvent()`（踢旧）。
-   - 写入 `webrtcSocketMap[accountId]`。
+   - 写入 `WebrtcSocketMap[accountId]`。
    - `postTaskAsync(mapChannelIndex, ...)` 在 home channel 的 `actorSocketMappingIndex[accountId] = {sessionId, channelIndex}` 登记归属。
 
 ### 5.2 收发循环
 
 - `asyncEvent()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
-- **revice**：`async_read` → 解析 JSON 到 `WebRTCSignalPacket.request`（`monotonic_resource` arena）→ 取 `requestType` → `logicSystem->postTaskAsync(packet)`。
+- **revice**：`async_read` → 解析 JSON 到 `WebrtcSignalPacket.request`（`monotonic_resource` arena）→ 取 `requestType` → `logicSystem->postTaskAsync(packet)`。
 - **writer**：从 `AsioConcurrentQueue<std::string>`（moodycamel + sam 信号量）dequeue → `async_write`。`asyncWrite(packet)` 入队。
 - 异常/断开 → `onDisConnectHandle(accountId, sessionId)` → `removeConnection`。
 
@@ -160,16 +160,16 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 `closeSocket()` 设 `linger{1,0}` 后 `close()`，跳过 TCP FIN 四次挥手直接发 RST，**避免 TIME_WAIT 堆积、快速释放资源**。
 
-### 5.4 业务派发与过载（`WebRTCLogicSystem`）
+### 5.4 业务派发与过载（`WebrtcLogicSystem`）
 
 `postTaskAsync(packet)`：
 
 ```
-handler = webrtcHandlers[requestType]
+handler = WebrtcHandlers[requestType]
 若找不到 → LOG_ERROR "Unknown Request Type"
 找到:
   taskQueueSize++
-  if taskQueueSize>=threshold && localTaskQueueSize>=threshold && webrtcLogicHandlers[type]==true:
+  if taskQueueSize>=threshold && localTaskQueueSize>=threshold && WebrtcLogicHandlers[type]==true:
       走全局队列: taskQueues.enqueue(lambda)  // 削峰
       失败(队列满) → taskQueueSize--, 回 503 busy
   else:
@@ -179,7 +179,7 @@ handler = webrtcHandlers[requestType]
                若 localTaskQueueSize 回落到 asyncThreshold+1 → 重启 asyncTaskExecute()
 ```
 
-- `webrtcLogicHandlers[type]` 标记该 handler 是否可搬到全局队列。**当前信令 1–7 全为 false**，即信令始终本地派发（低延迟、贴在连接所在线程）；全局队列主要服务可搬迁的 HTTP handler（`overview` 为 true）。
+- `WebrtcLogicHandlers[type]` 标记该 handler 是否可搬到全局队列。**当前信令 1–7 全为 false**，即信令始终本地派发（低延迟、贴在连接所在线程）；全局队列主要服务可搬迁的 HTTP handler（`overview` 为 true）。
 - 全局 `TaskChannel` 由 `threadSize+1` 个排水协程消费（main loop 1 个 + 每通道 LogicSystem 1 个），moodycamel 多消费安全。
 
 ### 5.5 forward 路由（核心）
@@ -187,12 +187,12 @@ handler = webrtcHandlers[requestType]
 转发 handler（requestType 1/2/3/6/7）把消息送到 `targetId`。三级寻址：
 
 ```
-1) 本通道直查: manager.webrtcSocketMap[targetId] 命中 → 直接 asyncWrite 转发
+1) 本通道直查: manager.WebrtcSocketMap[targetId] 命中 → 直接 asyncWrite 转发
 2) 命中失败 → 查 socket 本地路由缓存 actorMappingIndex[targetId] → channelIndex
    ├─ 有缓存: postTaskAsync(缓存通道) 去找
    └─ 无缓存(index=-1): postTaskAsync(home 通道 = hasher(targetId)%hashSize)
 3) 到达目标通道后查 actorSocketMappingIndex[targetId] → 真正归属通道
-   ├─ 命中: 跳到归属通道,webrtcSocketMap 取 socket 转发;回写本地路由缓存
+   ├─ 命中: 跳到归属通道,WebrtcSocketMap 取 socket 转发;回写本地路由缓存
    └─ 未登记: 回 404 "TargetId is not register",清掉过期缓存项
 ```
 
@@ -200,7 +200,7 @@ handler = webrtcHandlers[requestType]
 - **一致性哈希 home 通道**：`hasher(accountId) % hashSize`（`hashSize=threadSize`），让任意 accountId 到 home 通道的映射稳定，跨通道寻址最多两跳。
 - **两级缓存**：每个 socket 的 `actorMappingIndex`（targetId→channel）做就近缓存；每个通道的 `actorSocketMappingIndex`（accountId→{sessionId,channel}）做全局索引。命中缓存省一跳。
 - **过期自愈**：转发 404 时清掉缓存里指向错误通道的项，下次重新寻址。
-- **线程安全**：所有对 `webrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 的访问都在该数据所属通道的 io_context 线程上（通过 `postTaskAsync` 跳线程），无锁。
+- **线程安全**：所有对 `WebrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 的访问都在该数据所属通道的 io_context 线程上（通过 `postTaskAsync` 跳线程），无锁。
 
 ### 5.6 转发图示（Mermaid）
 
@@ -219,11 +219,11 @@ sequenceDiagram
   M0->>M0: handShake → registerSocket(A)
   M0->>Mh: postTaskAsync(home=A%N) 登记 actorSocketMappingIndex[A]
   C->>M0: {requestType:1, accountId:A, targetId:B}
-  M0->>M0: webrtcSocketMap[B]? 未命中
+  M0->>M0: WebrtcSocketMap[B]? 未命中
   M0->>M0: actorMappingIndex[B]? 未缓存(index=-1)
   M0->>Mh: postTaskAsync(home of B) 查 actorSocketMappingIndex[B]
   Mh->>Mb: postTaskAsync(B 归属通道)
-  Mb->>Mb: webrtcSocketMap[B] 命中
+  Mb->>Mb: WebrtcSocketMap[B] 命中
   Mb->>B: asyncWrite 转发 {state:200,...}
   Mb->>M0: postTaskAsync 回写路由缓存 actorMappingIndex[B]=ch(Mb)
   Note over C,B: 下次 A→B 命中缓存,直接 postTaskAsync(ch(Mb)) 一跳送达
@@ -233,12 +233,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A["收到转发 targetId"] --> B{"本通道 webrtcSocketMap<br/>命中?"}
+  A["收到转发 targetId"] --> B{"本通道 WebrtcSocketMap<br/>命中?"}
   B -- 是 --> R1["直接 asyncWrite 转发"]
   B -- 否 --> C{"socket 路由缓存<br/>actorMappingIndex 命中?"}
   C -- "有缓存" --> D["postTaskAsync 缓存通道"]
   C -- "无缓存 index=-1" --> E["postTaskAsync home 通道<br/>hasher targetId % threadSize"]
-  D --> F{"该通道 webrtcSocketMap<br/>命中?"}
+  D --> F{"该通道 WebrtcSocketMap<br/>命中?"}
   E --> G{"actorSocketMappingIndex<br/>命中?"}
   G -- "命中" --> H["postTaskAsync 归属通道"]
   G -- "未登记" --> X1["回 404 + 清缓存"]
@@ -262,7 +262,7 @@ flowchart TD
 
 ---
 
-## 6. HTTP 接口（`HttpSocket` + `WebRTCLogicSystem::initHttpHandlers`）
+## 6. HTTP 接口（`HttpSocket` + `WebrtcLogicSystem::initHttpHandlers`）
 
 ### 6.1 连接处理
 
@@ -333,7 +333,7 @@ boost::asio::co_spawn(ioc, [client, token]() mutable -> boost::asio::awaitable<v
     req.set("X-Polaris-Token", token);                 // 纯 Token,不加 "Bearer "
 
     boost::json::object obj;
-    obj["service"] = "webrtc-signal-server";
+    obj["service"] = "Webrtc-signal-server";
     obj["namespace"] = "coro";
     obj["host"] = "127.0.0.1";
     obj["port"] = 10087;
@@ -362,7 +362,7 @@ boost::asio::co_spawn(ioc, [client, token]() mutable -> boost::asio::awaitable<v
 
 ## 8. CoroRpc（节点间 RPC）
 
-`rpc/CoroRpc.*`，封装 ylt/coro_rpc（`#define YLT_ENABLE_SSL`），提供 server + client pool + load balancer。`enableRpc=1` 时由 `WebRTCSignalServer::asyncEvent()` 拉起（见 §8.5）。
+`rpc/CoroRpc.*`，封装 ylt/coro_rpc（`#define YLT_ENABLE_SSL`），提供 server + client pool + load balancer。`enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）。
 
 ### 8.1 配置（`CoroRpcServerConfig`，对应 `[CoroRpc]` ini）
 
@@ -376,7 +376,7 @@ boost::asio::co_spawn(ioc, [client, token]() mutable -> boost::asio::awaitable<v
 | enableDoubleSsl | mTLS 双向认证 |
 | clientCertFile / clientKeyFile | mTLS 时作为下游客户端出示的证书/私钥 |
 
-`WebRTCSignalConfig.enableRpc` 控制是否启用（默认 0）。
+`WebrtcSignalConfig.enableRpc` 控制是否启用（默认 0）。
 
 ### 8.2 Server 侧
 
@@ -518,21 +518,21 @@ cfg.clientKeyFile = "server.key";
 
 ### 8.5 在信令服务器中的集成
 
-`enableRpc=1` 时，`WebRTCSignalServer::asyncEvent()` 按以下顺序拉起 RPC：
+`enableRpc=1` 时，`WebrtcSignalServer::asyncEvent()` 按以下顺序拉起 RPC：
 
 ```cpp
-coroRpc = std::make_shared<hope::rpc::CoroRpc>(webrtcSignalConfig.coroRpcServerConfig);
+coroRpc = std::make_shared<hope::rpc::CoroRpc>(WebrtcSignalConfig.coroRpcServerConfig);
 coroRpc->createClientPools();
-std::vector<std::string> hosts;               // 当前为空,暂无下游 LB(hosts 为空时 createLoadBalancer 直接返回)
+std::vector<std::string> hosts;               // 启动为空:下游节点由服务发现运行时拉取后填充,这里先建空 LB
 coroRpc->createLoadBalancer(hosts);
 coroRpcHandlerImpl.coroRpc = coroRpc;          // 把 rpc 赋给 handler 对象
 coroRpcHandlerImpl.registerRpcHandler();       // 注册 requestForward
 coroRpc->asyncEvent();                         // coro_rpc_server.async_start()
 ```
 
-`coroRpc` 是 `WebRTCSignalServer` 的 `shared_ptr<CoroRpc>` 成员；`coroRpcHandlerImpl` 是 `CoroRpcHandlerImpl` **值成员**，在 `WebRTCSignalServer` 构造列表里以 `coroRpcHandlerImpl(*this)` 初始化（此时只绑 server，`coroRpc` 还是 nullptr），到 `asyncEvent` 才把 `coroRpc` 赋进去再注册。`closeEvent()` 里 `if (coroRpc) coroRpc->closeEvent();` 停 RPC server。
+`coroRpc` 是 `WebrtcSignalServer` 的 `shared_ptr<CoroRpc>` 成员；`coroRpcHandlerImpl` 是 `CoroRpcHandlerImpl` **值成员**，在 `WebrtcSignalServer` 构造列表里以 `coroRpcHandlerImpl(*this)` 初始化（此时只绑 server，`coroRpc` 还是 nullptr），到 `asyncEvent` 才把 `coroRpc` 赋进去再注册。`closeEvent()` 里 `if (coroRpc) coroRpc->closeEvent();` 停 RPC server。
 
-handler 注册由 `rpc/CoroRpcHandlerImpl.*` 负责。唯一注册的 handler 是 `requestForward`——`CoroRpcHandlerImpl` 的**私有成员函数**，`registerRpcHandler()` 调 `coroRpc->registerHandler<&CoroRpcHandlerImpl::requestForward>(this)` 注册——`this` 携带 `webrtcSignalServer`，无需全局：
+handler 注册由 `rpc/CoroRpcHandlerImpl.*` 负责。唯一注册的 handler 是 `requestForward`——`CoroRpcHandlerImpl` 的**私有成员函数**，`registerRpcHandler()` 调 `coroRpc->registerHandler<&CoroRpcHandlerImpl::requestForward>(this)` 注册——`this` 携带 `WebrtcSignalServer`，无需全局：
 
 ```cpp
 struct RpcForward {        // 请求
@@ -546,13 +546,13 @@ struct RpcForwardResponse { // 回包
 
 class CoroRpcHandlerImpl {
 public:
-    CoroRpcHandlerImpl(hope::signal::WebRTCSignalServer& webrtcSignalServer);
+    CoroRpcHandlerImpl(hope::signal::WebrtcSignalServer& WebrtcSignalServer);
     void registerRpcHandler();
 private:
     async_simple::coro::Lazy<RpcForwardResponse> requestForward(RpcForward rpcforward);
 public:
-    std::shared_ptr<CoroRpc> coroRpc;                 // 由 WebRTCSignalServer 在 asyncEvent 赋值
-    hope::signal::WebRTCSignalServer& webrtcSignalServer;
+    std::shared_ptr<CoroRpc> coroRpc;                 // 由 WebrtcSignalServer 在 asyncEvent 赋值
+    hope::signal::WebrtcSignalServer& WebrtcSignalServer;
 };
 
 void CoroRpcHandlerImpl::registerRpcHandler() {
@@ -561,11 +561,11 @@ void CoroRpcHandlerImpl::registerRpcHandler() {
 }
 ```
 
-`webrtcSignalServer` 是对象引用成员，这就是「把 server 传进 handler」的方式（ylt 按成员函数指针注册，对象指针在调用时传入）。`coroRpcHandlerImpl` 作为 `WebRTCSignalServer` 的值成员，生命周期随 server。注意：`&CoroRpcHandlerImpl::requestForward` 必须是**完全限定**的成员函数指针（不能写 `&requestForward`），且成员函数注册必须传 `this`，否则 ylt 会 `static_assert` 报 "register member function but lack of the parent object"。
+`WebrtcSignalServer` 是对象引用成员，这就是「把 server 传进 handler」的方式（ylt 按成员函数指针注册，对象指针在调用时传入）。`coroRpcHandlerImpl` 作为 `WebrtcSignalServer` 的值成员，生命周期随 server。注意：`&CoroRpcHandlerImpl::requestForward` 必须是**完全限定**的成员函数指针（不能写 `&requestForward`），且成员函数注册必须传 `this`，否则 ylt 会 `static_assert` 报 "register member function but lack of the parent object"。
 
 #### 8.5.1 `requestForward` 语义：跨节点转发的 RPC 入口
 
-`requestForward` 是 §5.5「forward 三级寻址」的**跨节点外露入口**。当一条信令要送到 `targetId`、而 `targetId` 的连接不在本节点时，调用方（另一节点）通过 RPC 把这条信令托付给"持有 targetId"的本节点，本节点在本地通道间寻址并最终 `asyncWrite` 到目标 socket。即：RPC 把"节点间"的寻址收敛到一次 `call`，节点内的"通道间"寻址复用 §5.5 同一套 `actorSocketMappingIndex` / `webrtcSocketMap` 逻辑。
+`requestForward` 是 §5.5「forward 三级寻址」的**跨节点外露入口**。当一条信令要送到 `targetId`、而 `targetId` 的连接不在本节点时，调用方（另一节点）通过 RPC 把这条信令托付给"持有 targetId"的本节点，本节点在本地通道间寻址并最终 `asyncWrite` 到目标 socket。即：RPC 把"节点间"的寻址收敛到一次 `call`，节点内的"通道间"寻址复用 §5.5 同一套 `actorSocketMappingIndex` / `WebrtcSocketMap` 逻辑。
 
 流程（对应 `CoroRpcHandlerImpl::requestForward`）：
 
@@ -582,7 +582,7 @@ void CoroRpcHandlerImpl::registerRpcHandler() {
       ├─ channelIndex == 桶 manager 通道:直接 forwardOnManager
       └─ 否则:postTaskAsync(channelIndex, forwardOnManager)
 7. forwardOnManager(统一 lambda,消除同/跨通道重复):
-   ├─ webrtcSocketMap[targetId] 命中 -> 写回 {state:200,...} + asyncWrite + {200,"Forward Success"}
+   ├─ WebrtcSocketMap[targetId] 命中 -> 写回 {state:200,...} + asyncWrite + {200,"Forward Success"}
    └─ 未命中 -> {404,"TargetId Not Register..."}
 8. co_await future -> RpcForwardResponse
 ```
@@ -601,13 +601,13 @@ ylt/coro_rpc 是头文件库，无需额外链接库；`rpc/CoroRpcHandlerImpl.c
 ```mermaid
 sequenceDiagram
   participant Cli as 外部 RPC 客户端(另一节点)
-  participant Srv as WebRTCSignalServer
+  participant Srv as WebrtcSignalServer
   participant Rpc as CoroRpc(coro_rpc_server)
   participant Impl as CoroRpcHandlerImpl
   participant Fn as Impl::requestForward(成员函数)
   participant Mb as Manager(home(B)/owns(B))
   participant B as 客户端 B
-  Note over Srv,Impl: WebRTCSignalServer 构造期
+  Note over Srv,Impl: WebrtcSignalServer 构造期
   Srv->>Impl: coroRpcHandlerImpl(*this) 值成员,绑 server
   Note over Srv,Impl: asyncEvent, enableRpc=1
   Srv->>Rpc: make_shared<CoroRpc>(config)
@@ -622,7 +622,7 @@ sequenceDiagram
   Fn->>Fn: 解析+校验 forwardChannel/hashSize
   Fn->>Mb: postTaskAsync(hasher(targetId)%hashSize) 查 actorSocketMappingIndex[B]
   Mb->>Mb: 命中归属通道 -> postTaskAsync(归属通道)
-  Mb->>Mb: webrtcSocketMap[B] 命中
+  Mb->>Mb: WebrtcSocketMap[B] 命中
   Mb->>B: asyncWrite 转发 {state:200,...}
   Mb-->>Fn: promise.setValue({200,"Forward Success"})
   Fn-->>Rpc: co_await future -> RpcForwardResponse
@@ -649,7 +649,7 @@ CoroRpcHandlerImpl::requestForward(RpcForward rpcforward) {
 
     // 3. 把 promise 用 std::move 塞进 postTaskAsync 的 lambda(它是 asio awaitable)。
     //    lambda 在目标通道 io 上跑完,拿到结果后调 promise.setValue(resp)。
-    webrtcSignalServer.postTaskAsync(channelIndex,
+    WebrtcSignalServer.postTaskAsync(channelIndex,
         [promise = std::move(promise), /*...其它捕获...*/]
         (std::shared_ptr<WebrtcSignalManager> m) mutable
         -> boost::asio::awaitable<void> {
@@ -675,11 +675,11 @@ CoroRpcHandlerImpl::requestForward(RpcForward rpcforward) {
 
 #### B. 客户端写法：从信令 handler 发起跨节点 RPC
 
-信令 handler（`WebRTCLogicSystem` 里）是 `boost::asio::awaitable<void>` 协程，而 `CoroRpc::asyncRpcRequest` 返回 `async_simple::coro::Lazy`——**两个协程框架不能互 `co_await`**。所以发起 RPC 要走 `rpc->asyncAwait(lazy)`：把 `async_simple::Lazy` 扔到 rpc 的 io 池异步跑，回调里处理结果，**不阻塞当前 asio 协程**。
+信令 handler（`WebrtcLogicSystem` 里）是 `boost::asio::awaitable<void>` 协程，而 `CoroRpc::asyncRpcRequest` 返回 `async_simple::coro::Lazy`——**两个协程框架不能互 `co_await`**。所以发起 RPC 要走 `rpc->asyncAwait(lazy)`：把 `async_simple::Lazy` 扔到 rpc 的 io 池异步跑，回调里处理结果，**不阻塞当前 asio 协程**。
 
 ```cpp
 // 假设已知 targetId 归属节点 host,把信令托付过去。
-auto rpc = webrtcSignalServer->coroRpc;          // WebRTCSignalServer::coroRpc(shared_ptr)
+auto rpc = WebrtcSignalServer->coroRpc;          // WebrtcSignalServer::coroRpc(shared_ptr)
 std::string targetHost = "10.0.0.2:10011";
 
 RpcForward req{
@@ -722,15 +722,15 @@ rpc->asyncAwait([rpc, req = std::move(req), targetHost = std::move(targetHost)](
 - **何时用 `asyncAwait` vs 直接 `co_await`**：在 asio 协程里发起 RPC 一律用 `asyncAwait`（异步、不阻塞、不互 await）；在纯 `async_simple::Lazy` 上下文里才直接 `co_await rpc->asyncRpcRequest(...)`。
 - **两层判 `r`**：`!r` = 连接层错（`std::errc`，拿 `r.error()`）；`!r.value()` = RPC 业务错；都通过才 `r.value().value()` 取返回值。**别一上来就 `.value().value()`**——任一层未就绪都会触发未定义行为/断言。
 - **host 黑名单**：对端下线后调 `rpc->removeHost(host)`（或服务发现回调里 `removeHostsNotIn(在线清单)`），后续 `asyncRpcRequest` 对该 host 直接回 `std::errc::not_connected`，不走网络。
-- **现状提醒**：当前 `WebRTCSignalServer::asyncEvent()` 里 `createLoadBalancer(hosts)` 传的是**空** `hosts`，且信令 handler 暂未发起 RPC——即 RPC handler 已就绪可被外部节点调用，但本节点作为 RPC 客户端去 forward 的链路尚未接通。要启用跨节点转发，需：①用服务发现（§7.2 Polaris）填充 `hosts` 并 `createLoadBalancer`；②在上面的 forward handler 里，当本地三级寻址全 miss 时，改用 `asyncLbRpcRequest`/`asyncRpcRequest` 调远端 `requestForward`。
+- **host 列表是运行时填的，启动为空属正常**：`createLoadBalancer(hosts)` 启动时传空只是"初始没有下游"——节点清单本就该运行时从服务发现中心拉。正路是：Polaris `Discover`（§7.2）拿到在线节点 → 重建/更新 `loadBalancer`，或用 `removeHostsNotIn(在线清单)` 按发现结果裁剪可用集合、对端下线时 `removeHost` 剔除。`asyncLbRpcRequest` / `asyncRpcRequest` 都是基于这套"运行时才就绪"的下游集合发请求。跨节点 forward 的闭环：信令 handler 本地三级寻址全 miss 时，改用 LB 把 `requestForward` 发到"持有 targetId"的远端节点。
 
 ---
 
 ## 9. MySQL（`mysql/`）
 
-### 9.1 连接池 `WebRTCMysqlManagerPools`
+### 9.1 连接池 `WebrtcMysqlManagerPools`
 
-- 每个 `WebRTCLogicSystem` 构造时建一个 `boost::mysql::connection_pool`，跑在该通道 io_context 上（`co_spawn` `pool->async_run`）。
+- 每个 `WebrtcLogicSystem` 构造时建一个 `boost::mysql::connection_pool`，跑在该通道 io_context 上（`co_spawn` `pool->async_run`）。
 - 配置来自全局 `globalMysqlConfig`（host/port/user/password/database/multiQueries/poolInitialSize/poolMaxSize/connectTimeout/pingInterval/pingTimeout），main 启动时填一次，启动后只读无锁。
 - `getTransactionMysqlManager() -> awaitable<ScopedMysqlConnection>`：`async_get_connection` 取连接，包成 `ScopedMysqlConnection`（`getConnection()` 拿 `any_connection*`）。
 - 析构：`post` 一个 `pool->cancel()`。
@@ -752,7 +752,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
   - `dequeue`：先 `try_dequeue`，拿不到则 `async_receive` 挂起；channel 关闭则排空并返回 `nullopt`。
 - `AsioConcurrentQueue<T>`（`AsioConcurrentQueue.h`）：同样的 moodycamel + `boost::sam::basic_semaphore`，给 socket 写队列用。
 
-### 10.2 阈值（注入，来自 `WebRTCSignalConfig`）
+### 10.2 阈值（注入，来自 `WebrtcSignalConfig`）
 
 | 参数 | 含义 |
 |------|------|
@@ -789,7 +789,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 ### 12.1 配置 `config.ini`
 
 ```ini
-[WebRTCSignalServer]
+[WebrtcSignalServer]
 port = 8088              ; WebSocket 信令端口
 httpPort = 9099          ; HTTP 运维端口
 enableHttp = 1           ; 是否开 HTTP
@@ -832,14 +832,14 @@ clientCertFile =
 clientKeyFile =
 
 [Protect]
-process = WebRTCSignalServer.exe   ; 预留,当前无代码消费
+process = WebrtcSignalServer.exe   ; 预留,当前无代码消费
 ```
 
 ### 12.2 构建
 
 ```sh
 make clean && make
-# 产物 release-x64/WebRTCSignalServer,附带拷贝 .so 与符号链接
+# 产物 release-x64/WebrtcSignalServer,附带拷贝 .so 与符号链接
 ```
 
 - 需要 `include/{openssl,absl,boost,coroRpc}` 与 `lib/{openssl,absl,boost,tcmalloc}`（构建环境准备）。
@@ -850,16 +850,16 @@ make clean && make
 
 ```sh
 cd <含 config.ini + server.crt + server.key 的目录>
-./WebRTCSignalServer
+./WebrtcSignalServer
 ```
 
 ### 12.4 客户端协议（信令）
 
 - 连接：`wss://host:8088`，请求头带 `Authorization: <accountId>`（或 `?authorization=<accountId>`）。
 - 发送 JSON：`{"requestType":1,"accountId":"A","targetId":"B", ...}`。
-- 服务器转发给 B：原 JSON 补 `"state":200,"message":"webrtcSignalServer forward"`。
+- 服务器转发给 B：原 JSON 补 `"state":200,"message":"WebrtcSignalServer forward"`。
 - 目标未注册：回 `{"requestType":1,"state":404,"message":"TargetId is not register"}`。
-- 过载：回 `{"requestType":1,"state":503,"message":"webrtcSignalServer busy, please retry later"}`。
+- 过载：回 `{"requestType":1,"state":503,"message":"WebrtcSignalServer busy, please retry later"}`。
 - requestType 4 = 主动断开。
 
 ### 12.5 运维 HTTP
@@ -880,25 +880,25 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 
 | 结构 | 位置 | 作用 |
 |------|------|------|
-| `WebRTCSignalConfig` | `WebRTCSignalServer.h` | 信号子系统配置（注入） |
-| `WebRTCSignalChannelConfig` | `WebRTCSignalManager.h` | 透传到通道的标量配置 |
+| `WebrtcSignalConfig` | `WebrtcSignalServer.h` | 信号子系统配置（注入） |
+| `WebrtcSignalChannelConfig` | `WebrtcSignalManager.h` | 透传到通道的标量配置 |
 | `CoroRpcServerConfig` | `CoroRpc.h` | RPC 配置 |
 | `MysqlConfig` / `globalMysqlConfig` | `mysql/MysqlConfig.h` | MySQL 全局配置 |
-| `WebRTCSignalPacket` | `WebRTCSignalPacket.h` | 信令包（socket+json+requestType） |
+| `WebrtcSignalPacket` | `WebrtcSignalPacket.h` | 信令包（socket+json+requestType） |
 | `TaskChannel` | `AwaitableTask.h` | 全局任务队列 |
 | `AsioConcurrentQueue<T>` | `AsioConcurrentQueue.h` | socket 写队列 |
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
-| `ActorMapping` | `WebRTCSignalManager.h` | `{sessionId, channelIndex}` |
+| `ActorMapping` | `WebrtcSignalManager.h` | `{sessionId, channelIndex}` |
 | `AsyncTransactionGuard` | `mysql/AsyncTransactionGuard.h` | 事务 RAII |
 
 ---
 
 ## 14. 注意事项
 
-- ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebRTCSignalConfig` / `WebRTCSignalChannelConfig`），MySQL 走全局 `globalMysqlConfig`。
+- ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebrtcSignalConfig` / `WebrtcSignalChannelConfig`），MySQL 走全局 `globalMysqlConfig`。
 - 仓库自带的 moodycamel 副本改名为 `hopeMoodycamel`、宏前缀改为 `HOPE_MOODYCAMEL_*`，避免与 ylt 自带的 moodycamel 撞名并共享 `#ifndef MOODYCAMEL_ALIGNAS` 守卫。升级上游 moodycamel 时需重新套用这两处改名（见 `utils/concurrentqueue.h` 顶部注释）。
 - makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；`-MMD -MP` 自动头依赖；`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandlerImpl.cpp` 需确保在 `SRCS` 中。
-- CoroRpc 在 `enableRpc=1` 时由 `WebRTCSignalServer::asyncEvent()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
+- CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
 - HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
 - MySQL 连接池每通道建好，handler 暂无 SQL 调用；`AsyncTransactionGuard` 析构不自动回滚，需显式 `commit()` / `asyncRollback()`。
 - `[Protect]` 段当前无代码消费。
