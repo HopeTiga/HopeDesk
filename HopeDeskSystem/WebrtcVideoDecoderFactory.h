@@ -25,7 +25,7 @@ namespace hope {
 
 		public:
 
-			int webrtcEnableNvidia = 0;
+			int webrtcEnableNvdec = 0;
 
 		private:
 

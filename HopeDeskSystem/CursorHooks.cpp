@@ -15,9 +15,9 @@ namespace hope {
             stopHooks();
         }
 
-        void CursorHooks::setCursorHandler(std::function<void(unsigned char*, size_t)> handler)
+        void CursorHooks::setCursorHandle(std::function<void(unsigned char*, size_t)> handler)
         {
-            this->cursorHandler = handler;
+            this->cursorHandle = handler;
         }
 
         void CursorHooks::startHooks()
@@ -131,8 +131,8 @@ namespace hope {
                     c->height = 0;
                     c->hotX = 0;
                     c->hotY = 0;
-                    if (cursorHandler) {
-                        cursorHandler(data, sizeof(Cursors));
+                    if (cursorHandle) {
+                        cursorHandle(data, sizeof(Cursors));
                     }
                 }
                 return;
@@ -150,7 +150,7 @@ namespace hope {
                 // 若先占 index 再提取，提取失败会留下 index 空洞，
                 // 导致对端 cursorArray 下标错位：后续 type=0 引用空洞、
                 // 新光标 index>size 被对端拒收，连锁失步(重连才恢复)。
-                if (cursorHandler && currentCursor) {
+                if (cursorHandle && currentCursor) {
                     unsigned char* bitmapData = nullptr;
                     size_t bitmapSize = 0;
 
@@ -210,7 +210,7 @@ namespace hope {
                             // Copy bitmap data after struct
                             fastCopy(finalData + sizeof(Cursors), bitmapData, bitmapSize);
 
-                            cursorHandler(finalData, totalSize);
+                            cursorHandle(finalData, totalSize);
                         }
                         // else: 尺寸非法，不缓存(无空洞)，下次光标变化再重试
 
@@ -244,8 +244,8 @@ namespace hope {
                 cursors->hotX = cursorPos.first;
                 cursors->hotY = cursorPos.second;
 
-                if (cursorHandler) {
-                    cursorHandler(data, sizeof(Cursors));
+                if (cursorHandle) {
+                    cursorHandle(data, sizeof(Cursors));
                 }
             }
         }

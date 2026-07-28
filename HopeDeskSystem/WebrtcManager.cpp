@@ -564,8 +564,8 @@ namespace hope {
 
             screenCapture->setConfig(config);
 
-            if (webrtcEnableNvidia == 1) {
-                LOG_INFO("webrtcEnableNvidia");
+            if (webrtcEnableNvenc == 1) {
+                LOG_INFO("webrtcEnableNvenc");
                 screenCapture->setGpuDataHandle([this](ID3D11Texture2D* texture,
                     HANDLE sharedHandle,
                     int width, int height,
@@ -655,7 +655,7 @@ namespace hope {
 
             cursorHooks = std::make_unique<CursorHooks>();
 
-            cursorHooks->setCursorHandler([this](unsigned char* data, size_t size) {
+            cursorHooks->setCursorHandle([this](unsigned char* data, size_t size) {
 
                 if (!dataChannel) {
 
@@ -940,9 +940,9 @@ namespace hope {
 
                                             }
 
-                                            if (json.contains("webrtcEnableNvidia")) {
+                                            if (json.contains("webrtcEnableNvenc")) {
 
-                                                webrtcEnableNvidia = json["webrtcEnableNvidia"].as_int64();
+                                                webrtcEnableNvenc = json["webrtcEnableNvenc"].as_int64();
 
                                             }
 
@@ -953,7 +953,20 @@ namespace hope {
 
                                             if (webrtcVideoEncoderFactory) {
 
-                                                webrtcVideoEncoderFactory->webrtcEnableNvidia = webrtcEnableNvidia;
+                                                webrtcVideoEncoderFactory->webrtcEnableNvenc = webrtcEnableNvenc;
+
+                                                // 编码器创建后,把"实际硬编/软编 + codec"经本地 TCP 控制通道
+                                                // (ENCODE_STATUS)上报给被控端 Native 显示。不是 WebRTC dataChannel。
+                                                webrtcVideoEncoderFactory->onEncoderStatusHandle =
+                                                    [this](const std::string& codec, bool hardEncode) {
+                                                    boost::json::object o;
+                                                    o["requestType"] = static_cast<int64_t>(WebrtcRequestState::ENCODE_STATUS);
+                                                    o["codec"] = codec;
+                                                    o["hard"] = hardEncode;
+                                                    std::string s = boost::json::serialize(o);
+                                                    auto data = std::make_shared<WriterData>(const_cast<char*>(s.data()), s.size());
+                                                    asyncWrite(data);
+                                                };
 
                                             }
 

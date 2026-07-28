@@ -193,7 +193,7 @@ namespace hope {
 
             int webrtcAudioEnable = 0;
 
-            int webrtcEnableNvidia = 0;
+            int webrtcEnableNvenc = 0;
 
         };
 

@@ -14,7 +14,7 @@ namespace hope {
             CursorHooks() = default;
             ~CursorHooks();
 
-            void setCursorHandler(std::function<void(unsigned char*, size_t)> handler);
+            void setCursorHandle(std::function<void(unsigned char*, size_t)> handler);
             void startHooks();
             void stopHooks();
 
@@ -33,7 +33,7 @@ namespace hope {
 
         private:
             static CursorHooks* instance;
-            std::function<void(unsigned char*, size_t)> cursorHandler;
+            std::function<void(unsigned char*, size_t)> cursorHandle;
             std::atomic<bool> isRunning{ false };
 
             HHOOK mouseHook = nullptr;

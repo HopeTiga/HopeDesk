@@ -20,31 +20,32 @@ namespace hope {
         std::unique_ptr<webrtc::VideoEncoder> WebrtcVideoEncoderFactory::Create(const webrtc::Environment& env, const webrtc::SdpVideoFormat& format)
         {
 
-            if ((format.name == "AV1" || format.name == "av1") && webrtcEnableNvidia == 1) {
-     
-                LOG_INFO("NvencAV1Encoder");
+            if ((format.name == "AV1" || format.name == "av1") && webrtcEnableNvenc == 1) {
 
+                LOG_INFO("NvencAV1Encoder");
+                if (onEncoderStatusHandle) onEncoderStatusHandle("AV1", true);
                 return std::make_unique<NvencAV1Encoder>();
 
             }
 
-            if ((format.name == "H265" || format.name == "h265") && webrtcEnableNvidia == 1) {
+            if ((format.name == "H265" || format.name == "h265") && webrtcEnableNvenc == 1) {
 
                 LOG_INFO("NvencH2651Encoder");
-
+                if (onEncoderStatusHandle) onEncoderStatusHandle("H265", true);
                 return std::make_unique<NvencH265Encoder>();
 
             }
             else if (format.name == "H265" || format.name == "h265") {
-            
-                LOG_INFO("X265Encoder");
 
-				return std::make_unique<X265Encoder>();
+                LOG_INFO("X265Encoder");
+                if (onEncoderStatusHandle) onEncoderStatusHandle("H265", false);
+                return std::make_unique<X265Encoder>();
 
             }
 
             if (format.IsCodecInList(
                 internalEncoderFactory->GetSupportedFormats())) {
+                if (onEncoderStatusHandle) onEncoderStatusHandle(format.name, false);
                 return std::make_unique<webrtc::SimulcastEncoderAdapter>(
                     env,
                     /*primary_factory=*/internalEncoderFactory.get(),

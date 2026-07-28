@@ -10,12 +10,13 @@ namespace hope {
             REGISTER = 0,
             REQUEST = 1,
             RESTART = 2,
-            STOPREMOTE = 3,
+            STOPR_EMOTE = 3,
             START = 4,
             CLOSE = 5,
-            CLOSESYSTEM = 6,
-            SYSTEMREADLY = 7,
-            STATS = 8
+            CLOSE_SYSTEM = 6,
+            SYSTEM_READLY = 7,
+            STATS = 8,
+            ENCODE_STATUS = 9   // System -> 被控 Native:上报当前编码 codec + 硬编/软编
         };
 
         enum class WebrtcVideoCodec {

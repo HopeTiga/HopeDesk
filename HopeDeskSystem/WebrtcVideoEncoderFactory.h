@@ -1,4 +1,6 @@
 #pragma once
+#include <functional>
+#include <string>
 #include "api/environment/environment.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
@@ -28,7 +30,11 @@ namespace hope {
 
 		public:
 
-			int webrtcEnableNvidia = 0;
+			int webrtcEnableNvenc = 0;
+
+			// 编码器创建后回调:告知本次实际用的是硬编(NVENC)还是软编 + codec,
+			// WebrtcManager 据此经本地 TCP(ENCODE_STATUS)上报给被控端 Native 显示。
+			std::function<void(const std::string& codec, bool hardEncode)> onEncoderStatusHandle;
 
 		private:
 
