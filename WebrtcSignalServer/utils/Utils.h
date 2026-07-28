@@ -19,17 +19,22 @@
 
 constexpr std::chrono::seconds PING_INTERVAL = std::chrono::seconds(30);
 
+// 日志级别
+typedef enum {
+    LOG_LEVEL_DEBUG,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_WARN,  // 改为 WARN
+    LOG_LEVEL_ERROR
+} LogLevel;
+
+// 级别开关（普通 int，供宏在调用点短路，避免 va_list 构造与函数调用开销）
+// 读写在 x86 上对齐 int 读写天然原子，日志过滤不需要强顺序保证，用普通 int 最快。
+extern int consoleOutputLevels[4];
+extern int logToFileEnabled;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-    // 日志级别
-    typedef enum {
-        LOG_LEVEL_DEBUG,
-        LOG_LEVEL_INFO,
-        LOG_LEVEL_WARN,  // 改为 WARN
-        LOG_LEVEL_ERROR
-    } LogLevel;
 
     // 初始化函数
     void initLogger();
@@ -47,19 +52,19 @@ extern "C" {
     void getTimestamp(char* buffer, size_t size);
     void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
 
-    // 便捷宏定义
-#define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)    logMessage(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__) // 改为 LOG_WARN
-#define LOG_ERROR(fmt, ...)   logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG(fmt, ...)   logMessage(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-
-#define LOG_INFO_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_WARN_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__) // 改为 LOG_WARN_PLAIN
-#define LOG_ERROR_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-
 #ifdef __cplusplus
 }
 #endif
+
+// 便捷宏定义（级别过滤前置：被关闭的级别连 va_list 都不构造）
+#define LOG_INFO(fmt, ...)    do { if (consoleOutputLevels[LOG_LEVEL_INFO] != 0 || logToFileEnabled != 0) logMessage(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
+#define LOG_WARN(fmt, ...)    do { if (consoleOutputLevels[LOG_LEVEL_WARN] != 0 || logToFileEnabled != 0) logMessage(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
+#define LOG_ERROR(fmt, ...)   do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
+#define LOG_DEBUG(fmt, ...)   do { if (consoleOutputLevels[LOG_LEVEL_DEBUG] != 0 || logToFileEnabled != 0) logMessage(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
+
+#define LOG_INFO_PLAIN(fmt, ...)    do { if (consoleOutputLevels[LOG_LEVEL_INFO] != 0 || logToFileEnabled != 0) logMessagePlain(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
+#define LOG_WARN_PLAIN(fmt, ...)    do { if (consoleOutputLevels[LOG_LEVEL_WARN] != 0 || logToFileEnabled != 0) logMessagePlain(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
+#define LOG_ERROR_PLAIN(fmt, ...)   do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) logMessagePlain(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
+#define LOG_DEBUG_PLAIN(fmt, ...)   do { if (consoleOutputLevels[LOG_LEVEL_DEBUG] != 0 || logToFileEnabled != 0) logMessagePlain(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__); } while(0)
 
 #endif // UTILS_H
