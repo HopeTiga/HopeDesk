@@ -99,6 +99,8 @@ private:
     void updateNetworkTypeUI(int type, double rttMs);
     void refreshNetworkBadge();  // 用缓存的类型/RTT 重绘徽章(开关切换时调用)
     void hideNetworkBadge();     // 断开/超时时统一隐藏徽章并清空 RTT 缓存
+    void saveEncodeConfig();     // 把 6 个编码配置成员落盘(QSettings)
+    void syncConfigToManager();  // 把当前全部桌面配置同步到 WebrtcManager(RESTART 等内部复用路径需要)
 
     void moveToCenter();
 private:
@@ -141,6 +143,15 @@ private:
     int webrtcAudioEnable = 0;
     int webrtcEnableNvenc = 0;  // 硬件编码(NVENC),连接时发给 System
     int webrtcEnableNvdec = 0;  // 硬件解码(MF/D3D11),Native 本地
+
+    // 编码配置:UI 用 Mbps,WebrtcDeskConfig 里存 bps(1 Mbps = 1000000 bps)
+    // 请求组:随 REQUEST 发给远端 System;本地组:仅存,由本地 TCP 给本机 System
+    int requestMaxBitrateMbps = 15;
+    int requestMinBitrateMbps = 15;
+    int requestMaxFramerate   = 144;
+    int localMaxBitrateMbps   = 15;
+    int localMinBitrateMbps   = 15;
+    int localMaxFramerate     = 144;
 
     bool showRttEnabled = false;  // 是否在连接徽章上显示网络 RTT(可配置)
 };

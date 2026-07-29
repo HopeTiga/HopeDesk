@@ -992,15 +992,49 @@ QListWidget::item:selected {
          <number>30</number>
         </property>
         <item>
-         <widget class="QLabel" name="labelSettingsTitle">
-          <property name="styleSheet">
-           <string notr="true">font-size: 20px; font-weight: bold; color: #2C3E50; margin-bottom: 10px;</string>
+         <widget class="QScrollArea" name="scrollAreaSettings">
+          <property name="widgetResizable">
+           <bool>true</bool>
           </property>
-          <property name="text">
-           <string>通用设置</string>
+          <property name="horizontalScrollBarPolicy">
+           <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
           </property>
-         </widget>
-        </item>
+          <property name="frameShape">
+           <enum>QFrame::Shape::NoFrame</enum>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <widget class="QWidget" name="scrollAreaSettingsContents">
+           <layout class="QVBoxLayout" name="verticalLayout_SettingsScroll">
+            <property name="spacing">
+             <number>15</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QLabel" name="labelSettingsTitle">
+              <property name="styleSheet">
+               <string notr="true">font-size: 20px; font-weight: bold; color: #2C3E50; margin-bottom: 10px;</string>
+              </property>
+              <property name="text">
+               <string>通用设置</string>
+              </property>
+             </widget>
+            </item>
         <item>
          <widget class="QFrame" name="frameSettingCard">
           <property name="styleSheet">
@@ -1045,6 +1079,39 @@ QComboBox:hover {
 QComboBox::drop-down {
     border: none;
     width: 20px;
+}
+QSpinBox {
+    background-color: #F5F7FA;
+    border: 1px solid #D6E3F0;
+    border-radius: 4px;
+    padding: 5px 8px;
+    color: #333333;
+    font-size: 13px;
+    min-width: 120px;
+    selection-background-color: #00B4FF;
+    selection-color: #FFFFFF;
+}
+QSpinBox:hover, QSpinBox:focus {
+    border: 1px solid #00B4FF;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 20px;
+    border: none;
+    border-left: 1px solid #E1E8ED;
+    background: transparent;
+}
+QSpinBox::up-button { border-top-right-radius: 4px; subcontrol-position: top right; }
+QSpinBox::down-button { border-bottom-right-radius: 4px; subcontrol-position: bottom right; }
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #E6F8FF;
+}
+QSpinBox::up-arrow {
+    image: url(:/icons/res/arrow-up.png);
+    width: 12px; height: 12px;
+}
+QSpinBox::down-arrow {
+    image: url(:/icons/res/arrow-down.png);
+    width: 12px; height: 12px;
 }</string>
           </property>
           <layout class="QGridLayout" name="gridLayout_Settings">
@@ -1239,6 +1306,220 @@ QComboBox::drop-down {
              </property>
             </widget>
            </item>
+           <item row="9" column="0" colspan="3">
+            <widget class="Line" name="line_SetEncode">
+             <property name="styleSheet">
+              <string notr="true">background: #E1E8ED;</string>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="10" column="0" colspan="2">
+            <widget class="QLabel" name="labelEncodeConfig">
+             <property name="text">
+              <string>编码配置</string>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">font-size: 15px; font-weight: bold; color: #2D3748; padding-top: 4px;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="11" column="0" colspan="2">
+            <widget class="QLabel" name="labelEncodeRequest">
+             <property name="text">
+              <string>控制请求</string>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">color: #00B4FF; font-weight: 600; background: #E6F8FF; border: 1px solid #B3E5FF; border-radius: 10px; padding: 2px 10px;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="12" column="0">
+            <widget class="QLabel" name="labelRequestMaxBitrate">
+             <property name="text">
+              <string>最大码率</string>
+             </property>
+            </widget>
+           </item>
+           <item row="12" column="1">
+            <widget class="QSpinBox" name="spinRequestMaxBitrate">
+             <property name="toolTip">
+              <string>请求组最大码率(Mbps)。随 REQUEST 发给远端 System,struct 存 bps(15M→15000000)</string>
+             </property>
+             <property name="suffix">
+              <string> Mbps</string>
+             </property>
+             <property name="minimum">
+              <number>1</number>
+             </property>
+             <property name="maximum">
+              <number>100</number>
+             </property>
+             <property name="singleStep">
+              <number>1</number>
+             </property>
+             <property name="value">
+              <number>15</number>
+             </property>
+            </widget>
+           </item>
+           <item row="13" column="0">
+            <widget class="QLabel" name="labelRequestMinBitrate">
+             <property name="text">
+              <string>最小码率</string>
+             </property>
+            </widget>
+           </item>
+           <item row="13" column="1">
+            <widget class="QSpinBox" name="spinRequestMinBitrate">
+             <property name="toolTip">
+              <string>请求组最小码率(Mbps)。随 REQUEST 发给远端 System,struct 存 bps</string>
+             </property>
+             <property name="suffix">
+              <string> Mbps</string>
+             </property>
+             <property name="minimum">
+              <number>1</number>
+             </property>
+             <property name="maximum">
+              <number>100</number>
+             </property>
+             <property name="singleStep">
+              <number>1</number>
+             </property>
+             <property name="value">
+              <number>15</number>
+             </property>
+            </widget>
+           </item>
+           <item row="14" column="0">
+            <widget class="QLabel" name="labelRequestFramerate">
+             <property name="text">
+              <string>最大帧率</string>
+             </property>
+            </widget>
+           </item>
+           <item row="14" column="1">
+            <widget class="QSpinBox" name="spinRequestFramerate">
+             <property name="toolTip">
+              <string>请求组最大帧率(fps)。随 REQUEST 发给远端 System</string>
+             </property>
+             <property name="suffix">
+              <string> fps</string>
+             </property>
+             <property name="minimum">
+              <number>1</number>
+             </property>
+             <property name="maximum">
+              <number>240</number>
+             </property>
+             <property name="singleStep">
+              <number>1</number>
+             </property>
+             <property name="value">
+              <number>144</number>
+             </property>
+            </widget>
+           </item>
+           <item row="15" column="0" colspan="2">
+            <widget class="QLabel" name="labelEncodeLocal">
+             <property name="text">
+              <string>控制限制</string>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">color: #00B4FF; font-weight: 600; background: #E6F8FF; border: 1px solid #B3E5FF; border-radius: 10px; padding: 2px 10px;</string>
+             </property>
+            </widget>
+           </item>
+           <item row="16" column="0">
+            <widget class="QLabel" name="labelLocalMaxBitrate">
+             <property name="text">
+              <string>最大码率</string>
+             </property>
+            </widget>
+           </item>
+           <item row="16" column="1">
+            <widget class="QSpinBox" name="spinLocalMaxBitrate">
+             <property name="toolTip">
+              <string>本地组最大码率(Mbps)。仅存 WebrtcDeskConfig,不随 REQUEST 发送;struct 存 bps</string>
+             </property>
+             <property name="suffix">
+              <string> Mbps</string>
+             </property>
+             <property name="minimum">
+              <number>1</number>
+             </property>
+             <property name="maximum">
+              <number>100</number>
+             </property>
+             <property name="singleStep">
+              <number>1</number>
+             </property>
+             <property name="value">
+              <number>15</number>
+             </property>
+            </widget>
+           </item>
+           <item row="17" column="0">
+            <widget class="QLabel" name="labelLocalMinBitrate">
+             <property name="text">
+              <string>最小码率</string>
+             </property>
+            </widget>
+           </item>
+           <item row="17" column="1">
+            <widget class="QSpinBox" name="spinLocalMinBitrate">
+             <property name="toolTip">
+              <string>本地组最小码率(Mbps)。仅存 WebrtcDeskConfig,不随 REQUEST 发送;struct 存 bps</string>
+             </property>
+             <property name="suffix">
+              <string> Mbps</string>
+             </property>
+             <property name="minimum">
+              <number>1</number>
+             </property>
+             <property name="maximum">
+              <number>100</number>
+             </property>
+             <property name="singleStep">
+              <number>1</number>
+             </property>
+             <property name="value">
+              <number>15</number>
+             </property>
+            </widget>
+           </item>
+           <item row="18" column="0">
+            <widget class="QLabel" name="labelLocalFramerate">
+             <property name="text">
+              <string>最大帧率</string>
+             </property>
+            </widget>
+           </item>
+           <item row="18" column="1">
+            <widget class="QSpinBox" name="spinLocalFramerate">
+             <property name="toolTip">
+              <string>本地组最大帧率(fps)。仅存 WebrtcDeskConfig,不随 REQUEST 发送</string>
+             </property>
+             <property name="suffix">
+              <string> fps</string>
+             </property>
+             <property name="minimum">
+              <number>1</number>
+             </property>
+             <property name="maximum">
+              <number>240</number>
+             </property>
+             <property name="singleStep">
+              <number>1</number>
+             </property>
+             <property name="value">
+              <number>144</number>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -1254,6 +1535,10 @@ QComboBox::drop-down {
            </size>
           </property>
          </spacer>
+        </item>
+           </layout>
+          </widget>
+         </widget>
         </item>
        </layout>
       </widget>

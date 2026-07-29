@@ -158,6 +158,7 @@ MainWindow::~MainWindow()
         settings->setValue("showRtt", showRttEnabled);
         settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
         settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
+        saveEncodeConfig();
     }
     if (webrtcManager) { webrtcManager->disConnect();}
     if (videoWidget) delete videoWidget;
@@ -212,6 +213,25 @@ void MainWindow::initConfigAndSettings()
 
     showRttEnabled = settings->value("showRtt", false).toBool();
     ui->checkShowRtt->setChecked(showRttEnabled);
+
+    // 编码配置:UI 存 Mbps,WebrtcDeskConfig 用 bps(读取时不转换,填入 config 时再 *1000000)
+    requestMaxBitrateMbps = settings->value("requestMaxBitrateMbps", 15).toInt();
+    requestMinBitrateMbps = settings->value("requestMinBitrateMbps", 15).toInt();
+    requestMaxFramerate   = settings->value("requestMaxFramerate", 144).toInt();
+    localMaxBitrateMbps   = settings->value("localMaxBitrateMbps", 15).toInt();
+    localMinBitrateMbps   = settings->value("localMinBitrateMbps", 15).toInt();
+    localMaxFramerate     = settings->value("localMaxFramerate", 144).toInt();
+    // 兜底:历史配置可能 min>max,强制拉回 min<=max
+    if (requestMinBitrateMbps > requestMaxBitrateMbps) requestMinBitrateMbps = requestMaxBitrateMbps;
+    if (localMinBitrateMbps > localMaxBitrateMbps) localMinBitrateMbps = localMaxBitrateMbps;
+    ui->spinRequestMaxBitrate->setValue(requestMaxBitrateMbps);
+    ui->spinRequestMinBitrate->setValue(requestMinBitrateMbps);
+    ui->spinRequestFramerate->setValue(requestMaxFramerate);
+    ui->spinLocalMaxBitrate->setValue(localMaxBitrateMbps);
+    ui->spinLocalMinBitrate->setValue(localMinBitrateMbps);
+    ui->spinLocalFramerate->setValue(localMaxFramerate);
+
+    syncConfigToManager();  // 启动即把已加载配置同步给 manager
 }
 
 // ==========================================
@@ -513,6 +533,37 @@ void MainWindow::hideNetworkBadge()
     ui->networkTypeBadge->setText("");
 }
 
+void MainWindow::saveEncodeConfig()
+{
+    if (!settings) return;
+    settings->setValue("requestMaxBitrateMbps", requestMaxBitrateMbps);
+    settings->setValue("requestMinBitrateMbps", requestMinBitrateMbps);
+    settings->setValue("requestMaxFramerate",   requestMaxFramerate);
+    settings->setValue("localMaxBitrateMbps",   localMaxBitrateMbps);
+    settings->setValue("localMinBitrateMbps",   localMinBitrateMbps);
+    settings->setValue("localMaxFramerate",     localMaxFramerate);
+    syncConfigToManager();  // 编码改动也同步到 manager
+}
+
+void MainWindow::syncConfigToManager()
+{
+    if (!webrtcManager) return;
+    // 码率 Mbps->bps,并兜底 min<=max
+    int reqMaxBps = requestMaxBitrateMbps * 1000000;
+    int reqMinBps = requestMinBitrateMbps * 1000000;
+    if (reqMinBps > reqMaxBps) reqMinBps = reqMaxBps;
+    int locMaxBps = localMaxBitrateMbps * 1000000;
+    int locMinBps = localMinBitrateMbps * 1000000;
+    if (locMinBps > locMaxBps) locMinBps = locMaxBps;
+    WebrtcDeskConfig cfg{
+        webrtcModulesType, webrtcLevels, videoCodec,
+        webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec,
+        reqMaxBps, reqMinBps, requestMaxFramerate,
+        locMaxBps, locMinBps, localMaxFramerate
+    };
+    webrtcManager->setWebrtcDeskConfig(cfg);
+}
+
 void MainWindow::moveToCenter()
 {
     move(QGuiApplication::primaryScreen()->availableGeometry().center() - rect().center());
@@ -585,6 +636,44 @@ void MainWindow::setupSignalSlots()
     });
     connect(ui->checkAutoStart, &QCheckBox::clicked, this, &MainWindow::onAutoStartChecked);
     connect(ui->checkShowRtt, &QCheckBox::clicked, this, &MainWindow::onShowRttChecked);
+
+    // 编码配置:spinbox 改动即更新成员并落盘(QSettings)。码率 UI 为 Mbps。
+    // 单值绑定(帧率,无 min/max 关系)
+    auto bindEncodeSpin = [this](QSpinBox* spin, int* member) {
+        connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, member](int v) {
+            *member = v;
+            saveEncodeConfig();
+        });
+    };
+    // 码率对绑定:保证 min<=max,改最小>最大时把最大顶上来,改最大<最小时把最小压下去
+    auto bindBitratePair = [this](QSpinBox* minSpin, QSpinBox* maxSpin, int* minMember, int* maxMember) {
+        connect(minSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [this, maxSpin, minMember, maxMember](int v) {
+                *minMember = v;
+                if (*maxMember < v) {
+                    *maxMember = v;
+                    QSignalBlocker b(maxSpin);  // 阻断回弹,防止递归
+                    maxSpin->setValue(v);
+                }
+                saveEncodeConfig();
+            });
+        connect(maxSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [this, minSpin, minMember, maxMember](int v) {
+                *maxMember = v;
+                if (*minMember > v) {
+                    *minMember = v;
+                    QSignalBlocker b(minSpin);
+                    minSpin->setValue(v);
+                }
+                saveEncodeConfig();
+            });
+    };
+    bindBitratePair(ui->spinRequestMinBitrate, ui->spinRequestMaxBitrate,
+                    &requestMinBitrateMbps, &requestMaxBitrateMbps);
+    bindBitratePair(ui->spinLocalMinBitrate,   ui->spinLocalMaxBitrate,
+                    &localMinBitrateMbps,   &localMaxBitrateMbps);
+    bindEncodeSpin(ui->spinRequestFramerate, &requestMaxFramerate);
+    bindEncodeSpin(ui->spinLocalFramerate,   &localMaxFramerate);
 }
 
 void MainWindow::onAddDeviceClicked() {
@@ -651,18 +740,22 @@ void MainWindow::onDeviceItemClicked(QListWidgetItem* item) {
 void MainWindow::onModeChanged(int index) {
     webrtcModulesType = index;
     if (settings) settings->setValue("webrtcModulesType", webrtcModulesType);
+    syncConfigToManager();
 }
 void MainWindow::onCodecChanged(int index) {
     videoCodec = index;
     if (settings) settings->setValue("videoCodec", videoCodec);
+    syncConfigToManager();
 }
 void MainWindow::onAccelerationChanged(int index) {
     webrtcLevels = index;
     if (settings) settings->setValue("webrtcLevels", webrtcLevels);
+    syncConfigToManager();
 }
 void MainWindow::onAudioChecked(bool checked) {
     webrtcAudioEnable = checked ? 1 : 0;
     if (settings) settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
+    syncConfigToManager();
 }
 void MainWindow::onAutoStartChecked(bool checked) { Q_UNUSED(checked); }
 
@@ -760,8 +853,18 @@ void MainWindow::onBtnConnectClicked()
 
     webrtcManager->setTargetId(targetId.toStdString());
     remoteConnectionTimer->start(REMOTE_CONNECTION_TIMEOUT);
-    webrtcManager->asyncReomteDesk({webrtcModulesType, webrtcLevels, videoCodec,
-                                    webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec});
+    // 编码配置:码率由 Mbps 转 bps(1 Mbps = 1000000 bps),与 RtpEncodingParameters 单位对齐
+    // 编码配置:码率由 Mbps 转 bps,并兜底保证 min<=max(防御 UI/历史配置异常)
+    int reqMaxBps = requestMaxBitrateMbps * 1000000;
+    int reqMinBps = requestMinBitrateMbps * 1000000;
+    if (reqMinBps > reqMaxBps) reqMinBps = reqMaxBps;
+    int locMaxBps = localMaxBitrateMbps * 1000000;
+    int locMinBps = localMinBitrateMbps * 1000000;
+    if (locMinBps > locMaxBps) locMinBps = locMaxBps;
+    webrtcManager->asyncRemoteDesk({webrtcModulesType, webrtcLevels, videoCodec,
+                                    webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec,
+                                    reqMaxBps, reqMinBps, requestMaxFramerate,
+                                    locMaxBps, locMinBps, localMaxFramerate});
 }
 
 void MainWindow::onBtnCopyCodeClicked()
@@ -894,12 +997,14 @@ void MainWindow::on_checkHwAccel_checkStateChanged(const Qt::CheckState &state)
 {
     webrtcEnableNvenc = (state != Qt::Unchecked) ? 1 : 0;
     if (settings) settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
+    syncConfigToManager();
 }
 
 void MainWindow::on_checkHwDec_checkStateChanged(const Qt::CheckState &state)
 {
     webrtcEnableNvdec = (state != Qt::Unchecked) ? 1 : 0;
     if (settings) settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
+    syncConfigToManager();
 }
 
 

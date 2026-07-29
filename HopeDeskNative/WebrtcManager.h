@@ -87,9 +87,7 @@ enum class WebrtcRequestState {
     ENCODE_STATUS = 9   // System -> 被控 Native:上报当前编码 codec + 硬编/软编
 };
 
-// 解码输出帧的承载格式。
-//   I420      —— 软解(libde265/dav1d/内置H264)：主机 I420，现有上传管线
-//   D3D11Nv12 —— 硬解(Media Foundation)：显存 D3D11 NV12 纹理，零拷贝直采
+
 enum class FrameFormat {
     Unknown,
     I420,
@@ -99,10 +97,8 @@ enum class FrameFormat {
 struct VideoFrame {
     FrameFormat format = FrameFormat::I420;
 
-    // I420 路径(软解)
     webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer;
 
-    // NV12 路径(硬解,主机 NV12)
     webrtc::scoped_refptr<const webrtc::NV12BufferInterface> nv12Buffer;
 
     int width = 0;
@@ -151,6 +147,16 @@ struct WebrtcDeskConfig {
     int webrtcAudioEnable = 0;   // 是否传音频
     int webrtcEnableNvenc = 0;    // 硬件编码(NVENC),发给 System
     int webrtcEnableNvdec = 0;   // 硬件解码(MF/D3D11),Native 本地
+
+    // 编码配置:两组(请求组 + 本地组),各含 最大码率/最小码率/最大帧率。
+    // 码率单位 bps(与 RtpEncodingParameters 对齐),帧率 fps。
+    // 请求组:随 REQUEST JSON 发给远端 System;本地组:仅本机持有,由本地 TCP 给本机 System。
+    int requestMaxBitrateBps = 15000000;  // 请求组最大码率,默认 15 Mbps
+    int requestMinBitrateBps = 15000000;  // 请求组最小码率,默认 15 Mbps
+    int requestMaxFramerate  = 144;        // 请求组最大帧率
+    int localMaxBitrateBps   = 15000000;  // 本地组最大码率,默认 15 Mbps
+    int localMinBitrateBps   = 15000000;  // 本地组最小码率,默认 15 Mbps
+    int localMaxFramerate    = 144;       // 本地组最大帧率
 };
 
 
@@ -176,7 +182,7 @@ public:
 
     void closeEvent();
 
-    void asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig);
+    void asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig);
 
     // 给对端发送 Ctrl+Alt+F 组合键(逐键 down/up 序列)
     void sendKeyComboCtrlAltF();
@@ -211,6 +217,10 @@ public:
     std::function<void(const std::string& codec, bool hardEncode)> onEncodeStatusHandle;
 
     void setTargetId(const std::string& newTargetID);
+
+    // 同步桌面配置(UI 改动后调用,使 manager 持有的 webrtcDeskConfig 始终最新;
+    // RESTART/SYSTEMREADY 等内部 asyncRemoteDesk(webrtcDeskConfig) 复用路径会用上)
+    void setWebrtcDeskConfig(const WebrtcDeskConfig& config);
 
     void writerRemote(unsigned char* data, size_t size);
 
@@ -360,15 +370,10 @@ private:
 
     std::vector<std::vector<unsigned char>> cursorArray ;
 
-    // 重连清空 cursor 缓存标志:新 datachannel 到来时置位,handleCursor 首次执行时
-    // 清掉 lastCursor,使光标样式重新从 type=1 全量同步,避免与对端 index 错位。
     std::atomic<bool> cursorCacheDirty{false};
 
-    // 光标索引重同步节流:碰到 Invalid cursor 时只发一次 type=7 请求,
-    // 直到对端重新全量发回数据(成功 store/apply)才允许再次请求,避免连发刷屏。
     std::atomic<bool> cursorResyncRequested{false};
 
-    std::string dataStr;
 
     static constexpr std::chrono::seconds TIME_OUT{5};
 

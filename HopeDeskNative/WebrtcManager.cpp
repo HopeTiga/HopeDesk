@@ -97,7 +97,7 @@ void WebrtcManager::asyncEvent(){
             self->asyncWrite(registerData);
 
             // 发送初始数据
-            std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(self->dataStr.data(), self->dataStr.size());
+            std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(self->followData.data(), self->followData.size());
 
             self->asyncWrite(writerData);
 
@@ -618,7 +618,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
                 continue;
             }
 
-            dataStr = boost::json::serialize(json);
+            std::string dataStr = boost::json::serialize(json);
 
             if(this->tcpSocket && this->tcpSocket->is_open() && WebrtcRequestState(json["requestType"].as_int64()) == WebrtcRequestState::REQUEST){
 
@@ -646,7 +646,13 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                                 targetId = std::string(json["accountId"].as_string().c_str());
 
-                                this->followData = dataStr;
+                                json["localMaxBitrateBps"] = webrtcDeskConfig.localMaxBitrateBps;
+
+                                json["localMinBitrateBps"] = webrtcDeskConfig.localMinBitrateBps;
+
+                                json["localMaxFramerate"] = webrtcDeskConfig.localMaxFramerate;
+
+                                this->followData = boost::json::serialize(json);
 
                                 WindowsServiceManager::stopService(systemService);
 
@@ -795,7 +801,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                         initializePeerConnection();
 
-                        asyncReomteDesk(webrtcDeskConfig);
+                        asyncRemoteDesk(webrtcDeskConfig);
                     }
                 }else if(WebrtcRequestState(requestType) == WebrtcRequestState::STOPREMOTE){
 
@@ -845,7 +851,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                     if(responseState == 200){
 
-                        asyncReomteDesk(webrtcDeskConfig);
+                        asyncRemoteDesk(webrtcDeskConfig);
 
                     }
 
@@ -1459,7 +1465,7 @@ void WebrtcManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
-void WebrtcManager::asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig)
+void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
 {
 
     this->webrtcDeskConfig = webrtcDeskConfig;
@@ -1472,7 +1478,6 @@ void WebrtcManager::asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig)
 
         }
 
-        // 把硬件解码开关下发给解码工厂(优先硬解,失败回退 WebRTC 软解)
         if (self->webrtcVideoDecoderFactory) {
             self->webrtcVideoDecoderFactory->webrtcEnableNvdec = self->webrtcDeskConfig.webrtcEnableNvdec;
             // 解码状态 -> 转发给 onCodecStatusHandle(MainWindow 据此更新主页 label)
@@ -1480,9 +1485,9 @@ void WebrtcManager::asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig)
                 [self](const std::string& codec, bool hardDecode) {
                     if (self->onCodecStatusHandle) self->onCodecStatusHandle(codec, hardDecode);
                 };
-            LOG_INFO("asyncReomteDesk: set decoder factory webrtcEnableNvdec=%d", self->webrtcDeskConfig.webrtcEnableNvdec);
+            LOG_INFO("asyncRemoteDesk: set decoder factory webrtcEnableNvdec=%d", self->webrtcDeskConfig.webrtcEnableNvdec);
         } else {
-            LOG_WARN("asyncReomteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
+            LOG_WARN("asyncRemoteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
         }
 
         if (self->targetId.empty()) {
@@ -1507,6 +1512,10 @@ void WebrtcManager::asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig)
             message["codec"] = self->webrtcDeskConfig.videoCodec;
             message["webrtcAudioEnable"] = self->webrtcDeskConfig.webrtcAudioEnable;
             message["webrtcEnableNvenc"] = self->webrtcDeskConfig.webrtcEnableNvenc;
+            // 编码配置-请求组:发给远端 System(本地组不在此发送)
+            message["requestMaxBitrateBps"] = self->webrtcDeskConfig.requestMaxBitrateBps;
+            message["requestMinBitrateBps"] = self->webrtcDeskConfig.requestMinBitrateBps;
+            message["requestMaxFramerate"] = self->webrtcDeskConfig.requestMaxFramerate;
 
             self->webrtcAsyncWrite(boost::json::serialize(message));
 
@@ -1542,7 +1551,7 @@ void WebrtcManager::asyncReomteDesk(WebrtcDeskConfig webrtcDeskConfig)
 
                     self->isRemote = false;
 
-                    LOG_INFO("WebRTCManager AsyncReomteDesk ReInit");
+                    LOG_INFO("WebRTCManager asyncRemoteDesk ReInit");
 
                 }
             },boost::asio::detached);
@@ -1560,6 +1569,11 @@ std::string WebrtcManager::getTargetId() const
 void WebrtcManager::setTargetId(const std::string &newTargetId)
 {
     targetId = newTargetId;
+}
+
+void WebrtcManager::setWebrtcDeskConfig(const WebrtcDeskConfig &config)
+{
+    webrtcDeskConfig = config;
 }
 
 void WebrtcManager::sendKeyComboCtrlAltF()
