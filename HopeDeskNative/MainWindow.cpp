@@ -160,7 +160,10 @@ MainWindow::~MainWindow()
         settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
         saveEncodeConfig();
     }
-    if (webrtcManager) { webrtcManager->disConnect();}
+    if (webrtcManager) {
+        webrtcManager->disConnect();
+        webrtcManager->closeEvent();
+    }
     if (videoWidget) delete videoWidget;
     delete ui;
 }
@@ -911,6 +914,9 @@ void MainWindow::onRemoteDisconnectedByPeer()
 void MainWindow::onRemoteConnectionTimeout()
 {
     hideNetworkBadge();
+    // 超时必须强制重置 WebrtcManager 连接态(关 tcpSocket/peerConnection、停服务、重建空白 peerConnection),
+    // 否则 tcpSocket 残留会导致下一次连接发起不成功。post 到 ioContext 执行,线程安全。
+    if (webrtcManager) webrtcManager->abortPendingConnection();
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
     ui->remoteStatusLabel->setText("连接请求超时");
@@ -979,6 +985,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         }
         if (reconnectTimer) reconnectTimer->stop();
         if (remoteConnectionTimer) remoteConnectionTimer->stop();
+
+        // 先停 acceptor(置 asyncAccpets=false + accept.cancel/close),让 acceptor 协程
+        // 在 ~MainWindow 释放 shared_ptr 之前退出并释放强引用,析构即在 GUI 线程触发,不进 ioContext 死锁。
+        if (webrtcManager) webrtcManager->closeEvent();
 
         event->accept();
 

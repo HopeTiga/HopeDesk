@@ -1,4 +1,7 @@
 #include "WebrtcManager.h"
+
+#include <future>
+
 #include "NvdecDecoder.h"
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -74,7 +77,14 @@ void WebrtcManager::asyncEvent(){
 
             std::shared_ptr<boost::asio::ip::tcp::socket> socket = std::make_shared<boost::asio::ip::tcp::socket>(self->ioContext);
 
-            co_await self->accept.async_accept(*socket,boost::asio::use_awaitable);
+            try {
+                co_await self->accept.async_accept(*socket,boost::asio::use_awaitable);
+            } catch (...) {
+                // accept 被关闭/取消(closeEvent 时 accept.cancel/close),优雅退出
+                co_return;
+            }
+
+            self->closeTcpSocket();
 
             self->tcpSocket = std::move(socket);
 
@@ -96,7 +106,6 @@ void WebrtcManager::asyncEvent(){
 
             self->asyncWrite(registerData);
 
-            // 发送初始数据
             std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(self->followData.data(), self->followData.size());
 
             self->asyncWrite(writerData);
@@ -110,6 +119,10 @@ void WebrtcManager::asyncEvent(){
 void WebrtcManager::closeEvent(){
 
     if(!asyncAccpets.exchange(false)) return;
+
+    accept.cancel();
+
+    accept.close();
 
 }
 
@@ -246,51 +259,61 @@ WebrtcManager::~WebrtcManager()
 {
     LOG_INFO("Destructing WebrtcManager...");
 
+    std::promise<void> promise;
+
+    std::future<void> future = promise.get_future();
+
     closeEvent();
 
-    onSignalServerDisConnectHandle = nullptr;
-    onFollowRemoteHandle = nullptr;
-    onDisConnectRemoteHandle = nullptr;
-    onRemoteSuccessFulHandle = nullptr;
-    onSignalServerConnectHandle = nullptr;
-    onRemoteFailedHandle = nullptr;
-    onResetCursorHandle = nullptr;
-    onRTCStatsCollectorHandle = nullptr;
+    boost::asio::post(ioContext,[this,&promise](){
 
-    asyncEvents = false;
-    followRunning = false;
+        onSignalServerDisConnectHandle = nullptr;
+        onFollowRemoteHandle = nullptr;
+        onDisConnectRemoteHandle = nullptr;
+        onRemoteSuccessFulHandle = nullptr;
+        onSignalServerConnectHandle = nullptr;
+        onRemoteFailedHandle = nullptr;
+        onResetCursorHandle = nullptr;
+        onRTCStatsCollectorHandle = nullptr;
 
-    WindowsServiceManager::stopService(systemService);
+        asyncEvents = false;
+        followRunning = false;
 
-    if(webSocket){
-        closeWebSocket();
-        webSocket = nullptr;
-    }
+        if(webSocket){
+            closeWebSocket();
+            webSocket = nullptr;
+        }
 
-    releaseSource();
+        releaseSource();
 
-    peerConnectionFactory = nullptr;
+        peerConnectionFactory = nullptr;
 
-    webrtcVideoEncoderFactory = nullptr;
+        webrtcVideoEncoderFactory = nullptr;
 
-    webrtcVideoDecoderFactory = nullptr;
+        webrtcVideoDecoderFactory = nullptr;
 
-    if(networkThread){
-        networkThread->Quit();
-        networkThread.reset();
-    }
+        if(networkThread){
+            networkThread->Quit();
+            networkThread.reset();
+        }
 
-    if(workerThread){
-        workerThread->Quit();
-        workerThread.reset();
-    }
+        if(workerThread){
+            workerThread->Quit();
+            workerThread.reset();
+        }
 
-    if(signalingThread){
-        signalingThread->Quit();
-        signalingThread.reset();
-    }
+        if(signalingThread){
+            signalingThread->Quit();
+            signalingThread.reset();
+        }
 
-    webrtc::CleanupSSL();
+        webrtc::CleanupSSL();
+
+        promise.set_value();
+
+    });
+
+    future.get();
 
     if (ioContextWorkPtr) {
         ioContextWorkPtr.reset();
@@ -431,30 +454,22 @@ void WebrtcManager::webrtcAsyncWrite(std::string str)
 
 void WebrtcManager::disConnectRemote()
 {
-
     if(onResetCursorHandle) onResetCursorHandle();
 
-    if(isRemote == false) return;
-
-    isRemote = false;
-
-    releaseSource();
-
-    initializePeerConnection();
-
-    if(webSocket && webSocket->is_open()){
-
-        boost::json::object message;
-
-        message["accountId"] = this->accountId;
-
-        message["targetId"] = this->targetId;
-
-        message["requestType"] = static_cast<int64_t>(WebrtcRequestState::STOPREMOTE);
-
-        webrtcAsyncWrite(boost::json::serialize(message));
-    }
-
+    // 统一 post 到 ioContext 执行:线程安全,且无条件清理(不再因 isRemote==false 早退而漏清 tcpSocket)
+    bool wasRemote = isRemote.exchange(false);
+    boost::asio::post(ioContext, [self = shared_from_this(), wasRemote]() {
+        self->closeTcpSocket();
+        self->releaseSource();            // 含 closeTcpSocket(此时已 null)+ 停服务
+        self->initializePeerConnection();
+        if (wasRemote && self->webSocket && self->webSocket->is_open()) {
+            boost::json::object message;
+            message["accountId"] = self->accountId;
+            message["targetId"] = self->targetId;
+            message["requestType"] = static_cast<int64_t>(WebrtcRequestState::STOPREMOTE);
+            self->webrtcAsyncWrite(boost::json::serialize(message));
+        }
+    });
 }
 
 void WebrtcManager::requestStats()
@@ -471,46 +486,23 @@ void WebrtcManager::requestStats()
 
 void WebrtcManager::disConnectRemoteHandler()
 {
-
     if(onResetCursorHandle) onResetCursorHandle();
 
-    if(isRemote == false) return;
-
-    isRemote = false;
-
-    if(tcpSocket){
-
-        asyncEvents = false;
-
-        followRunning = false;
-
-        asioConcurrentQueue.close();
-
-        if(tcpSocket && tcpSocket->is_open()){
-
-            tcpSocket->close();
+    // 统一 post 到 ioContext 执行:线程安全,且无条件清理(不再因 isRemote==false 早退而漏清 tcpSocket)
+    bool wasRemote = isRemote.exchange(false);
+    boost::asio::post(ioContext, [self = shared_from_this(), wasRemote]() {
+        self->closeTcpSocket();
+        self->releaseSource();
+        self->initializePeerConnection();
+        if (wasRemote && self->onDisConnectRemoteHandle) {
+            self->onDisConnectRemoteHandle();
         }
-
-        tcpSocket = nullptr;
-    }
-
-    releaseSource();
-
-    initializePeerConnection();
-
-    if(onDisConnectRemoteHandle){
-
-        onDisConnectRemoteHandle();
-
-    }
-
+    });
 }
 
 void WebrtcManager::closeWebSocket()
 {
-    // 停止 receive/write 协程循环。改为 store(false)：无论之前是否在运行，
-    // 都要继续执行下面的 cancel/close，避免 connect() 在握手前失败时跳过清理
-    // （原先 exchange(false) 早退会导致 webSocket 既不 cancel 也不置空）。
+
     webrtcAsyncEvents.store(false);
 
     boost::system::error_code ec;
@@ -519,14 +511,13 @@ void WebrtcManager::closeWebSocket()
 
     if(!webSocket) return;
 
-    // 取消底层 TCP socket
-    auto& tcpSocket = webSocket->next_layer().next_layer();
+    boost::asio::ip::tcp::socket & tcpSocket = webSocket->next_layer().next_layer();
+
     tcpSocket.cancel(ec);
     if (ec) {
-        // 拆除时 socket 多已被对端/取消中止,cancel 失败属预期,降为 WARN 避免污染 error 日志
         LOG_WARN("WebrtcManager::closeSocket() can't cancel Socket: %s", ec.message().c_str());
     }
-    // WebSocket 关闭帧
+
     if (webSocket->is_open()) {
         try {
             webSocket->close(boost::beast::websocket::close_code::normal, ec);
@@ -674,21 +665,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                                         if (!isRemote) {
 
-                                            if(tcpSocket){
-
-                                                asyncEvents = false;
-
-                                                followRunning = false;
-
-                                                asioConcurrentQueue.close();
-
-                                                if(tcpSocket && tcpSocket->is_open()){
-
-                                                    tcpSocket->close();
-                                                }
-
-                                                tcpSocket = nullptr;
-                                            }
+                                            closeTcpSocket();
 
                                             releaseSource();
 
@@ -815,21 +792,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                     if(responseState == 200){
 
-                        if(tcpSocket){
-
-                            asyncEvents = false;
-
-                            followRunning = false;
-
-                            asioConcurrentQueue.close();
-
-                            if(tcpSocket && tcpSocket->is_open()){
-
-                                tcpSocket->close();
-                            }
-
-                            tcpSocket = nullptr;
-                        }
+                        closeTcpSocket();
 
                         WindowsServiceManager::stopService(systemService);
 
@@ -953,21 +916,7 @@ void WebrtcManager::disConnectHandle()
 
     if(onResetCursorHandle) onResetCursorHandle();
 
-    if(tcpSocket){
-
-        asyncEvents = false;
-
-        followRunning = false;
-
-        asioConcurrentQueue.close();
-
-        if(tcpSocket && tcpSocket->is_open()){
-
-            tcpSocket->close();
-        }
-
-        tcpSocket = nullptr;
-    }
+    closeTcpSocket();
 
     releaseSource();
 
@@ -1369,21 +1318,7 @@ void WebrtcManager::handleAsioException()
 
     if(!isRemote.exchange(false)) return;
 
-    if(tcpSocket){
-
-        asyncEvents = false;
-
-        followRunning = false;
-
-        asioConcurrentQueue.close();
-
-        if(tcpSocket && tcpSocket->is_open()){
-
-            tcpSocket->close();
-        }
-
-        tcpSocket = nullptr;
-    }
+    closeTcpSocket();
 
     if(webSocket && webSocket->is_open()){
 
@@ -1400,6 +1335,19 @@ void WebrtcManager::handleAsioException()
         WindowsServiceManager::stopService(systemService);
 
     }
+}
+
+void WebrtcManager::closeTcpSocket()
+{
+    // 统一的 tcpSocket 清理:停收发队列、关 socket、置空。需在 ioContext 线程调用。
+    if (!tcpSocket) return;
+    asyncEvents = false;
+    followRunning = false;
+    asioConcurrentQueue.close();
+    if (tcpSocket->is_open()) {
+        tcpSocket->close();
+    }
+    tcpSocket = nullptr;
 }
 
 void WebrtcManager::releaseSource()
@@ -1435,21 +1383,7 @@ void WebrtcManager::releaseSource()
     createAnswerObserver = nullptr;
     rtcStatsCollectorHandle = nullptr;
 
-    if(tcpSocket){
-
-        asyncEvents = false;
-
-        followRunning = false;
-
-        asioConcurrentQueue.close();
-
-        if(tcpSocket && tcpSocket->is_open()){
-
-            tcpSocket->close();
-        }
-
-        tcpSocket = nullptr;
-    }
+    closeTcpSocket();
 
     WindowsServiceManager::stopService(systemService);  // ← 也可能在这里阻塞
 
@@ -1529,21 +1463,7 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
 
                 if (!self->isRemote) {
 
-                    if(self->tcpSocket){
-
-                        self->asyncEvents = false;
-
-                        self->followRunning = false;
-
-                        self->asioConcurrentQueue.close();
-
-                        if(self->tcpSocket && self->tcpSocket->is_open()){
-
-                            self->tcpSocket->close();
-                        }
-
-                        self->tcpSocket = nullptr;
-                    }
+                    self->closeTcpSocket();
 
                     self->releaseSource();
 
@@ -1574,6 +1494,19 @@ void WebrtcManager::setTargetId(const std::string &newTargetId)
 void WebrtcManager::setWebrtcDeskConfig(const WebrtcDeskConfig &config)
 {
     webrtcDeskConfig = config;
+}
+
+void WebrtcManager::abortPendingConnection()
+{
+    // 统一入口:post 到 ioContext 执行,线程安全。
+    // 无条件重置连接态(不论 isRemote),清掉 tcpSocket/peerConnection 并重建空白 peerConnection,
+    // 保留 webSocket(信令连接不断,便于立即重试)。解决超时/ICE failed 后 tcpSocket 残留导致重连失败。
+    boost::asio::post(ioContext, [self = shared_from_this()]() {
+        self->isRemote = false;
+        self->releaseSource();            // 关 peerConnection/dataChannel/tcpSocket + 停服务
+        self->initializePeerConnection();
+        LOG_INFO("abortPendingConnection: connection state reset");
+    });
 }
 
 void WebrtcManager::sendKeyComboCtrlAltF()
@@ -1634,6 +1567,10 @@ void WebrtcManager::disConnect()
 
     boost::asio::post(ioContext,[self = shared_from_this()](){
 
+        // 注意:不在此调 closeEvent()。acceptor 只应在进程关停(析构)时停,
+        // 正常断开要保留 acceptor 以便再次连接;且 closeEvent 在此调会让 acceptor 协程
+        // 在 ioContext 线程释放最后强引用,导致析构跑在 ioContext 线程 → post+future.get 死锁。
+
         if (self->webSocket && self->webSocket->is_open()) {
 
             self->closeWebSocket();
@@ -1641,22 +1578,7 @@ void WebrtcManager::disConnect()
             self->webSocket = nullptr;
         }
 
-        if(self->tcpSocket){
-
-            self->asyncEvents = false;
-
-            self->followRunning = false;
-
-            self->asioConcurrentQueue.close();
-
-            if(self->tcpSocket && self->tcpSocket->is_open()){
-
-                self->tcpSocket->close();
-
-            }
-
-            self->tcpSocket = nullptr;
-        }
+        self->closeTcpSocket();
 
         if(self->onDisConnectRemoteHandle){
 

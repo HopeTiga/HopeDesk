@@ -95,6 +95,9 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
     }
     case webrtc::PeerConnectionInterface::kIceConnectionFailed:
         LOG_ERROR("ICE connection failed");
+        // ICE 失败是终态:走 disConnectRemoteHandler 强制重置连接态(关 tcpSocket/peerConnection、
+        // 重建空白 peerConnection),若之前已连上还会通知 UI。防止残留导致重连失败。
+        webrtcManager->disConnectRemoteHandler();
         break;
     case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
         LOG_WARN("ICE connection disconnected");

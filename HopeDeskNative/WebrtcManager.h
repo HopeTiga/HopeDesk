@@ -141,6 +141,7 @@ public:
 };
 
 struct WebrtcDeskConfig {
+
     int webrtcModulesType = 0;   // 0=游戏模式 1=办公模式
     int webrtcUseLevels = 2;     // 加速策略/采集层级
     int videoCodec = 4;          // 视频编码索引
@@ -148,19 +149,15 @@ struct WebrtcDeskConfig {
     int webrtcEnableNvenc = 0;    // 硬件编码(NVENC),发给 System
     int webrtcEnableNvdec = 0;   // 硬件解码(MF/D3D11),Native 本地
 
-    // 编码配置:两组(请求组 + 本地组),各含 最大码率/最小码率/最大帧率。
-    // 码率单位 bps(与 RtpEncodingParameters 对齐),帧率 fps。
-    // 请求组:随 REQUEST JSON 发给远端 System;本地组:仅本机持有,由本地 TCP 给本机 System。
     int requestMaxBitrateBps = 15000000;  // 请求组最大码率,默认 15 Mbps
     int requestMinBitrateBps = 15000000;  // 请求组最小码率,默认 15 Mbps
     int requestMaxFramerate  = 144;        // 请求组最大帧率
     int localMaxBitrateBps   = 15000000;  // 本地组最大码率,默认 15 Mbps
     int localMinBitrateBps   = 15000000;  // 本地组最小码率,默认 15 Mbps
     int localMaxFramerate    = 144;       // 本地组最大帧率
+
 };
 
-
-// (NvdecDecoder 仅在解码工厂内部使用,WebrtcManager 不直接引用)
 
 class WebrtcManager : public std::enable_shared_from_this<WebrtcManager>
 {
@@ -184,18 +181,12 @@ public:
 
     void asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig);
 
-    // 给对端发送 Ctrl+Alt+F 组合键(逐键 down/up 序列)
     void sendKeyComboCtrlAltF();
 
-    // 重连时清空 cursor 缓存(新 datachannel 到来调用),使 index 与对端重新对齐
     void resetCursorCache();
 
-    // 碰到 Invalid cursor index 时:清空本地 cursorArray,并给对端发 type=7
-    // 请求双方清空光标索引、从 0 重新全量发送。带节流(见 cursorResyncRequested)。
     void requestCursorResync();
 
-    // 编/解码状态 handle:codec(H264/H265/AV1/VP8...)+ 是否硬解
-    // 由解码工厂在 Configure 后触发,MainWindow 据此更新主页 label
     std::function<void(const std::string& codec, bool hardDecode)> onCodecStatusHandle;
 
     void connect(std::string ip);
@@ -212,15 +203,11 @@ public:
 
     std::string getTargetId() const;
 
-    // 被控端:由本机 System 经本地 TCP 控制通道(ENCODE_STATUS 消息)上报当前编码
-    // codec + 硬编/软编,MainWindow 据此更新 label。
-    std::function<void(const std::string& codec, bool hardEncode)> onEncodeStatusHandle;
-
     void setTargetId(const std::string& newTargetID);
 
-    // 同步桌面配置(UI 改动后调用,使 manager 持有的 webrtcDeskConfig 始终最新;
-    // RESTART/SYSTEMREADY 等内部 asyncRemoteDesk(webrtcDeskConfig) 复用路径会用上)
     void setWebrtcDeskConfig(const WebrtcDeskConfig& config);
+
+    void abortPendingConnection();
 
     void writerRemote(unsigned char* data, size_t size);
 
@@ -246,7 +233,8 @@ public:
 
     std::function<void(int, double)> onRTCStatsCollectorHandle;
 
-    // 主动请求一次 WebRTC 统计(触发 onRTCStatsCollectorHandle 回调,用于刷新 RTT)
+    std::function<void(const std::string& codec, bool hardEncode)> onEncodeStatusHandle;
+
     void requestStats();
 
     void disConnectHandle();
@@ -266,6 +254,8 @@ private:
     void handleAsioException();
 
     void releaseSource();
+
+    void closeTcpSocket();
 
     void disConnectRemoteHandler();
 
