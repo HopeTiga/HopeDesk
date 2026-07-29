@@ -63,6 +63,20 @@ namespace hope {
 
     namespace rtc {
 
+        struct WebrtcDeskSystemConfig {
+            int webrtcModulesType = 0;        // 0=游戏模式 1=办公模式
+            int webrtcUseLevels = 0;          // 采集层级/加速策略
+            WebrtcVideoCodec videoCodec = WebrtcVideoCodec::AV1;  // 视频编码
+            int webrtcAudioEnable = 0;        // 是否传音频
+            int webrtcEnableNvenc = 0;         // 硬件编码(NVENC)
+            int requestMaxBitrateBps = 15000000;  // 最大码率,默认 15 Mbps
+            int requestMinBitrateBps = 15000000;  // 最小码率,默认 15 Mbps
+            int requestMaxFramerate  = 144;        // 最大帧率
+            int localMaxBitrateBps = 15000000;  // 最大码率,默认 15 Mbps
+            int localMinBitrateBps = 15000000;  // 最小码率,默认 15 Mbps
+            int localMaxFramerate = 144;        // 最大帧率
+        };
+
         class WebrtcManager {
 
             friend class PeerConnectionObserverImpl;
@@ -71,7 +85,7 @@ namespace hope {
 
         public:
 
-            WebrtcManager(WebrtcVideoCodec codec = WebrtcVideoCodec::AV1, webrtc::RtpEncodingParameters rtpEncodingParameters = getDefaultRtpEncodingParameters());
+            WebrtcManager(WebrtcDeskSystemConfig config = WebrtcDeskSystemConfig{});
 
             ~WebrtcManager();
 
@@ -95,7 +109,7 @@ namespace hope {
 
             bool initializePeerConnection();
 
-            bool initializeScreenCapture(int webrtcModulesType = 0, int webrtcUseLevels = 0);
+            bool initializeScreenCapture();
 
             bool initializeHAudioCatch();
 
@@ -125,9 +139,7 @@ namespace hope {
 
             std::string targetId;
 
-            WebrtcVideoCodec codec;
-
-            webrtc::RtpEncodingParameters rtpEncodingParameters;
+            WebrtcDeskSystemConfig webrtcDeskSystemConfig;
 
             std::unique_ptr<webrtc::Thread> networkThread;
 
@@ -190,10 +202,6 @@ namespace hope {
             std::unique_ptr<KeyMouseSimulator> keyMouseSim;
 
             std::unique_ptr<CursorHooks> cursorHooks;
-
-            int webrtcAudioEnable = 0;
-
-            int webrtcEnableNvenc = 0;
 
         };
 

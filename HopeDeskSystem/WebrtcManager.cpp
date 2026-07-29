@@ -11,8 +11,8 @@
 #include <api/field_trials.h>
 #include <third_party/libyuv/include/libyuv.h>
 
-#include "WebrtcManagerI420Buffer.h"
-#include "WebrtcManagerNV12Buffer.h"
+#include "WebrtcI420Buffer.h"
+#include "WebrtcNv12Buffer.h"
 #include "WebrtcD3D11TextureBuffer.h"
 #include "ConfigManager.h"
 
@@ -21,15 +21,14 @@ namespace hope {
 
     namespace rtc {
 
-        WebrtcManager::WebrtcManager(WebrtcVideoCodec codec, webrtc::RtpEncodingParameters rtpEncodingParameters)
+        WebrtcManager::WebrtcManager(WebrtcDeskSystemConfig config)
             : ioContext(1)
             , tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext))
             , asioConcurrentQueue(ioContext.get_executor())
             , peerConnection(nullptr)
             , winLogon(nullptr)
             , keyMouseSim(nullptr)
-            , codec(codec)
-            , rtpEncodingParameters(rtpEncodingParameters)
+            , webrtcDeskSystemConfig(config)
             , bufferPool(false, 100)
             , cursorHooks(nullptr)
             , screenCapture(nullptr)
@@ -360,7 +359,45 @@ namespace hope {
 
             std::vector<webrtc::RtpEncodingParameters> encodings;
 
-            encodings.push_back(rtpEncodingParameters);
+            int maxBitrateBps = webrtcDeskSystemConfig.localMaxBitrateBps;
+
+            int minBitrateBps = webrtcDeskSystemConfig.localMinBitrateBps;
+
+            int maxFramerate = webrtcDeskSystemConfig.localMaxFramerate;
+
+            if (webrtcDeskSystemConfig.localMaxBitrateBps >= webrtcDeskSystemConfig.requestMaxBitrateBps) {
+
+                maxBitrateBps = webrtcDeskSystemConfig.requestMaxBitrateBps;
+
+            }
+
+            if (webrtcDeskSystemConfig.localMinBitrateBps >= webrtcDeskSystemConfig.requestMinBitrateBps) {
+
+                minBitrateBps = webrtcDeskSystemConfig.requestMinBitrateBps;
+
+            }
+
+            if (webrtcDeskSystemConfig.localMaxFramerate >= webrtcDeskSystemConfig.requestMaxFramerate) {
+
+                maxFramerate = webrtcDeskSystemConfig.requestMaxFramerate;
+
+            }
+
+            if (minBitrateBps > maxBitrateBps) {
+
+                minBitrateBps = maxBitrateBps;
+
+            }
+
+            webrtc::RtpEncodingParameters encoding = getDefaultRtpEncodingParameters();
+
+            encoding.max_bitrate_bps = maxBitrateBps;
+
+            encoding.min_bitrate_bps = minBitrateBps;
+
+            encoding.max_framerate = maxFramerate;
+
+            encodings.push_back(encoding);
 
             std::vector<std::string> streamIds = { "mediaStream" };
 
@@ -399,7 +436,7 @@ namespace hope {
                     // 根据枚举选择优先编解码器
                     std::string priorityCodec;
 
-                    switch (this->codec) {
+                    switch (webrtcDeskSystemConfig.videoCodec) {
 
                     case WebrtcVideoCodec::VP9: priorityCodec = "VP9"; break;
 
@@ -479,7 +516,7 @@ namespace hope {
 
             if (!parameters.encodings.empty()) {
 
-                parameters.encodings[0] = rtpEncodingParameters;
+                parameters.encodings[0] = encoding;
 
             }
             else {
@@ -495,7 +532,7 @@ namespace hope {
                 return false;
             }
 
-            if (webrtcAudioEnable == 1) {
+            if (webrtcDeskSystemConfig.webrtcAudioEnable == 1) {
 
                 audioTrack = peerConnectionFactory->CreateAudioTrack("audioTrack", nullptr);
 
@@ -540,7 +577,7 @@ namespace hope {
             return true;
         }
 
-        bool WebrtcManager::initializeScreenCapture(int webrtcModulesType, int webrtcUseLevels) {
+        bool WebrtcManager::initializeScreenCapture() {
             if (screenCapture) {
                 return false;
             }
@@ -549,22 +586,22 @@ namespace hope {
 
             hope::rtc::ScreenCapture::CaptureConfig config;
 
-            if (webrtcModulesType == 0) {
+            if (webrtcDeskSystemConfig.webrtcModulesType == 0) {
 
                 config.enableDirtyRects = false;
 
             }
-            else if (webrtcModulesType == 1) {
+            else if (webrtcDeskSystemConfig.webrtcModulesType == 1) {
 
                 config.enableDirtyRects = true;
 
             }
 
-            config.levels = CaptureLevels(webrtcUseLevels);
+            config.levels = CaptureLevels(webrtcDeskSystemConfig.webrtcUseLevels);
 
             screenCapture->setConfig(config);
 
-            if (webrtcEnableNvenc == 1) {
+            if (webrtcDeskSystemConfig.webrtcEnableNvenc == 1) {
                 LOG_INFO("webrtcEnableNvenc");
                 screenCapture->setGpuDataHandle([this](ID3D11Texture2D* texture,
                     HANDLE sharedHandle,
@@ -609,13 +646,13 @@ namespace hope {
 
                     if (levels == CaptureLevels::GPU) {
 
-                        buffer = webrtc::make_ref_counted<WebrtcManagerI420Buffer>(data, width, height, releaseFlag, stride);
+                        buffer = webrtc::make_ref_counted<WebrtcI420Buffer>(data, width, height, releaseFlag, stride);
 
                     }
 
                     else if (levels == CaptureLevels::PRO) {
 
-                        buffer = webrtc::make_ref_counted<WebrtcManagerNV12Buffer>(data, width, height, releaseFlag, stride);
+                        buffer = webrtc::make_ref_counted<WebrtcNv12Buffer>(data, width, height, releaseFlag, stride);
 
                     }
 
@@ -937,19 +974,43 @@ namespace hope {
                                         if (type == "request") {
 
                                             if (json.contains("codec")) {
-                                                codec = static_cast<WebrtcVideoCodec>(json["codec"].as_int64());
+                                                webrtcDeskSystemConfig.videoCodec = static_cast<WebrtcVideoCodec>(json["codec"].as_int64());
                                             }
 
                                             if (json.contains("webrtcAudioEnable")) {
 
-                                                webrtcAudioEnable = json["webrtcAudioEnable"].as_int64();
+                                                webrtcDeskSystemConfig.webrtcAudioEnable = json["webrtcAudioEnable"].as_int64();
 
                                             }
 
                                             if (json.contains("webrtcEnableNvenc")) {
 
-                                                webrtcEnableNvenc = json["webrtcEnableNvenc"].as_int64();
+                                                webrtcDeskSystemConfig.webrtcEnableNvenc = json["webrtcEnableNvenc"].as_int64();
 
+                                            }
+
+                                            if (json.contains("localMaxBitrateBps")) {
+                                                webrtcDeskSystemConfig.localMaxBitrateBps = json["localMaxBitrateBps"].as_int64();
+                                            }
+
+                                            if (json.contains("localMinBitrateBps")) {
+                                                webrtcDeskSystemConfig.localMinBitrateBps = json["localMinBitrateBps"].as_int64();
+                                            }
+
+                                            if (json.contains("localMaxFramerate")) {
+                                                webrtcDeskSystemConfig.localMaxFramerate = json["localMaxFramerate"].as_int64();
+                                            }
+
+                                            if (json.contains("requestMaxBitrateBps")) {
+                                                webrtcDeskSystemConfig.requestMaxBitrateBps = json["requestMaxBitrateBps"].as_int64();
+                                            }
+
+                                            if (json.contains("requestMinBitrateBps")) {
+                                                webrtcDeskSystemConfig.requestMinBitrateBps = json["requestMinBitrateBps"].as_int64();
+                                            }
+
+                                            if (json.contains("requestMaxFramerate")) {
+                                                webrtcDeskSystemConfig.requestMaxFramerate = json["requestMaxFramerate"].as_int64();
                                             }
 
                                             if (!initializePeerConnection()) {
@@ -959,10 +1020,8 @@ namespace hope {
 
                                             if (webrtcVideoEncoderFactory) {
 
-                                                webrtcVideoEncoderFactory->webrtcEnableNvenc = webrtcEnableNvenc;
+                                                webrtcVideoEncoderFactory->webrtcEnableNvenc = webrtcDeskSystemConfig.webrtcEnableNvenc;
 
-                                                // 编码器创建后,把"实际硬编/软编 + codec"经本地 TCP 控制通道
-                                                // (ENCODE_STATUS)上报给被控端 Native 显示。不是 WebRTC dataChannel。
                                                 webrtcVideoEncoderFactory->onEncoderStatusHandle =
                                                     [this](const std::string& codec, bool hardEncode) {
                                                     boost::json::object o;
@@ -976,28 +1035,24 @@ namespace hope {
 
                                             }
 
-                                            int webrtcModulesType = 0;
-
-                                            int webrtcUseLevels = 0;
-
                                             if (json.contains("webrtcModulesType")) {
 
-                                                webrtcModulesType = json["webrtcModulesType"].as_int64();
+                                                webrtcDeskSystemConfig.webrtcModulesType = json["webrtcModulesType"].as_int64();
 
                                             }
 
                                             if (json.contains("webrtcUseLevels")) {
 
-                                                webrtcUseLevels = json["webrtcUseLevels"].as_int64();
+                                                webrtcDeskSystemConfig.webrtcUseLevels = json["webrtcUseLevels"].as_int64();
 
                                             }
 
-                                            if (!initializeScreenCapture(webrtcModulesType, webrtcUseLevels)) {
+                                            if (!initializeScreenCapture()) {
                                                 LOG_ERROR("Failed to initialize ScreenCapture");
                                                 continue;
                                             }
 
-                                            if (webrtcAudioEnable == 1) {
+                                            if (webrtcDeskSystemConfig.webrtcAudioEnable == 1) {
                                                 if (!initializeHAudioCatch()) {
                                                     LOG_ERROR("Failed to initialize HAudioCatch");
                                                     continue;
