@@ -8,5 +8,9 @@
         <file>res/video.vert.qsb</file>
         <file>res/video_nv12.frag.qsb</file>
     </qresource>
+    <qresource prefix="/icons">
+        <file>res/arrow-up.png</file>
+        <file>res/arrow-down.png</file>
+    </qresource>
     <qresource prefix="/new/prefix1"/>
 </RCC>
