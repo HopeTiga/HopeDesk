@@ -38,7 +38,6 @@ namespace hope {
             if (candidatePair.current_round_trip_time.has_value()) {
                 rttMs = *candidatePair.current_round_trip_time * 1000.0;
             }
-            LOG_INFO("  Network RTT: %.1f ms", rttMs);
 
             // 获取本地和远端候选者的 ID
             std::string localCandidateId = *candidatePair.local_candidate_id;
@@ -55,20 +54,8 @@ namespace hope {
                 std::string localType = *localCand.candidate_type;
                 std::string remoteType = *remoteCand.candidate_type;
 
-                LOG_INFO("Active Connection Info:");
-
-                // 注意：printf 风格需要使用 %s，并且 string 必须调用 .c_str()
-                LOG_INFO("  Local Type: %s | IP: %s",
-                     localType.c_str(),
-                     localCand.ip->c_str());
-
-                LOG_INFO("  Remote Type: %s | IP: %s",
-                     remoteType.c_str(),
-                     remoteCand.ip->c_str());
-
                 // 4. 判断逻辑
                 if (localType == "relay" || remoteType == "relay") {
-                    LOG_INFO("==> Connection Type: TURN (Relayed)");
 
                     if(onRTCStatsCollectorHandle){
 
@@ -78,7 +65,6 @@ namespace hope {
 
                 }
                 else {
-                    LOG_INFO("==> Connection Type: P2P (STUN/Direct)");
 
                     if(onRTCStatsCollectorHandle){
 
