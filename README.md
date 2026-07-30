@@ -80,7 +80,7 @@ graph TD
 3.  **重启电脑**使驱动生效。
 
 ### 步骤 2：配置被控端 (Host)
-1.  导航至 `HopeDeskNative-release` 目录，找到并编辑 `config.ini` 文件。
+1.  导航至 `HopeDeskNative` 目录，找到并编辑 `config.ini` 文件。
 2.  根据您的实际部署路径，配置核心文件位置与基础信息，关键配置项如下：
 
     ```ini
