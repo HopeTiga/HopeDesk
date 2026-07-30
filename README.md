@@ -21,7 +21,7 @@ HopeDesk 运行时存在**两个 Native 实例**：控制端 Native 与被控端
 
 ```mermaid
 graph TD
-    subgraph S [Signal —— WebRTCSignalServer]
+    subgraph S [Signal —— WebrtcSignalServer]
         S1[WebSocket 信令通道 wss]
         S2[会话管理 / 三级寻址转发]
         S1 --- S2
@@ -84,13 +84,11 @@ graph TD
 2.  根据您的实际部署路径，配置核心文件位置与基础信息，关键配置项如下：
 
     ```ini
-    [WebRTC]
-    ; 配置 HopeDeskSystem.exe 的路径（相对于 config.ini 所在目录或绝对路径）
-    WebRTCEXE=../HopeDeskSystem-release/HopeDeskSystem.exe
-    ; 系统服务名称，可保持默认
-    WebRTCService=HopeDeskSystem
-    ; HopeDeskSystem 相关配置文件所在目录
-    WebRTCConfigPath=../HopeDeskSystem-release/
+    [Webrtc]
+    ; 配置 HopeDeskSystem.exe 的路径（绝对路径或相对于 config.ini 所在目录）
+    SystemServiceExe=../HopeDeskSystem-release/HopeDeskSystem.exe
+    ; 系统服务名称（可自定义，避免与已安装的同名服务冲突；留空则取 exe 文件名）
+    SystemService=HopeDeskSystem
 
     [Stun]
     ; STUN 服务器地址，用于NAT穿透
@@ -102,13 +100,19 @@ graph TD
     Username=HopeTiga
     Password=dy913140924
 
-    [WebRTCSignalServer]
+    [WebrtcSignalServer]
     ; 信令服务器地址
     Host=121.5.37.53
     Port=8088
+
+    [Render]
+    ; 垂直同步开关：1=开启（锁定显示器刷新率），0=关闭（渲染不再被刷新率锁帧，可突破 60FPS）
+    VSync=0
     ```
 
-    **注意**：请确保 `WebRTCEXE` 和 `WebRTCConfigPath` 指向的路径在您的系统中真实有效。STUN/TURN 及信令服务器配置为示例，请根据实际可用服务进行替换。
+    > 以上配置也可在程序内 **「设置 → 系统设置」** 标签页可视化修改并即时生效：垂直同步在下次远程连接时生效；信号服务器 / STUN / TURN / WebRTC 程序 / 服务名等在**未连接**时可修改，服务名或可执行路径变更时会自动处理已注册系统服务的删除与重新注册。
+    >
+    > **注意**：请确保 `SystemServiceExe` 指向的路径在您的系统中真实有效。STUN/TURN 及信令服务器配置为示例，请根据实际可用服务进行替换。
 
 ### 步骤 3：启动与连接
 1.  运行 `HopeDeskNative-release` 目录下的主程序（或服务）作为被控端。
@@ -129,7 +133,7 @@ graph TD
 - **架构简化与稳定**：单一、成熟的核心信令协议降低了系统复杂度，提高了整体的稳定性和可调试性，同时保持了完整的会话管理、控制与协商能力。
 - **统一会话管理**：清晰的上层业务逻辑与稳定的接口，为功能扩展和多平台支持奠定坚实基础。
 
-#### 📡 WebRTCSignalServer
+#### 📡 WebrtcSignalServer
 信令面中转服务，自研、协程化、SSL 可选，基于 boost::asio 协程 + WebSocket 承载信令转发、HTTP 承载运维查询：
 
 - **多通道分片**：启动按 `threadSize` 切出 N 个通道，每通道独占一个 `io_context` + 线程；连接 round-robin 分配，**单连接生命周期绑定单线程、无跨线程锁**。
@@ -139,7 +143,7 @@ graph TD
 - **运维 HTTP**：`/api/v1/managers/overview`、`/stat` 提供通道与连接统计（Bearer token 鉴权）。
 - **可扩展**：预留 ylt/coro_rpc 跨节点 RPC（`requestForward` 把信令托付给持有 targetId 的节点）、Polaris 服务发现、MySQL 连接池（持久化层预留）。
 
-> 完整架构（线程模型、配置注入、转发时序、RPC 两层错误模型、任务队列阈值等）见 [`webrtc-signal-server.md`](./webrtc-signal-server.md)。
+> 完整架构（线程模型、配置注入、转发时序、RPC 两层错误模型、任务队列阈值等）见 [`WebrtcSignalServer.md`](./WebrtcSignalServer.md)。
 
 ### 🎮 专业级操控体验
 - **真正的远程游戏支持**：结合硬件编码与驱动级输入，可高画质、高帧率流畅运行大型游戏，实现近乎本地的操作响应，满足游戏、设计等专业场景。
