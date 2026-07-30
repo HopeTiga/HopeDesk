@@ -959,7 +959,7 @@ void MainWindow::buildSystemSettingsTab()
     systemFormLayout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
     systemFormLayout->setSpacing(10);
 
-    verticalSyncCheckBox = new QCheckBox(tr("启用(锁显示器刷新率,关闭可突破 60FPS)"), systemTab);
+    verticalSyncCheckBox = new QCheckBox(tr("启用"), systemTab);
     systemFormLayout->addRow(tr("垂直同步"), verticalSyncCheckBox);
 
     signalServerHostEdit = new QLineEdit(systemTab);
