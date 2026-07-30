@@ -191,11 +191,8 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
     bool isPress = !(keystroke.state & INTERCEPTION_KEY_UP);
 
     if(keystroke.code==42 && (keystroke.state==2 || keystroke.state==3)) return;
-
     // Use system API for conversion (handles most keys correctly)
     DWORD vkCode = MapVirtualKey(keystroke.code, MAPVK_VSC_TO_VK_EX);
-
-
     // Handle special case: numpad keys need to be distinguished based on NumLock state
     if (!(keystroke.state & INTERCEPTION_KEY_E0) &&
         ((keystroke.code >= 0x47 && keystroke.code <= 0x53) || keystroke.code == 0x52)) {
