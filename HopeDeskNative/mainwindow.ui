@@ -652,6 +652,16 @@ QPushButton:disabled {
               </widget>
              </item>
              <item>
+              <widget class="QLabel" name="labelFps">
+               <property name="styleSheet">
+                <string notr="true">color: #6366F1; font-size: 12px;</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+             <item>
               <spacer name="horizontalSpacer_CtrlAltF">
                <property name="orientation">
                 <enum>Qt::Orientation::Horizontal</enum>
@@ -1303,6 +1313,16 @@ QSpinBox::down-arrow {
              </property>
              <property name="text">
               <string>显示网络延迟 (RTT)</string>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="2">
+            <widget class="QCheckBox" name="checkShowFps">
+             <property name="toolTip">
+              <string>开启后,远程连接时在控制面板显示实际渲染帧率(FPS)。关闭时同时停止帧率统计</string>
+             </property>
+             <property name="text">
+              <string>显示渲染帧率 (FPS)</string>
              </property>
             </widget>
            </item>

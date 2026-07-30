@@ -42,9 +42,9 @@ VideoWidget::VideoWidget(QWidget* parent)
     setAttribute(Qt::WA_AcceptTouchEvents);
 
     fpsTimer.start();
-    QTimer* fpsUpdateTimer = new QTimer(this);
+    fpsUpdateTimer = new QTimer(this);
     connect(fpsUpdateTimer, &QTimer::timeout, this, &VideoWidget::updateFPS);
-    fpsUpdateTimer->start(1000);
+    // 默认不统计帧率,由 MainWindow 通过 setFpsEnabled 按设置开启
 
     lastUniformData.mvp.setToIdentity();
     lastUniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
@@ -442,7 +442,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             hasVideo = true;
             videoWidth = srcWidth;
             videoHeight = srcHeight;
-            frameCount++;
+            if (fpsEnabled) frameCount++;
         } else {
             // 上传失败（格式不匹配等），清理帧，避免内存泄漏
             delete frameToRender;
@@ -556,6 +556,21 @@ void VideoWidget::updateFPS()
         currentFPS = (frameCount * 1000.0) / elapsed;
         frameCount = 0;
         fpsTimer.restart();
+    }
+}
+
+void VideoWidget::setFpsEnabled(bool enabled)
+{
+    fpsEnabled = enabled;
+    if (enabled) {
+        frameCount = 0;
+        currentFPS = 0.0;
+        fpsTimer.restart();
+        fpsUpdateTimer->start(1000);
+    } else {
+        if (fpsUpdateTimer) fpsUpdateTimer->stop();
+        frameCount = 0;
+        currentFPS = 0.0;
     }
 }
 

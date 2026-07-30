@@ -1,9 +1,14 @@
 #include "MainWindow.h"
 #include <QApplication>
+#include <QSurfaceFormat>
 #include "ConfigManager.h"
 
 int main(int argc, char *argv[])
 {
+
+    QSurfaceFormat surfaceFormat = QSurfaceFormat::defaultFormat();
+    surfaceFormat.setSwapInterval(0);
+    QSurfaceFormat::setDefaultFormat(surfaceFormat);
 
     QApplication app(argc, argv);
     app.setApplicationName("HopeDesk");

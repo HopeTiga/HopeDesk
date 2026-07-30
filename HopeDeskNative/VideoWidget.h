@@ -37,6 +37,8 @@ public:
     void displayFrame(std::shared_ptr<VideoFrame> frame);
     void clearDisplay();
     double getFrameRate() const { return currentFPS; }
+    // 是否计算并统计渲染帧率(关闭时停止计时、不计 frameCount)
+    void setFpsEnabled(bool enabled);
     void enterFullScreen();
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
@@ -106,8 +108,10 @@ private:
     bool resourcesInitialized = false;
 
     QElapsedTimer fpsTimer;
+    QTimer* fpsUpdateTimer = nullptr;
     std::atomic<int> frameCount{0};
     std::atomic<double> currentFPS{0.0};
+    std::atomic<bool> fpsEnabled{false};
     std::atomic<bool> hasVideo{false};
 
     bool isFullScreenMode = false;

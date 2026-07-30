@@ -75,6 +75,7 @@ private Q_SLOTS:
     void onAudioChecked(bool checked);
     void onAutoStartChecked(bool checked);
     void onShowRttChecked(bool checked);
+    void onShowFpsChecked(bool checked);
 
     void on_checkHwAccel_checkStateChanged(const Qt::CheckState &arg1);
     void on_checkHwDec_checkStateChanged(const Qt::CheckState &arg1);
@@ -154,6 +155,11 @@ private:
     int localMaxFramerate     = 144;
 
     bool showRttEnabled = false;  // 是否在连接徽章上显示网络 RTT(可配置)
+    bool showFpsEnabled = false;  // 是否显示实际渲染帧率(可配置)
+    QTimer* fpsDisplayTimer = nullptr;  // 周期拉取 VideoWidget 帧率刷新 labelFps
+
+    void startFpsDisplay();  // 连接建立 + 设置开启时启用
+    void stopFpsDisplay();   // 断开/关闭设置时停止并清空显示
 };
 
 }

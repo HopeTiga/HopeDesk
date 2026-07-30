@@ -95,6 +95,7 @@ MainWindow::MainWindow(QWidget* parent)
                     ui->remoteStatusLabel->setText("远程连接已结束");
                     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
                     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
+                    stopFpsDisplay();
                     if(videoWidget) { videoWidget->hide(); disconnect(videoWidget, nullptr, this, nullptr); delete videoWidget; videoWidget = nullptr; }
 
                     if(webrtcManager) webrtcManager->disConnectRemote();
@@ -118,6 +119,10 @@ MainWindow::MainWindow(QWidget* parent)
             if (showRttEnabled) {
                 if (statsTimer) statsTimer->start();
                 if (webrtcManager) webrtcManager->requestStats();
+            }
+            // 渲染帧率显示(仅在设置开启时):开启统计 + 启动刷新定时器
+            if (showFpsEnabled) {
+                startFpsDisplay();
             }
         }, Qt::QueuedConnection);
     };
@@ -156,6 +161,7 @@ MainWindow::~MainWindow()
         settings->setValue("webrtcLevels", webrtcLevels);
         settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
         settings->setValue("showRtt", showRttEnabled);
+        settings->setValue("showFps", showFpsEnabled);
         settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
         settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
         saveEncodeConfig();
@@ -216,6 +222,8 @@ void MainWindow::initConfigAndSettings()
 
     showRttEnabled = settings->value("showRtt", false).toBool();
     ui->checkShowRtt->setChecked(showRttEnabled);
+    showFpsEnabled = settings->value("showFps", false).toBool();
+    ui->checkShowFps->setChecked(showFpsEnabled);
 
     // 编码配置:UI 存 Mbps,WebrtcDeskConfig 用 bps(读取时不转换,填入 config 时再 *1000000)
     requestMaxBitrateMbps = settings->value("requestMaxBitrateMbps", 15).toInt();
@@ -639,6 +647,16 @@ void MainWindow::setupSignalSlots()
     });
     connect(ui->checkAutoStart, &QCheckBox::clicked, this, &MainWindow::onAutoStartChecked);
     connect(ui->checkShowRtt, &QCheckBox::clicked, this, &MainWindow::onShowRttChecked);
+    connect(ui->checkShowFps, &QCheckBox::clicked, this, &MainWindow::onShowFpsChecked);
+
+    // 周期拉取 VideoWidget 实际渲染帧率刷新 labelFps(仅显示,不参与控制)
+    fpsDisplayTimer = new QTimer(this);
+    fpsDisplayTimer->setInterval(500);
+    connect(fpsDisplayTimer, &QTimer::timeout, this, [this]() {
+        if (!videoWidget || !isRemoteConnected) return;
+        double fps = videoWidget->getFrameRate();
+        if (ui->labelFps) ui->labelFps->setText(QString("渲染: %1 FPS").arg(fps, 0, 'f', 0));
+    });
 
     // 编码配置:spinbox 改动即更新成员并落盘(QSettings)。码率 UI 为 Mbps。
     // 单值绑定(帧率,无 min/max 关系)
@@ -783,6 +801,33 @@ void MainWindow::onShowRttChecked(bool checked)
     }
 }
 
+void MainWindow::onShowFpsChecked(bool checked)
+{
+    showFpsEnabled = checked;
+    if (settings) settings->setValue("showFps", showFpsEnabled);
+
+    // 立即生效:已连接时按需启停帧率统计与显示
+    if (showFpsEnabled) {
+        startFpsDisplay();
+    } else {
+        stopFpsDisplay();
+    }
+}
+
+void MainWindow::startFpsDisplay()
+{
+    if (!isRemoteConnected || !videoWidget) return;
+    videoWidget->setFpsEnabled(true);
+    if (fpsDisplayTimer) fpsDisplayTimer->start();
+}
+
+void MainWindow::stopFpsDisplay()
+{
+    if (fpsDisplayTimer) fpsDisplayTimer->stop();
+    if (videoWidget) videoWidget->setFpsEnabled(false);
+    if (ui->labelFps) ui->labelFps->setText("");
+}
+
 void MainWindow::onNavHomeClicked() { ui->mainStackedWidget->setCurrentIndex(0); }
 void MainWindow::onNavDevicesClicked() { ui->mainStackedWidget->setCurrentIndex(1); }
 void MainWindow::onNavSettingsClicked() { ui->mainStackedWidget->setCurrentIndex(2); }
@@ -903,6 +948,7 @@ void MainWindow::onRemoteDisconnectedByPeer()
     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
     // 断开清空状态:编/解码 label + VideoWidget 显示状态(避免残留上一帧/旧状态)
     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
+    stopFpsDisplay();
     if (videoWidget) {
         videoWidget->clearDisplay();
         videoWidget->hide();
@@ -946,6 +992,7 @@ void MainWindow::onLogoutClicked() {
     isRemoteConnected = false;
 
     if (videoWidget) {
+        stopFpsDisplay();
         videoWidget->hide();
         delete videoWidget;
         videoWidget = nullptr;
