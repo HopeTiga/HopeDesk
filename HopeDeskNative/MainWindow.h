@@ -9,6 +9,13 @@
 #include <QSystemTrayIcon>
 #include "CustomDialogs.h" // 确保引用了你的弹窗头文件
 
+QT_BEGIN_NAMESPACE
+class QTabWidget;
+class QCheckBox;
+class QLineEdit;
+class QSpinBox;
+QT_END_NAMESPACE
+
 namespace Ui {
 class MainWindow;
 }
@@ -160,6 +167,26 @@ private:
 
     void startFpsDisplay();  // 连接建立 + 设置开启时启用
     void stopFpsDisplay();   // 断开/关闭设置时停止并清空显示
+
+    // 系统设置 tab(垂直同步/信号服务器/STUN/TURN/WebRTC 程序)
+    void buildSystemSettingsTab();   // 构建「系统设置」tab 并把原设置移入「通用设置」tab
+    void loadSystemSettings();       // 从 config.ini 填充系统设置控件
+    void applyVSyncToFormat();       // 把 verticalSyncEnabled 写入 QSurfaceFormat::defaultFormat
+    void onApplySystemSettings();     // 保存 + 同步 Qt VSync + webrtcManagerConfig
+    void onWebrtcServiceExeBrowse(); // 选择 WebRTC 系统程序可执行文件
+
+    QTabWidget* settingsTabWidget = nullptr;
+    QCheckBox*  verticalSyncCheckBox = nullptr;
+    QLineEdit*  signalServerHostEdit = nullptr;
+    QSpinBox*   signalServerPortSpin = nullptr;
+    QLineEdit*  stunHostEdit = nullptr;
+    QLineEdit*  turnHostEdit = nullptr;
+    QLineEdit*  turnUsernameEdit = nullptr;
+    QLineEdit*  turnPasswordEdit = nullptr;
+    QLineEdit*  webrtcServiceExeEdit = nullptr;
+    QLineEdit*  webrtcServiceNameEdit = nullptr;
+
+    bool verticalSyncEnabled = false;  // 当前垂直同步开关(运行期同步,下次会话生效)
 };
 
 }

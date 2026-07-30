@@ -16,9 +16,9 @@ namespace rtc {
 // ---------------------------------------------------------------------------
 NvdecDecoder::NvdecDecoder(Codec type)
     : codecType(type),
-    cuvidCodec(type == Codec::H264 ? cudaVideoCodec_H264 :
-                   type == Codec::H265 ? cudaVideoCodec_HEVC :
-                   cudaVideoCodec_AV1) {
+      cuvidCodec(type == Codec::H264 ? cudaVideoCodec_H264 :
+                     type == Codec::H265 ? cudaVideoCodec_HEVC :
+                     cudaVideoCodec_AV1) {
 }
 
 NvdecDecoder::~NvdecDecoder() {

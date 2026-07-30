@@ -11,7 +11,6 @@
 #include <boost/random/uniform_int_distribution.hpp>
 #include <api/field_trials.h>
 #include <immintrin.h>
-#include "ConfigManager.h"
 #include "Utils.h"
 
 #ifdef _WIN32
@@ -60,11 +59,6 @@ WebrtcManager::WebrtcManager()
         boost::asio::ssl::context::no_sslv2 |
         boost::asio::ssl::context::single_dh_use
         );
-
-    systemService = ConfigManager::Instance().GetString("WebRTC.WebRTCService");
-
-    systemServiceExe = ConfigManager::Instance().GetString("WebRTC.WebRTCEXE");
-
 }
 
 void WebrtcManager::asyncEvent(){
@@ -80,7 +74,6 @@ void WebrtcManager::asyncEvent(){
             try {
                 co_await self->accept.async_accept(*socket,boost::asio::use_awaitable);
             } catch (...) {
-                // accept 被关闭/取消(closeEvent 时 accept.cancel/close),优雅退出
                 co_return;
             }
 
@@ -100,7 +93,14 @@ void WebrtcManager::asyncEvent(){
 
             boost::asio::co_spawn(self->ioContext,self->writerCoroutineAsync(),boost::asio::detached);
 
-            std::string registerStr = "{\"requestType\":0,\"webrtcManagerPath\":\"" + ConfigManager::Instance().GetString("WebRTC.WebRTCConfigPath") + "\",\"state\":200}";
+            boost::json::object registerJson;
+            registerJson["requestType"] = 0;
+            registerJson["stunHost"]    = self->webrtcManagerConfig.stunHost;
+            registerJson["turnHost"]    = self->webrtcManagerConfig.turnHost;
+            registerJson["turnUsername"] = self->webrtcManagerConfig.turnUsername;
+            registerJson["turnPassword"] = self->webrtcManagerConfig.turnPassword;
+            registerJson["state"]       = 200;
+            std::string registerStr = boost::json::serialize(registerJson);
 
             std::shared_ptr<WriterData> registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
 
@@ -414,17 +414,17 @@ bool WebrtcManager::initializePeerConnection()
 
     webrtc::PeerConnectionInterface::IceServer stunServer;
 
-    stunServer.uri = ConfigManager::Instance().GetString("Stun.Host");
+    stunServer.uri = webrtcManagerConfig.stunHost;
 
     config.servers.push_back(stunServer);
 
     webrtc::PeerConnectionInterface::IceServer turnServer;
 
-    turnServer.uri = ConfigManager::Instance().GetString("Turn.Host");
+    turnServer.uri = webrtcManagerConfig.turnHost;
 
-    turnServer.username = ConfigManager::Instance().GetString("Turn.Username");
+    turnServer.username = webrtcManagerConfig.turnUsername;
 
-    turnServer.password = ConfigManager::Instance().GetString("Turn.Password");
+    turnServer.password = webrtcManagerConfig.turnPassword;
 
     config.servers.emplace_back(turnServer);
 
@@ -645,15 +645,15 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                                 this->followData = boost::json::serialize(json);
 
-                                WindowsServiceManager::stopService(systemService);
+                                WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
 
-                                if(!WindowsServiceManager::serviceExists(systemService)){
+                                if(!WindowsServiceManager::serviceExists(webrtcManagerConfig.systemService)){
 
-                                    WindowsServiceManager::registerService(systemService, systemServiceExe);
+                                    WindowsServiceManager::registerService(webrtcManagerConfig.systemService, webrtcManagerConfig.systemServiceExe);
 
                                 }
 
-                                if (WindowsServiceManager::startService(systemService)) {
+                                if (WindowsServiceManager::startService(webrtcManagerConfig.systemService)) {
 
                                     LOG_INFO("WindowsServiceManager::startService Successful!");
 
@@ -794,7 +794,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                         closeTcpSocket();
 
-                        WindowsServiceManager::stopService(systemService);
+                        WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
 
                         targetId = json["accountId"].as_string().c_str();
 
@@ -924,9 +924,9 @@ void WebrtcManager::disConnectHandle()
 
 }
 
-void WebrtcManager::setSystemServiceExe(std::string webrtcExe)
+void WebrtcManager::setWebrtcManagerConfig(const WebrtcManagerConfig& webrtcManagerConfig)
 {
-    this->systemServiceExe = webrtcExe;
+    this->webrtcManagerConfig = webrtcManagerConfig;
 }
 
 void WebrtcManager::resetCursorCache()
@@ -1332,7 +1332,7 @@ void WebrtcManager::handleAsioException()
 
         webrtcAsyncWrite(boost::json::serialize(message));
 
-        WindowsServiceManager::stopService(systemService);
+        WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
 
     }
 }
@@ -1385,7 +1385,7 @@ void WebrtcManager::releaseSource()
 
     closeTcpSocket();
 
-    WindowsServiceManager::stopService(systemService);  // ← 也可能在这里阻塞
+    WindowsServiceManager::stopService(webrtcManagerConfig.systemService);  // ← 也可能在这里阻塞
 
 }
 

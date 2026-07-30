@@ -6,8 +6,11 @@
 int main(int argc, char *argv[])
 {
 
+    ConfigManager::Instance().Load();
+    bool verticalSyncEnabled = ConfigManager::Instance().GetBool("Render.VSync", false);
+
     QSurfaceFormat surfaceFormat = QSurfaceFormat::defaultFormat();
-    surfaceFormat.setSwapInterval(0);
+    surfaceFormat.setSwapInterval(verticalSyncEnabled ? 1 : 0);
     QSurfaceFormat::setDefaultFormat(surfaceFormat);
 
     QApplication app(argc, argv);

@@ -19,8 +19,9 @@ public:
             return false;
         }
 
-        // 构建服务命令行
-        std::string serviceCommand = "\"" + exePath + "\"";
+        // 构建服务命令行:把服务名作为启动参数写入 ImagePath,
+        // 进程启动后从 argv[1] 取出用于服务控制分发(替代预定义常量)。
+        std::string serviceCommand = "\"" + exePath + "\" \"" + serviceName + "\"";
 
         // 创建服务 - 改为手动启动
         SC_HANDLE serviceHandle = CreateServiceA(
@@ -129,6 +130,8 @@ public:
             return false;
         }
 
+        // 服务名已写入 ImagePath 命令行,进程启动时即可从 argv 取得;
+        // SCM 也会把服务名作为 ServiceMain 的 argv[0] 传入,此处无需再传额外参数。
         bool isSuccess = StartServiceA(serviceHandle, 0, nullptr);
         if (isSuccess) {
             LOG_INFO("Service started successfully: %s", serviceName.c_str());

@@ -29,6 +29,111 @@ inline QPixmap createCircularAvatar(const QPixmap& source, int size) {
 }
 
 // ==========================================
+//  通用确认/提示弹窗 (ToDesk 蓝白风格,替代 QMessageBox)
+// ==========================================
+class ConfirmDialog : public QDialog {
+    Q_OBJECT
+public:
+    // cancelText 为空时只显示「确认」按钮(用作纯提示)
+    ConfirmDialog(const QString& title, const QString& message,
+                  const QString& confirmText = QStringLiteral("确认"),
+                  const QString& cancelText = QStringLiteral("取消"),
+                  QWidget* parent = nullptr)
+        : QDialog(parent)
+    {
+        setWindowTitle(title);
+        setFixedSize(420, 240);
+        setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+
+        setStyleSheet(R"(
+            QDialog {
+                background-color: #FFFFFF;
+                border: 1px solid #E1E8ED;
+                border-radius: 12px;
+            }
+            QLabel#title {
+                color: #2C3E50;
+                font-size: 17px;
+                font-weight: bold;
+            }
+            QLabel#message {
+                color: #5A6C7D;
+                font-size: 14px;
+            }
+            QPushButton#btnConfirm {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0072FF, stop:1 #00B4FF);
+                color: white;
+                border-radius: 8px;
+                padding: 10px;
+                font-weight: bold;
+                font-size: 14px;
+                border: none;
+            }
+            QPushButton#btnConfirm:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #338CFF, stop:1 #33C3FF);
+            }
+            QPushButton#btnConfirm:pressed {
+                background: #0056CC;
+            }
+            QPushButton#btnCancel {
+                background-color: transparent;
+                color: #5A6C7D;
+                border: 1px solid #D6E3F0;
+                border-radius: 8px;
+                padding: 10px;
+                font-size: 14px;
+            }
+            QPushButton#btnCancel:hover {
+                color: #0072FF;
+                border-color: #0072FF;
+                background-color: rgba(0, 114, 255, 0.05);
+            }
+        )");
+
+        QVBoxLayout* mainLayout = new QVBoxLayout(this);
+        mainLayout->setContentsMargins(30, 28, 30, 28);
+        mainLayout->setSpacing(16);
+
+        QLabel* titleLabel = new QLabel(title, this);
+        titleLabel->setObjectName("title");
+        mainLayout->addWidget(titleLabel);
+
+        QFrame* line = new QFrame(this);
+        line->setFrameShape(QFrame::HLine);
+        line->setStyleSheet("background-color: #E1E8ED; max-height: 1px; margin: 2px 0 6px 0;");
+        mainLayout->addWidget(line);
+
+        QLabel* messageLabel = new QLabel(message, this);
+        messageLabel->setObjectName("message");
+        messageLabel->setWordWrap(true);
+        mainLayout->addWidget(messageLabel);
+        mainLayout->addStretch(1);
+
+        QHBoxLayout* buttonLayout = new QHBoxLayout();
+        buttonLayout->setSpacing(12);
+        buttonLayout->addStretch();
+
+        if (!cancelText.isEmpty()) {
+            QPushButton* cancelButton = new QPushButton(cancelText, this);
+            cancelButton->setObjectName("btnCancel");
+            cancelButton->setFixedHeight(40);
+            cancelButton->setCursor(Qt::PointingHandCursor);
+            connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
+            buttonLayout->addWidget(cancelButton);
+        }
+
+        QPushButton* confirmButton = new QPushButton(confirmText, this);
+        confirmButton->setObjectName("btnConfirm");
+        confirmButton->setFixedHeight(40);
+        confirmButton->setCursor(Qt::PointingHandCursor);
+        connect(confirmButton, &QPushButton::clicked, this, &QDialog::accept);
+        buttonLayout->addWidget(confirmButton);
+
+        mainLayout->addLayout(buttonLayout);
+    }
+};
+
+// ==========================================
 //  1. 添加设备弹窗 (ToDesk 蓝白风格)
 // ==========================================
 class AddDeviceDialog : public QDialog {

@@ -4,7 +4,6 @@
 #include "WebrtcManager.h"
 #include "ConfigManager.h"
 #include <QApplication>
-#include <QMessageBox>
 #include <QDebug>
 #include <QTimer>
 #include <QMenu>
@@ -15,6 +14,18 @@
 #include <QJsonObject>
 #include <QClipboard>
 #include <QPixmap>
+#include <QTabWidget>
+#include <QCheckBox>
+#include <QLineEdit>
+#include <QSpinBox>
+#include <QFormLayout>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QSurfaceFormat>
 
 namespace hope{
     namespace rtc{
@@ -103,6 +114,9 @@ MainWindow::MainWindow(QWidget* parent)
                 });
                 connect(videoWidget, &QWidget::destroyed, this, [this](){ videoWidget = nullptr; });
             }
+            // 按 verticalSyncEnabled 设置 defaultFormat,使 videoWidget 的 backingstore
+            // swapchain 在 show 创建窗口时按此 swapInterval 创建(每次会话生效,无需重启)
+            applyVSyncToFormat();
             videoWidget->showMaximized();
             videoWidget->raise();
             videoWidget->activateWindow();
@@ -193,10 +207,20 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 void MainWindow::initConfigAndSettings()
 {
     defaultServerHost = "121.5.37.53";
-    std::string cfgHost = ConfigManager::Instance().GetString("WebRTCSignalServer.Host");
-    if(!cfgHost.empty()) defaultServerHost = QString::fromStdString(cfgHost);
-    defaultServerPort = ConfigManager::Instance().GetInt("WebRTCSignalServer.Port");
+    std::string signalServerHost = ConfigManager::Instance().GetString("WebrtcSignalServer.Host");
+    if(!signalServerHost.empty()) defaultServerHost = QString::fromStdString(signalServerHost);
+    defaultServerPort = ConfigManager::Instance().GetInt("WebrtcSignalServer.Port");
     if(defaultServerPort <= 0) defaultServerPort = 8088;
+
+    // 读取 WebrtcManager 启动期配置并注入(WebrtcManager 自身不再读 config.ini)
+    WebrtcManagerConfig webrtcManagerConfig;
+    webrtcManagerConfig.systemService    = ConfigManager::Instance().GetString("Webrtc.SystemService", "HopeDeskSystem");
+    webrtcManagerConfig.systemServiceExe = ConfigManager::Instance().GetString("Webrtc.SystemServiceExe");
+    webrtcManagerConfig.stunHost          = ConfigManager::Instance().GetString("Stun.Host");
+    webrtcManagerConfig.turnHost          = ConfigManager::Instance().GetString("Turn.Host");
+    webrtcManagerConfig.turnUsername      = ConfigManager::Instance().GetString("Turn.Username");
+    webrtcManagerConfig.turnPassword      = ConfigManager::Instance().GetString("Turn.Password");
+    if (webrtcManager) webrtcManager->setWebrtcManagerConfig(webrtcManagerConfig);
 
     ui->remoteIdEdit->setText(settings->value("lastRemoteId", "").toString());
 
@@ -224,6 +248,7 @@ void MainWindow::initConfigAndSettings()
     ui->checkShowRtt->setChecked(showRttEnabled);
     showFpsEnabled = settings->value("showFps", false).toBool();
     ui->checkShowFps->setChecked(showFpsEnabled);
+    verticalSyncEnabled = ConfigManager::Instance().GetBool("Render.VSync", false);
 
     // 编码配置:UI 存 Mbps,WebrtcDeskConfig 用 bps(读取时不转换,填入 config 时再 *1000000)
     requestMaxBitrateMbps = settings->value("requestMaxBitrateMbps", 15).toInt();
@@ -414,6 +439,10 @@ void MainWindow::setupUI()
     updateRecentListUI();
     ui->deviceGroupList->setCurrentRow(0);
     updateDeviceListUI(true);
+
+    // 设置页改为 tab 结构:「通用设置」(原内容) + 「系统设置」
+    buildSystemSettingsTab();
+    loadSystemSettings();
 }
 
 // ... (loadHistoryData, loadFavoritesData, addToHistory 保持不变) ...
@@ -700,7 +729,7 @@ void MainWindow::setupSignalSlots()
 void MainWindow::onAddDeviceClicked() {
     // 检查是否登录
     if(currentDeviceId.isEmpty()) {
-        QMessageBox::information(this, "提示", "请先登录");
+        ConfirmDialog(tr("提示"), tr("请先登录"), tr("知道了"), QString(), this).exec();
         onUserAvatarClicked();
         return;
     }
@@ -727,7 +756,7 @@ void MainWindow::onAddDeviceClicked() {
 }
 
 void MainWindow::onClearHistoryClicked() {
-    if(QMessageBox::question(this, "确认", "确定清空所有历史记录吗？") == QMessageBox::Yes) {
+    if(ConfirmDialog(tr("确认"), tr("确定清空所有历史记录吗？"), tr("清空"), tr("取消"), this).exec() == QDialog::Accepted) {
         historyList.clear();
         settings->remove("historyList");
         updateRecentListUI();
@@ -828,6 +857,290 @@ void MainWindow::stopFpsDisplay()
     if (ui->labelFps) ui->labelFps->setText("");
 }
 
+// ===== 系统设置 tab =====
+
+void MainWindow::buildSystemSettingsTab()
+{
+    settingsTabWidget = new QTabWidget(ui->pageSettings);
+    // documentMode 去掉默认厚重边框;显式继承设置页字体,避免 QTabWidget 自带字体影响内容
+    settingsTabWidget->setDocumentMode(true);
+    settingsTabWidget->setFont(ui->pageSettings->font());
+    settingsTabWidget->setStyleSheet(R"(
+        QTabWidget::pane {
+            border: none;
+            background: transparent;
+        }
+        QTabBar {
+            background: transparent;
+        }
+        QTabBar::tab {
+            background: transparent;
+            color: #8C9AA8;
+            padding: 8px 22px;
+            font-size: 14px;
+            border: none;
+            border-bottom: 2px solid transparent;
+            margin-right: 4px;
+        }
+        QTabBar::tab:selected {
+            color: #0072FF;
+            border-bottom: 2px solid #0072FF;
+            font-weight: bold;
+        }
+        QTabBar::tab:hover:!selected {
+            color: #338CFF;
+        }
+    )");
+
+    // 「通用设置」tab:把现有滚动区整体移入(addTab 会自动 reparent,并从原布局移除)
+    settingsTabWidget->addTab(ui->scrollAreaSettings, tr("通用设置"));
+
+    // 「系统设置」tab
+    QWidget* systemTab = new QWidget(settingsTabWidget);
+    systemTab->setStyleSheet(R"(
+        QLabel { color: #5A6C7D; font-size: 14px; }
+        QLineEdit, QSpinBox {
+            background-color: #F5F7FA;
+            border: 1px solid #D6E3F0;
+            border-radius: 8px;
+            padding: 8px 10px;
+            color: #333333;
+            font-size: 14px;
+        }
+        QLineEdit:focus, QSpinBox:focus {
+            border: 1px solid #0072FF;
+            background-color: #FFFFFF;
+        }
+        QLineEdit:hover, QSpinBox:hover {
+            background-color: #FFFFFF;
+        }
+        QSpinBox::up-button, QSpinBox::down-button {
+            width: 20px;
+            border: none;
+            border-left: 1px solid #E1E8ED;
+            background: transparent;
+        }
+        QSpinBox::up-button { border-top-right-radius: 8px; subcontrol-position: top right; }
+        QSpinBox::down-button { border-bottom-right-radius: 8px; subcontrol-position: bottom right; }
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+            background: #E6F8FF;
+        }
+        QSpinBox::up-arrow {
+            image: url(:/icons/res/arrow-up.png);
+            width: 12px; height: 12px;
+        }
+        QSpinBox::down-arrow {
+            image: url(:/icons/res/arrow-down.png);
+            width: 12px; height: 12px;
+        }
+        QCheckBox {
+            color: #5A6C7D;
+            font-size: 14px;
+            spacing: 8px;
+        }
+        QPushButton#browseButton {
+            background-color: #FFFFFF;
+            color: #0072FF;
+            border: 1px solid #D6E3F0;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 14px;
+        }
+        QPushButton#browseButton:hover {
+            border-color: #0072FF;
+            background-color: rgba(0, 114, 255, 0.05);
+        }
+    )");
+    QVBoxLayout* systemLayout = new QVBoxLayout(systemTab);
+    systemLayout->setSpacing(12);
+    systemLayout->setContentsMargins(20, 20, 20, 20);
+
+    QFormLayout* systemFormLayout = new QFormLayout();
+    systemFormLayout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    systemFormLayout->setSpacing(10);
+
+    verticalSyncCheckBox = new QCheckBox(tr("启用(锁显示器刷新率,关闭可突破 60FPS)"), systemTab);
+    systemFormLayout->addRow(tr("垂直同步"), verticalSyncCheckBox);
+
+    signalServerHostEdit = new QLineEdit(systemTab);
+    signalServerPortSpin = new QSpinBox(systemTab);
+    signalServerPortSpin->setRange(1, 65535);
+    QHBoxLayout* signalServerLayout = new QHBoxLayout();
+    signalServerLayout->setSpacing(8);
+    signalServerLayout->addWidget(signalServerHostEdit, 3);
+    signalServerLayout->addWidget(new QLabel(tr("端口"), systemTab), 0);
+    signalServerLayout->addWidget(signalServerPortSpin, 1);
+    systemFormLayout->addRow(tr("信号服务器"), signalServerLayout);
+
+    stunHostEdit = new QLineEdit(systemTab);
+    systemFormLayout->addRow(tr("STUN 服务器"), stunHostEdit);
+
+    turnHostEdit = new QLineEdit(systemTab);
+    systemFormLayout->addRow(tr("TURN 服务器"), turnHostEdit);
+    turnUsernameEdit = new QLineEdit(systemTab);
+    systemFormLayout->addRow(tr("TURN 用户名"), turnUsernameEdit);
+    turnPasswordEdit = new QLineEdit(systemTab);
+    turnPasswordEdit->setEchoMode(QLineEdit::Password);
+    systemFormLayout->addRow(tr("TURN 密码"), turnPasswordEdit);
+
+    webrtcServiceExeEdit = new QLineEdit(systemTab);
+    QPushButton* browseButton = new QPushButton(tr("浏览..."), systemTab);
+    browseButton->setObjectName("browseButton");
+    browseButton->setCursor(Qt::PointingHandCursor);
+    connect(browseButton, &QPushButton::clicked, this, &MainWindow::onWebrtcServiceExeBrowse);
+    QHBoxLayout* webrtcServiceExeLayout = new QHBoxLayout();
+    webrtcServiceExeLayout->setSpacing(8);
+    webrtcServiceExeLayout->addWidget(webrtcServiceExeEdit, 3);
+    webrtcServiceExeLayout->addWidget(browseButton, 0);
+    systemFormLayout->addRow(tr("WebRTC 系统程序"), webrtcServiceExeLayout);
+
+    // 服务名独立设置(不自动从 exe 推导,避免与已安装的同名服务冲突)
+    webrtcServiceNameEdit = new QLineEdit(systemTab);
+    webrtcServiceNameEdit->setPlaceholderText(tr("如 HopeDeskSystem"));
+    systemFormLayout->addRow(tr("WebRTC 服务名"), webrtcServiceNameEdit);
+
+    systemLayout->addLayout(systemFormLayout);
+
+    QPushButton* applyButton = new QPushButton(tr("应用系统设置"), systemTab);
+    applyButton->setObjectName("applyButton");
+    applyButton->setCursor(Qt::PointingHandCursor);
+    applyButton->setStyleSheet(
+        "QPushButton#applyButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+        "stop:0 #0072FF, stop:1 #00B4FF); color: white; border: none; border-radius: 8px; "
+        "padding: 10px 22px; font-weight: bold; font-size: 14px; }"
+        "QPushButton#applyButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+        "stop:0 #338CFF, stop:1 #33C3FF); }"
+        "QPushButton#applyButton:pressed { background: #0056CC; }");
+    connect(applyButton, &QPushButton::clicked, this, &MainWindow::onApplySystemSettings);
+    systemLayout->addWidget(applyButton, 0, Qt::AlignLeft);
+    systemLayout->addStretch();
+
+    settingsTabWidget->addTab(systemTab, tr("系统设置"));
+
+    // 把 tab 控件放进设置页原布局(scrollAreaSettings 已被 reparent 走)
+    ui->verticalLayout_Settings->addWidget(settingsTabWidget);
+}
+
+void MainWindow::loadSystemSettings()
+{
+    ConfigManager& configManager = ConfigManager::Instance();
+    verticalSyncCheckBox->setChecked(configManager.GetBool("Render.VSync", false));
+    signalServerHostEdit->setText(QString::fromStdString(configManager.GetString("WebrtcSignalServer.Host")));
+    int signalServerPort = configManager.GetInt("WebrtcSignalServer.Port", 8088);
+    signalServerPortSpin->setValue(signalServerPort > 0 ? signalServerPort : 8088);
+    stunHostEdit->setText(QString::fromStdString(configManager.GetString("Stun.Host")));
+    turnHostEdit->setText(QString::fromStdString(configManager.GetString("Turn.Host")));
+    turnUsernameEdit->setText(QString::fromStdString(configManager.GetString("Turn.Username")));
+    turnPasswordEdit->setText(QString::fromStdString(configManager.GetString("Turn.Password")));
+    webrtcServiceExeEdit->setText(QString::fromStdString(configManager.GetString("Webrtc.SystemServiceExe")));
+    webrtcServiceNameEdit->setText(QString::fromStdString(configManager.GetString("Webrtc.SystemService", "HopeDeskSystem")));
+}
+
+void MainWindow::applyVSyncToFormat()
+{
+    // 写入 defaultFormat:之后新建的窗口(QWindow 构造时读取 defaultFormat)
+    // 即 videoWidget 下一次显示时按此 swapInterval 创建 backingstore swapchain。
+    QSurfaceFormat surfaceFormat = QSurfaceFormat::defaultFormat();
+    surfaceFormat.setSwapInterval(verticalSyncEnabled ? 1 : 0);
+    QSurfaceFormat::setDefaultFormat(surfaceFormat);
+}
+
+void MainWindow::onWebrtcServiceExeBrowse()
+{
+    QString selectedPath = QFileDialog::getOpenFileName(
+        this, tr("选择 WebRTC 系统程序"), webrtcServiceExeEdit->text(), tr("可执行程序 (*.exe)"));
+    if (!selectedPath.isEmpty()) webrtcServiceExeEdit->setText(selectedPath);
+}
+
+void MainWindow::onApplySystemSettings()
+{
+    // 远程连接中不允许修改系统设置(避免删/注册服务导致正在运行的会话中断)
+    if (isRemoteConnected) {
+        ConfirmDialog(tr("无法修改"), tr("远程连接中，请先断开连接后再修改系统设置。"),
+                      tr("知道了"), QString(), this).exec();
+        return;
+    }
+
+    bool    verticalSyncEnabled = verticalSyncCheckBox->isChecked();
+    QString signalServerHost    = signalServerHostEdit->text().trimmed();
+    int     signalServerPort    = signalServerPortSpin->value();
+    QString stunHost           = stunHostEdit->text().trimmed();
+    QString turnHost           = turnHostEdit->text().trimmed();
+    QString turnUsername       = turnUsernameEdit->text().trimmed();
+    QString turnPassword       = turnPasswordEdit->text().trimmed();
+    QString webrtcServiceExePath = webrtcServiceExeEdit->text().trimmed();
+    QString webrtcServiceName   = webrtcServiceNameEdit->text().trimmed();
+
+    // 服务名由用户自行设置(不从 exe 推导,避免与已安装的同名服务冲突);
+    // 留空时兜底用 exe 文件名。
+    QFileInfo webrtcServiceExeFileInfo(webrtcServiceExePath);
+    if (webrtcServiceName.isEmpty()) {
+        webrtcServiceName = webrtcServiceExeFileInfo.completeBaseName();  // 兜底:留空时仍用 exe 名
+    }
+
+    // 读取旧值用于检测服务名/可执行路径是否变更
+    ConfigManager& configManager = ConfigManager::Instance();
+    QString oldServiceName = QString::fromStdString(configManager.GetString("Webrtc.SystemService", "HopeDeskSystem"));
+    QString oldServiceExePath = QString::fromStdString(configManager.GetString("Webrtc.SystemServiceExe"));
+    bool serviceNameChanged = (webrtcServiceName != oldServiceName);
+    bool serviceExeChanged = (webrtcServiceExePath != oldServiceExePath);
+
+    // 服务配置变更:需要处理已注册的系统服务(SCM)
+    if (serviceNameChanged) {
+        // 服务名变了:旧名对应的服务将不再使用,询问是否删除旧服务
+        ConfirmDialog confirmDialog(
+            tr("服务名已变更"),
+            tr("检测到服务名已由「%1」改为「%2」。\n是否删除旧服务「%1」?").arg(oldServiceName).arg(webrtcServiceName),
+            tr("删除并注册新服务"), tr("保留旧服务"), this);
+        if (confirmDialog.exec() == QDialog::Accepted) {
+            WindowsServiceManager::deleteService(oldServiceName.toStdString());
+        }
+        // 注册新服务(新名 + 新可执行路径)
+        WindowsServiceManager::registerService(webrtcServiceName.toStdString(), webrtcServiceExePath.toStdString());
+    } else if (serviceExeChanged) {
+        // 仅可执行路径变了:删旧(同名)后重新注册,使 ImagePath 指向新 exe
+        WindowsServiceManager::deleteService(webrtcServiceName.toStdString());
+        WindowsServiceManager::registerService(webrtcServiceName.toStdString(), webrtcServiceExePath.toStdString());
+    }
+
+    // 1. 持久化到 config.ini(键名对齐 WebrtcManagerConfig 的字段)
+    configManager.Set("Render.VSync", verticalSyncEnabled);
+    configManager.Set("WebrtcSignalServer.Host", signalServerHost.toStdString());
+    configManager.Set("WebrtcSignalServer.Port", signalServerPort);
+    configManager.Set("Stun.Host", stunHost.toStdString());
+    configManager.Set("Turn.Host", turnHost.toStdString());
+    configManager.Set("Turn.Username", turnUsername.toStdString());
+    configManager.Set("Turn.Password", turnPassword.toStdString());
+    configManager.Set("Webrtc.SystemServiceExe", webrtcServiceExePath.toStdString());
+    configManager.Set("Webrtc.SystemService", webrtcServiceName.toStdString());
+    configManager.Save();
+
+    // 2. 同步内存成员
+    this->verticalSyncEnabled = verticalSyncEnabled;
+    if (!signalServerHost.isEmpty()) defaultServerHost = signalServerHost;
+    defaultServerPort = signalServerPort;
+
+    // 3. 同步 Qt VSync(下次创建窗口/videoWidget 生效)
+    applyVSyncToFormat();
+
+    // 4. 同步 WebrtcManagerConfig(运行期生效,下次建连/ICE 使用)
+    WebrtcManagerConfig webrtcManagerConfig;
+    webrtcManagerConfig.systemService    = webrtcServiceName.toStdString();
+    webrtcManagerConfig.systemServiceExe = webrtcServiceExePath.toStdString();
+    webrtcManagerConfig.stunHost          = stunHost.toStdString();
+    webrtcManagerConfig.turnHost          = turnHost.toStdString();
+    webrtcManagerConfig.turnUsername      = turnUsername.toStdString();
+    webrtcManagerConfig.turnPassword      = turnPassword.toStdString();
+    if (webrtcManager) webrtcManager->setWebrtcManagerConfig(webrtcManagerConfig);
+
+    QString summary = tr("已保存并应用。\n垂直同步将在下一次远程连接时生效。");
+    if (serviceNameChanged || serviceExeChanged) {
+        summary += tr("\n系统服务已按新配置重新注册。");
+    }
+    ConfirmDialog noticeDialog(tr("系统设置"), summary, tr("知道了"), QString(), this);
+    noticeDialog.exec();
+}
+
 void MainWindow::onNavHomeClicked() { ui->mainStackedWidget->setCurrentIndex(0); }
 void MainWindow::onNavDevicesClicked() { ui->mainStackedWidget->setCurrentIndex(1); }
 void MainWindow::onNavSettingsClicked() { ui->mainStackedWidget->setCurrentIndex(2); }
@@ -879,7 +1192,7 @@ void MainWindow::onBtnConnectClicked()
     }
 
     if (currentDeviceId.isEmpty()) {
-        QMessageBox::information(this, "提示", "请先登录");
+        ConfirmDialog(tr("提示"), tr("请先登录"), tr("知道了"), QString(), this).exec();
         onUserAvatarClicked();
         return;
     }
@@ -890,7 +1203,7 @@ void MainWindow::onBtnConnectClicked()
         return;
     }
     if (targetId == currentDeviceId) {
-         QMessageBox::warning(this, "提示", "无法连接本机");
+         ConfirmDialog(tr("提示"), tr("无法连接本机"), tr("知道了"), QString(), this).exec();
          return;
     }
 

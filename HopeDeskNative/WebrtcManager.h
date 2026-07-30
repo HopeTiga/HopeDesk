@@ -140,6 +140,16 @@ public:
     size_t size;
 };
 
+// WebrtcManager 启动期配置(由 MainWindow 从 config.ini 读取后注入,WebrtcManager 自身不再读配置)
+struct WebrtcManagerConfig {
+    std::string systemService = "HopeDeskSystem";   // 系统服务名(Webrtc.SystemService,用户可设)
+    std::string systemServiceExe;                   // 系统服务可执行文件路径(Webrtc.SystemServiceExe)
+    std::string stunHost;                            // STUN 服务器 URI(Stun.Host)
+    std::string turnHost;                            // TURN 服务器 URI(Turn.Host)
+    std::string turnUsername;                        // TURN 用户名(Turn.Username)
+    std::string turnPassword;                        // TURN 密码(Turn.Password)
+};
+
 struct WebrtcDeskConfig {
 
     int webrtcModulesType = 0;   // 0=游戏模式 1=办公模式
@@ -180,6 +190,9 @@ public:
     void closeEvent();
 
     void asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig);
+
+    // 注入启动期配置(服务/可执行路径/配置路径/STUN/TURN),由 MainWindow 读取后注入
+    void setWebrtcManagerConfig(const WebrtcManagerConfig& webrtcManagerConfig);
 
     void sendKeyComboCtrlAltF();
 
@@ -238,8 +251,6 @@ public:
     void requestStats();
 
     void disConnectHandle();
-
-    void setSystemServiceExe(std::string webrtcExe);
 
     void handleCursor(const unsigned char* data,size_t size);
 
@@ -354,20 +365,17 @@ private:
 
     std::string followData;
 
-    std::string systemService = "HopeDeskSystem";
-
-    std::string systemServiceExe;
-
     std::vector<std::vector<unsigned char>> cursorArray ;
 
     std::atomic<bool> cursorCacheDirty{false};
 
     std::atomic<bool> cursorResyncRequested{false};
 
-
     static constexpr std::chrono::seconds TIME_OUT{5};
 
     WebrtcDeskConfig webrtcDeskConfig;
+
+    WebrtcManagerConfig webrtcManagerConfig;
 
 };
 

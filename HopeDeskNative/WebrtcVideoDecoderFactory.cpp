@@ -126,7 +126,6 @@ namespace hope {
                 if (codecOk) {
                     LOG_INFO("Prefer NVDEC hardware decode for %s (fallback to soft on failure)", format.name.c_str());
                     auto hard = std::make_unique<NvdecDecoder>(nvdecCodec);
-                    if (onNvdecCreated) onNvdecCreated(hard.get());
                     return std::make_unique<FallbackDecoder>(std::move(hard), makeSoft,
                                                               format.name, onDecoderStatusHandle);
                 }
