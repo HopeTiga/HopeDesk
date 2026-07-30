@@ -14,17 +14,17 @@
 #include "WebrtcI420Buffer.h"
 #include "WebrtcNv12Buffer.h"
 #include "WebrtcD3D11TextureBuffer.h"
-#include "ConfigManager.h"
 
 
 namespace hope {
 
     namespace rtc {
 
-        WebrtcManager::WebrtcManager(WebrtcDeskSystemConfig config)
+        WebrtcManager::WebrtcManager(std::function<void()> closeHandle, WebrtcDeskSystemConfig config)
             : ioContext(1)
             , tcpSocket(std::make_unique<boost::asio::ip::tcp::socket>(ioContext))
             , asioConcurrentQueue(ioContext.get_executor())
+            , closeHandle(closeHandle)
             , peerConnection(nullptr)
             , winLogon(nullptr)
             , keyMouseSim(nullptr)
@@ -313,17 +313,17 @@ namespace hope {
 
             webrtc::PeerConnectionInterface::IceServer stunServer;
 
-            stunServer.uri = ConfigManager::Instance().GetString("Stun.Host");
+            stunServer.uri = webrtcManagerConfig.stunHost;
 
             config.servers.push_back(stunServer);
 
             webrtc::PeerConnectionInterface::IceServer turnServer;
 
-            turnServer.uri = ConfigManager::Instance().GetString("Turn.Host");
+            turnServer.uri = webrtcManagerConfig.turnHost;
 
-            turnServer.username = ConfigManager::Instance().GetString("Turn.Username");
+            turnServer.username = webrtcManagerConfig.turnUsername;
 
-            turnServer.password = ConfigManager::Instance().GetString("Turn.Password");
+            turnServer.password = webrtcManagerConfig.turnPassword;
 
             config.servers.emplace_back(turnServer);
 
@@ -366,7 +366,7 @@ namespace hope {
             int maxFramerate = webrtcDeskSystemConfig.localMaxFramerate;
 
             if (webrtcDeskSystemConfig.localMaxBitrateBps >= webrtcDeskSystemConfig.requestMaxBitrateBps) {
-
+            
                 maxBitrateBps = webrtcDeskSystemConfig.requestMaxBitrateBps;
 
             }
@@ -559,14 +559,14 @@ namespace hope {
             webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::DataChannelInterface>> dataChannelResult = peerConnection->CreateDataChannelOrError("dataChannel", dataChannelConfig.get());
 
             if (!dataChannelResult.ok()) {
-
+            
                 LOG_ERROR("Failed to add dataChannel: %s", dataChannelResult.error().message());
 
                 return false;
 
             }
 
-            dataChannel = dataChannelResult.MoveValue();
+			dataChannel = dataChannelResult.MoveValue();
 
             dataChannelObserver = std::make_unique<DataChannelObserverImpl>();
 
@@ -645,13 +645,13 @@ namespace hope {
                 if (releaseFlag) {
 
                     if (levels == CaptureLevels::GPU) {
-
-                        buffer = webrtc::make_ref_counted<WebrtcI420Buffer>(data, width, height, releaseFlag, stride);
+                    
+						buffer = webrtc::make_ref_counted<WebrtcI420Buffer>(data, width, height, releaseFlag, stride);
 
                     }
 
                     else if (levels == CaptureLevels::PRO) {
-
+                    
                         buffer = webrtc::make_ref_counted<WebrtcNv12Buffer>(data, width, height, releaseFlag, stride);
 
                     }
@@ -863,7 +863,7 @@ namespace hope {
             }
 
             case 7: {
-
+            
                 cursorHooks->clearCursorCache();
 
             }
@@ -885,21 +885,15 @@ namespace hope {
                     // 接收消息头
                     size_t headerRead = 0;
                     while (headerRead < headerSize) {
-                        try {
-                            size_t n = co_await this->tcpSocket->async_read_some(
-                                boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
-                                boost::asio::use_awaitable);
+                        size_t n = co_await this->tcpSocket->async_read_some(
+                            boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
+                            boost::asio::use_awaitable);
 
-                            if (n == 0) {
-                                co_return;
-                            }
-
-                            headerRead += n;
-                        }
-                        catch (const boost::system::system_error& e) {
-                            LOG_ERROR("Socket read error: %s", e.what());
+                        if (n == 0) {
                             co_return;
                         }
+
+                        headerRead += n;
                     }
 
                     int64_t rawBodyLength = 0;
@@ -959,20 +953,31 @@ namespace hope {
                             if (WebrtcRequestState(requestType) == WebrtcRequestState::REGISTER)
                             {
 
-                                ConfigManager::Instance().Load(json["webrtcManagerPath"].as_string().c_str() + std::string("/config.ini"));
+                                if (json.contains("stunHost")) {
+                                    webrtcManagerConfig.stunHost = json["stunHost"].as_string().c_str();
+                                }
+                                if (json.contains("turnHost")) {
+                                    webrtcManagerConfig.turnHost = json["turnHost"].as_string().c_str();
+                                }
+                                if (json.contains("turnUsername")) {
+                                    webrtcManagerConfig.turnUsername = json["turnUsername"].as_string().c_str();
+                                }
+                                if (json.contains("turnPassword")) {
+                                    webrtcManagerConfig.turnPassword = json["turnPassword"].as_string().c_str();
+                                }
 
                             }
 
                             else if (WebrtcRequestState(requestType) == WebrtcRequestState::REQUEST) {
 
                                 if (responseState == 200) {
-
+                
                                     if (json.contains("type")) {
 
                                         std::string type(json["type"].as_string().c_str());
 
                                         if (type == "request") {
-
+                                        
                                             if (json.contains("codec")) {
                                                 webrtcDeskSystemConfig.videoCodec = static_cast<WebrtcVideoCodec>(json["codec"].as_int64());
                                             }
@@ -1031,7 +1036,7 @@ namespace hope {
                                                     std::string s = boost::json::serialize(o);
                                                     auto data = std::make_shared<WriterData>(const_cast<char*>(s.data()), s.size());
                                                     asyncWrite(data);
-                                                    };
+                                                };
 
                                             }
 
@@ -1101,6 +1106,11 @@ namespace hope {
             }
             catch (const std::exception& e) {
                 LOG_ERROR("Reader coroutine error: %s", e.what());
+                if (closeHandle) {
+
+                    closeHandle();
+
+                }
             }
 
             co_return;

@@ -23,21 +23,16 @@
 #include <thread>
 #include <boost/asio.hpp>
 
-// 项目头文件
 #include "WinLogon.h"
 #include "SessionHelper.h"
 #include "Utils.h"
 #include "WebrtcManager.h"
-
-#define SERVICE_NAME "HopeDeskSystem"
 
 SERVICE_STATUS serviceStatus = { 0 };
 SERVICE_STATUS_HANDLE statusHandle = NULL;
 HANDLE stopEvent = NULL;
 std::atomic<bool> isRespawnedProcess(false);
 
-
-// 宽字符串转窄字符串 - 使用 Windows API
 std::string WstringToString(const std::wstring& wstr) {
 
     if (wstr.empty()) return std::string();
@@ -51,7 +46,19 @@ std::string WstringToString(const std::wstring& wstr) {
     return strTo;
 }
 
-// 获取当前进程的SessionID
+std::wstring StringToWstring(const std::string& str) {
+
+    if (str.empty()) return std::wstring();
+
+    int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+
+    std::wstring wstrTo(sizeNeeded, 0);
+
+    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], sizeNeeded);
+
+    return wstrTo;
+}
+
 DWORD GetCurrentSessionId() {
 
     DWORD sessionId = 0;
@@ -64,7 +71,6 @@ DWORD GetCurrentSessionId() {
 
 }
 
-// 获取进程类型字符串（主进程或子进程）
 std::string GetProcessTypeString() {
 
     return isRespawnedProcess ? "SUBPROCESS" : "MAINPROCESS";
@@ -128,14 +134,20 @@ void AsyncEvent() {
 
     std::string processType = GetProcessTypeString();
 
-    std::unique_ptr<hope::rtc::WebrtcManager> webrtcManager = std::make_unique<hope::rtc::WebrtcManager>();
-
     boost::asio::io_context ioContext;
 
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> ioContextWorkPtr =
         std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    LOG_INFO("AsyncEvent tart");
+    std::unique_ptr<hope::rtc::WebrtcManager> webrtcManager = std::make_unique<hope::rtc::WebrtcManager>([&ioContext, &ioContextWorkPtr]() {
+        
+        ioContextWorkPtr.reset();
+
+        ioContext.stop();
+
+        });
+
+    LOG_INFO("AsyncEvent start");
 
     initLogger();
 
@@ -148,9 +160,11 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     DWORD sessionId = GetCurrentSessionId();
 
-    LOG_INFO("[MAINPROCESS] Service starting | SessionID: %d", sessionId);
+    std::string serviceName = (argc > 0 && argv && argv[0]) ? WstringToString(argv[0]) : "";
 
-    statusHandle = RegisterServiceCtrlHandlerA(SERVICE_NAME, ServiceCtrlHandler);
+    LOG_INFO("[MAINPROCESS] Service starting | SessionID: %d | Service: %s", sessionId, serviceName.c_str());
+
+    statusHandle = RegisterServiceCtrlHandlerA(serviceName.c_str(), ServiceCtrlHandler);
 
     if (!statusHandle) {
 
@@ -283,8 +297,11 @@ int main(int argc, char* argv[]) {
 
     LOG_INFO("[MAINPROCESS] Starting service dispatcher with DXGI support | SessionID: %d", sessionId);
 
+    std::string serviceName = (argc > 1) ? argv[1] : "";
+    std::wstring serviceNameWide = StringToWstring(serviceName);
+
     SERVICE_TABLE_ENTRYW serviceTable[] = {
-        { (LPWSTR)SERVICE_NAME, ServiceMain },
+        { serviceNameWide.data(), ServiceMain },
         { NULL, NULL }
     };
 

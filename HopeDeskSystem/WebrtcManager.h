@@ -77,6 +77,15 @@ namespace hope {
             int localMaxFramerate = 144;        // 最大帧率
         };
 
+        // WebrtcManager 运行期配置:STUN/TURN 由 Native 端通过 REGISTER 消息(registerStr)
+        // 直接传入,WebrtcManager 自身不再读取 ConfigManager,便于后续扩展更多字段。
+        struct WebrtcManagerConfig {
+            std::string stunHost;
+            std::string turnHost;
+            std::string turnUsername;
+            std::string turnPassword;
+        };
+
         class WebrtcManager {
 
             friend class PeerConnectionObserverImpl;
@@ -85,7 +94,7 @@ namespace hope {
 
         public:
 
-            WebrtcManager(WebrtcDeskSystemConfig config = WebrtcDeskSystemConfig{});
+            WebrtcManager(std::function<void()> closeHandle, WebrtcDeskSystemConfig config = WebrtcDeskSystemConfig{});
 
             ~WebrtcManager();
 
@@ -140,6 +149,8 @@ namespace hope {
             std::string targetId;
 
             WebrtcDeskSystemConfig webrtcDeskSystemConfig;
+
+            WebrtcManagerConfig webrtcManagerConfig;
 
             std::unique_ptr<webrtc::Thread> networkThread;
 
@@ -202,6 +213,8 @@ namespace hope {
             std::unique_ptr<KeyMouseSimulator> keyMouseSim;
 
             std::unique_ptr<CursorHooks> cursorHooks;
+
+            std::function<void()> closeHandle;
 
         };
 
