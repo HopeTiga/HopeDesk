@@ -71,11 +71,11 @@ graph TD
 
 ### 前提条件
 - Windows 操作系统（被控端）
-- 已获取 HopeDesk 完整发布包（`HopeDesk-release`）
+- 已获取 HopeDesk 完整发布包（`HopeDesk`）
 
 ### 步骤 1：安装驱动级输入支持
 为实现系统级沉浸操控，需先安装输入驱动：
-1.  在 `HopeDeskNative-release` 目录下，以**管理员身份**打开命令行。
+1.  在 `HopeDeskNative` 目录下，以**管理员身份**打开命令行。
 2.  执行命令：`install-interception.exe /install`
 3.  **重启电脑**使驱动生效。
 
@@ -86,7 +86,7 @@ graph TD
     ```ini
     [Webrtc]
     ; 配置 HopeDeskSystem.exe 的路径（绝对路径或相对于 config.ini 所在目录）
-    SystemServiceExe=../HopeDeskSystem-release/HopeDeskSystem.exe
+    SystemServiceExe=../HopeDeskSystem/HopeDeskSystem.exe
     ; 系统服务名称（可自定义，避免与已安装的同名服务冲突；留空则取 exe 文件名）
     SystemService=HopeDeskSystem
 
@@ -115,7 +115,7 @@ graph TD
     > **注意**：请确保 `SystemServiceExe` 指向的路径在您的系统中真实有效。STUN/TURN 及信令服务器配置为示例，请根据实际可用服务进行替换。
 
 ### 步骤 3：启动与连接
-1.  运行 `HopeDeskNative-release` 目录下的主程序（或服务）作为被控端。
+1.  运行 `HopeDeskNative` 目录下的主程序（或服务）作为被控端。
 2.  在操控端（Windows Qt客户端或Web浏览器）输入被控端生成的连接码或ID，即可建立远程连接。
 
 ---
