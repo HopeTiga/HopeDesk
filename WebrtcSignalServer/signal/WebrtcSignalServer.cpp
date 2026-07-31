@@ -6,10 +6,9 @@
 #include <iostream> 
 
 #include "../iocp/AsioProactors.h"
-#include "WebrtcSignalManager.h"
 #include "WebrtcSignalSocket.h"
 #include "HttpSocket.h"
-#include "../utils/Utils.h"
+
 
 namespace hope {
 
@@ -234,7 +233,7 @@ namespace hope {
 
         }
 
-        bool WebrtcSignalServer::postTaskAsync(size_t channelIndex, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle)
+        bool WebrtcSignalServer::postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle)
         {
             if (channelIndex >= webrtcSignalManagers.size()) {
                 LOG_ERROR("Invalid channelIndex: %zu, size: %zu", channelIndex, webrtcSignalManagers.size());
@@ -247,23 +246,13 @@ namespace hope {
                 return false;
             }
 
-            boost::asio::co_spawn(manager->getLogicSystem()->getIoCompletionPorts(),
-                [manager = manager->shared_from_this(), asyncHandle = std::move(asyncHandle)]()mutable -> boost::asio::awaitable<void> {
-                    co_await asyncHandle(manager);
-                }, [this](std::exception_ptr ptr) {
-                    if (ptr) {
-                        try {
-                            std::rethrow_exception(ptr);
-                        }
-                        catch (const std::exception& e) {
-                            LOG_ERROR("WebrtcSignalServer boost::asio::co_spawn Exception: %s", e.what());
-                        }
-                    }
-                    });
+            boost::asio::post(manager->getLogicSystem()->getIoCompletionPorts(),
+                [manager = manager->shared_from_this(), asyncHandle = std::move(asyncHandle)]()mutable -> void {
+                    asyncHandle(std::move(manager));
+                });
 
                 return true;
         }
-
 
         std::shared_ptr<WebrtcSignalManager> WebrtcSignalServer::loadBalanceWebrtcManger()
         {

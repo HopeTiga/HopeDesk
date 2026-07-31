@@ -10,15 +10,16 @@
 #include <absl/functional/any_invocable.h>
 
 #include "AwaitableTask.h"
+#include "WebrtcSignalManager.h"
 
 #include "../rpc/CoroRpc.h"
 #include "../rpc/CoroRpcHandlerImpl.h"
 
+#include "../utils/Utils.h"
+
 namespace hope {
 
     namespace signal {
-
-        class WebrtcSignalManager;
 
         struct WebrtcSignalConfig {
 
@@ -64,7 +65,44 @@ namespace hope {
 
             void closeEvent();
 
-            bool postTaskAsync(size_t channelIndex, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle);
+            struct PostTaskDetachedLogger {
+                void operator()(std::exception_ptr exception) const {
+                    if (exception) {
+                        try { std::rethrow_exception(exception); }
+                        catch (const std::exception& e) {
+                            LOG_ERROR("WebrtcSignalServer postTaskAsync co_spawn Exception: %s", e.what());
+                        }
+                    }
+                }
+            };
+
+            template <typename CompletionToken = PostTaskDetachedLogger>
+            auto postTaskAsync(size_t channelIndex,
+                absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle,
+                CompletionToken&& token = CompletionToken{})
+                -> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::return_type
+            {
+                boost::asio::async_completion<CompletionToken, void(std::exception_ptr)> completion(token);
+
+                if (channelIndex >= webrtcSignalManagers.size() || !webrtcSignalManagers[channelIndex]) {
+                    LOG_ERROR("WebrtcSignalServer postTaskAsync invalid channelIndex: %zu, size: %zu", channelIndex, webrtcSignalManagers.size());
+                    auto ex = boost::asio::get_associated_executor(completion.completion_handler, ioContext);
+                    boost::asio::post(ex,
+                        [h = std::move(completion.completion_handler)]() mutable {
+                            h(std::make_exception_ptr(std::runtime_error("postTaskAsync: invalid channelIndex")));
+                        });
+                    return completion.result.get();
+                }
+
+                std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = webrtcSignalManagers[channelIndex];
+                boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
+                    [webrtcSignalManager = webrtcSignalManager->shared_from_this(), asyncHandle = std::move(asyncHandle)]() mutable
+                    -> boost::asio::awaitable<void> { co_await asyncHandle(std::move(webrtcSignalManager)); },
+                    std::move(completion.completion_handler));
+                return completion.result.get();
+            }
+
+            bool postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle);
 
             size_t getChannelNumbers();
 
