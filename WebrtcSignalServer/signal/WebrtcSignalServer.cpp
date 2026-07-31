@@ -9,7 +9,6 @@
 #include "WebrtcSignalSocket.h"
 #include "HttpSocket.h"
 
-
 namespace hope {
 
     namespace signal {
@@ -22,9 +21,8 @@ namespace hope {
             , httpAcceptor(ioContext)
 #endif
             , webrtcSignalManagers(webrtcSignalConfig.threadSize)
-            , coroRpc(nullptr)
-            , coroRpcHandlerImpl(*this)
             , taskQueues(ioContext, webrtcSignalConfig.overload * (webrtcSignalConfig.threadSize + 1))
+            , coroRpcHandlerImpl(*this)
         {
 
 #ifndef __linux__
@@ -55,9 +53,9 @@ namespace hope {
 
         }
 
-        void WebrtcSignalServer::asyncEvent() {
+        bool WebrtcSignalServer::asyncEvent() {
 
-            if (asyncEvents.exchange(true)) return;
+            if (asyncEvents.exchange(true)) return true;
 
             LOG_INFO("WebrtcSginalServer Protocol: WebSocket , Listen Accept Port: %zu", webrtcSignalConfig.signalPort);
 
@@ -67,10 +65,19 @@ namespace hope {
 
             }
 
-
             if (webrtcSignalConfig.enableRpc == 1) {
 
-                coroRpc = std::make_shared<hope::rpc::CoroRpc>(webrtcSignalConfig.coroRpcServerConfig);
+                hope::rpc::CoroRpc* coroRpc = hope::rpc::CoroRpc::getInstance();
+
+                if (!coroRpc->initCoroRpc(webrtcSignalConfig.coroRpcServerConfig)) {
+                
+                    LOG_ERROR("CoroRpc::initCoroRpc Failed");
+
+                    asyncEvents.store(false);
+
+                    return false;
+
+                }
 
                 coroRpc->createClientPools();
 
@@ -116,7 +123,6 @@ namespace hope {
                             });
 #endif
 
-
                         });
 
                     boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
@@ -128,7 +134,6 @@ namespace hope {
                         }
 
                         }, boost::asio::detached);
-
 
                 }
 
@@ -206,7 +211,7 @@ namespace hope {
 
             }
 
-            return;
+            return true;;
 
         }
 
@@ -223,7 +228,7 @@ namespace hope {
 
             LOG_INFO("WebrtcSignalServer CloseEvent...");
 
-            if (coroRpc) coroRpc->closeEvent();
+            hope::rpc::CoroRpc::getInstance()->closeEvent();
 
             taskQueues.close();
       

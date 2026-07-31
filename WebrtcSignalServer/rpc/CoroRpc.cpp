@@ -7,80 +7,88 @@ namespace hope {
 
 	namespace rpc {
 	
-		CoroRpc::CoroRpc(CoroRpcServerConfig coroRpcServerConfig)
-			: coroRpcServer(coroRpcServerConfig.threadSize, coroRpcServerConfig.port)
+		CoroRpc::CoroRpc()
+			: coroRpcServer(nullptr)
 			, clientPools(nullptr)
+			, loadBalancer(nullptr)
 		{
+
+		}
+
+		bool CoroRpc::initCoroRpc(CoroRpcServerConfig coroRpcServerConfig)
+		{
+			if (initCoroRpcAtomic.exchange(true)) return true;
+
+			this->coroRpcServerConfig = coroRpcServerConfig;
+
+			coroRpcServer = std::make_shared<coro_rpc::coro_rpc_server>(
+				coroRpcServerConfig.threadSize, coroRpcServerConfig.port);
 
 			LOG_INFO("CoroRpc constructed: port=%zu, threadSize=%zu, enableSsl=%d",
 				coroRpcServerConfig.port, coroRpcServerConfig.threadSize,
 				coroRpcServerConfig.enableSsl ? 1 : 0);
 
 			if (coroRpcServerConfig.enableSsl) {
-
+				// ---------- 服务端 SSL ----------
 				coro_rpc::ssl_configure sslConf;
-
 				sslConf.base_path = coroRpcServerConfig.basePath;
-
 				sslConf.cert_file = coroRpcServerConfig.certFile;
-
 				sslConf.key_file = coroRpcServerConfig.keyFile;
-
 				sslConf.ca_cert_file = coroRpcServerConfig.caCertFile;
-
 				sslConf.enable_client_verify = coroRpcServerConfig.enableClientVerify;
+				coroRpcServer->init_ssl(sslConf);
 
-				coroRpcServer.init_ssl(sslConf);
+				// ---------- 客户端 SSL（单向/双向都要走 TLS）----------
+				auto join = [&](const std::string& f) -> std::filesystem::path {
+					return f.empty() ? std::filesystem::path{}
+					: std::filesystem::path(coroRpcServerConfig.basePath).append(f);
+					};
 
+				bool hasClientCert = !coroRpcServerConfig.clientCertFile.empty();
+				bool hasClientKey = !coroRpcServerConfig.clientKeyFile.empty();
+				bool mtls = hasClientCert && hasClientKey;
+
+				// 双向认证特有的参数校验（保持原逻辑）
 				if (coroRpcServerConfig.enableDoubleSsl) {
-
-					auto join = [&](const std::string& f) -> std::filesystem::path {
-
-						return f.empty() ? std::filesystem::path{}
-
-						: std::filesystem::path(coroRpcServerConfig.basePath).append(f);
-
-						};
-					bool hasClientCert = !coroRpcServerConfig.clientCertFile.empty();
-
-					bool hasClientKey = !coroRpcServerConfig.clientKeyFile.empty();
-
-					bool mtls = hasClientCert && hasClientKey;  // 双向
-
 					if (hasClientCert != hasClientKey) {
-
-						throw std::runtime_error("[CoroRpc] mTLS 需同时提供 clientCertFile 和 clientKeyFile,现只填了一个,按单向 TLS 处理。\n");
-
+						throw std::runtime_error(
+							"[CoroRpc] mTLS 需同时提供 clientCertFile 和 clientKeyFile,"
+							"现只填了一个,按单向 TLS 处理。\n");
 					}
 					if (coroRpcServerConfig.enableClientVerify && !mtls) {
-
-						throw std::runtime_error("[CoroRpc] 服务端 enableClientVerify=true 要求客户端出示证书,但未同时提供 clientCertFile/clientKeyFile,mTLS 握手会失败。\n");
-
+						throw std::runtime_error(
+							"[CoroRpc] 服务端 enableClientVerify=true 要求客户端出示证书,"
+							"但未同时提供 clientCertFile/clientKeyFile,mTLS 握手会失败。\n");
 					}
-					clientConfig.socket_config =
-						coro_rpc::coro_rpc_client::tcp_with_ssl_config{
-						/*enableTcpNoDelay*/ true,
-						/*sslCertPath(CA 验服务端)*/ join(coroRpcServerConfig.caCertFile),
-						/*sslDomain*/ std::string{},  // 空 -> 127.0.0.1/localhost 跳过主机名校验
-						/*clientCertFile(mTLS)*/ mtls ? join(coroRpcServerConfig.clientCertFile)
-													  : std::filesystem::path{},
-						/*clientKeyFile(mTLS)*/  mtls ? join(coroRpcServerConfig.clientKeyFile)
-													  : std::filesystem::path{},
-					};
 				}
 
+				clientConfig.socket_config =
+					coro_rpc::coro_rpc_client::tcp_with_ssl_config{
+					/*enableTcpNoDelay*/ true,
+					/*sslCertPath(CA 验服务端)*/ join(coroRpcServerConfig.caCertFile),
+					/*sslDomain*/ std::string{},  // 空 -> 127.0.0.1/localhost 跳过主机名校验
+					/*clientCertFile(mTLS)*/ mtls ? join(coroRpcServerConfig.clientCertFile)
+												  : std::filesystem::path{},
+					/*clientKeyFile(mTLS)*/  mtls ? join(coroRpcServerConfig.clientKeyFile)
+												  : std::filesystem::path{},
+				};
 			}
 
+			return true;
 		}
 
-		void CoroRpc::asyncEvent()
+		bool CoroRpc::asyncEvent()
 		{
 
-			if (asyncEvents.exchange(true)) return;
+			if (!initCoroRpcAtomic.load()) return false;
+
+			if (asyncEvents.exchange(true)) return false;
 
 			LOG_INFO("CoroRpc asyncEvent: coroRpcServer asyncStart");
 
-			coroRpcServer.async_start();
+			coroRpcServer->async_start();
+
+			return true;
 
 		}
 
@@ -91,7 +99,13 @@ namespace hope {
 
 			LOG_INFO("CoroRpc closeEvent: coroRpcServer stop");
 
-			coroRpcServer.stop();
+			coroRpcServer->stop();
+
+		}
+
+		bool CoroRpc::isOpen() {
+		
+			return asyncEvents.load();
 
 		}
 
@@ -102,7 +116,7 @@ namespace hope {
 
 			LOG_INFO("CoroRpc createClientPools: recreating clientPools");
 
-			coro_io::io_context_pool& ioContextPools = coroRpcServer.get_io_context_pool();
+			coro_io::io_context_pool& ioContextPools = coroRpcServer->get_io_context_pool();
 
 			coro_io::client_pool<coro_rpc::coro_rpc_client, coro_io::io_context_pool>::pool_config poolConfig;
 
@@ -136,7 +150,7 @@ namespace hope {
 		}
 
 		async_simple::Executor* CoroRpc::ioExecutor() {
-			return coroRpcServer.get_io_context_pool().get_executor();
+			return coroRpcServer->get_io_context_pool().get_executor();
 		}
 
 		void CoroRpc::removeHost(std::string_view host) {

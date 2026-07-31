@@ -3,21 +3,7 @@
 
 #include <async_simple/coro/Lazy.h>
 
-struct RpcForward
-{
-	int forwardChannel;
-
-	std::string forwardPacket;
-
-};
-
-struct RpcForwardResponse
-{
-	int state;
-
-	std::string message;
-
-};
+#include "Rpc.h"
 
 namespace hope {
 
@@ -42,13 +28,13 @@ namespace hope {
 
 			void registerRpcHandler();
 
-		private:
+		public:
 
 			async_simple::coro::Lazy<RpcForwardResponse> requestForward(RpcForward rpcforward);
 
 		public:
 
-			std::shared_ptr<CoroRpc> coroRpc;
+			CoroRpc * coroRpc;
 
 			hope::signal::WebrtcSignalServer& webrtcSignalServer;
 

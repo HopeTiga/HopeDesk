@@ -17,7 +17,9 @@
 #include "HttpSocket.h"
 #include "WebrtcSignalPacket.h"
 
+#include "../rpc/Rpc.h"
 #include "../rpc/CoroRpc.h"
+#include "../rpc/CoroRpcHandlerImpl.h"
 
 #include "../mysql/AsyncTransactionGuard.h"
 
@@ -926,6 +928,74 @@ namespace hope {
                 co_await forwardHandler(std::move(webrtcSignalPacket), "SYSTEM_READLY");
                 };
 
+            webrtcHandlers[9] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
+
+                hope::rpc::CoroRpc * coroRpc =  hope::rpc::CoroRpc::getInstance();
+
+                if (!coroRpc->isOpen()) {
+                
+                    LOG_WARN("CoroRpc is not accepted yet, request aborted");
+
+                    co_return;
+
+                }
+                
+                boost::asio::steady_timer steadyTimer(ioContext);
+
+                steadyTimer.expires_after(std::chrono::milliseconds(3000));
+
+                RpcForward rpcForward{ 0,R"({"accountId":"396887208@qq.com","targetId":"913140924@qq.com","requestType":1})" };
+
+                RpcForwardResponse rpcForwadResponse;
+
+                coroRpc->asyncAwait([&]() -> async_simple::coro::Lazy<void> {
+
+                    std::string targetHost = "127.0.0.1:" + std::to_string(coroRpc->coroRpcServerConfig.port);
+
+                    auto result = co_await coroRpc->asyncRpcRequest(
+                        targetHost,
+                        [&](coro_rpc::coro_rpc_client& client)
+                        -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
+
+                            LOG_INFO("targetHost:%s", targetHost.c_str());
+
+                            co_return co_await client.call<&hope::rpc::CoroRpcHandlerImpl::requestForward>(rpcForward);
+
+                        });
+                    if (!result)              LOG_ERROR("connect failed");
+                    else if (!result.value()) LOG_ERROR("coroRpc failed");
+                    else {
+
+                        rpcForwadResponse = result.value().value();
+
+                        steadyTimer.cancel();
+
+                    }
+                    
+                    co_return;
+
+                    }());
+
+                auto [ec] = co_await steadyTimer.async_wait(boost::asio::as_tuple(boost::asio::use_awaitable));
+
+                if (ec) {
+
+                    if (ec != boost::asio::error::operation_aborted) {
+
+                        LOG_WARN("SteadyTimer Await TimeOut:%s", ec.what().c_str());
+
+                        co_return;
+
+                    }
+                
+                }
+
+                LOG_INFO("rpcRorwadResponse state:%d message:%s", rpcForwadResponse.state, rpcForwadResponse.message.c_str());
+
+                co_return;
+
+                };
+
             webrtcLogicHandlers[1] = false;
 
             webrtcLogicHandlers[2] = false;
@@ -939,6 +1009,8 @@ namespace hope {
             webrtcLogicHandlers[6] = false;
 
             webrtcLogicHandlers[7] = false;
+
+            webrtcLogicHandlers[9] = false;
 
         }
 

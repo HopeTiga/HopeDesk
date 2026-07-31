@@ -64,6 +64,8 @@ namespace hope {
 
 					promise.setValue(rpcforwardResponse);
 
+					LOG_INFO("TargetId:%s Not Register In The WebrtcSignalServer!", targetId.c_str());
+
 					co_return;
 
 				}
@@ -144,7 +146,7 @@ namespace hope {
 
 					});
 
-				});
+				},boost::asio::detached);
 
 			co_return co_await std::move(future);
 

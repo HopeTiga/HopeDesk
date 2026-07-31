@@ -48,32 +48,42 @@ namespace hope {
 
 		};
 
-		class CoroRpc : public std::enable_shared_from_this<CoroRpc> {
+		class CoroRpc{
 
 		public:
 
-			CoroRpc(CoroRpcServerConfig coroRpcServerConfig);
+			static CoroRpc* getInstance() {
+			
+				static CoroRpc coroRpc;
+
+				return &coroRpc;
+
+			}
 
 			CoroRpc(const CoroRpc& coroRpc) = delete;
 
 			CoroRpc& operator=(const CoroRpc& coroRpc) = delete;
 
-			void asyncEvent();
+			bool initCoroRpc(CoroRpcServerConfig coroRpcServerConfig);
+
+			bool asyncEvent();
 
 			void closeEvent();
+
+			bool isOpen();
 
 			// 注册自由/静态协程 RPC 函数。必须在 asyncEvent() 之前调用。
 			// 用法: rpc->registerHandler<echo, add>();
 			template <auto... functions>
 			void registerHandler() {
-				coroRpcServer.register_handler<functions...>();
+				coroRpcServer->register_handler<functions...>();
 			}
 
 			// 注册成员协程 RPC 函数。必须在 asyncEvent() 之前调用。
 			// 用法: rpc->registerHandler<&Foo::bar, &Foo::baz>(&foo);
 			template <auto first, auto... functions, typename Self>
 			void registerHandler(Self* self) {
-				coroRpcServer.register_handler<first, functions...>(self);
+				coroRpcServer->register_handler<first, functions...>(self);
 			}
 
 			void createClientPools();
@@ -169,41 +179,36 @@ namespace hope {
 				co_return co_await clientPools->send_request(host, std::move(op));
 			}
 
-			// 移除指定 host:加入黑名单,后续 asyncRpcRequest 对该 host 直接返回
-			// std::errc::not_connected,不再走网络。用于对端下线后把它从可用集合剔除。
-			// 若该 host 之前发过请求(client_pools 里已有 pool),会顺带 clear 它的空闲连接。
 			void removeHost(std::string_view host);
 
-			// 批量移除多个 host。
 			void removeHosts(const std::vector<std::string>& hosts);
 
-			// 按"现存 host 清单"裁剪:把已知但不在 existingHosts 里的 host 全部移除
-			// (即移除"不存在/已下线"的 host)。existingHosts 为调用方确认仍在线的地址列表
-			// (形如 "ip:port")。
 			void removeHostsNotIn(const std::vector<std::string>& existingHosts);
+
+		private:
+
+			CoroRpc();
 
 		public:
 
 			async_simple::Executor* ioExecutor();
 
+			CoroRpcServerConfig coroRpcServerConfig;
+
 		private:
 
-			coro_rpc::coro_rpc_server coroRpcServer;
+			std::shared_ptr<coro_rpc::coro_rpc_server> coroRpcServer;
 
 			std::shared_ptr<coro_io::client_pools<coro_rpc::coro_rpc_client>> clientPools;
 
 			std::shared_ptr<coro_io::load_balancer<coro_rpc::coro_rpc_client>> loadBalancer;
 
-			std::atomic<bool> asyncEvents{ false };
-
-			// 客户端配置(给 clientPools / loadBalancer 共用)。
-			// enableSsl 时其 socket_config 设为 tcp_with_ssl_config,否则默认 tcp_config(明文)。
 			coro_rpc::coro_rpc_client::config clientConfig;
 
-			// 取本 CoroRpc 的 io 执行器(coroRpcServer 的 io_context_pool 里的一个)。
-			// 给 syncRpcRequest / syncLbRpcRequest 内部 .via 用,使 asyncRequest 协程跑在
-			// io 池上,与底层 clientPools 的网络协程在同一个 io_context 里。
-			// 不对外暴露,调用方不用知道 io_context。
+			std::atomic<bool> asyncEvents{ false };
+
+			std::atomic<bool> initCoroRpcAtomic{ false };
+
 
 		};
 

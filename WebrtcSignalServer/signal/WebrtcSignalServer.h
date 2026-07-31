@@ -61,7 +61,7 @@ namespace hope {
 
             WebrtcSignalServer& operator=(const WebrtcSignalServer&) = delete;
 
-            void asyncEvent();
+            bool asyncEvent();
 
             void closeEvent();
 
@@ -113,10 +113,6 @@ namespace hope {
             std::shared_ptr<WebrtcSignalManager> loadBalanceWebrtcManger();
 
             void initialize();
-
-        public:
-
-            std::shared_ptr<hope::rpc::CoroRpc> coroRpc;
 
         private:
 

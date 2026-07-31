@@ -87,7 +87,13 @@ int main() {
 
     std::shared_ptr<hope::signal::WebrtcSignalServer> WebrtcSignalServer = std::make_shared<hope::signal::WebrtcSignalServer>(ioContext, webrtcSignalConfig);
 
-    WebrtcSignalServer->asyncEvent();
+    if (!WebrtcSignalServer->asyncEvent()) {
+    
+        LOG_INFO("WebrtcSignalServer AsyncEvent Failed");
+
+        return -1;
+
+    }
 
     boost::asio::signal_set signals(ioContext, SIGINT, SIGTERM);
 
