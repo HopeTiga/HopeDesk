@@ -826,21 +826,8 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
     }catch(std::exception & e){
 
-        // 取消/eof/断开属拆除或重连取消在途 connect 的预期情况,降 WARN;
-        // 其余(服务器不可达、握手失败等)仍记 ERROR。
-        bool aborted = false;
-        if (auto se = dynamic_cast<const boost::system::system_error*>(&e)) {
-            auto ec = se->code();
-            aborted = ec == boost::asio::error::operation_aborted ||
-                      ec == boost::asio::error::eof ||
-                      ec == boost::asio::error::connection_aborted ||
-                      ec == boost::asio::error::connection_reset;
-        }
-        if (aborted) LOG_WARN("WebSocket Connect aborted: %s", e.what());
-        else LOG_ERROR("WebSocket Connect Error : %s",e.what());
+        LOG_ERROR("WebSocket Connect Error : %s",e.what());
 
-        // 仅当当前活跃 webSocket 仍是本协程持有的那个时才关闭，
-        // 否则说明已被新的 connect() 替换，不要误关新连接。
         if (webSocket == ws) {
             closeWebSocket();
         }
