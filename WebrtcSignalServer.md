@@ -84,7 +84,11 @@ flowchart TB
 | worker × `threadSize` | `AsioProactors` 池中各自一个 | 本通道连接的握手/读写协程、handler 执行、MySQL pool |
 
 - **连接绑定通道**：accept 后 `loadBalanceWebrtcManger()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
-- **跨通道通信**：通过 `WebrtcSignalServer::postTaskAsync(channelIndex, lambda)`，内部 `co_spawn` 到目标通道 io_context，lambda 收到 `shared_ptr<WebrtcSignalManager>`。这是路由转发的线程跳转原语。
+- **跨通道通信**：两个原语，都把活儿派到 `channelIndex` 通道的 io_context 上跑、lambda 收到 `shared_ptr<WebrtcSignalManager>`，区别在协程/非协程与完成令牌：
+  - `postTaskAsync(channelIndex, handler, token = PostTaskDetachedLogger)`——**协程 + completion-token 版**。内部 `co_spawn`，`handler` 是 `awaitable<void>(shared_ptr<M>)`。默认令牌 `PostTaskDetachedLogger` = fire-and-forget + 异常落日志（等价旧 `co_spawn detached+log`，现有调用方不传第三参即此行为，返回 `void`）；传 `boost::asio::use_awaitable` 即可 `co_await`，续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认/detached → `void`，`use_awaitable` → `awaitable<void>`。内层是 `awaitable<void>`，要带值回来用输出捕获（`co_await` 完成后再读，靠完成的 happens-before）。
+  - `postTask(channelIndex, handler)`——**普通 post 版**。内部 `boost::asio::post`，`handler` 是 `void(shared_ptr<M>)` 的普通可调用对象，**不建协程、无协程帧开销**，返回 `bool`（校验 channelIndex）。给"纯同步活儿、不需要 `co_await`、不需要异常语义"的 fire-and-forget 跳用（如回写/清缓存）。轻量优先用 `postTask`；要 `co_await` 或要跨通道协程语义才用 `postTaskAsync`。
+  - 入参非法（channelIndex 越界/manager 为空）时：`postTask` 直接 `LOG_ERROR` + 返回 `false`；`postTaskAsync` 走 async 契约——通过令牌完成一个 `runtime_error` 异常（默认令牌打日志、`use_awaitable` 在调用方 `co_await` 处抛出），不 `co_spawn`，避免 `use_awaitable` 调用方挂死。
+  - 路由转发的线程跳转用这两个原语完成（forward 路径已确认无死代码、无冗余查找、无冗余自跳，到极限）。
 - **条件编译**：
   - `__linux__`：accept 走每通道 `SO_REUSEPORT` 多 acceptor（`WebrtcSignalManager::asyncAccept`），Linux 专用路径。
   - 非 Linux（含 Windows）：单 acceptor 在 main loop，accept 后分发。
@@ -187,20 +191,35 @@ handler = WebrtcHandlers[requestType]
 转发 handler（requestType 1/2/3/6/7）把消息送到 `targetId`。三级寻址：
 
 ```
-1) 本通道直查: manager.WebrtcSocketMap[targetId] 命中 → 直接 asyncWrite 转发
-2) 命中失败 → 查 socket 本地路由缓存 actorMappingIndex[targetId] → channelIndex
-   ├─ 有缓存: postTaskAsync(缓存通道) 去找
-   └─ 无缓存(index=-1): postTaskAsync(home 通道 = hasher(targetId)%hashSize)
-3) 到达目标通道后查 actorSocketMappingIndex[targetId] → 真正归属通道
-   ├─ 命中: 跳到归属通道,WebrtcSocketMap 取 socket 转发;回写本地路由缓存
-   └─ 未登记: 回 404 "TargetId is not register",清掉过期缓存项
+1) 本通道直查: manager.webrtcSocketMap[targetId] 命中 → 直接 asyncWrite 转发（0 跳）
+2) 未命中 → 查源 socket 路由缓存 actorMappingIndex[targetId] → index
+   ├─ 有缓存(index≠-1): 跳缓存通道查 webrtcSocketMap
+   │    ├─ 命中: 转发(1 跳),缓存正确不回写
+   │    └─ 未命中(缓存过期): 重路由到 home 查全局索引 → 归属通道 → 转发
+   └─ 无缓存(index=-1): 跳 home 查全局索引 → 归属通道 → 转发
+3) home 通道查 actorSocketMappingIndex[targetId] → 归属通道
+   ├─ 命中: 跳归属通道,webrtcSocketMap 取 socket 转发;回写源 socket 路由缓存
+   └─ 未登记: 回 404 "TargetId is not register",清源 socket 过期缓存项
 ```
 
+跨通道跳由 §3.2 的两个原语承载：查询 / 转发这类要跨通道协程语义的跳走 `postTaskAsync`；回写路由缓存、清过期缓存这类纯同步 fire-and-forget 的跳走 `postTask`（无协程帧，更轻）。
+
+临界跳数（只算"把包送达目标"；回写是 fire-and-forget，不阻塞转发，不计）：
+
+| 场景 | 跳数 |
+|------|------|
+| 目标在源通道 | 0 |
+| 无缓存，home==源，目标在 T | 1（源→T） |
+| 无缓存，home≠源，目标在 T | 2（源→home→T） |
+| 缓存命中，目标在缓存通道 | 1（源→缓存） |
+| 缓存失效重路由 | 最多 3（源→缓存→home→T），第一跳是"信缓存"的代价 |
+
 要点：
-- **一致性哈希 home 通道**：`hasher(accountId) % hashSize`（`hashSize=threadSize`），让任意 accountId 到 home 通道的映射稳定，跨通道寻址最多两跳。
-- **两级缓存**：每个 socket 的 `actorMappingIndex`（targetId→channel）做就近缓存；每个通道的 `actorSocketMappingIndex`（accountId→{sessionId,channel}）做全局索引。命中缓存省一跳。
-- **过期自愈**：转发 404 时清掉缓存里指向错误通道的项，下次重新寻址。
-- **线程安全**：所有对 `WebrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 的访问都在该数据所属通道的 io_context 线程上（通过 `postTaskAsync` 跳线程），无锁。
+- **一致性哈希 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射稳定。`actorSocketMappingIndex`（targetId→{sessionId,channel}）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
+- **两级缓存**：源 socket 的 `actorMappingIndex`（targetId→channel）就近缓存，home 的 `actorSocketMappingIndex` 全局索引。命中缓存省一跳；缓存命中这条是 1 跳的常见好路径。
+- **过期自愈**：缓存指向的通道查不到 socket（缓存过期）就重路由到 home 重新寻址；404 时清掉源 socket 上指向错误通道的缓存项，下次重新寻址。缓存失效多出的那一跳是缓存换来的代价——要消只能放弃缓存（每条都先跳 home）或给缓存加版本号，得不偿失。
+- **线程安全**：`webrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 各自只在所属通道的 io_context 线程上访问，跨通道读写一律经 `postTask`/`postTaskAsync` 跳到该线程，无锁。
+- **已到极限**：同一协程内同步连查的都是不同表（无重查）；跨通道跳进新协程后的查找是挂起后的全新查找（状态可能已变，不是冗余）。当前无死代码、无冗余自跳，剩余多跳是"状态按通道分片、单线程所有"的硬下限，再减要动数据模型（全局路由表/索引副本），不属于路径调优。
 
 ### 5.6 转发图示（Mermaid）
 
@@ -225,7 +244,7 @@ sequenceDiagram
   Mh->>Mb: postTaskAsync(B 归属通道)
   Mb->>Mb: WebrtcSocketMap[B] 命中
   Mb->>B: asyncWrite 转发 {state:200,...}
-  Mb->>M0: postTaskAsync 回写路由缓存 actorMappingIndex[B]=ch(Mb)
+  Mb->>M0: postTask 回写路由缓存 actorMappingIndex[B]=ch(Mb)
   Note over C,B: 下次 A→B 命中缓存,直接 postTaskAsync(ch(Mb)) 一跳送达
 ```
 
@@ -635,7 +654,7 @@ RPC 这块的困惑点通常在两处：**服务端 handler 怎么把"跑在 asi
 
 #### A. 服务端 handler 写法：`async_simple::Promise/Future` 桥接模板
 
-coro_rpc 的 handler 必须返回 `async_simple::coro::Lazy<R>`，但信令侧的真正干活逻辑是 `boost::asio::awaitable<void>`、且往往要通过 `postTaskAsync` 跳到别的通道 io 上跑。两边协程框架不同，不能直接 `co_await`。`requestForward` 的解法是 `Promise/Future` 桥接——一个固定 5 步的模板：
+coro_rpc 的 handler 必须返回 `async_simple::coro::Lazy<R>`，但信令侧的真正干活逻辑是 `boost::asio::awaitable<void>`、且往往要通过 `postTaskAsync` 跳到别的通道 io 上跑。两边协程框架不同，不能直接 `co_await`。`requestForward` 的解法是 `Promise/Future` 桥接——一个固定 5 步的模板。`postTaskAsync` 现已是 completion-token 版，asio 协程侧（forward / HTTP handler 这些 `boost::asio::awaitable` 协程）可以直接 `co_await postTaskAsync(ch, h, boost::asio::use_awaitable)` 把跨通道跳拍平；但 `requestForward` 是 `async_simple::coro::Lazy`，不能 `co_await` asio 的 awaitable（框架不通），所以这边仍只能走 `Promise/Future` 桥接，completion-token 改造帮不到 RPC handler 这一侧：
 
 ```cpp
 async_simple::coro::Lazy<RpcForwardResponse>
