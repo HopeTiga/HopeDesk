@@ -77,10 +77,8 @@ namespace rtc{
 enum class WebrtcRequestState {
     REGISTER = 0,
     REQUEST = 1,
-    RESTART = 2,
     STOPREMOTE = 3,
     START = 4,
-    CLOSE = 5,
     CLOSESYSTEM = 6,
     SYSTEMREADLY = 7,
     STATS = 8,
@@ -262,8 +260,6 @@ private:
 
     void receiveCoroutineAysnc();
 
-    void handleAsioException();
-
     void releaseSource();
 
     void closeTcpSocket();
@@ -339,8 +335,6 @@ private:
 
     std::thread ioContextThread;
 
-    // shared_ptr：connect/receive/write 协程各自持有一份引用，
-    // 避免挂起期间成员被重连/关闭置空后对象被销毁导致野指针。
     std::shared_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> webSocket;
 
     boost::asio::ssl::context sslContext{ boost::asio::ssl::context::tlsv12_client };

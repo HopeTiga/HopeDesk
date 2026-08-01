@@ -140,8 +140,7 @@ void WebrtcManager::connect(std::string ip)
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this(),host,port]()mutable->boost::asio::awaitable<void> {
 
-        std::shared_ptr<boost::beast::websocket::stream<
-            boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> ws;
+        std::shared_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> ws;
 
         try {
 
@@ -583,7 +582,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
     webrtcAsyncEvents.store(true);
 
     // 持有当前 webSocket 的共享引用，避免挂起期间成员被重连/关闭置空后对象被销毁
-    auto ws = webSocket;
+    std::shared_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> ws = webSocket;
 
     if (!ws) co_return;
 
@@ -754,32 +753,6 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                     }
 
-                }else if(WebrtcRequestState(requestType) == WebrtcRequestState::RESTART){
-
-                    if(responseState == 200){
-
-                        if(isRemote == false) {
-
-                            boost::json::object request;
-
-                            request["requestType"] = static_cast<int>(WebrtcRequestState::CLOSESYSTEM);
-
-                            request["accountId"] = accountId;
-
-                            request["targetId"] = targetId;
-
-                            webrtcAsyncWrite(boost::json::serialize(request));
-
-                            continue;
-
-                        }
-
-                        releaseSource();
-
-                        initializePeerConnection();
-
-                        asyncRemoteDesk(webrtcDeskConfig);
-                    }
                 }else if(WebrtcRequestState(requestType) == WebrtcRequestState::STOPREMOTE){
 
                     if(responseState == 200){
@@ -862,7 +835,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
 boost::asio::awaitable<void> WebrtcManager::webrtcWriteCoroutine()
 {
-    auto ws = webSocket;
+    std::shared_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> ws = webSocket;
 
     if (!ws) co_return;
 
@@ -889,10 +862,62 @@ boost::asio::awaitable<void> WebrtcManager::webrtcWriteCoroutine()
 
         LOG_ERROR("Writer coroutine unhandled exception: %s", e.what());
 
+        if (webSocket == ws) {
+            closeWebSocket();
+        }
+
+        if (onSignalServerDisConnectHandle) {
+            onSignalServerDisConnectHandle();
+        }
+
+        if (isRemote == false) {
+
+            co_return;
+
+        }
+
+        isRemote = false;
+
+        if (onDisConnectRemoteHandle) {
+
+            onDisConnectRemoteHandle();
+
+        }
+
+        releaseSource();
+
+        initializePeerConnection();
+
     }
     catch (...) {
 
         LOG_ERROR("Writer coroutine unknown exception");
+
+        if (webSocket == ws) {
+            closeWebSocket();
+        }
+
+        if (onSignalServerDisConnectHandle) {
+            onSignalServerDisConnectHandle();
+        }
+
+        if (isRemote == false) {
+
+            co_return;
+
+        }
+
+        isRemote = false;
+
+        if (onDisConnectRemoteHandle) {
+
+            onDisConnectRemoteHandle();
+
+        }
+
+        releaseSource();
+
+        initializePeerConnection();
 
     }
     co_return;
@@ -1226,11 +1251,6 @@ void WebrtcManager::receiveCoroutineAysnc()
 
                 continue;
 
-            }else if(WebrtcRequestState(json["requestType"].as_int64()) == WebrtcRequestState::CLOSE){
-
-                disConnectRemoteHandler();
-
-                continue;
             }else if(WebrtcRequestState(json["requestType"].as_int64()) == WebrtcRequestState::STATS){
 
                 int type = json["connectionType"].as_int64();
@@ -1265,9 +1285,11 @@ void WebrtcManager::receiveCoroutineAysnc()
                                   }
                               }
                               catch (const std::exception& e) {
-                                  handleAsioException();
-                                  // 读协程在断连/拆除时退出属预期(连接中止、操作取消),降为 WARN
-                                  LOG_WARN("Reader coroutine handler exception: %s", e.what());
+
+                                disConnectRemoteHandler();
+
+                                LOG_WARN("Reader coroutine handler exception: %s", e.what());
+
                               }
                           });
 }
@@ -1297,30 +1319,6 @@ void WebrtcManager::sendSignalingMessage(boost::json::object& msg) {
         webrtcAsyncWrite(boost::json::serialize(msg));
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to send signaling message: %s",e.what());
-    }
-}
-
-void WebrtcManager::handleAsioException()
-{
-
-    if(!isRemote.exchange(false)) return;
-
-    closeTcpSocket();
-
-    if(webSocket && webSocket->is_open()){
-
-        boost::json::object message;
-
-        message["accountId"] = this->accountId;
-
-        message["targetId"] = this->targetId;
-
-        message["requestType"] = static_cast<int64_t>(WebrtcRequestState::RESTART);
-
-        webrtcAsyncWrite(boost::json::serialize(message));
-
-        WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
-
     }
 }
 
