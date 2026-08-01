@@ -107,11 +107,9 @@ namespace hope {
                 break;
             case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
                 LOG_INFO("ICE connection disconnected");
-                boost::json::object json;
-                json["requestType"] = static_cast<int64_t>(WebrtcRequestState::CLOSE);
-                std::string jsonStr = boost::json::serialize(json);
-                std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-                webrtcManager->asyncWrite(data);
+                if (webrtcManager->closeHandle) {
+					webrtcManager->closeHandle();
+                }
                 break;
             }
             default:

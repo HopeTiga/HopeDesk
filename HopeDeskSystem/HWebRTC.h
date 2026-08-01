@@ -9,10 +9,8 @@ namespace hope {
         enum class WebrtcRequestState {
             REGISTER = 0,
             REQUEST = 1,
-            RESTART = 2,
             STOPR_EMOTE = 3,
             START = 4,
-            CLOSE = 5,
             CLOSE_SYSTEM = 6,
             SYSTEM_READLY = 7,
             STATS = 8,
