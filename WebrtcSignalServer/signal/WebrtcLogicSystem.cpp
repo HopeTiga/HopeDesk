@@ -901,24 +901,8 @@ namespace hope {
 
             // ==================== Handlers 1-4 ====================
             webrtcHandlers[1] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "REQUEST"); };
-            webrtcHandlers[2] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "RESTART"); };
+            
             webrtcHandlers[3] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "STOP_REMOTE"); };
-
-            webrtcHandlers[4] = [this](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
-
-                std::string accountId = webrtcSignalPacket.webrtcSignalSocket->getAccountId();
-
-                std::string sessionId = webrtcSignalPacket.webrtcSignalSocket->getSessionId();
-
-                if (!accountId.empty()) {
-
-                    webrtcSignalPacket.webrtcSignalManager->removeConnection(accountId, sessionId);
-
-                }
-
-                co_return;
-
-                };
 
             webrtcHandlers[6] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(webrtcSignalPacket), "CLOSE_SYSTEM");
@@ -998,13 +982,7 @@ namespace hope {
 
             webrtcLogicHandlers[1] = false;
 
-            webrtcLogicHandlers[2] = false;
-
             webrtcLogicHandlers[3] = false;
-
-            webrtcLogicHandlers[4] = false;
-
-            webrtcLogicHandlers[5] = false;
 
             webrtcLogicHandlers[6] = false;
 
