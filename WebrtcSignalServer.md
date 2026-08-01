@@ -271,9 +271,7 @@ flowchart TD
 | requestType | 含义 | handler |
 |-------------|------|---------|
 | 1 | REQUEST（普通转发） | forwardHandler |
-| 2 | RESTART | forwardHandler |
 | 3 | STOPREMOTE | forwardHandler |
-| 4 | 主动断开 | `removeConnection(accountId, sessionId)` |
 | 6 | CLOSESYSTEM | forwardHandler |
 | 7 | SYSTEMREADLY | forwardHandler |
 
