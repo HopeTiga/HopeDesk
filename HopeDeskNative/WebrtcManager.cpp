@@ -95,6 +95,7 @@ void WebrtcManager::asyncEvent(){
 
             boost::json::object registerJson;
             registerJson["requestType"] = 0;
+            registerJson["systemService"] = self->webrtcManagerConfig.systemService;
             registerJson["stunHost"]    = self->webrtcManagerConfig.stunHost;
             registerJson["turnHost"]    = self->webrtcManagerConfig.turnHost;
             registerJson["turnUsername"] = self->webrtcManagerConfig.turnUsername;
@@ -641,6 +642,12 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
                                 json["localMinBitrateBps"] = webrtcDeskConfig.localMinBitrateBps;
 
                                 json["localMaxFramerate"] = webrtcDeskConfig.localMaxFramerate;
+
+                                json["desktopWidth"] = webrtcDeskConfig.desktopWidth;
+
+                                json["desktopHeight"] = webrtcDeskConfig.desktopHeight;
+
+                                json["desktopRefreshRate"] = webrtcDeskConfig.desktopRefreshRate;
 
                                 this->followData = boost::json::serialize(json);
 

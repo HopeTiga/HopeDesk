@@ -161,6 +161,11 @@ private:
     int localMinBitrateMbps   = 15;
     int localMaxFramerate     = 144;
 
+    // Hope Vitrual Display 虚拟显示器配置(独立于 WebRTC 帧率)
+    int desktopWidth       = 1920;
+    int desktopHeight      = 1080;
+    int desktopRefreshRate = 144;
+
     bool showRttEnabled = false;  // 是否在连接徽章上显示网络 RTT(可配置)
     bool showFpsEnabled = false;  // 是否显示实际渲染帧率(可配置)
     QTimer* fpsDisplayTimer = nullptr;  // 周期拉取 VideoWidget 帧率刷新 labelFps
@@ -185,6 +190,12 @@ private:
     QLineEdit*  turnPasswordEdit = nullptr;
     QLineEdit*  webrtcServiceExeEdit = nullptr;
     QLineEdit*  webrtcServiceNameEdit = nullptr;
+
+    // 虚拟显示器设置(系统设置 tab,代码构建)
+    QLabel*  labelVddNameValue = nullptr;
+    QSpinBox* spinDesktopWidth = nullptr;
+    QSpinBox* spinDesktopHeight = nullptr;
+    QSpinBox* spinDesktopRefreshRate = nullptr;
 
     bool verticalSyncEnabled = false;  // 当前垂直同步开关(运行期同步,下次会话生效)
 };

@@ -599,7 +599,8 @@ void MainWindow::syncConfigToManager()
         webrtcModulesType, webrtcLevels, videoCodec,
         webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec,
         reqMaxBps, reqMinBps, requestMaxFramerate,
-        locMaxBps, locMinBps, localMaxFramerate
+        locMaxBps, locMinBps, localMaxFramerate,
+        desktopWidth, desktopHeight, desktopRefreshRate
     };
     webrtcManager->setWebrtcDeskConfig(cfg);
 }
@@ -999,6 +1000,28 @@ void MainWindow::buildSystemSettingsTab()
     webrtcServiceNameEdit->setPlaceholderText(tr("如 HopeDeskSystem"));
     systemFormLayout->addRow(tr("WebRTC 服务名"), webrtcServiceNameEdit);
 
+    // ===== 虚拟显示器设置(驱动名称写死,只能看不能改) =====
+    labelVddNameValue = new QLabel(tr("Hope Vitrual Display"), systemTab);
+    labelVddNameValue->setStyleSheet("font-weight: bold; color: #0072FF;");
+    systemFormLayout->addRow(tr("虚拟显示器"), labelVddNameValue);
+
+    spinDesktopWidth = new QSpinBox(systemTab);
+    spinDesktopWidth->setRange(640, 7680);
+    spinDesktopWidth->setSingleStep(160);
+    spinDesktopWidth->setSuffix(tr(" px"));
+    systemFormLayout->addRow(tr("宽度"), spinDesktopWidth);
+
+    spinDesktopHeight = new QSpinBox(systemTab);
+    spinDesktopHeight->setRange(360, 4320);
+    spinDesktopHeight->setSingleStep(90);
+    spinDesktopHeight->setSuffix(tr(" px"));
+    systemFormLayout->addRow(tr("高度"), spinDesktopHeight);
+
+    spinDesktopRefreshRate = new QSpinBox(systemTab);
+    spinDesktopRefreshRate->setRange(24, 240);
+    spinDesktopRefreshRate->setSuffix(tr(" Hz"));
+    systemFormLayout->addRow(tr("刷新率"), spinDesktopRefreshRate);
+
     systemLayout->addLayout(systemFormLayout);
 
     QPushButton* applyButton = new QPushButton(tr("应用系统设置"), systemTab);
@@ -1034,6 +1057,14 @@ void MainWindow::loadSystemSettings()
     turnPasswordEdit->setText(QString::fromStdString(configManager.GetString("Turn.Password")));
     webrtcServiceExeEdit->setText(QString::fromStdString(configManager.GetString("Webrtc.SystemServiceExe")));
     webrtcServiceNameEdit->setText(QString::fromStdString(configManager.GetString("Webrtc.SystemService", "HopeDeskSystem")));
+
+    // 虚拟显示器设置(驱动名称写死:Hope Vitrual Display,不可改)
+    spinDesktopWidth->setValue(configManager.GetInt("VitrualDisplay.DesktopWidth", 1920));
+    spinDesktopHeight->setValue(configManager.GetInt("VitrualDisplay.DesktopHeight", 1080));
+    spinDesktopRefreshRate->setValue(configManager.GetInt("VitrualDisplay.DesktopRefreshRate", 144));
+    desktopWidth = spinDesktopWidth->value();
+    desktopHeight = spinDesktopHeight->value();
+    desktopRefreshRate = spinDesktopRefreshRate->value();
 }
 
 void MainWindow::applyVSyncToFormat()
@@ -1113,12 +1144,20 @@ void MainWindow::onApplySystemSettings()
     configManager.Set("Turn.Password", turnPassword.toStdString());
     configManager.Set("Webrtc.SystemServiceExe", webrtcServiceExePath.toStdString());
     configManager.Set("Webrtc.SystemService", webrtcServiceName.toStdString());
+    // 虚拟显示器设置(独立于 WebRTC 帧率)
+    configManager.Set("VitrualDisplay.DesktopWidth", spinDesktopWidth->value());
+    configManager.Set("VitrualDisplay.DesktopHeight", spinDesktopHeight->value());
+    configManager.Set("VitrualDisplay.DesktopRefreshRate", spinDesktopRefreshRate->value());
     configManager.Save();
 
     // 2. 同步内存成员
     this->verticalSyncEnabled = verticalSyncEnabled;
     if (!signalServerHost.isEmpty()) defaultServerHost = signalServerHost;
     defaultServerPort = signalServerPort;
+    desktopWidth = spinDesktopWidth->value();
+    desktopHeight = spinDesktopHeight->value();
+    desktopRefreshRate = spinDesktopRefreshRate->value();
+    syncConfigToManager();
 
     // 3. 同步 Qt VSync(下次创建窗口/videoWidget 生效)
     applyVSyncToFormat();
@@ -1225,7 +1264,8 @@ void MainWindow::onBtnConnectClicked()
     webrtcManager->asyncRemoteDesk({webrtcModulesType, webrtcLevels, videoCodec,
                                     webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec,
                                     reqMaxBps, reqMinBps, requestMaxFramerate,
-                                    locMaxBps, locMinBps, localMaxFramerate});
+                                    locMaxBps, locMinBps, localMaxFramerate,
+                                    desktopWidth, desktopHeight, desktopRefreshRate});
 }
 
 void MainWindow::onBtnCopyCodeClicked()

@@ -164,6 +164,11 @@ struct WebrtcDeskConfig {
     int localMinBitrateBps   = 15000000;  // 本地组最小码率,默认 15 Mbps
     int localMaxFramerate    = 144;       // 本地组最大帧率
 
+    // Hope Vitrual Display 虚拟显示器配置(独立于 WebRTC 帧率)
+    int desktopWidth       = 1920;
+    int desktopHeight      = 1080;
+    int desktopRefreshRate = 144;
+
 };
 
 
