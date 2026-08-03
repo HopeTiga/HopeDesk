@@ -578,118 +578,180 @@ namespace hope {
         }
 
         bool WebrtcManager::initializeScreenCapture() {
-            if (screenCapture) {
+            if (screenCapture || compatScreenCapture) {
                 return false;
             }
 
-            screenCapture = std::make_shared<ScreenCapture>();
+            // webrtcModulesType: 0=游戏模式(高性能 VDD) 1=办公模式(兼容 ScreenCapture)
+            if (webrtcDeskSystemConfig.webrtcModulesType == 1) {
+                // === 兼容模式：ScreenCapture (DXGI 桌面采集)，CPU 传输，不用脏矩形 ===
+                LOG_INFO("webrtcModulesType=1 (办公模式): 兼容模式 (ScreenCapture)");
+                auto sc = std::make_shared<ScreenCapture>();
+                ScreenCapture::CaptureConfig cfg;
+                cfg.width = webrtcDeskSystemConfig.desktopWidth > 0 ? webrtcDeskSystemConfig.desktopWidth : 1920;
+                cfg.height = webrtcDeskSystemConfig.desktopHeight > 0 ? webrtcDeskSystemConfig.desktopHeight : 1080;
+                // 采集层级直接用客户端传的 webrtcUseLevels: 0=CPU 1=GPU 2=PRO
+                const int useLevel = webrtcDeskSystemConfig.webrtcUseLevels;
+                const CaptureLevels captureLevel = (useLevel >= 0 && useLevel <= 2)
+                    ? static_cast<CaptureLevels>(useLevel) : CaptureLevels::CPU;
+                cfg.levels = captureLevel;
+                cfg.uselevels = captureLevel;
+                cfg.enableDirtyRects = false;                      // 不用脏矩形
+                sc->setConfig(cfg);
 
-            hope::rtc::ScreenCapture::CaptureConfig config;
+                // ScreenCapture 输出格式: CPU=BGRA, GPU=I420, PRO=NV12 -> 统一转 I420 后 PushFrame
+                sc->setDataHandle([this](const uint8_t* data, int width, int height,
+                    std::atomic<bool>* isBusy, int rowPitch, CaptureLevels level) {
+                        if (!videoTrackSourceImpl || !data) {
+                            if (isBusy) isBusy->store(false);
+                            return;
+                        }
+                        webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer = bufferPool.CreateI420Buffer(width, height);
+                        if (level == CaptureLevels::CPU) {
+                            // CPU: BGRA -> I420
+                            libyuv::ARGBToI420(
+                                data, rowPitch,
+                                i420Buffer->MutableDataY(), i420Buffer->StrideY(),
+                                i420Buffer->MutableDataU(), i420Buffer->StrideU(),
+                                i420Buffer->MutableDataV(), i420Buffer->StrideV(),
+                                width, height);
+                        }
+                        else if (level == CaptureLevels::GPU) {
+                            // GPU 级: 计算着色器输出 I420 (Y/U/V 三平面, U/V 行距=rowPitch/2, 见 ScreenCapture 注释)
+                            const uint8_t* src_y = data;
+                            const uint8_t* src_u = data + static_cast<size_t>(rowPitch) * height;
+                            const uint8_t* src_v = src_u + static_cast<size_t>(rowPitch / 2) * (height / 2);
+                            libyuv::I420Copy(
+                                src_y, rowPitch,
+                                src_u, rowPitch / 2,
+                                src_v, rowPitch / 2,
+                                i420Buffer->MutableDataY(), i420Buffer->StrideY(),
+                                i420Buffer->MutableDataU(), i420Buffer->StrideU(),
+                                i420Buffer->MutableDataV(), i420Buffer->StrideV(),
+                                width, height);
+                        }
+                        else {
+                            // PRO 级: NV12 -> I420 (UV 平面紧跟 Y 平面, 行距=rowPitch)
+                            libyuv::NV12ToI420(
+                                data, rowPitch,
+                                data + static_cast<size_t>(rowPitch) * height, rowPitch,
+                                i420Buffer->MutableDataY(), i420Buffer->StrideY(),
+                                i420Buffer->MutableDataU(), i420Buffer->StrideU(),
+                                i420Buffer->MutableDataV(), i420Buffer->StrideV(),
+                                width, height);
+                        }
+                        webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
+                            .set_video_frame_buffer(i420Buffer)
+                            .set_rotation(webrtc::kVideoRotation_0)
+                            .set_timestamp_us(webrtc::TimeMicros())
+                            .build();
+                        videoTrackSourceImpl->PushFrame(frame);
+                        if (isBusy) isBusy->store(false);
+                    });
 
-            if (webrtcDeskSystemConfig.webrtcModulesType == 0) {
-
-                config.enableDirtyRects = false;
-
+                compatScreenCapture = sc;
+                if (!sc->initialize()) {
+                    LOG_ERROR("Failed to initialize ScreenCapture (compat mode)");
+                    compatScreenCapture.reset();
+                    return false;
+                }
+                if (!sc->startCapture()) {
+                    LOG_ERROR("Failed to start ScreenCapture (compat mode)");
+                    compatScreenCapture.reset();
+                    return false;
+                }
             }
-            else if (webrtcDeskSystemConfig.webrtcModulesType == 1) {
+            else {
+                // === 高性能模式：VirtualDisplayCapture (VDD 帧通道) ===
+                screenCapture = std::make_shared<VirtualDisplayCapture>();
 
-                config.enableDirtyRects = true;
+                hope::rtc::VirtualDisplayCapture::Config config;
+                // 分辨率/刷新率来自客户端配置(WebrtcDeskSystemConfig)，独立于 WebRTC 帧率。
+                config.width = webrtcDeskSystemConfig.desktopWidth > 0 ? webrtcDeskSystemConfig.desktopWidth : 1920;
+                config.height = webrtcDeskSystemConfig.desktopHeight > 0 ? webrtcDeskSystemConfig.desktopHeight : 1080;
+                config.refreshRate = webrtcDeskSystemConfig.desktopRefreshRate > 0
+                    ? webrtcDeskSystemConfig.desktopRefreshRate : 144;
+                config.bitsPerChannel = 8;
+                config.hdrMode = 0;
+                // Find-or-create a persistent display keyed by the systemService id:
+                // if a display for this service already exists, reuse it instead of adding one.
+                config.id = webrtcManagerConfig.systemService.empty()
+                    ? "HopeDesk" : webrtcManagerConfig.systemService.c_str();
+                config.name = "HopeDeskSystem";
+                config.removeOnDestroy = false;
 
-            }
+                if (webrtcDeskSystemConfig.webrtcEnableNvenc == 1) {
+                    LOG_INFO("webrtcEnableNvenc");
+                    config.cpuPath = false; // zero-copy GPU shared handle -> NVENC direct injection
 
-            config.levels = CaptureLevels(webrtcDeskSystemConfig.webrtcUseLevels);
+                    screenCapture->setGpuDataHandle([this](HANDLE sharedHandle,
+                        int width, int height,
+                        UINT format, UINT rowPitch,
+                        UINT64 frameId
+                        ) {
+                            if (!videoTrackSourceImpl || !sharedHandle) {
+                                return;
+                            }
 
-            screenCapture->setConfig(config);
+                            // NVENC direct-injection only reads GetSharedHandle(); releaseFlag unused
+                            // (pass nullptr - keyed-mutex sync is handled in the encoder).
+                            webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
+                                webrtc::make_ref_counted<WebrtcD3D11TextureBuffer>(sharedHandle, width, height, nullptr);
 
-            if (webrtcDeskSystemConfig.webrtcEnableNvenc == 1) {
-                LOG_INFO("webrtcEnableNvenc");
-                screenCapture->setGpuDataHandle([this](ID3D11Texture2D* texture,
-                    HANDLE sharedHandle,
-                    int width, int height,
-                    std::atomic<bool>* isBusy,
-                    CaptureLevels level
-                    ) {
+                            webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
+                                .set_video_frame_buffer(buffer)
+                                .set_rotation(webrtc::kVideoRotation_0)
+                                .set_timestamp_us(webrtc::TimeMicros())
+                                .build();
 
-                        if (!videoTrackSourceImpl || !texture) {
+                            videoTrackSourceImpl->PushFrame(frame);
 
-                            isBusy->store(true);
+                        });
 
+                }
+                else {
+                    config.cpuPath = true; // mapped BGRA CPU buffer -> libyuv ARGBToI420
+
+                    screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, int stride, UINT64 frameId) {
+
+                        if (!videoTrackSourceImpl || !data) {
                             return;
                         }
 
-                        webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer;
-
-                        buffer = webrtc::make_ref_counted<WebrtcD3D11TextureBuffer>(texture, sharedHandle, width, height, isBusy);
+                        webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer = bufferPool.CreateI420Buffer(width, height);
+                        // VirtualDisplayCapture CPU path delivers BGRA; stride is the mapped row pitch.
+                        libyuv::ARGBToI420(
+                            data, stride,
+                            i420Buffer->MutableDataY(), i420Buffer->StrideY(),
+                            i420Buffer->MutableDataU(), i420Buffer->StrideU(),
+                            i420Buffer->MutableDataV(), i420Buffer->StrideV(),
+                            width, height
+                        );
 
                         webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
-                            .set_video_frame_buffer(buffer)
+                            .set_video_frame_buffer(i420Buffer)
                             .set_rotation(webrtc::kVideoRotation_0)
                             .set_timestamp_us(webrtc::TimeMicros())
                             .build();
 
                         videoTrackSourceImpl->PushFrame(frame);
-
                     });
-
-            }
-
-            screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, std::atomic<bool>* releaseFlag, int stride, CaptureLevels levels) {
-
-                if (!videoTrackSourceImpl || !data) {
-
-                    return;
                 }
 
-                webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer;
+                screenCapture->setConfig(config);
 
-                if (releaseFlag) {
-
-                    if (levels == CaptureLevels::GPU) {
-                    
-						buffer = webrtc::make_ref_counted<WebrtcI420Buffer>(data, width, height, releaseFlag, stride);
-
-                    }
-
-                    else if (levels == CaptureLevels::PRO) {
-                    
-                        buffer = webrtc::make_ref_counted<WebrtcNv12Buffer>(data, width, height, releaseFlag, stride);
-
-                    }
-
-                }
-                else {
-
-                    webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer = bufferPool.CreateI420Buffer(width, height);
-                    // Note: The CPU path in ScreenCapture passes data ptr of BGRA (stride = width*4)
-                    libyuv::ARGBToI420(
-                        data, stride,
-                        i420Buffer->MutableDataY(), i420Buffer->StrideY(),
-                        i420Buffer->MutableDataU(), i420Buffer->StrideU(),
-                        i420Buffer->MutableDataV(), i420Buffer->StrideV(),
-                        width, height
-                    );
-                    buffer = i420Buffer;
+                if (!screenCapture->initialize()) {
+                    LOG_ERROR("Failed to initialize screen capture");
+                    return false;
                 }
 
-                webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
-                    .set_video_frame_buffer(buffer)
-                    .set_rotation(webrtc::kVideoRotation_0)
-                    .set_timestamp_us(webrtc::TimeMicros())
-                    .build();
-
-                videoTrackSourceImpl->PushFrame(frame);
-                });
-
-            if (!screenCapture->initialize()) {
-                LOG_ERROR("Failed to initialize screen capture");
-                return false;
+                if (!screenCapture->startCapture()) {
+                    LOG_ERROR("Failed to start screen capture");
+                    return false;
+                }
             }
 
-            if (!screenCapture->startCapture()) {
-                LOG_ERROR("Failed to start screen capture");
-                return false;
-            }
-
+            // 光标上报（两个模式共用）
             cursorHooks = std::make_unique<CursorHooks>();
 
             cursorHooks->setCursorHandle([this](unsigned char* data, size_t size) {
@@ -953,6 +1015,9 @@ namespace hope {
                             if (WebrtcRequestState(requestType) == WebrtcRequestState::REGISTER)
                             {
 
+                                if (json.contains("systemService")) {
+                                    webrtcManagerConfig.systemService = json["systemService"].as_string().c_str();
+                                }
                                 if (json.contains("stunHost")) {
                                     webrtcManagerConfig.stunHost = json["stunHost"].as_string().c_str();
                                 }
@@ -1004,6 +1069,18 @@ namespace hope {
 
                                             if (json.contains("localMaxFramerate")) {
                                                 webrtcDeskSystemConfig.localMaxFramerate = json["localMaxFramerate"].as_int64();
+                                            }
+
+                                            if (json.contains("desktopWidth")) {
+                                                webrtcDeskSystemConfig.desktopWidth = static_cast<int>(json["desktopWidth"].as_int64());
+                                            }
+
+                                            if (json.contains("desktopHeight")) {
+                                                webrtcDeskSystemConfig.desktopHeight = static_cast<int>(json["desktopHeight"].as_int64());
+                                            }
+
+                                            if (json.contains("desktopRefreshRate")) {
+                                                webrtcDeskSystemConfig.desktopRefreshRate = static_cast<int>(json["desktopRefreshRate"].as_int64());
                                             }
 
                                             if (json.contains("requestMaxBitrateBps")) {
@@ -1154,9 +1231,12 @@ namespace hope {
 
         // Add releaseSource implementation
         void WebrtcManager::releaseSource() {
-            // Stop screen capture first
+            // Stop screen capture first (either mode)
             if (screenCapture) {
                 screenCapture.reset();
+            }
+            if (compatScreenCapture) {
+                compatScreenCapture.reset();
             }
 
             if (hAudioCatch) {

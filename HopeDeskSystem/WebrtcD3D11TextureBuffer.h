@@ -10,7 +10,6 @@ namespace hope {
         class WebrtcD3D11TextureBuffer : public webrtc::VideoFrameBuffer {
         public:
             WebrtcD3D11TextureBuffer(
-                ID3D11Texture2D* texture,
                 HANDLE sharedHandle,
                 int width,
                 int height,
@@ -23,7 +22,6 @@ namespace hope {
             int height() const override;
 
             HANDLE GetSharedHandle() const;
-            ID3D11Texture2D* GetTexture() const;
 
             webrtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
             webrtc::scoped_refptr<const webrtc::I420BufferInterface> ToI420() const;
@@ -31,7 +29,6 @@ namespace hope {
             void FreeSharedSlot();
 
         private:
-            ID3D11Texture2D* texture;
             HANDLE sharedHandle;
             int widths;
             int heights;

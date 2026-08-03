@@ -4,12 +4,10 @@ namespace hope {
     namespace rtc {
 
         WebrtcD3D11TextureBuffer::WebrtcD3D11TextureBuffer(
-            ID3D11Texture2D* texture,
             HANDLE sharedHandle,
             int width,
             int height,
             std::atomic<bool>* releaseFlag) {
-            this->texture = texture;
             this->sharedHandle = sharedHandle;
             this->widths = width;
             this->heights = height;
@@ -24,10 +22,6 @@ namespace hope {
 
         HANDLE WebrtcD3D11TextureBuffer::GetSharedHandle() const {
             return sharedHandle;
-        }
-
-        ID3D11Texture2D* WebrtcD3D11TextureBuffer::GetTexture() const {
-            return texture;
         }
 
         webrtc::scoped_refptr<webrtc::I420BufferInterface> WebrtcD3D11TextureBuffer::ToI420() {

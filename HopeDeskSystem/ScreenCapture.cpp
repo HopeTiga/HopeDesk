@@ -71,7 +71,6 @@ namespace hope {
 					config.uselevels = CaptureLevels::GPU;
 				}
 			}
-
 			std::string levels;
 			switch (static_cast<int>(config.uselevels)) {
 			case 0: levels = "CaptureLevels::CPU"; break;
@@ -538,6 +537,7 @@ namespace hope {
 			Microsoft::WRL::ComPtr<IDXGIResource> desktopResource;
 			DXGI_OUTDUPL_FRAME_INFO frameInfo;
 			hr = dxgiDuplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
+
 			if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
 				// 1. 硬件零拷贝通道 (NVIDIA)
 				if (canZeroCopy && gpuDataHandle) {

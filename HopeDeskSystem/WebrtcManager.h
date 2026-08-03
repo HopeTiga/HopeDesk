@@ -50,6 +50,7 @@
 
 // Project includes
 #include "AsioConcurrentQueue.h"
+#include "VirtualDisplayCapture.h"
 #include "ScreenCapture.h"
 #include "HAudioCatch.h"
 #include "WinLogon.h"
@@ -75,6 +76,9 @@ namespace hope {
             int localMaxBitrateBps = 15000000;  // 最大码率,默认 15 Mbps
             int localMinBitrateBps = 15000000;  // 最小码率,默认 15 Mbps
             int localMaxFramerate = 144;        // 最大帧率
+            int desktopWidth  = 1920;           // 虚拟显示器宽度(客户端传入)
+            int desktopHeight = 1080;           // 虚拟显示器高度(客户端传入)
+            int desktopRefreshRate = 144;       // 虚拟显示器刷新率Hz(客户端传入)
         };
 
         // WebrtcManager 运行期配置:STUN/TURN 由 Native 端通过 REGISTER 消息(registerStr)
@@ -84,6 +88,7 @@ namespace hope {
             std::string turnHost;
             std::string turnUsername;
             std::string turnPassword;
+            std::string systemService; // stable id; ties a virtual display to this service
         };
 
         class WebrtcManager {
@@ -192,7 +197,8 @@ namespace hope {
 
             WebrtcVideoDecoderFactory* webrtcVideoDecoderFactory;
 
-            std::shared_ptr<ScreenCapture> screenCapture;
+            std::shared_ptr<VirtualDisplayCapture> screenCapture;  // 高性能模式：VDD 帧通道
+            std::shared_ptr<ScreenCapture> compatScreenCapture;    // 兼容模式：DXGI 桌面采集
 
             std::shared_ptr<HAudioCatch> hAudioCatch;
 

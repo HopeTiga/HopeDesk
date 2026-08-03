@@ -3,6 +3,7 @@
 #include <api/video/encoded_image.h>
 #include <third_party/libyuv/include/libyuv.h>
 #include <dxgi.h>
+#include <d3d11_1.h>
 #include "Utils.h"
 
 namespace hope {
@@ -200,7 +201,15 @@ namespace hope {
 
                 auto& cached = resourceCache[h];
                 if (!cached.tex) {
-                    d3dDevice->OpenSharedResource(h, IID_PPV_ARGS(&cached.tex));
+                    // Producer slot handles are NT handles (CreateSharedHandle);
+                    // OpenSharedResource1 is required, not legacy OpenSharedResource.
+                    Microsoft::WRL::ComPtr<ID3D11Device1> dev1;
+                    HRESULT oh = d3dDevice.As(&dev1);
+                    if (SUCCEEDED(oh)) oh = dev1->OpenSharedResource1(h, IID_PPV_ARGS(&cached.tex));
+                    if (FAILED(oh) || !cached.tex) {
+                        LOG_ERROR("[NVENC-H265] OpenSharedResource1 failed hr=0x%08X", (unsigned)oh);
+                        return WEBRTC_VIDEO_CODEC_ERROR;
+                    }
                     cached.tex.As(&cached.km);
                     // 直注：把共享纹理直接注册给 NVENC，省掉 CopyResource
                     NV_ENC_REGISTER_RESOURCE reg = { NV_ENC_REGISTER_RESOURCE_VER };
@@ -214,7 +223,7 @@ namespace hope {
                     // 失败则 cached.regPtr 保持 nullptr → 走拷贝回退路径
                 }
 
-                if (cached.km && cached.km->AcquireSync(0, INFINITE) == S_OK) {
+                if (cached.km && cached.km->AcquireSync(1, INFINITE) == S_OK) {
                     if (cached.regPtr) {
                         // 直注路径：NVENC 直接 DMA 读共享纹理，零拷贝
                         // keyed mutex 必须持有到 GetEncodedPacket 里 unmap 之后

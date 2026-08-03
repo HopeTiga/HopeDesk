@@ -3,6 +3,7 @@
 #include <api/video/encoded_image.h>
 #include <third_party/libyuv/include/libyuv.h>
 #include <dxgi.h>
+#include <d3d11_1.h>
 #include "Utils.h"
 
 namespace hope {
@@ -10,7 +11,8 @@ namespace hope {
 
         typedef NVENCSTATUS(NVENCAPI* PNVENCODEAPICREATEINSTANCE)(NV_ENCODE_API_FUNCTION_LIST*);
 
-        NvencAV1Encoder::NvencAV1Encoder() {}
+        NvencAV1Encoder::NvencAV1Encoder() {
+        }
         NvencAV1Encoder::~NvencAV1Encoder() { Release(); }
 
         int NvencAV1Encoder::InitEncode(const webrtc::VideoCodec* codecSettings, const webrtc::VideoEncoder::Settings& settings) {
@@ -18,7 +20,9 @@ namespace hope {
             widths = codecSettings->width;
             heights = codecSettings->height;
             if (!InitD3D11()) return WEBRTC_VIDEO_CODEC_ERROR;
-            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000, codecSettings->maxFramerate)) return WEBRTC_VIDEO_CODEC_ERROR;
+            if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000, codecSettings->maxFramerate)) {
+                return WEBRTC_VIDEO_CODEC_ERROR;
+            }
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
@@ -39,12 +43,14 @@ namespace hope {
         bool NvencAV1Encoder::InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate) {
 
             nvVideoCodecHandle = LoadLibrary(TEXT("nvEncodeAPI64.dll"));
-            if (!nvVideoCodecHandle) return false;
+            if (!nvVideoCodecHandle) { LOG_ERROR("[NVENC] nvEncodeAPI64.dll not found"); return false; }
             auto createIdx = (PNVENCODEAPICREATEINSTANCE)GetProcAddress(nvVideoCodecHandle, "NvEncodeAPICreateInstance");
+            if (!createIdx) { LOG_ERROR("[NVENC] NvEncodeAPICreateInstance not found"); return false; }
 
             memset(&nvencFuncs, 0, sizeof(nvencFuncs));
             nvencFuncs.version = NV_ENCODE_API_FUNCTION_LIST_VER;
-            createIdx(&nvencFuncs);
+            NVENCSTATUS createStatus = createIdx(&nvencFuncs);
+            if (createStatus != NV_ENC_SUCCESS) return false;
 
 
             NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS sessionParams;
@@ -53,7 +59,8 @@ namespace hope {
             sessionParams.device = d3dDevice.Get();
             sessionParams.deviceType = NV_ENC_DEVICE_TYPE_DIRECTX;
             sessionParams.apiVersion = NVENCAPI_VERSION;
-            nvencFuncs.nvEncOpenEncodeSessionEx(&sessionParams, &nvencSession);
+            NVENCSTATUS openStatus = nvencFuncs.nvEncOpenEncodeSessionEx(&sessionParams, &nvencSession);
+            if (openStatus != NV_ENC_SUCCESS || !nvencSession) return false;
 
             memset(&initParams, 0, sizeof(initParams));
             initParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
@@ -159,13 +166,22 @@ namespace hope {
             }
 
             NV_ENC_MAP_INPUT_RESOURCE map = { NV_ENC_MAP_INPUT_RESOURCE_VER };
+
             if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative) {
                 // 零拷贝路径
                 auto* d3dBuffer = static_cast<WebrtcD3D11TextureBuffer*>(buffer.get());
                 HANDLE h = d3dBuffer->GetSharedHandle();
                 auto& cached = resourceCache[h];
                 if (!cached.tex) {
-                    d3dDevice->OpenSharedResource(h, IID_PPV_ARGS(&cached.tex));
+                    // The producer's slot handles are NT handles (CreateSharedHandle);
+                    // they can only be opened with OpenSharedResource1 (ID3D11Device1),
+                    // not the legacy OpenSharedResource (E_INVALIDARG).
+                    Microsoft::WRL::ComPtr<ID3D11Device1> dev1;
+                    HRESULT oh = d3dDevice.As(&dev1);
+                    if (SUCCEEDED(oh)) oh = dev1->OpenSharedResource1(h, IID_PPV_ARGS(&cached.tex));
+                    if (FAILED(oh) || !cached.tex) {
+                        return WEBRTC_VIDEO_CODEC_ERROR;
+                    }
                     cached.tex.As(&cached.km);
                     // 直注：把共享纹理直接注册给 NVENC，省掉 CopyResource
                     NV_ENC_REGISTER_RESOURCE reg = { NV_ENC_REGISTER_RESOURCE_VER };
@@ -174,12 +190,13 @@ namespace hope {
                     reg.width = buffer->width();
                     reg.height = buffer->height();
                     reg.bufferFormat = NV_ENC_BUFFER_FORMAT_ARGB;
-                    if (nvencFuncs.nvEncRegisterResource(nvencSession, &reg) == NV_ENC_SUCCESS)
+                    NVENCSTATUS regStatus = nvencFuncs.nvEncRegisterResource(nvencSession, &reg);
+                    if (regStatus == NV_ENC_SUCCESS)
                         cached.regPtr = reg.registeredResource;
                     // 失败则 cached.regPtr 保持 nullptr → 走拷贝回退路径
                 }
 
-                if (cached.km && cached.km->AcquireSync(0, INFINITE) == S_OK) {
+                if (cached.km && cached.km->AcquireSync(1, 5000) == S_OK) {
                     if (cached.regPtr) {
                         // 直注路径：NVENC 直接 DMA 读共享纹理，零拷贝
                         // keyed mutex 必须持有到 GetEncodedPacket 里 unmap 之后
@@ -250,11 +267,11 @@ namespace hope {
                 if (++nextBitstream == bufCount) nextBitstream = 0;
             }
             else {
-                LOG_ERROR("[NVENC] EncodePicture failed: %d", err);
                 return WEBRTC_VIDEO_CODEC_ERROR;
             }
 
             GetEncodedPacket(false);
+
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
@@ -287,7 +304,9 @@ namespace hope {
                     webrtc::CodecSpecificInfo info;
                     info.codecType = webrtc::kVideoCodecAV1;
                     info.end_of_picture = true;
-                    if (encodedImageCallback) encodedImageCallback->OnEncodedImage(image, &info);
+                    if (encodedImageCallback) {
+                        encodedImageCallback->OnEncodedImage(image, &info);
+                    }
 
                     nvencFuncs.nvEncUnlockBitstream(nvencSession, bitstreams[curBitstream].ptr);
                     if (mappedResources[curBitstream]) {
