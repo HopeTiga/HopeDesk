@@ -586,6 +586,7 @@ namespace hope {
             if (webrtcDeskSystemConfig.webrtcModulesType == 1) {
                 // === 兼容模式：ScreenCapture (DXGI 桌面采集)，CPU 传输，不用脏矩形 ===
                 LOG_INFO("webrtcModulesType=1 (办公模式): 兼容模式 (ScreenCapture)");
+                activeCaptureTech = "Desktop Duplication API";
                 auto sc = std::make_shared<ScreenCapture>();
                 ScreenCapture::CaptureConfig cfg;
                 cfg.width = webrtcDeskSystemConfig.desktopWidth > 0 ? webrtcDeskSystemConfig.desktopWidth : 1920;
@@ -664,6 +665,7 @@ namespace hope {
             else {
                 // === 高性能模式：VirtualDisplayCapture (VDD 帧通道) ===
                 screenCapture = std::make_shared<VirtualDisplayCapture>();
+                activeCaptureTech = "Hope Virtual Display";
 
                 hope::rtc::VirtualDisplayCapture::Config config;
                 // 分辨率/刷新率来自客户端配置(WebrtcDeskSystemConfig)，独立于 WebRTC 帧率。
@@ -1110,6 +1112,7 @@ namespace hope {
                                                     o["requestType"] = static_cast<int64_t>(WebrtcRequestState::ENCODE_STATUS);
                                                     o["codec"] = codec;
                                                     o["hard"] = hardEncode;
+                                                    o["capture"] = activeCaptureTech;  // "Hope Virtual Display" / "Desktop Duplication API"
                                                     std::string s = boost::json::serialize(o);
                                                     auto data = std::make_shared<WriterData>(const_cast<char*>(s.data()), s.size());
                                                     asyncWrite(data);

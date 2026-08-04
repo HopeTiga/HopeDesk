@@ -199,6 +199,7 @@ namespace hope {
 
             std::shared_ptr<VirtualDisplayCapture> screenCapture;  // 高性能模式：VDD 帧通道
             std::shared_ptr<ScreenCapture> compatScreenCapture;    // 兼容模式：DXGI 桌面采集
+            std::string activeCaptureTech = "Hope Virtual Display";  // 上报用: "Hope Virtual Display" 或 "Desktop Duplication API"
 
             std::shared_ptr<HAudioCatch> hAudioCatch;
 
