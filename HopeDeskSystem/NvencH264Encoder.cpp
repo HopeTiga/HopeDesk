@@ -1,7 +1,7 @@
 #include "NvencH264Encoder.h"
 #include "WebrtcD3D11TextureBuffer.h"
 #include <api/video/encoded_image.h>
-#include <third_party/libyuv/include/libyuv.h>
+#include <third_party/libyuv/libyuv.h>
 #include <dxgi.h>
 #include <d3d11_1.h>
 #include "Utils.h"

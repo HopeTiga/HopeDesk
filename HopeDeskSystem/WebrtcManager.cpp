@@ -9,7 +9,7 @@
 #include <api/video/i420_buffer.h>
 #include <api/video/nv12_buffer.h>
 #include <api/field_trials.h>
-#include <third_party/libyuv/include/libyuv.h>
+#include <third_party/libyuv/libyuv.h>
 
 #include "WebrtcI420Buffer.h"
 #include "WebrtcNv12Buffer.h"
