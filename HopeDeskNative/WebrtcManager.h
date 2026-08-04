@@ -146,6 +146,7 @@ struct WebrtcManagerConfig {
     std::string turnHost;                            // TURN 服务器 URI(Turn.Host)
     std::string turnUsername;                        // TURN 用户名(Turn.Username)
     std::string turnPassword;                        // TURN 密码(Turn.Password)
+    bool webrtcDebugLog = false;                     // WebRTC 调试日志(Webrtc.DebugLog),随 registerJson 传给 System
 };
 
 struct WebrtcDeskConfig {
@@ -197,6 +198,9 @@ public:
     // 注入启动期配置(服务/可执行路径/配置路径/STUN/TURN),由 MainWindow 读取后注入
     void setWebrtcManagerConfig(const WebrtcManagerConfig& webrtcManagerConfig);
 
+    // 运行期改 WebRTC 调试日志开关:更新配置并立即重发 REGISTER 推给本地 System(若 TCP 已连)
+    void applyWebrtcDebugLog(bool enabled);
+
     void sendKeyComboCtrlAltF();
 
     void resetCursorCache();
@@ -230,6 +234,10 @@ public:
     void asyncWrite(std::shared_ptr<WriterData> writerData);
 
     void webrtcAsyncWrite(std::string str);
+
+    // 把任务投递到 ioContext 线程执行,保证与 ioContext 上的操作(收发/定时器)串行、线程安全。
+    // peerConnection 等回调运行在 WebRTC 信令线程,必须经此投递后再碰 WebrtcManager 状态。
+    void post(std::function<void()> task);
 
     void disConnectRemote();
 
@@ -275,6 +283,10 @@ private:
 
     void setTcpKeepAlive(boost::asio::ip::tcp::socket & socket,
                          int idle = 0, int intvl =3, int probes = 3);
+
+    // 唯一看门狗:发请求时 arm,15 秒内再发请求则刷新(取消旧 timer),只有最后一次请求
+    // 发出后 15s 仍没连上才触发一次 re-init。避免每次请求各建一个 timer 导致的并发 re-init。
+    void armRequestTimeout();
 
     boost::asio::awaitable<void> webrtcReceiveCoroutine();
 
@@ -348,7 +360,11 @@ private:
 
     std::atomic<bool> webrtcAsyncEvents{ false };
 
-    boost::asio::steady_timer reloadTimer;
+    // 请求超时看门狗。一次只存活一个;新请求先 cancel 旧 timer 再重建。
+    // timeoutEpoch 递增,旧协程醒来后按 epoch 不匹配直接退出,双保险防并发 re-init。
+    std::shared_ptr<boost::asio::steady_timer> requestTimeout;
+
+    uint64_t timeoutEpoch = 0;
 
     boost::asio::ip::tcp::acceptor accept;
 

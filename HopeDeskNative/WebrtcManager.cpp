@@ -44,7 +44,6 @@ WebrtcManager::WebrtcManager()
     , webSocket(nullptr)
     , asioConcurrentQueue(ioContext.get_executor())
     , webrtcAsioConcurrentQueue(ioContext.get_executor())
-    , reloadTimer(ioContext)
     , peerConnection(nullptr)
 {
 
@@ -100,6 +99,7 @@ void WebrtcManager::asyncEvent(){
             registerJson["turnHost"]    = self->webrtcManagerConfig.turnHost;
             registerJson["turnUsername"] = self->webrtcManagerConfig.turnUsername;
             registerJson["turnPassword"] = self->webrtcManagerConfig.turnPassword;
+            registerJson["debugLog"]    = self->webrtcManagerConfig.webrtcDebugLog;   // 调试开关随注册发给 System
             registerJson["state"]       = 200;
             std::string registerStr = boost::json::serialize(registerJson);
 
@@ -404,11 +404,11 @@ bool WebrtcManager::initializePeerConnection()
     config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
     config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
-    config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
+    config.ice_connection_receiving_timeout = 10000;        // 连上后 10s 收不到数据才判断开(检测断开保持 10s)
 
-    config.ice_unwritable_timeout = 10000;                  // 3秒无响应则标记为不可写
+    config.ice_unwritable_timeout = 30000;                  // 建立阶段 30s 无写成功才标记不可写(放宽,避免慢连被误杀)
 
-    config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
+    config.ice_inactive_timeout = 30000;                    // 30s 无活动才标记非活跃(放宽,配合慢启动)
 
     config.set_dscp(true);
 
@@ -452,6 +452,11 @@ void WebrtcManager::webrtcAsyncWrite(std::string str)
     webrtcAsioConcurrentQueue.enqueue(std::move(str));
 }
 
+void WebrtcManager::post(std::function<void()> task)
+{
+    boost::asio::post(ioContext, std::move(task));
+}
+
 void WebrtcManager::disConnectRemote()
 {
     if(onResetCursorHandle) onResetCursorHandle();
@@ -488,14 +493,18 @@ void WebrtcManager::disConnectRemoteHandler()
 {
     if(onResetCursorHandle) onResetCursorHandle();
 
-    // 统一 post 到 ioContext 执行:线程安全,且无条件清理(不再因 isRemote==false 早退而漏清 tcpSocket)
+    // 统一 post 到 ioContext 执行:线程安全,且无条件清理(不再因 isRemote==false 早退而漏清 tcpSocket)。
+    // 区分两种断开:已连上(曾 isRemote)后断开 -> onDisConnectRemoteHandle;
+    // 从未连上(连接失败/被控端 System 未起来) -> onRemoteFailedHandle。
     bool wasRemote = isRemote.exchange(false);
     boost::asio::post(ioContext, [self = shared_from_this(), wasRemote]() {
         self->closeTcpSocket();
         self->releaseSource();
         self->initializePeerConnection();
-        if (wasRemote && self->onDisConnectRemoteHandle) {
-            self->onDisConnectRemoteHandle();
+        if (wasRemote) {
+            if (self->onDisConnectRemoteHandle) self->onDisConnectRemoteHandle();
+        } else {
+            if (self->onRemoteFailedHandle) self->onRemoteFailedHandle();
         }
     });
 }
@@ -663,28 +672,8 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
                                     LOG_INFO("WindowsServiceManager::startService Successful!");
 
-                                    boost::asio::co_spawn(ioContext,[this]()mutable->boost::asio::awaitable<void>{
-
-                                        reloadTimer.expires_after(std::chrono::seconds(15));;
-
-                                        co_await reloadTimer.async_wait(boost::asio::use_awaitable);
-
-                                        if (!isRemote) {
-
-                                            closeTcpSocket();
-
-                                            releaseSource();
-
-                                            initializePeerConnection();
-
-                                            isRemote = false;
-
-                                            LOG_INFO("WebRTCManager Offer ReInit");
-
-                                        }
-
-
-                                    },boost::asio::detached);
+                                    // 唯一看门狗:多次 request 只保留一个 timer,超时刷新不会失效
+                                    this->armRequestTimeout();
 
                                     continue;
 
@@ -946,6 +935,31 @@ void WebrtcManager::disConnectHandle()
 void WebrtcManager::setWebrtcManagerConfig(const WebrtcManagerConfig& webrtcManagerConfig)
 {
     this->webrtcManagerConfig = webrtcManagerConfig;
+}
+
+void WebrtcManager::applyWebrtcDebugLog(bool enabled)
+{
+    // 运行期改 debugLog:整个操作 post 到 ioContext,避免 GUI 线程与 ioContext 竞争 webrtcManagerConfig/tcpSocket。
+    // 若本地 TCP(System)已连则重发 REGISTER(含 debugLog);REGISTER 幂等,重发安全。
+    post([self = shared_from_this(), enabled]() {
+        self->webrtcManagerConfig.webrtcDebugLog = enabled;
+        if (!self->tcpSocket || !self->tcpSocket->is_open()) return;
+
+        boost::json::object registerJson;
+        registerJson["requestType"] = 0;
+        registerJson["systemService"] = self->webrtcManagerConfig.systemService;
+        registerJson["stunHost"]    = self->webrtcManagerConfig.stunHost;
+        registerJson["turnHost"]    = self->webrtcManagerConfig.turnHost;
+        registerJson["turnUsername"] = self->webrtcManagerConfig.turnUsername;
+        registerJson["turnPassword"] = self->webrtcManagerConfig.turnPassword;
+        registerJson["debugLog"]    = self->webrtcManagerConfig.webrtcDebugLog;
+        registerJson["state"]       = 200;
+
+        std::string registerStr = boost::json::serialize(registerJson);
+        auto registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
+        self->asyncWrite(registerData);
+        LOG_INFO("applyWebrtcDebugLog: pushed debugLog=%d to System", enabled ? 1 : 0);
+    });
 }
 
 void WebrtcManager::resetCursorCache()
@@ -1392,6 +1406,49 @@ void WebrtcManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
+void WebrtcManager::armRequestTimeout()
+{
+    // 只在 ioContext 线程调用(asyncRemoteDesk / 收包协程均在 ioContext 上),无数据竞争。
+    // 唯一看门狗:30 秒内再发请求会 cancel 旧 timer 并重建,旧协程按 operation_aborted/纪元不匹配退出。
+    // 取 30s 与 ICE 容错(unwritable/inactive=30s)一致:握手慢时让 ICE 自己兜底,看门狗不抢先拆连接。
+    uint64_t epoch = ++timeoutEpoch;
+
+    if (requestTimeout) {
+        requestTimeout->cancel();  // 旧 timer 挂起的 async_wait 以 operation_aborted 返回
+    }
+
+    requestTimeout = std::make_shared<boost::asio::steady_timer>(ioContext);
+    requestTimeout->expires_after(std::chrono::seconds(30));
+
+    auto timer = requestTimeout;
+
+    boost::asio::co_spawn(ioContext,[self = shared_from_this(), timer, epoch]()mutable->boost::asio::awaitable<void>{
+
+        boost::system::error_code ec;
+
+        co_await timer->async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+
+        if (ec == boost::asio::error::operation_aborted) co_return;  // 被新一轮请求刷新取消
+
+        if (epoch != self->timeoutEpoch) co_return;                   // 兜底:纪元对不上说明已过期
+
+        if (!self->isRemote) {
+
+            self->closeTcpSocket();
+
+            self->releaseSource();
+
+            self->initializePeerConnection();
+
+            if (self->onRemoteFailedHandle) self->onRemoteFailedHandle();
+
+            LOG_INFO("WebRTCManager Request Timeout ReInit");
+
+        }
+
+    },boost::asio::detached);
+}
+
 void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
 {
 
@@ -1448,26 +1505,8 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
 
             LOG_INFO("Request sent to target: %s", self->targetId.c_str());
 
-            boost::asio::co_spawn(self->ioContext,[self = self->shared_from_this()]()mutable->boost::asio::awaitable<void>{
-
-                self->reloadTimer.expires_after(std::chrono::seconds(15));;
-
-                co_await self->reloadTimer.async_wait(boost::asio::use_awaitable);
-
-                if (!self->isRemote) {
-
-                    self->closeTcpSocket();
-
-                    self->releaseSource();
-
-                    self->initializePeerConnection();
-
-                    self->isRemote = false;
-
-                    LOG_INFO("WebRTCManager asyncRemoteDesk ReInit");
-
-                }
-            },boost::asio::detached);
+            // 唯一看门狗:多次请求只保留一个 timer,最后一次请求发出 15s 未连上才触发一次 re-init
+            self->armRequestTimeout();
         }
 
     },boost::asio::detached);

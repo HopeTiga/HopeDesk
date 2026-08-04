@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "Utils.h"
 #include "ui_mainwindow.h"
 #include "VideoWidget.h"
 #include "WebrtcManager.h"
@@ -226,6 +227,7 @@ void MainWindow::initConfigAndSettings()
     webrtcManagerConfig.turnHost          = ConfigManager::Instance().GetString("Turn.Host");
     webrtcManagerConfig.turnUsername      = ConfigManager::Instance().GetString("Turn.Username");
     webrtcManagerConfig.turnPassword      = ConfigManager::Instance().GetString("Turn.Password");
+    webrtcManagerConfig.webrtcDebugLog    = ConfigManager::Instance().GetBool("Webrtc.DebugLog", false);   // 启动即加载,首包 REGISTER 即携带正确开关
     if (webrtcManager) webrtcManager->setWebrtcManagerConfig(webrtcManagerConfig);
 
     ui->remoteIdEdit->setText(settings->value("lastRemoteId", "").toString());
@@ -969,6 +971,9 @@ void MainWindow::buildSystemSettingsTab()
     verticalSyncCheckBox = new QCheckBox(tr("启用"), systemTab);
     systemFormLayout->addRow(tr("垂直同步"), verticalSyncCheckBox);
 
+    webrtcDebugLogCheckBox = new QCheckBox(tr("启用"), systemTab);
+    systemFormLayout->addRow(tr("调试日志"), webrtcDebugLogCheckBox);
+
     signalServerHostEdit = new QLineEdit(systemTab);
     signalServerPortSpin = new QSpinBox(systemTab);
     signalServerPortSpin->setRange(1, 65535);
@@ -1054,6 +1059,7 @@ void MainWindow::loadSystemSettings()
 {
     ConfigManager& configManager = ConfigManager::Instance();
     verticalSyncCheckBox->setChecked(configManager.GetBool("Render.VSync", false));
+    webrtcDebugLogCheckBox->setChecked(configManager.GetBool("Webrtc.DebugLog", false));
     signalServerHostEdit->setText(QString::fromStdString(configManager.GetString("WebrtcSignalServer.Host")));
     int signalServerPort = configManager.GetInt("WebrtcSignalServer.Port", 8088);
     signalServerPortSpin->setValue(signalServerPort > 0 ? signalServerPort : 8088);
@@ -1099,6 +1105,7 @@ void MainWindow::onApplySystemSettings()
     }
 
     bool    verticalSyncEnabled = verticalSyncCheckBox->isChecked();
+    bool    webrtcDebugLog      = webrtcDebugLogCheckBox->isChecked();
     QString signalServerHost    = signalServerHostEdit->text().trimmed();
     int     signalServerPort    = signalServerPortSpin->value();
     QString stunHost           = stunHostEdit->text().trimmed();
@@ -1142,6 +1149,7 @@ void MainWindow::onApplySystemSettings()
 
     // 1. 持久化到 config.ini(键名对齐 WebrtcManagerConfig 的字段)
     configManager.Set("Render.VSync", verticalSyncEnabled);
+    configManager.Set("Webrtc.DebugLog", webrtcDebugLog);
     configManager.Set("WebrtcSignalServer.Host", signalServerHost.toStdString());
     configManager.Set("WebrtcSignalServer.Port", signalServerPort);
     configManager.Set("Stun.Host", stunHost.toStdString());
@@ -1158,6 +1166,9 @@ void MainWindow::onApplySystemSettings()
 
     // 2. 同步内存成员
     this->verticalSyncEnabled = verticalSyncEnabled;
+    // WebRTC 调试日志立即生效(native 自身也受开关控制)
+    if (webrtcDebugLog) initWebrtcLogging();
+    else closeWebrtcLogging();
     if (!signalServerHost.isEmpty()) defaultServerHost = signalServerHost;
     defaultServerPort = signalServerPort;
     desktopWidth = spinDesktopWidth->value();
@@ -1176,7 +1187,10 @@ void MainWindow::onApplySystemSettings()
     webrtcManagerConfig.turnHost          = turnHost.toStdString();
     webrtcManagerConfig.turnUsername      = turnUsername.toStdString();
     webrtcManagerConfig.turnPassword      = turnPassword.toStdString();
+    webrtcManagerConfig.webrtcDebugLog    = webrtcDebugLog;   // 随 registerJson 传给 System
     if (webrtcManager) webrtcManager->setWebrtcManagerConfig(webrtcManagerConfig);
+    // debugLog 立即推送:若本地 System 的 TCP 已连,重发 REGISTER 让开关马上生效(无需等下次 TCP accept)
+    if (webrtcManager) webrtcManager->applyWebrtcDebugLog(webrtcDebugLog);
 
     QString summary = tr("已保存并应用。\n垂直同步将在下一次远程连接时生效。");
     if (serviceNameChanged || serviceExeChanged) {

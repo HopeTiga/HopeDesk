@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QSurfaceFormat>
 #include "ConfigManager.h"
+#include "Utils.h"
 
 int main(int argc, char *argv[])
 {
@@ -21,6 +22,11 @@ int main(int argc, char *argv[])
     app.setQuitOnLastWindowClosed(false);
 
     ConfigManager::Instance().Load();
+
+    // WebRTC 调试日志:仅当「系统设置」勾选 Webrtc.DebugLog 时开启(native 自身也受开关控制)
+    if (ConfigManager::Instance().GetBool("Webrtc.DebugLog", false)) {
+        initWebrtcLogging();
+    }
 
     // ===== 设置全局应用程序图标 =====
     QIcon appIcon(":/logo/res/hope.jpg");

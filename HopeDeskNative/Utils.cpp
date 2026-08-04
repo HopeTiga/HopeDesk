@@ -1,21 +1,24 @@
 #ifdef _WIN32
 #define _CRT_SECURE_NO_WARNINGS
+// WebRTC 头会拉 winsock2.h;必须先于 Utils.h 加载 winsock2.h,否则
+// Utils.h 里的 windows.h 先加载 winsock.h -> sendto/sockaddr 重定义。
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <share.h>
 #endif
 
 #include "Utils.h"
 #include <chrono>
 #include <mutex>
+#include <fstream>
 #include <vector>
 #include <string>
 #include <thread>
-
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#include <share.h>
-#endif
+#include "rtc_base/logging.h"   // webrtc 内部 RTC_LOG:排查 ICE/DTLS 用
 
 static const char* COLOR_RESET = "\033[0m";
 static const char* COLOR_RED = "\033[91m";
@@ -106,6 +109,65 @@ void initLogger() {
 void closeLogger() {
     closeLogFiles();
     loggerInitialized = 0;
+}
+
+// ===== WebRTC 内部日志(RTC_LOG)=====
+// 把 libwebrtc 的 RTC_LOG 接到 logs/webrtc.log,用于排查 ICE/DTLS/连接建立。
+// LS_VERBOSE 最详细(能看到 ICE 连通性检查、candidate pair 状态),日志量大。
+namespace {
+
+class WebrtcLogSink : public webrtc::LogSink {
+public:
+    explicit WebrtcLogSink(const std::string& path) : file(path, std::ios::out | std::ios::app) {}
+
+    void write(const std::string& message) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (file.is_open()) file << message << '\n';
+    }
+
+    // 覆写所有重载:不管 libwebrtc 从哪个入口(带 severity/tag、string_view、LogLineRef)派发,
+    // 都能落到文件。基类其它重载的默认实现可能是空的,只覆写纯虚函数有收不到日志的风险。
+    void OnLogMessage(const std::string& msg, webrtc::LoggingSeverity severity, const char* tag) override { write(msg); }
+    void OnLogMessage(const std::string& message, webrtc::LoggingSeverity severity) override { write(message); }
+    void OnLogMessage(const std::string& message) override { write(message); }
+    void OnLogMessage(absl::string_view msg, webrtc::LoggingSeverity severity, const char* tag) override { write(std::string(msg)); }
+    void OnLogMessage(absl::string_view message, webrtc::LoggingSeverity severity) override { write(std::string(message)); }
+    void OnLogMessage(absl::string_view message) override { write(std::string(message)); }
+    void OnLogMessage(const webrtc::LogLineRef& line) override { write(std::string(line.message())); }
+
+    void flush() {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (file.is_open()) file.flush();
+    }
+
+private:
+    std::ofstream file;
+    std::mutex mtx;
+};
+
+}  // namespace
+
+static WebrtcLogSink* gWebrtcLogSink = nullptr;
+
+void initWebrtcLogging() {
+    if (gWebrtcLogSink) return;
+    ensureLogDirectory();
+#ifdef _WIN32
+    std::string path = logDir + "\\webrtc.log";
+#else
+    std::string path = logDir + "/webrtc.log";
+#endif
+    gWebrtcLogSink = new WebrtcLogSink(path);
+    webrtc::LogMessage::LogTimestamps();
+    webrtc::LogMessage::AddLogToStream(gWebrtcLogSink, webrtc::LS_VERBOSE);
+}
+
+void closeWebrtcLogging() {
+    if (!gWebrtcLogSink) return;
+    gWebrtcLogSink->flush();
+    webrtc::LogMessage::RemoveLogToStream(gWebrtcLogSink);
+    delete gWebrtcLogSink;
+    gWebrtcLogSink = nullptr;
 }
 
 void enableFileLogging(int enable) {
@@ -218,7 +280,7 @@ static void doLog(LogLevel level, const char* file, int line, const char* format
     int levelIdx = static_cast<int>(level);
 
     if (!fileOnly && levelIdx >= 0 && levelIdx <= 3 && consoleOutputLevels[levelIdx]) {
-        char consoleBuf[4096];
+        char consoleBuf[65536];
         int n = 0;
         if (plain) {
             n = snprintf(consoleBuf, sizeof(consoleBuf), "[%s][%-5s] %s %s",
@@ -236,7 +298,7 @@ static void doLog(LogLevel level, const char* file, int line, const char* format
     if (logToFileEnabled && levelIdx >= 0 && levelIdx <= 3) {
         ensureLogDirectory();
 
-        char fileBuf[4096];
+        char fileBuf[65536];
         int n = snprintf(fileBuf, sizeof(fileBuf), "[%s][%-5s] %s %s",
                          timestamp, levelStr, alignedFileLine.c_str(), msg.c_str());
 

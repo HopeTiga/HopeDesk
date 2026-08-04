@@ -34,16 +34,21 @@ void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterfa
 }
 
 void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
-    LOG_INFO("Data channel received: %s", dataChannel->label().c_str());
+    const std::string label = dataChannel->label();
+    LOG_INFO("Data channel received: %s", label.c_str());
 
-    if (dataChannel->label() == "dataChannel") {
-        webrtcManager->dataChannel = dataChannel;
-        // 新连接:清空 cursor 缓存,使 index 与对端(每连接从 0)重新对齐
-        webrtcManager->resetCursorCache();
-        webrtcManager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>();
-        webrtcManager->dataChannelObserver->setOnDataHandle(
-            std::bind(&WebrtcManager::handleCursor, webrtcManager, std::placeholders::_1, std::placeholders::_2));
-        dataChannel->RegisterObserver(webrtcManager->dataChannelObserver.get());
+    if (label == "dataChannel") {
+        std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
+        // post 到 ioContext:回调在 WebRTC 信令线程,碰 WebrtcManager 状态须串行到 ioContext
+        webrtcManager->post([manager, dataChannel = std::move(dataChannel)]() {
+            // 新连接:清空 cursor 缓存,使 index 与对端(每连接从 0)重新对齐
+            manager->resetCursorCache();
+            manager->dataChannelObserver = std::make_unique<DataChannelObserverImpl>();
+            manager->dataChannelObserver->setOnDataHandle(
+                std::bind(&WebrtcManager::handleCursor, manager.get(), std::placeholders::_1, std::placeholders::_2));
+            dataChannel->RegisterObserver(manager->dataChannelObserver.get());
+            manager->dataChannel = std::move(dataChannel);
+        });
     }
 }
 
@@ -69,48 +74,55 @@ void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterf
         return;
     }
 
-    boost::json::object msg;
-    msg["type"] = "candidate";
-    msg["candidate"] = sdp;
-    msg["mid"] = candidate->sdp_mid();
-    msg["mlineIndex"] = candidate->sdp_mline_index();
+    boost::json::object message;
+    message["type"] = "candidate";
+    message["candidate"] = sdp;
+    message["mid"] = candidate->sdp_mid();
+    message["mlineIndex"] = candidate->sdp_mline_index();
 
-    webrtcManager->sendSignalingMessage(msg);
+    std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
+    webrtcManager->post([manager, message = std::move(message)]() mutable { manager->sendSignalingMessage(message); });
 }
 
 void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
-    switch (newState) {
-    case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
-        LOG_INFO("WebRTC connection established");
-        webrtcManager->isRemote = true;
-        webrtcManager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
-        if (webrtcManager->onRTCStatsCollectorHandle) {
-            webrtcManager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = webrtcManager->onRTCStatsCollectorHandle;
+    std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
+    // post 到 ioContext:回调在 WebRTC 信令线程,碰 WebrtcManager 状态须串行到 ioContext
+    webrtcManager->post([manager, newState]() {
+        switch (newState) {
+        case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
+            LOG_INFO("WebRTC connection established");
+            manager->isRemote = true;
+            manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
+            if (manager->onRTCStatsCollectorHandle) {
+                manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = manager->onRTCStatsCollectorHandle;
+            }
+            if (manager->peerConnection) {
+                manager->peerConnection->GetStats(manager->rtcStatsCollectorHandle.get());
+            }
+            if (manager->onRemoteSuccessFulHandle) {
+                manager->onRemoteSuccessFulHandle();
+            }
+            break;
         }
-        webrtcManager->peerConnection->GetStats(webrtcManager->rtcStatsCollectorHandle.get());
-        if (webrtcManager->onRemoteSuccessFulHandle) {
-            webrtcManager->onRemoteSuccessFulHandle();
+        case webrtc::PeerConnectionInterface::kIceConnectionFailed:
+            LOG_ERROR("ICE connection failed");
+            // ICE 失败是终态:走 disConnectRemoteHandler 强制重置连接态(关 tcpSocket/peerConnection、
+            // 重建空白 peerConnection),若之前已连上还会通知 UI。防止残留导致重连失败。
+            manager->disConnectRemoteHandler();
+            break;
+        case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
+            LOG_WARN("ICE connection disconnected");
+            manager->disConnectRemoteHandler();
+            break;
         }
-        break;
-    }
-    case webrtc::PeerConnectionInterface::kIceConnectionFailed:
-        LOG_ERROR("ICE connection failed");
-        // ICE 失败是终态:走 disConnectRemoteHandler 强制重置连接态(关 tcpSocket/peerConnection、
-        // 重建空白 peerConnection),若之前已连上还会通知 UI。防止残留导致重连失败。
-        webrtcManager->disConnectRemoteHandler();
-        break;
-    case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
-        LOG_WARN("ICE connection disconnected");
-        webrtcManager->disConnectRemoteHandler();
-        break;
-    }
-    case webrtc::PeerConnectionInterface::kIceConnectionClosed: {
-        LOG_INFO("ICE connection closed");
-        break;
-    }
-    default:
-        break;
-    }
+        case webrtc::PeerConnectionInterface::kIceConnectionClosed: {
+            LOG_INFO("ICE connection closed");
+            break;
+        }
+        default:
+            break;
+        }
+    });
 }
 
 void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
@@ -131,25 +143,29 @@ void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterf
 }
 
 void PeerConnectionObserverImpl::OnTrack(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
-    auto receiver = transceiver->receiver();
-    auto track = receiver->track();
+    std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
+    // post 到 ioContext:回调在 WebRTC 信令线程,碰 WebrtcManager 状态须串行到 ioContext
+    webrtcManager->post([manager, transceiver = std::move(transceiver)]() {
+        webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver = transceiver->receiver();
+        webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track = receiver->track();
 
-    if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
-        LOG_INFO("Video track received");
-        receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
-        webrtcManager->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
-            static_cast<webrtc::VideoTrackInterface*>(track.release()));
-        webrtcManager->videoSinkImpl = std::make_unique<VideoTrackSinkImpl>(webrtcManager);
-        webrtcManager->videoTrack->AddOrUpdateSink(webrtcManager->videoSinkImpl.get(), webrtc::VideoSinkWants());
-        return;
-    }
+        if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
+            LOG_INFO("Video track received");
+            receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
+            manager->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
+                static_cast<webrtc::VideoTrackInterface*>(track.release()));
+            manager->videoSinkImpl = std::make_unique<VideoTrackSinkImpl>(manager.get());
+            manager->videoTrack->AddOrUpdateSink(manager->videoSinkImpl.get(), webrtc::VideoSinkWants());
+            return;
+        }
 
-    if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
-        LOG_INFO("Audio track received");
-        receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
-        webrtcManager->audioTrack = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
-            static_cast<webrtc::AudioTrackInterface*>(track.release()));
-    }
+        if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
+            LOG_INFO("Audio track received");
+            receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
+            manager->audioTrack = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
+                static_cast<webrtc::AudioTrackInterface*>(track.release()));
+        }
+    });
 }
 
 

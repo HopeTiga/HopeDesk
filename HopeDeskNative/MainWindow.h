@@ -182,6 +182,7 @@ private:
 
     QTabWidget* settingsTabWidget = nullptr;
     QCheckBox*  verticalSyncCheckBox = nullptr;
+    QCheckBox*  webrtcDebugLogCheckBox = nullptr;   // WebRTC 调试日志开关(Webrtc.DebugLog)
     QLineEdit*  signalServerHostEdit = nullptr;
     QSpinBox*   signalServerPortSpin = nullptr;
     QLineEdit*  stunHostEdit = nullptr;
