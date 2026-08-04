@@ -58,12 +58,17 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    // 被控端:本机 System 经本地 TCP(ENCODE_STATUS)上报当前编码 codec + 硬编/软编 -> label
-    webrtcManager->onEncodeStatusHandle = [this](const std::string& codec, bool hardEncode) {
+    // 被控端:本机 System 经本地 TCP(ENCODE_STATUS)上报当前编码 codec + 硬编/软编 + 采集技术 -> label
+    webrtcManager->onEncodeStatusHandle = [this](const std::string& codec, bool hardEncode, const std::string& captureTech) {
         QString codecQ = QString::fromStdString(codec).toUpper();
-        QString text = QString("编码: %1 %2").arg(codecQ).arg(hardEncode ? "硬编" : "软编");
-        QMetaObject::invokeMethod(this, [this, text]() {
-            if (ui && ui->labelCodecStatus) ui->labelCodecStatus->setText(text);
+        QString captureQ = QString::fromStdString(captureTech);
+        QMetaObject::invokeMethod(this, [this, codecQ, hardEncode, captureQ]() {
+            if (ui) {
+                if (ui->labelCodecStatus)
+                    ui->labelCodecStatus->setText(QString("编码: %1 %2").arg(codecQ).arg(hardEncode ? "硬编" : "软编"));
+                if (ui->labelCaptureTech)
+                    ui->labelCaptureTech->setText(QString("采集: %1").arg(captureQ));
+            }
         }, Qt::QueuedConnection);
     };
 
@@ -106,6 +111,7 @@ MainWindow::MainWindow(QWidget* parent)
                     ui->remoteStatusLabel->setText("远程连接已结束");
                     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
                     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
+                    if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
                     stopFpsDisplay();
                     if(videoWidget) { videoWidget->hide(); disconnect(videoWidget, nullptr, this, nullptr); delete videoWidget; videoWidget = nullptr; }
 
@@ -1222,6 +1228,9 @@ void MainWindow::onBtnConnectClicked()
         ui->btnSendCtrlAltF->setEnabled(false);   // 手动断开:禁用
         ui->remoteStatusLabel->setText("远程连接已结束");
         ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
+        // 手动断开也清空编码/采集状态,避免残留上一会话
+        if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
+        if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
 
         this->showNormal();
         this->activateWindow();
@@ -1299,8 +1308,9 @@ void MainWindow::onRemoteDisconnectedByPeer()
     ui->btnSendCtrlAltF->setEnabled(false);   // 断开:无连接可发,禁用
     ui->remoteStatusLabel->setText("远程连接已结束");
     ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
-    // 断开清空状态:编/解码 label + VideoWidget 显示状态(避免残留上一帧/旧状态)
+    // 断开清空状态:编/解码 + 采集 label + VideoWidget 显示状态(避免残留上一帧/旧状态)
     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
+    if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
     stopFpsDisplay();
     if (videoWidget) {
         videoWidget->clearDisplay();

@@ -662,6 +662,16 @@ QPushButton:disabled {
               </widget>
              </item>
              <item>
+              <widget class="QLabel" name="labelCaptureTech">
+               <property name="styleSheet">
+                <string notr="true">color: #8B5CF6; font-size: 12px;</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+             <item>
               <spacer name="horizontalSpacer_CtrlAltF">
                <property name="orientation">
                 <enum>Qt::Orientation::Horizontal</enum>

@@ -249,7 +249,7 @@ public:
 
     std::function<void(int, double)> onRTCStatsCollectorHandle;
 
-    std::function<void(const std::string& codec, bool hardEncode)> onEncodeStatusHandle;
+    std::function<void(const std::string& codec, bool hardEncode, const std::string& captureTech)> onEncodeStatusHandle;
 
     void requestStats();
 

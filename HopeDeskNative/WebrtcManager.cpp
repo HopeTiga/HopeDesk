@@ -1270,11 +1270,12 @@ void WebrtcManager::receiveCoroutineAysnc()
 
             }else if(WebrtcRequestState(json["requestType"].as_int64()) == WebrtcRequestState::ENCODE_STATUS){
 
-                // 被控端:本机 System 经本地 TCP 上报当前编码 codec + 硬编/软编
+                // 被控端:本机 System 经本地 TCP 上报当前编码 codec + 硬编/软编 + 采集技术
                 std::string codec = json.contains("codec") ? json["codec"].as_string().c_str() : "";
                 bool hard = json.contains("hard") ? (json["hard"].as_bool()) : false;
-                LOG_INFO("Encode status from System: codec=%s hard=%d", codec.c_str(), hard ? 1 : 0);
-                if (onEncodeStatusHandle) onEncodeStatusHandle(codec, hard);
+                std::string capture = json.contains("capture") ? json["capture"].as_string().c_str() : "Hope Virtual Display";
+                LOG_INFO("Encode status from System: codec=%s hard=%d capture=%s", codec.c_str(), hard ? 1 : 0, capture.c_str());
+                if (onEncodeStatusHandle) onEncodeStatusHandle(codec, hard, capture);
 
                 continue;  // 状态消息不再转发给信号服务器
             }
