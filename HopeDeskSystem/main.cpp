@@ -134,13 +134,16 @@ void AsyncEvent() {
 
     std::string processType = GetProcessTypeString();
 
+    // webrtc 日志不再无条件开:由 native 的「系统设置」开关经 registerJson 传入后开启
+
     boost::asio::io_context ioContext;
 
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> ioContextWorkPtr =
         std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    std::unique_ptr<hope::rtc::WebrtcManager> webrtcManager = std::make_unique<hope::rtc::WebrtcManager>([&ioContext, &ioContextWorkPtr]() {
-        
+    // 用 shared_ptr 持有:peerConnection 回调经 post 投递到 ioContext 时用 shared_from_this 保活
+    std::shared_ptr<hope::rtc::WebrtcManager> webrtcManager = std::make_shared<hope::rtc::WebrtcManager>([&ioContext, &ioContextWorkPtr]() {
+
         ioContextWorkPtr.reset();
 
         ioContext.stop();
@@ -154,6 +157,8 @@ void AsyncEvent() {
     ioContext.run();
 
     closeLogger();
+
+    closeWebrtcLogging();
 }
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
@@ -222,7 +227,15 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
             LOG_INFO("[MAINPROCESS] SessionID: %d - Respawned process in active session", sessionId);
 
-            WaitForSingleObject(stopEvent, INFINITE);
+            // The respawned worker runs independently in the active session and
+            // does not need this service process to stay alive. Give it a short
+            // moment to initialize (and let the SCM see a clean stop), then let
+            // this process exit instead of blocking on stopEvent forever. The
+            // lingering service process was the source of duplicate-instance and
+            // SCM-conflict bugs.
+            Sleep(2000);
+            CloseHandle(process);
+            process = nullptr;
 
         }
         catch (const std::exception& e) {
@@ -243,33 +256,8 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     SetServiceStatus(statusHandle, &serviceStatus);
 
-    if (process != nullptr) {
-
-        DWORD exitCode;
-
-        if (GetExitCodeProcess(process, &exitCode)) {
-
-            if (exitCode == STILL_ACTIVE) {
-
-                LOG_INFO("ProcessManager: Child process still running, forcing termination");
-
-                if (!TerminateProcess(process, 1)) {
-
-                    LOG_ERROR("ProcessManager: Force termination failed");
-
-                }
-                else {
-
-                    LOG_INFO("ProcessManager: Child process has been force terminated");
-
-                }
-            }
-        }
-
-        CloseHandle(process);
-    }
-
-    LOG_INFO("[MAINPROCESS] SessionID: %d - Service stopped successfully", sessionId);
+    // The worker is intentionally left running; this process exits on purpose.
+    LOG_INFO("[MAINPROCESS] SessionID: %d - Service exiting after spawning worker", sessionId);
 }
 
 int main(int argc, char* argv[]) {

@@ -46,75 +46,83 @@ namespace hope {
                 return;
             }
 
-            boost::json::object msg;
-            msg["type"] = "candidate";
-            msg["candidate"] = sdp;
-            msg["mid"] = candidate->sdp_mid();
-            msg["mlineIndex"] = candidate->sdp_mline_index();
+            boost::json::object message;
+            message["type"] = "candidate";
+            message["candidate"] = sdp;
+            message["mid"] = candidate->sdp_mid();
+            message["mlineIndex"] = candidate->sdp_mline_index();
 
-            webrtcManager->sendSignalingMessage(msg);
+            webrtcManager->sendSignalingMessage(message);
         }
 
         void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
-            switch (newState) {
-            case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
-                LOG_INFO("ICE connection established");
+            // post 到 ioContext:回调在 WebRTC 信令线程,碰 WebrtcManager 状态须串行到 ioContext
+            std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
+            webrtcManager->post([manager, newState]() {
+                switch (newState) {
+                case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
+                    LOG_INFO("ICE connection established");
 
-                auto localDesc = webrtcManager->peerConnection->local_description();
-                if (localDesc) {
-                    std::string sdp;
-                    localDesc->ToString(&sdp);
+                    if (manager->peerConnection) {
+                        auto localDesc = manager->peerConnection->local_description();
+                        if (localDesc) {
+                            std::string sdp;
+                            localDesc->ToString(&sdp);
 
-                    std::istringstream stream(sdp);
-                    std::string line;
-                    while (std::getline(stream, line)) {
-                        if (line.find("a=rtpmap:") == 0 && line.find("/90000") != std::string::npos) {
-                            size_t spacePos = line.find(' ');
-                            if (spacePos != std::string::npos) {
-                                std::string codecInfo = line.substr(spacePos + 1);
-                                size_t slashPos = codecInfo.find('/');
-                                if (slashPos != std::string::npos) {
-                                    std::string codecName = codecInfo.substr(0, slashPos);
-                                    LOG_INFO("=== Video codec actually being used: %s ===", codecName.c_str());
-                                    break;
+                            std::istringstream stream(sdp);
+                            std::string line;
+                            while (std::getline(stream, line)) {
+                                if (line.find("a=rtpmap:") == 0 && line.find("/90000") != std::string::npos) {
+                                    size_t spacePos = line.find(' ');
+                                    if (spacePos != std::string::npos) {
+                                        std::string codecInfo = line.substr(spacePos + 1);
+                                        size_t slashPos = codecInfo.find('/');
+                                        if (slashPos != std::string::npos) {
+                                            std::string codecName = codecInfo.substr(0, slashPos);
+                                            LOG_INFO("=== Video codec actually being used: %s ===", codecName.c_str());
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                boost::json::object json;
-                json["requestType"] = static_cast<int64_t>(WebrtcRequestState::START);
-                std::string jsonStr = boost::json::serialize(json);
-                std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-                webrtcManager->asyncWrite(data);
-
-                webrtcManager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
-                webrtcManager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = [this](int connectionType) {
                     boost::json::object json;
-                    json["requestType"] = static_cast<int64_t>(WebrtcRequestState::STATS);
-                    json["connectionType"] = connectionType;
+                    json["requestType"] = static_cast<int64_t>(WebrtcRequestState::START);
                     std::string jsonStr = boost::json::serialize(json);
                     std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
-                    webrtcManager->asyncWrite(data);
-                    };
-                webrtcManager->peerConnection->GetStats(webrtcManager->rtcStatsCollectorHandle.get());
-                break;
-            }
+                    manager->asyncWrite(data);
 
-            case webrtc::PeerConnectionInterface::kIceConnectionFailed:
-                LOG_ERROR("ICE connection failed");
-                break;
-            case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
-                LOG_INFO("ICE connection disconnected");
-                if (webrtcManager->closeHandle) {
-					webrtcManager->closeHandle();
+                    manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
+                    manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = [manager](int connectionType) {
+                        boost::json::object json;
+                        json["requestType"] = static_cast<int64_t>(WebrtcRequestState::STATS);
+                        json["connectionType"] = connectionType;
+                        std::string jsonStr = boost::json::serialize(json);
+                        std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
+                        manager->asyncWrite(data);
+                        };
+                    if (manager->peerConnection) {
+                        manager->peerConnection->GetStats(manager->rtcStatsCollectorHandle.get());
+                    }
+                    break;
                 }
-                break;
-            }
-            default:
-                break;
-            }
+
+                case webrtc::PeerConnectionInterface::kIceConnectionFailed:
+                    LOG_ERROR("ICE connection failed");
+                    break;
+                case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
+                    LOG_INFO("ICE connection disconnected");
+                    if (manager->closeHandle) {
+                        manager->closeHandle();
+                    }
+                    break;
+                }
+                default:
+                    break;
+                }
+            });
         }
 
         void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
@@ -134,7 +142,7 @@ namespace hope {
 
         void PeerConnectionObserverImpl::OnIceCandidateError(const std::string& address, int port, const std::string& url,
             int errorCode, const std::string& errorText) {
-            printf("PeerConnectionObserverImpl::OnIceCandidateError: address=%s, port=%d, url=%s, errorCode=%d, errorText=%s\n",
+            LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address=%s, port=%d, url=%s, errorCode=%d, errorText=%s\n",
                 address.c_str(), port, url.c_str(), errorCode, errorText.c_str());
         }
 

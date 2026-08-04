@@ -86,6 +86,7 @@ namespace hope {
         }
 
         void WebrtcManager::sendSignalingMessage(const boost::json::object& message) {
+
             boost::json::object fullMsg;
             fullMsg["requestType"] = static_cast<int64_t>(WebrtcRequestState::REQUEST);
             fullMsg["accountId"] = accountId;
@@ -182,6 +183,11 @@ namespace hope {
 
             asioConcurrentQueue.enqueue(std::move(data));
 
+        }
+
+        void WebrtcManager::post(std::function<void()> task)
+        {
+            boost::asio::post(ioContext, std::move(task));
         }
 
         bool WebrtcManager::initializePeerConnection() {
@@ -303,11 +309,11 @@ namespace hope {
 
             config.tcp_candidate_policy = webrtc::PeerConnectionInterface::kTcpCandidatePolicyDisabled;
 
-            config.ice_connection_receiving_timeout = 10000;        // 5秒无数据包则认为断开
+            config.ice_connection_receiving_timeout = 10000;        // 连上后 10s 收不到数据才判断开(检测断开保持 10s)
 
-            config.ice_unwritable_timeout = 10000;                  // 3秒无响应则标记为不可写
+            config.ice_unwritable_timeout = 30000;                  // 建立阶段 30s 无写成功才标记不可写(放宽,避免慢连被误杀)
 
-            config.ice_inactive_timeout = 10000;                    // 5秒后标记为非活跃
+            config.ice_inactive_timeout = 30000;                    // 30s 无活动才标记非活跃(放宽,配合慢启动)
 
             config.set_dscp(true);
 
@@ -751,6 +757,8 @@ namespace hope {
                     LOG_ERROR("Failed to start screen capture");
                     return false;
                 }
+
+                return true;
             }
 
             // 光标上报（两个模式共用）
@@ -1031,6 +1039,16 @@ namespace hope {
                                 }
                                 if (json.contains("turnPassword")) {
                                     webrtcManagerConfig.turnPassword = json["turnPassword"].as_string().c_str();
+                                }
+
+                                if (json.contains("debugLog")) {
+                                    bool debugLog = json["debugLog"].as_bool();
+                                    if (debugLog) {
+                                        LOG_INFO("Enable Webrtc DebugLog");
+                                        initWebrtcLogging();
+                                    } else {
+                                        closeWebrtcLogging();
+                                    }
                                 }
 
                             }

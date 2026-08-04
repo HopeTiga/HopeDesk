@@ -42,6 +42,8 @@ extern "C" {
 
     void initLogger();
     void closeLogger();
+    void initWebrtcLogging();    // 安装 webrtc RTC_LOG sink,写 logs/webrtc.log(排查 ICE/DTLS)
+    void closeWebrtcLogging();
     void enableFileLogging(int enable);
     void setLogDirectory(const char* dir);
     void setConsoleOutputLevels(int debug, int info, int warn, int error);

@@ -6,8 +6,8 @@
 
 namespace hope {
 
-	namespace rtc {
-	
+    namespace rtc {
+
         // CreateOfferObserverImpl实现
         void CreateOfferObserverImpl::OnSuccess(webrtc::SessionDescriptionInterface* desc) {
             if (!desc) {
@@ -61,7 +61,7 @@ namespace hope {
         }
 
         void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
-            LOG_ERROR("CreateOffer failed: %s" , error.message());
+            LOG_ERROR("CreateOffer failed: %s", error.message());
         }
 
         // CreateAnswerObserverImpl实现
@@ -90,6 +90,6 @@ namespace hope {
             LOG_ERROR("CreateAnswer failed: %s", error.message());
         }
 
-	}
+    }
 
 }

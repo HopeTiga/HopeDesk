@@ -91,7 +91,7 @@ namespace hope {
             std::string systemService; // stable id; ties a virtual display to this service
         };
 
-        class WebrtcManager {
+        class WebrtcManager : public std::enable_shared_from_this<WebrtcManager> {
 
             friend class PeerConnectionObserverImpl;
 
@@ -114,6 +114,10 @@ namespace hope {
             void processIceCandidate(const std::string& candidate, const std::string& mid, int lineIndex);
 
             void asyncWrite(std::shared_ptr<WriterData> data);
+
+            // 把任务投递到 ioContext 线程执行,保证与 ioContext 上的操作(收发/定时器)串行、线程安全。
+            // peerConnection 等回调运行在 WebRTC 信令线程,必须经此投递后再碰 WebrtcManager 状态。
+            void post(std::function<void()> task);
 
             void releaseSource();
 

@@ -39,7 +39,6 @@ namespace hope {
 
             WebrtcManager* webrtcManager;
 
-
             webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peerConnection;
 
         };
