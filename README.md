@@ -10,7 +10,7 @@
 
 - **稳健高效的信令架构**：采用以**WebSocket为核心的稳健信令架构**。利用WebSocket技术实现高兼容性的连接建立、会话管理与穿透，在提供无与伦比的跨平台与防火墙穿透能力的同时，确保连接的稳定与可靠。
 - **卓越视觉体验**：采用高效屏幕捕获与**AV1软件编码**，提供高清流畅画面。被控端**已集成基于NVIDIA NVENC的硬件编码**，操控端**集成 NVDEC 硬件解码**，端到端 GPU 加速，为远程运行大型3A游戏、专业设计软件提供强大的性能支撑，显著提升画质与流畅度。
-- **双采集模式**：System 内置两套采集后端——**高性能模式**Hope Virtual Display 虚拟显示器驱动的共享帧通道，GPU 纹理零拷贝直通 NVENC，绕开 Desktop Duplication API 桌面采集，延迟更低、支持 HDR）与**兼容模式**（Desktop Duplication API 桌面采集，无需虚拟显示器驱动即可在任何机器运行，支持 CPU/GPU/PRO 三级传输）。控制端"模式"一键切换：**游戏模式→Hope Virtual Display 高性能**，**办公模式→Desktop Duplication API 兼容**。
+- **双采集模式**：System 内置两套采集后端——**高性能模式**（Hope Virtual Display 虚拟显示器驱动的共享帧通道，GPU 纹理零拷贝直通 NVENC，绕开 Desktop Duplication API 桌面采集，延迟更低、支持 HDR）与**兼容模式**（Desktop Duplication API 桌面采集，无需虚拟显示器驱动即可在任何机器运行，支持 CPU/GPU/PRO 三级传输）。控制端"模式"一键切换：**游戏模式→Hope Virtual Display 高性能**，**办公模式→Desktop Duplication API 兼容**。
 - **干净的采集画面**：启用**硬件光标**后，被控端光标经虚拟显示器驱动的带外通道渲染，不合成进帧缓冲，捕获帧天然不含系统光标。
 - **系统级沉浸操控**：通过驱动级输入技术实现零延迟键鼠映射，完美支持UAC安全桌面，支持**远程畅玩各类大型游戏**，提供沉浸式体验。
 - **自适应网络连接**：优先建立P2P直连传输，结合智能路由选择，确保在任何网络环境下都能获得稳定、低延迟的连接。
@@ -83,7 +83,7 @@ graph TD
 
 ### 步骤 2：安装虚拟显示器驱动（高性能采集）
 为启用 Hope Virtual Display 高性能采集（绕开 Desktop Duplication API），需安装 HopeDesk 虚拟显示器驱动。驱动包已预签名，直接使用安装器即可：
-1.  进入 `HopeDesk/driver` 目录，以**管理员身份**运行 `HopeDeskHope Virtual DisplayInstaller.exe`（SetupAPI 安装器，默认安装 `ZakoHope Virtual Display.inf` 到 `Root\ZakoHope Virtual Display`，自动清理旧设备节点）。
+1.  进入 `HopeDesk/driver` 目录，以**管理员身份**运行 `HopeDeskVddInstaller.exe`（SetupAPI 安装器，默认安装 `ZakoVDD.inf` 到 `Root\ZakoVDD`，自动清理旧设备节点）。
 2.  若提示 **REBOOT required**，重启后再使用；未安装本驱动时 System 自动回退 Desktop Duplication API 兼容采集，不影响连接。
 3.  需要自定义签名或完整「清理 + 签名 + 安装」流程的用户，可改用 `install.bat`——该脚本专供**拥有 WDK 且不想使用默认签名**的用户（也内置免 WDK 的 PowerShell 签名回退；驱动已签名时自动跳过签名）。
 4.  **签名提示**：驱动为自签名测试证书签名，**无需开启测试签名**。
@@ -98,6 +98,8 @@ graph TD
     SystemServiceExe=../HopeDeskSystem/HopeDeskSystem.exe
     ; 系统服务名称（可自定义，避免与已安装的同名服务冲突；留空则取 exe 文件名）
     SystemService=HopeDeskSystem
+    ; WebRTC 调试日志开关（对应「设置 → 系统设置」里的勾选）：true=写 logs/webrtc.log（RTC_LOG 最详细，排查 ICE/DTLS）
+    DebugLog=false
 
     [Stun]
     ; STUN 服务器地址，用于NAT穿透
@@ -136,11 +138,12 @@ graph TD
 - **硬件编码支持**：**已集成基于NVIDIA NVENC的硬件编码**，能够利用GPU进行编码加速，大幅降低大型应用（如3A游戏、视频编辑软件）远程运行时的CPU占用，实现更高帧率、更低延迟与更佳画质，是**远程高品质游戏与专业应用体验的关键保障**。
 - **硬件解码支持**：操控端 Native 集成 **NVIDIA NVDEC 硬件解码**（CUVID，支持 H264/H265/AV1），解码后经主机 NV12 → QRhi 上传 GPU 纹理渲染，避免软解占用 CPU，与 NVENC 硬编端到端 GPU 加速链路闭环。无 N 卡或硬解失败时自动回退 WebRTC 原生软解。
 - **为游戏优化**：当前架构结合硬件编码加速，已实现对《英雄联盟》《黑神话：悟空》等大型游戏的远程流畅游玩，在保持高画质的同时稳定输出高帧率与低延迟，将远程游戏体验提升至全新高度。实测借助 **NVENC 硬编**远程游玩《黑神话：悟空》可高画质流畅通关 **黑风大王、黑熊精、杨戬** 等 Boss 战，并稳定运行《英雄联盟》等网游，操控响应接近本地。
-- **虚拟显示器高性能采集（Hope Virtual Display）**：System 默认通过自研 **HopeDesk 虚拟显示器驱动**（IddCx Indirect Display）创建虚拟显示器，从驱动的共享帧通道直接捕获。GPU 共享纹理**零拷贝**直通 NVENC，完全绕开 Desktop Duplication API Desktop Duplication（桌面采集 API 的固有开销），延迟更低、吞吐更高、支持 HDR 元数据；驱动自动按客户端请求的分辨率/刷新率（最高 144Hz+）发布帧。
+- **虚拟显示器高性能采集（Hope Virtual Display）**：System 默认通过自研 **Hope Virtual Display 虚拟显示器驱动**（IddCx Indirect Display）创建虚拟显示器，从驱动的共享帧通道直接捕获。GPU 共享纹理**零拷贝**直通 NVENC，完全绕开 Desktop Duplication API（桌面采集 API 的固有开销），延迟更低、吞吐更高、支持 HDR 元数据；驱动自动按客户端请求的分辨率/刷新率（最高 144Hz+）发布帧。
 - **Desktop Duplication API 兼容采集（ScreenCapture）**：未安装或未使用虚拟显示器驱动时，System 自动退回 **Desktop Duplication API 桌面采集**，任何机器都能运行。提供 **CPU / GPU / PRO 三级传输**（由控制端"加速策略"指定）：CPU 走 BGRA 软转 I420；GPU 走计算着色器转 I420；PRO 走 D3D11 VideoProcessor 转 NV12。已关闭脏矩形，走全帧传输。
 - **采集模式自动切换**：控制端"模式"选择 **游戏模式** → System 使用 Hope Virtual Display 高性能采集；选择 **办公模式** → 使用 Desktop Duplication API 兼容采集。Hope Virtual Display 不可用（驱动未装/未加载）时也能优雅回退到 Desktop Duplication API，保证连接不中断。
 - **干净的采集画面**：System 每次会话自动开启虚拟显示器的**硬件光标**（`HARDWARECURSOR=1`），光标经 IddCx 带外通道渲染，不合成进帧缓冲，捕获帧不含系统光标。
 - **编解码与采集状态可见**：**控制端 Native** 实时显示当前解码器（`解码: AV1 硬解`——codec + 硬解/软解）；**被控端 Native** 实时显示当前编码器（`编码: AV1 硬编`——codec + 硬编/软编）与实际使用的采集技术（`采集: Hope Virtual Display` / `Desktop Duplication API`），由远端/System 上报获得；断开控制后两端状态均自动清空，不残留上一会话。
+- **WebRTC 调试日志**：**控制端 Native**「设置 → 系统设置」提供「WebRTC 调试日志」开关（写入 `Webrtc.DebugLog`）。开启后 Native 与 System 均把 libwebrtc 的 `RTC_LOG`（`LS_VERBOSE` 级别，含 ICE 连通性检查、candidate pair 状态、DTLS 握手）写入 `logs/webrtc.log`，开关经注册消息下发给 System（System 以服务方式运行时日志落在 `C:\Windows\System32\logs\webrtc.log`）。日志量大，建议仅排查连接问题时开启。
 
 ### 🔀 稳健的信令架构
 - **高兼容性与穿透力**：采用广泛支持的**WebSocket协议**作为核心信令通道，确保在企业网络、公共Wi-Fi等各种复杂网络环境下都能可靠建立连接，具备出色的防火墙穿透能力。
@@ -186,7 +189,7 @@ HopeDesk 采用以 WebSocket 为核心的稳健信令架构，旨在各类生产
 
 ## 📱 平台支持
 
-- **Windows 被控端**：✅ 完整支持（核心平台，享驱动级输入、硬件采集与**NVENC硬件编码**）
+- **Windows 被控端**：✅ 完整支持（核心平台，享驱动级输入、硬件采集与**NVENC硬件编码**）。高性能采集（Hope Virtual Display）需 Windows + NVIDIA 显卡（NVENC）及已安装虚拟显示器驱动；兼容采集（Desktop Duplication API）无需 NVIDIA 也能运行。
 - **Windows 桌面操控端**：✅ 完整支持（基于Qt，通过WebSocket信令连接，支持**NVDEC硬件解码**）
 - **Web 浏览器操控端**：✅ 完整支持（通过WebSocket + WebRTC，可进行远程控制与桌面观看）
 - **Linux / macOS 被控端**：🗓️ 规划中（将基于统一的架构进行扩展）
