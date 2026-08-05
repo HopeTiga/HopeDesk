@@ -9,7 +9,7 @@
 ## 🚀 核心亮点
 
 - **稳健高效的信令架构**：采用以**WebSocket为核心的稳健信令架构**。利用WebSocket技术实现高兼容性的连接建立、会话管理与穿透，在提供无与伦比的跨平台与防火墙穿透能力的同时，确保连接的稳定与可靠。
-- **卓越视觉体验**：采用高效屏幕捕获与**AV1软件编码**，提供高清流畅画面。被控端**已集成基于NVIDIA NVENC的硬件编码**，操控端**集成 NVDEC 硬件解码**，端到端 GPU 加速，为远程运行大型3A游戏、专业设计软件提供强大的性能支撑，显著提升画质与流畅度。
+- **卓越视觉体验**：采用高效屏幕捕获与**AV1软件编码**，提供高清流畅画面。被控端**已集成基于NVIDIA NVENC的硬件编码**，操控端**集成 D3D11(DXVA)/NVDEC 硬件解码**（AV1 走 D3D11 零拷贝，H264/H265 走 NVDEC），端到端 GPU 加速，为远程运行大型3A游戏、专业设计软件提供强大的性能支撑，显著提升画质与流畅度。
 - **双采集模式**：System 内置两套采集后端——**高性能模式**（Hope Virtual Display 虚拟显示器驱动的共享帧通道，GPU 纹理零拷贝直通 NVENC，绕开 Desktop Duplication API 桌面采集，延迟更低、支持 HDR）与**兼容模式**（Desktop Duplication API 桌面采集，无需虚拟显示器驱动即可在任何机器运行，支持 CPU/GPU/PRO 三级传输）。控制端"模式"一键切换：**游戏模式→Hope Virtual Display 高性能**，**办公模式→Desktop Duplication API 兼容**。
 - **干净的采集画面**：启用**硬件光标**后，被控端光标经虚拟显示器驱动的带外通道渲染，不合成进帧缓冲，捕获帧天然不含系统光标。
 - **系统级沉浸操控**：通过驱动级输入技术实现零延迟键鼠映射，完美支持UAC安全桌面，支持**远程畅玩各类大型游戏**，提供沉浸式体验。
@@ -31,7 +31,7 @@ graph TD
 
     subgraph NA [Native —— 控制端]
         NA1[Qt / Web 前端]
-        NA2[WebRTC · NVDEC 硬解 · QRhi 渲染]
+        NA2[WebRTC · D3D11/NVDEC 硬解 · QRhi 渲染]
         NA3[键鼠采集]
     end
 
@@ -64,7 +64,7 @@ graph TD
 4. System 启动后经 **本地私有 TCP** 连回被控端 Native；被控端 Native 将请求与 WebRTC 配置经 TCP 下发给 System。
 5. **System 作为编码方生成 WebRTC Offer**，经 TCP 交给被控端 Native，再由其经 WebSocket/Signal 转发给控制端 Native。
 6. 控制端 Native `SetRemoteDescription(offer)` → `CreateAnswer`，Answer 经 Signal → 被控端 Native → TCP → System；ICE 候选沿同一路径交换。
-7. 协商完成建立 **P2P 直连**：System（NVENC 编码）→ 媒体流视频帧 → 控制端 Native（NVDEC 硬解 + QRhi 渲染）；控制端键鼠 → 数据通道 → System 驱动级注入。
+7. 协商完成建立 **P2P 直连**：System（NVENC 编码）→ 媒体流视频帧 → 控制端 Native（D3D11/NVDEC 硬解 + QRhi 渲染）；控制端键鼠 → 数据通道 → System 驱动级注入。
 8. NAT 不允许直连时经 STUN/TURN 中继兜底；媒体与数据均不过信令服务器，被控端 Native 仅做信令桥接。
 
 ---
@@ -136,7 +136,11 @@ graph TD
 ### 🖥️ 画质与性能
 - **高清自适应编码**：采用高效率的AV1软件编码器，在有限带宽下提供更佳画质。支持动态调整帧率与分辨率，适应复杂网络。
 - **硬件编码支持**：**已集成基于NVIDIA NVENC的硬件编码**，能够利用GPU进行编码加速，大幅降低大型应用（如3A游戏、视频编辑软件）远程运行时的CPU占用，实现更高帧率、更低延迟与更佳画质，是**远程高品质游戏与专业应用体验的关键保障**。
-- **硬件解码支持**：操控端 Native 集成 **NVIDIA NVDEC 硬件解码**（CUVID，支持 H264/H265/AV1），解码后经主机 NV12 → QRhi 上传 GPU 纹理渲染，避免软解占用 CPU，与 NVENC 硬编端到端 GPU 加速链路闭环。无 N 卡或硬解失败时自动回退 WebRTC 原生软解。
+- **硬件解码支持**：操控端 Native 集成 **D3D11(DXVA) 与 NVDEC(CUVID) 双硬件解码**：
+  - **AV1 硬解**走 **D3D11 DXVA**，默认**零拷贝**（解码直写共享纹理、渲染端免上传直接采样）；若驱动不支持/解码失败（GPU 移除、共享纹理解码崩溃），**自动切换到 VideoProcessor 拷贝路径**（解码进私有纹理 → VideoProcessorBlt 拷到共享纹理，绕开驱动不支持的零拷贝），仍失败则运行时回退软解（dav1d）。
+  - **H264/H265 硬解**走 **NVDEC(CUVID)**；H265 软解走 libde265。
+  - 每次连接**按新设备重建解码器**，避免沿用上一连接已销毁的旧设备。
+- **渲染**：QRhiWidget + **取最新帧 + vsync 持续渲染**（render 内调 update，Qt 官方 vsync 节流模式），呈现对齐显示刷新率，无撕裂、无画面跳动，端到端 GPU 加速链路闭环。
 - **为游戏优化**：当前架构结合硬件编码加速，已实现对《英雄联盟》《黑神话：悟空》等大型游戏的远程流畅游玩，在保持高画质的同时稳定输出高帧率与低延迟，将远程游戏体验提升至全新高度。实测借助 **NVENC 硬编**远程游玩《黑神话：悟空》可高画质流畅通关 **黑风大王、黑熊精、杨戬** 等 Boss 战，并稳定运行《英雄联盟》等网游，操控响应接近本地。
 - **虚拟显示器高性能采集（Hope Virtual Display）**：System 默认通过自研 **Hope Virtual Display 虚拟显示器驱动**（IddCx Indirect Display）创建虚拟显示器，从驱动的共享帧通道直接捕获。GPU 共享纹理**零拷贝**直通 NVENC，完全绕开 Desktop Duplication API（桌面采集 API 的固有开销），延迟更低、吞吐更高、支持 HDR 元数据；驱动自动按客户端请求的分辨率/刷新率（最高 144Hz+）发布帧。
 - **Desktop Duplication API 兼容采集（ScreenCapture）**：未安装或未使用虚拟显示器驱动时，System 自动退回 **Desktop Duplication API 桌面采集**，任何机器都能运行。提供 **CPU / GPU / PRO 三级传输**（由控制端"加速策略"指定）：CPU 走 BGRA 软转 I420；GPU 走计算着色器转 I420；PRO 走 D3D11 VideoProcessor 转 NV12。已关闭脏矩形，走全帧传输。
@@ -190,7 +194,7 @@ HopeDesk 采用以 WebSocket 为核心的稳健信令架构，旨在各类生产
 ## 📱 平台支持
 
 - **Windows 被控端**：✅ 完整支持（核心平台，享驱动级输入、硬件采集与**NVENC硬件编码**）。高性能采集（Hope Virtual Display）需 Windows + NVIDIA 显卡（NVENC）及已安装虚拟显示器驱动；兼容采集（Desktop Duplication API）无需 NVIDIA 也能运行。
-- **Windows 桌面操控端**：✅ 完整支持（基于Qt，通过WebSocket信令连接，支持**NVDEC硬件解码**）
+- **Windows 桌面操控端**：✅ 完整支持（基于Qt，通过WebSocket信令连接，支持**D3D11(DXVA)/NVDEC 硬件解码**）
 - **Web 浏览器操控端**：✅ 完整支持（通过WebSocket + WebRTC，可进行远程控制与桌面观看）
 - **Linux / macOS 被控端**：🗓️ 规划中（将基于统一的架构进行扩展）
 - **移动端（App）**：🗓️ 规划中
