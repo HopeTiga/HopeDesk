@@ -38,21 +38,26 @@ QMAKE_PROJECT_DEPTH = 0
 SOURCES += \
     AudioDeviceModuleImpl.cpp \
     CreateDescriptionObserverImpl.cpp \
+    D3D11Av1VideoDecoder.cpp \
+    D3D11Nv12Renderer.cpp \
     DataChannelObserverImpl.cpp \
     De265Decoder.cpp \
-    NvdecDecoder.cpp \
     InterceptionHook.cpp \
     MainWindow.cpp \
+    NvdecDecoder.cpp \
     PeerConnectionObserverImpl.cpp \
     RTCStatsCollectorHandle.cpp \
     SetDescriptionObserverImpl.cpp \
     Utils.cpp \
     VideoTrackSinkImpl.cpp \
     VideoWidget.cpp \
+    WebrtcD3D11TextureBuffer.cpp \
     WebrtcManager.cpp \
     WebrtcVideoDecoderFactory.cpp \
     WebrtcVideoEncoderFactory.cpp \
     main.cpp \
+    thirdParty/chromiumMedia/Av1Decoder.cc \
+    thirdParty/chromiumMedia/Av1Picture.cc \
 
 # 头文件
 HEADERS += \
@@ -61,22 +66,43 @@ HEADERS += \
     ConfigManager.h \
     CreateDescriptionObserverImpl.h \
     CustomDialogs.h \
+    D3D11Av1VideoDecoder.h \
+    D3D11Nv12Renderer.h \
+    D3D11VideoFrameData.h \
     DataChannelObserverImpl.h \
     De265Decoder.h \
-    Nvdec.h \
-    NvdecDecoder.h \
     InterceptionHook.h \
     MainWindow.h \
+    Nvdec.h \
+    NvdecDecoder.h \
     PeerConnectionObserverImpl.h \
     RTCStatsCollectorHandle.h \
     SetDescriptionObserverImpl.h \
     Utils.h \
     VideoTrackSinkImpl.h \
     VideoWidget.h \
+    WebrtcD3D11TextureBuffer.h \
     WebrtcManager.h \
     WebrtcVideoDecoderFactory.h \
     WebrtcVideoEncoderFactory.h \
     WindowsServiceManager.h \
+    thirdParty/chromiumMedia/Av1Decoder.h \
+    thirdParty/chromiumMedia/Av1Picture.h \
+    thirdParty/chromiumShims/AbslCleanup.h \
+    thirdParty/chromiumShims/BaseHelpers.h \
+    thirdParty/chromiumShims/BaseMisc.h \
+    thirdParty/chromiumShims/BaseSpan.h \
+    thirdParty/chromiumShims/GfxGeometry.h \
+    thirdParty/chromiumShims/GfxHdrMetadata.h \
+    thirdParty/chromiumShims/MediaAcceleratedVideoDecoder.h \
+    thirdParty/chromiumShims/MediaCodecPicture.h \
+    thirdParty/chromiumShims/MediaDecoderBuffer.h \
+    thirdParty/chromiumShims/MediaGpuExport.h \
+    thirdParty/chromiumShims/MediaLimits.h \
+    thirdParty/chromiumShims/MediaSvcGenericMetadata.h \
+    thirdParty/chromiumShims/MediaSwitches.h \
+    thirdParty/chromiumShims/MediaUtils.h \
+    thirdParty/chromiumShims/MediaVideoTypes.h
 
 
 win32 {
@@ -86,7 +112,9 @@ win32 {
     INCLUDEPATH += $$PWD/include/interception
     INCLUDEPATH += $$PWD/include/openssl
     INCLUDEPATH += $$PWD/include/libde265
-    INCLUDEPATH += $$PWD/include/nvidia
+    INCLUDEPATH += $$PWD/include/nvidia   # NVDEC/NVENC 头(用户稍后恢复 NVDEC 用)
+    INCLUDEPATH += $$PWD/include/libgav1
+    INCLUDEPATH += $$PWD/thirdParty
 
     LIBS += -L$$PWD/lib/boost/
     LIBS += -L$$PWD/lib/webrtc/
@@ -94,8 +122,11 @@ win32 {
     LIBS += -L$$PWD/lib/interception/x64/
     LIBS += -L$$PWD/lib/tcmalloc/
     LIBS += -L$$PWD/lib/libde265/
+    LIBS += -L$$PWD/lib/libgav1/   # libgav1_static(cmake 编译产物)
 
     LIBS += -lwebrtc
+
+    LIBS += -llibgav1   # AV1 码流解析(ObuParser),cmake 编译
 
     LIBS += -lde265
 
@@ -107,6 +138,9 @@ win32 {
 
     LIBS += -llibtcmalloc_minimal
 
+    LIBS += -ld3d11           # D3D11(零拷贝共享纹理/DXVA)
+    LIBS += -ldxgi            # DXGI
+    LIBS += -ld3dcompiler     # D3DCompile(裸 D3D11 NV12 shader 编译)
     LIBS += -lws2_32          # Windows Socket 2.0
     LIBS += -lmswsock         # Microsoft Winsock 2.0
     LIBS += -lwtsapi32        # Windows Terminal Services API
@@ -136,6 +170,14 @@ win32 {
     DEFINES += WEBRTC_WIN
     DEFINES += WEBRTC_ARCH_LITTLE_ENDIAN
     DEFINES += BOOST_SAM_HEADER_ONLY
+
+    # libgav1 编译配置(与 cmake 一致,保证头文件一致性)
+    DEFINES += LIBGAV1_CMAKE=1
+    DEFINES += LIBGAV1_MAX_BITDEPTH=12
+    DEFINES += LIBGAV1_ENABLE_AVX2=1
+    DEFINES += LIBGAV1_ENABLE_SSE4_1=1
+    DEFINES += LIBGAV1_ENABLE_NEON=0
+    DEFINES += LIBGAV1_THREADPOOL_USE_STD_MUTEX=1
 
     TARGET = HopeDesk
 }

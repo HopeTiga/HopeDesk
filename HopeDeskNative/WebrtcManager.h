@@ -42,6 +42,8 @@
 #include "WebrtcVideoEncoderFactory.h"
 #include "WebrtcVideoDecoderFactory.h"
 #include "PeerConnectionObserverImpl.h"
+#include <d3d11.h>
+#include "D3D11VideoFrameData.h"
 #include "VideoTrackSinkImpl.h"
 #include "AudioDeviceModuleImpl.h"
 #include "DataChannelObserverImpl.h"
@@ -89,7 +91,8 @@ enum class WebrtcRequestState {
 enum class FrameFormat {
     Unknown,
     I420,
-    Nv12
+    Nv12,
+    Nv12Gpu   // D3D11 解码产出的 NV12 共享纹理(已打开到渲染设备),零拷贝,不拷 CPU
 };
 
 struct VideoFrame {
@@ -98,6 +101,10 @@ struct VideoFrame {
     webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer;
 
     webrtc::scoped_refptr<const webrtc::NV12BufferInterface> nv12Buffer;
+
+    // Nv12Gpu:解码器槽位池产出的帧数据(NV12 纹理 + plane SRV + 忙标志)。
+    // 渲染端画完(经 frameToReleasePtr 延迟一帧)后把 busy 置 false 释放回池。
+    std::shared_ptr<D3D11VideoFrameData> d3d11FrameData;
 
     int width = 0;
     int height = 0;
@@ -156,7 +163,7 @@ struct WebrtcDeskConfig {
     int videoCodec = 4;          // 视频编码索引
     int webrtcAudioEnable = 0;   // 是否传音频
     int webrtcEnableNvenc = 0;    // 硬件编码(NVENC),发给 System
-    int webrtcEnableNvdec = 0;   // 硬件解码(MF/D3D11),Native 本地
+    int webrtcEnableD3D11 = 0;   // 硬件解码(MF/D3D11),Native 本地
 
     int requestMaxBitrateBps = 15000000;  // 请求组最大码率,默认 15 Mbps
     int requestMinBitrateBps = 15000000;  // 请求组最小码率,默认 15 Mbps
@@ -220,6 +227,8 @@ public:
     std::string getAccountId() const;
 
     void setAccountId(const std::string& newAccountID);
+    // 注入渲染端(QRhi)的 D3D11 设备,透传给解码器做零拷贝(解码器与渲染器共用同设备)。
+    void setDecoderD3D11Device(ID3D11Device* dev);
 
     std::string getTargetId() const;
 

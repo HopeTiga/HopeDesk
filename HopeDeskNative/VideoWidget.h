@@ -7,6 +7,7 @@
 #include <QMouseEvent>
 #include <memory>
 #include <atomic>
+#include <vector>
 #include <QElapsedTimer>
 #include <rhi/qrhi.h>
 #include <rhi/qshader.h>
@@ -16,6 +17,8 @@
 #include "windows.h"
 #include "Utils.h"
 #include "InterceptionHook.h"
+#include "D3D11Nv12Renderer.h"
+#include "concurrentqueue.h"   // moodycamel 有界帧队列(RAII 交接)
 
 namespace hope {
 namespace rtc {
@@ -25,6 +28,8 @@ class WebrtcManager;
 enum class FrameFormat;
 
 struct VideoFrame;
+
+struct D3D11VideoFrameData;
 
 class VideoWidget : public QRhiWidget
 {
@@ -86,10 +91,11 @@ private:
     std::unique_ptr<QRhiSampler> sampler;
 
     std::unique_ptr<QRhiBuffer> uniformBuffer;
-    std::unique_ptr<QRhiTexture> videoTextureY;
-    std::unique_ptr<QRhiTexture> videoTextureU;
-    std::unique_ptr<QRhiTexture> videoTextureV;
-    std::unique_ptr<QRhiTexture> videoTextureUV;   // NV12 交错 UV 平面(RG8)
+    std::unique_ptr<QRhiTexture> videoTextureY;      // NV12 Y 平面(R8)
+    std::unique_ptr<QRhiTexture> videoTextureUV;     // NV12 交错 UV 平面(RG8)
+    // I420 三平面打包成一张 R8(w x (h+h/2)):Y 顶部 h 行,U/V 左右拼在底部 h/2 行,
+    // 每帧 1 次 uploadTexture 代替 3 次(Y/U/V 三个独立 staging)。
+    std::unique_ptr<QRhiTexture> videoTextureI420;
     std::unique_ptr<QRhiShaderResourceBindings> srb;
 
     // NV12 渲染管线(硬解路径;I420 用上面的 pipeline/srb,软解保持不变)
@@ -100,8 +106,11 @@ private:
     int texWidth = 0;
     int texHeight = 0;
 
-    std::atomic<VideoFrame*> currentFramePtr{nullptr};
-    std::atomic<VideoFrame*> frameToReleasePtr{nullptr};
+    // 帧队列(RAII):多生产者(硬解直投/软解 sink)std::move 入队,渲染线程取走;
+    // 帧持 keepAlive -> 槽位,任一方析构自动回池。解码快于渲染时丢最旧帧控延迟。
+    moodycamel::ConcurrentQueue<std::shared_ptr<VideoFrame>> frameQueue;
+    // 上一帧(仅 GUI 线程):延迟一帧释放 + 无新帧时重绘源。
+    std::shared_ptr<VideoFrame> lastRenderedFrame;
 
     std::atomic<int> videoWidth{640};
     std::atomic<int> videoHeight{480};
@@ -119,6 +128,9 @@ private:
     Qt::WindowStates normalWindowState = Qt::WindowNoState;
 
     std::unique_ptr<InterceptionHook> interceptionHook;
+
+    // 裸 D3D11 NV12 渲染器(QRhi 无法绑 NV12 纹理,硬解帧用 beginExternal 注入裸 D3D11 画)。
+    std::unique_ptr<D3D11Nv12Renderer> nv12RawRenderer;
 
     struct UniformData {
         QMatrix4x4 mvp;

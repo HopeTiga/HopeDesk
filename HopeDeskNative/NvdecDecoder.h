@@ -16,12 +16,17 @@
 #include "Nvdec.h"
 
 #include <d3d11.h>
+#include <functional>
+#include <memory>
 #include <unordered_map>
 #include <mutex>
 #include <vector>
 
 namespace hope {
     namespace rtc {
+
+        class WebrtcVideoDecoderFactory;
+        struct VideoFrame;
 
         class NvdecDecoder : public webrtc::VideoDecoder {
         public:
@@ -43,6 +48,14 @@ namespace hope {
             int32_t Release() override;
 
             DecoderInfo GetDecoderInfo() const override;
+
+            // 硬解帧直投 widget(绕过 track-sink);由工厂注入。
+            void setOnDisplayHandle(std::function<void(std::shared_ptr<VideoFrame>)> onDisplayHandle) {
+                this->onDisplayHandle = std::move(onDisplayHandle);
+            }
+
+            // 记录创建者工厂,析构时从工厂注销(防悬垂)。
+            void setOwnerFactory(WebrtcVideoDecoderFactory* factory) { ownerFactory = factory; }
 
         private:
             // CUVID 解析器回调(pUserData == this)
@@ -76,6 +89,8 @@ namespace hope {
             bool contextReady = false;
 
             webrtc::DecodedImageCallback* decodeCallback = nullptr;
+            std::function<void(std::shared_ptr<VideoFrame>)> onDisplayHandle;   // 直投目标(工厂注入)
+            WebrtcVideoDecoderFactory* ownerFactory = nullptr;
             std::mutex mutex;
 
             // 临时主机 NV12 缓冲(按 pitch*codedHeight*3/2 复用,避免每帧分配)

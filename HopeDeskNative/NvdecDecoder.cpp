@@ -1,4 +1,5 @@
 #include "NvdecDecoder.h"
+#include "WebrtcManager.h"   // app VideoFrame 完整定义(直投 onDisplayHandle 载荷)
 #include "api/video/i420_buffer.h"
 #include "api/video/nv12_buffer.h"
 #include <modules/video_coding/include/video_error_codes.h>
@@ -22,6 +23,7 @@ NvdecDecoder::NvdecDecoder(Codec type)
 }
 
 NvdecDecoder::~NvdecDecoder() {
+    if (ownerFactory) ownerFactory->removeNvdecDecoder(this);
     Release();
 }
 
@@ -322,6 +324,16 @@ void NvdecDecoder::EmitFrame(int pictureIndex, int64_t /*timestamp*/) {
     libyuv::CopyPlane(srcY, uvPitch, dstY, strideY, width, height);
     // UV 交错平面:每行 width 字节(width/2 个 UV 样本 x 2 字节),height/2 行
     libyuv::CopyPlane(srcUV, uvPitch, dstUV, strideUV, width, height / 2);
+
+    // 硬解帧直投 widget(绕过 track-sink);WebRTC 簿记由下方 Decoded() 照常维护。
+    if (onDisplayHandle) {
+        std::shared_ptr<VideoFrame> appFrame = std::make_shared<VideoFrame>();
+        appFrame->format = FrameFormat::Nv12;
+        appFrame->nv12Buffer = nv12Buffer;
+        appFrame->width = width;
+        appFrame->height = height;
+        onDisplayHandle(appFrame);
+    }
 
     webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
                                    .set_video_frame_buffer(nv12Buffer)

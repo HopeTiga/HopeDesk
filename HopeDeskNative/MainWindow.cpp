@@ -184,7 +184,7 @@ MainWindow::~MainWindow()
         settings->setValue("showRtt", showRttEnabled);
         settings->setValue("showFps", showFpsEnabled);
         settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
-        settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
+        settings->setValue("webrtcEnableNvdec", webrtcEnableD3D11);
         saveEncodeConfig();
     }
     if (webrtcManager) {
@@ -242,7 +242,7 @@ void MainWindow::initConfigAndSettings()
     // 拆分后的硬编/硬解开关;新键不存在时从旧 webrtcEnableNvidia 迁移
     webrtcEnableNvenc = settings->value("webrtcEnableNvenc",
         settings->value("webrtcEnableNvidia", 0).toInt()).toInt();
-    webrtcEnableNvdec = settings->value("webrtcEnableNvdec",
+    webrtcEnableD3D11 = settings->value("webrtcEnableNvdec",
         settings->value("webrtcEnableNvidia", 0).toInt()).toInt();
 
     ui->modeComboBox->setCurrentIndex(webrtcModulesType);
@@ -250,7 +250,7 @@ void MainWindow::initConfigAndSettings()
     ui->accelerationComboBox->setCurrentIndex(webrtcLevels);
     ui->checkAudio->setChecked(webrtcAudioEnable == 1);
     ui->checkHwAccel->setChecked(webrtcEnableNvenc == 1);
-    ui->checkHwDec->setChecked(webrtcEnableNvdec == 1);
+    ui->checkHwDec->setChecked(webrtcEnableD3D11 == 1);
 
     showRttEnabled = settings->value("showRtt", false).toBool();
     ui->checkShowRtt->setChecked(showRttEnabled);
@@ -605,7 +605,7 @@ void MainWindow::syncConfigToManager()
     if (locMinBps > locMaxBps) locMinBps = locMaxBps;
     WebrtcDeskConfig cfg{
         webrtcModulesType, webrtcLevels, videoCodec,
-        webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec,
+        webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableD3D11,
         reqMaxBps, reqMinBps, requestMaxFramerate,
         locMaxBps, locMinBps, localMaxFramerate,
         desktopWidth, desktopHeight, desktopRefreshRate
@@ -1285,7 +1285,7 @@ void MainWindow::onBtnConnectClicked()
     int locMinBps = localMinBitrateMbps * 1000000;
     if (locMinBps > locMaxBps) locMinBps = locMaxBps;
     webrtcManager->asyncRemoteDesk({webrtcModulesType, webrtcLevels, videoCodec,
-                                    webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableNvdec,
+                                    webrtcAudioEnable, webrtcEnableNvenc, webrtcEnableD3D11,
                                     reqMaxBps, reqMinBps, requestMaxFramerate,
                                     locMaxBps, locMinBps, localMaxFramerate,
                                     desktopWidth, desktopHeight, desktopRefreshRate});
@@ -1436,8 +1436,8 @@ void MainWindow::on_checkHwAccel_checkStateChanged(const Qt::CheckState &state)
 
 void MainWindow::on_checkHwDec_checkStateChanged(const Qt::CheckState &state)
 {
-    webrtcEnableNvdec = (state != Qt::Unchecked) ? 1 : 0;
-    if (settings) settings->setValue("webrtcEnableNvdec", webrtcEnableNvdec);
+    webrtcEnableD3D11 = (state != Qt::Unchecked) ? 1 : 0;
+    if (settings) settings->setValue("webrtcEnableNvdec", webrtcEnableD3D11);
     syncConfigToManager();
 }
 

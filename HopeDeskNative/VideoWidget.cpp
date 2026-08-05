@@ -10,10 +10,18 @@
 #include <QWindow>
 #include <QMetaObject>
 #include <algorithm>
+#include <thread>
+#include <d3d11.h>
+#include <d3d11_1.h>
+#include <dxgi.h>   // IDXGIKeyedMutex(渲染读前 acquire,等解码写完成)
+#include <wrl/client.h>
 #include "Utils.h"
 
 namespace hope {
 namespace rtc {
+
+// 帧队列上限:解码突发时丢最旧帧,保持渲染延迟最小。
+static constexpr int kMaxQueuedFrames = 4;
 
 VideoWidget::VideoWidget(QWidget* parent)
     : QRhiWidget(parent)
@@ -56,10 +64,9 @@ VideoWidget::VideoWidget(QWidget* parent)
 VideoWidget::~VideoWidget()
 {
     LOG_INFO("VideoWidget destruction");
-    VideoFrame* f1 = currentFramePtr.exchange(nullptr);
-    if (f1) delete f1;
-    VideoFrame* f2 = frameToReleasePtr.exchange(nullptr);
-    if (f2) delete f2;
+    std::shared_ptr<VideoFrame> dropped;
+    while (frameQueue.try_dequeue(dropped)) {}   // 释放未渲染帧(shared_ptr 自动释放)
+    lastRenderedFrame.reset();
     savePipelineCache();
 }
 
@@ -74,6 +81,15 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
         LOG_INFO("RHI instance changed, recreating resources");
         releaseResources();
         rhi = QRhiWidget::rhi();
+
+        // 把渲染端 D3D11 设备交给解码器,零拷贝解码->渲染(共用同一设备)。
+        const QRhiD3D11NativeHandles* nativeHandles =
+            static_cast<const QRhiD3D11NativeHandles*>(rhi->nativeHandles());
+        if (nativeHandles && nativeHandles->dev && webrtcManager) {
+            webrtcManager->setDecoderD3D11Device(
+                reinterpret_cast<ID3D11Device*>(nativeHandles->dev));
+        }
+
         loadPipelineCache();
         resourcesInitialized = false;
     }
@@ -90,6 +106,18 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
 
 bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
 {
+    // 裸 D3D11 NV12 渲染器(硬解帧用):需 QRhi 的 D3D11 设备/上下文。
+    const QRhiD3D11NativeHandles* nativeHandles =
+        static_cast<const QRhiD3D11NativeHandles*>(rhi->nativeHandles());
+    if (nativeHandles && nativeHandles->dev && nativeHandles->context) {
+        nv12RawRenderer = std::make_unique<D3D11Nv12Renderer>();
+        if (!nv12RawRenderer->init(reinterpret_cast<ID3D11Device*>(nativeHandles->dev),
+                                   reinterpret_cast<ID3D11DeviceContext*>(nativeHandles->context))) {
+            LOG_ERROR("D3D11Nv12Renderer init failed, Nv12Gpu frames will be dropped");
+            nv12RawRenderer.reset();
+        }
+    }
+
     createBuffers();
     createSampler();
 
@@ -106,10 +134,10 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
         static const float vertexData[] = {
             -1.0f,  1.0f,  0.0f, 0.0f,
             -1.0f, -1.0f,  0.0f, 1.0f,
-             1.0f, -1.0f,  1.0f, 1.0f,
+            1.0f, -1.0f,  1.0f, 1.0f,
             -1.0f,  1.0f,  0.0f, 0.0f,
-             1.0f, -1.0f,  1.0f, 1.0f,
-             1.0f,  1.0f,  1.0f, 0.0f
+            1.0f, -1.0f,  1.0f, 1.0f,
+            1.0f,  1.0f,  1.0f, 0.0f
         };
         batch->uploadStaticBuffer(vertexBuffer.get(), vertexData);
 
@@ -148,17 +176,20 @@ void VideoWidget::createTextures(int width, int height)
 
     int chromaWidth = (width + 1) / 2;
     int chromaHeight = (height + 1) / 2;
-    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
-    videoTextureU->create();
 
-    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
-    videoTextureV->create();
-
-    // NV12 交错 UV 平面(RG8),与 U/V 同尺寸
+    // NV12 交错 UV 平面(RG8),与 I420 的 U/V 同尺寸
     videoTextureUV.reset(rhi->newTexture(QRhiTexture::RG8, QSize(chromaWidth, chromaHeight), 1));
     if (!videoTextureUV || !videoTextureUV->create()) {
         LOG_ERROR("NV12: videoTextureUV(RG8 %dx%d) create failed", chromaWidth, chromaHeight);
         videoTextureUV.reset();
+    }
+
+    // I420 三平面打包成一张 R8(w x (h+chromaH)):Y 顶部 h 行,U/V 左右拼在底部 chromaH 行。
+    // 每帧 1 次 uploadTexture 代替 3 次独立 staging 上传。
+    videoTextureI420.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height + chromaHeight), 1));
+    if (!videoTextureI420 || !videoTextureI420->create()) {
+        LOG_ERROR("I420: videoTextureI420(R8 %dx%d) create failed", width, height + chromaHeight);
+        videoTextureI420.reset();
     }
 
     texWidth = width;
@@ -176,24 +207,21 @@ void VideoWidget::createSampler()
 
 void VideoWidget::createShaderResourceBindings()
 {
-    if (!rhi || !uniformBuffer || !videoTextureY || !sampler) return;
+    if (!rhi || !uniformBuffer || !sampler) return;
 
-    srb.reset(rhi->newShaderResourceBindings());
-    srb->setBindings({
-        QRhiShaderResourceBinding::uniformBuffer(
-            0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-            uniformBuffer.get()),
-        QRhiShaderResourceBinding::sampledTexture(
-            1, QRhiShaderResourceBinding::FragmentStage,
-            videoTextureY.get(), sampler.get()),
-        QRhiShaderResourceBinding::sampledTexture(
-            2, QRhiShaderResourceBinding::FragmentStage,
-            videoTextureU.get(), sampler.get()),
-        QRhiShaderResourceBinding::sampledTexture(
-            3, QRhiShaderResourceBinding::FragmentStage,
-            videoTextureV.get(), sampler.get())
-    });
-    srb->create();
+    // I420 管线:三平面打包在一张 R8 纹理(videoTextureI420),只绑 binding 1。
+    if (videoTextureI420) {
+        srb.reset(rhi->newShaderResourceBindings());
+        srb->setBindings({
+            QRhiShaderResourceBinding::uniformBuffer(
+                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                uniformBuffer.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                1, QRhiShaderResourceBinding::FragmentStage,
+                videoTextureI420.get(), sampler.get())
+        });
+        srb->create();
+    }
 
     // NV12 管线:Y(R8, binding1) + UV 交错(RG8, binding2)
     if (videoTextureY && videoTextureUV) {
@@ -277,62 +305,49 @@ void VideoWidget::createPipeline()
 
 void VideoWidget::clearDisplay()
 {
-    LOG_INFO("Clearing display");
     hasVideo = false;
-    VideoFrame* f = currentFramePtr.exchange(nullptr);
-    if (f) delete f;
+    std::shared_ptr<VideoFrame> dropped;
+    while (frameQueue.try_dequeue(dropped)) {}   // shared_ptr 自动释放
+    lastRenderedFrame.reset();         // 清掉重绘源,避免清屏后 redraw 残留旧帧
     update();
 }
 
 void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 {
     if (!frame) return;
-    if (!frame->buffer && !frame->nv12Buffer) return;
+    // Nv12Gpu 帧数据在 d3d11FrameData(buffer/nv12Buffer 为空),不能只认这两个。
+    if (!frame->buffer && !frame->nv12Buffer && !frame->d3d11FrameData) return;
 
-    // 强制切换到 GUI 线程，确保窗口操作线程安全
-    if (QThread::currentThread() != this->thread()) {
-        QMetaObject::invokeMethod(this, [this, frame]() {
-            this->displayFrame(frame);
-        }, Qt::QueuedConnection);
-        return;
+    // RAII 队列入队;解码快于渲染时丢最旧帧控延迟(丢的帧析构自动回槽位)。
+    frameQueue.enqueue(std::move(frame));
+    std::shared_ptr<VideoFrame> dropped;
+    while (frameQueue.size_approx() > kMaxQueuedFrames && frameQueue.try_dequeue(dropped)) {
     }
 
-    VideoFrame* newFrame = new VideoFrame(*frame);
-    VideoFrame* oldFrame = currentFramePtr.exchange(newFrame, std::memory_order_acq_rel);
-    if (oldFrame) delete oldFrame;
-
-    VideoFrame* toRelease = frameToReleasePtr.exchange(nullptr, std::memory_order_acq_rel);
-    if (toRelease) delete toRelease;
-
-    if (QWindow* w = windowHandle()) {
-        w->requestUpdate();
-    } else {
-        QMetaObject::invokeMethod(this, [this]() { this->update(); }, Qt::QueuedConnection);
-    }
+    this->update();
 }
 
 void VideoWidget::ensureTexturesForSize(int width, int height)
 {
-    if (width == texWidth && height == texHeight && videoTextureY && videoTextureU && videoTextureV && videoTextureUV)
+    if (width == texWidth && height == texHeight && videoTextureY && videoTextureUV && videoTextureI420)
         return; // 尺寸未变，纹理有效
 
     // 销毁旧纹理并重建，同时重建 SRB/pipeline（因为纹理绑定变了）
     videoTextureY.reset();
-    videoTextureU.reset();
-    videoTextureV.reset();
     videoTextureUV.reset();
+    videoTextureI420.reset();
 
     videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height), 1));
     videoTextureY->create();
 
     int chromaWidth = (width + 1) / 2;
     int chromaHeight = (height + 1) / 2;
-    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
-    videoTextureU->create();
-    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
-    videoTextureV->create();
     videoTextureUV.reset(rhi->newTexture(QRhiTexture::RG8, QSize(chromaWidth, chromaHeight), 1));
     videoTextureUV->create();
+
+    // I420 打包纹理(与 createTextures 保持一致)
+    videoTextureI420.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height + chromaHeight), 1));
+    videoTextureI420->create();
 
     texWidth = width;
     texHeight = height;
@@ -351,15 +366,32 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
         return;
     }
 
-    // 1. 获取当前待渲染帧
-    VideoFrame* frameToRender = currentFramePtr.exchange(nullptr, std::memory_order_acq_rel);
+    // 1. 取队列最新帧:排空积压的旧帧、只取最新一帧绘制。渲染跟不上解码时,
+    //    FIFO 逐帧取会造成"显示旧帧 -> 突然跳最新"的画面跳动;取最新帧则始终
+    //    显示当前最新画面,节奏平滑。被丢的旧帧未绘制,槽位安全回池。
+    std::shared_ptr<VideoFrame> popped;
+    while (frameQueue.try_dequeue(popped)) {}
+    const bool hasNewFrame = (popped != nullptr);
+    std::shared_ptr<VideoFrame> frameToRender = hasNewFrame ? popped : nullptr;
 
     // 不再默认使用 pipeline (I420)，初始化为 nullptr，防止无帧时用错管线
     QRhiGraphicsPipeline* activePipeline = nullptr;
     QRhiShaderResourceBindings* activeSrb = nullptr;
 
-    // 2. 如果有新帧，进行纹理上传和管线选择
-    if (frameToRender && (frameToRender->buffer || frameToRender->nv12Buffer)) {
+    // 2. 如果有新帧，进行纹理上传/导入和管线选择
+    // 2a. 零拷贝 GPU 路径:D3D11 解码产出的 NV12 共享纹理 + plane SRV,裸 D3D11 直接画,不碰 CPU
+    bool nv12GpuReady = false;
+    int gpuW = 0, gpuH = 0;
+    if (frameToRender && frameToRender->format == FrameFormat::Nv12Gpu &&
+        frameToRender->d3d11FrameData && frameToRender->d3d11FrameData->nv12Texture &&
+        frameToRender->d3d11FrameData->planeYSrv && frameToRender->d3d11FrameData->planeUvSrv &&
+        nv12RawRenderer) {
+        nv12GpuReady = true;
+        gpuW = frameToRender->width;
+        gpuH = frameToRender->height;
+    }
+    // 2b. CPU 路径(上传):NV12 / I420
+    else if (frameToRender && (frameToRender->buffer || frameToRender->nv12Buffer)) {
         int srcWidth = frameToRender->width;
         int srcHeight = frameToRender->height;
 
@@ -369,7 +401,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
         QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
         bool uploaded = false;
 
-        // --- NV12 硬解路径(NVDEC -> cuMemcpyDtoH -> NV12Buffer -> 上传) ---
+        // --- NV12 硬解回退路径(D3D11 解码 -> NV12Buffer -> 上传) ---
         if (frameToRender->format == FrameFormat::Nv12 && frameToRender->nv12Buffer &&
             videoTextureY && videoTextureUV && nv12Pipeline && nv12Srb) {
 
@@ -395,30 +427,31 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             uploaded = true;
 
         }
-        // --- I420 软解路径 ---
-        else if (frameToRender->buffer && videoTextureY && videoTextureU && videoTextureV && pipeline && srb) {
+        // --- I420 软解路径(三平面打包一张纹理,1 次 uploadTexture) ---
+        else if (frameToRender->buffer && videoTextureI420 && pipeline && srb) {
             auto* i420 = frameToRender->buffer.get();
-
-            // 上传 Y
-            QRhiTextureSubresourceUploadDescription subDescY(i420->DataY(), i420->StrideY() * srcHeight);
-            subDescY.setSourceSize(QSize(srcWidth, srcHeight));
-            subDescY.setDataStride(i420->StrideY());
-            batch->uploadTexture(videoTextureY.get(), QRhiTextureUploadDescription{{0, 0, subDescY}});
-
             int chromaW = (srcWidth + 1) / 2;
             int chromaH = (srcHeight + 1) / 2;
 
-            // 上传 U
-            QRhiTextureSubresourceUploadDescription subDescU(i420->DataU(), i420->StrideU() * chromaH);
-            subDescU.setSourceSize(QSize(chromaW, chromaH));
-            subDescU.setDataStride(i420->StrideU());
-            batch->uploadTexture(videoTextureU.get(), QRhiTextureUploadDescription{{0, 0, subDescU}});
+            // 打包布局:R8(w x (h+chromaH)),Y 顶部 h 行,U 左半、V 右半在底部 chromaH 行。
+            QRhiTextureSubresourceUploadDescription subY(i420->DataY(), i420->StrideY() * srcHeight);
+            subY.setSourceSize(QSize(srcWidth, srcHeight));
+            subY.setDestinationTopLeft(QPoint(0, 0));
+            subY.setDataStride(i420->StrideY());
 
-            // 上传 V
-            QRhiTextureSubresourceUploadDescription subDescV(i420->DataV(), i420->StrideV() * chromaH);
-            subDescV.setSourceSize(QSize(chromaW, chromaH));
-            subDescV.setDataStride(i420->StrideV());
-            batch->uploadTexture(videoTextureV.get(), QRhiTextureUploadDescription{{0, 0, subDescV}});
+            QRhiTextureSubresourceUploadDescription subU(i420->DataU(), i420->StrideU() * chromaH);
+            subU.setSourceSize(QSize(chromaW, chromaH));
+            subU.setDestinationTopLeft(QPoint(0, srcHeight));
+            subU.setDataStride(i420->StrideU());
+
+            QRhiTextureSubresourceUploadDescription subV(i420->DataV(), i420->StrideV() * chromaH);
+            subV.setSourceSize(QSize(chromaW, chromaH));
+            subV.setDestinationTopLeft(QPoint(chromaW, srcHeight));
+            subV.setDataStride(i420->StrideV());
+
+            // 同一次 uploadTexture:3 个 sub-description,QRhi 合并进一个 staging + 一次 UpdateSubresource。
+            batch->uploadTexture(videoTextureI420.get(),
+                                 QRhiTextureUploadDescription{{0, 0, subY}, {0, 0, subU}, {0, 0, subV}});
 
             activePipeline = pipeline.get();
             activeSrb = srb.get();
@@ -430,8 +463,18 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
         if (uploaded) {
             UniformData uniformData;
             uniformData.mvp.setToIdentity();
-            uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
             uniformData.uvScale = QVector2D(1.0f, 1.0f);
+            if (currentFrameFormat == FrameFormat::I420 && srcHeight > 0) {
+                // I420 打包纹理:params.x = Y 占纹理高比例, params.y = 色度带占高比例,
+                // params.z = 0.5(U/V 各占半宽)。shader 按此三组 UV 采样。
+                int chromaH = (srcHeight + 1) / 2;
+                uniformData.params = QVector4D(
+                    float(srcHeight) / float(srcHeight + chromaH),
+                    float(chromaH) / float(srcHeight + chromaH),
+                    0.5f, 0.0f);
+            } else {
+                uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
+            }
 
             if (uniformData != lastUniformData) {
                 batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
@@ -444,9 +487,8 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             videoHeight = srcHeight;
             if (fpsEnabled) frameCount++;
         } else {
-            // 上传失败（格式不匹配等），清理帧，避免内存泄漏
-            delete frameToRender;
-            frameToRender = nullptr;
+            // 上传失败（格式不匹配等），清理帧,shared_ptr 自动释放
+            frameToRender.reset();
         }
     }
     // 3. 如果没有新帧，但之前有视频，保持使用上一次的管线状态
@@ -466,8 +508,43 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
     const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
     cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, nullptr);
 
-    // 只有当管线和资源绑定有效时才绘制
-    if (hasVideo && activePipeline && activeSrb) {
+    // 裸 D3D11 画 NV12 帧(新帧或定时器无新帧时重绘上一帧)。
+    auto drawNv12 = [&](const std::shared_ptr<D3D11VideoFrameData>& fd) -> bool {
+        if (!fd || !fd->planeYSrv || !fd->planeUvSrv || !nv12RawRenderer) return false;
+        const QRhiD3D11NativeHandles* nh =
+            static_cast<const QRhiD3D11NativeHandles*>(rhi->nativeHandles());
+        ID3D11DeviceContext* ctx = nh ? reinterpret_cast<ID3D11DeviceContext*>(nh->context) : nullptr;
+        if (!ctx) return false;
+        cb->beginExternal();
+        ID3D11RenderTargetView* rtv = nullptr;
+        ctx->OMGetRenderTargets(1, &rtv, nullptr);
+        if (rtv) {
+            const QSize outSize = renderTarget()->pixelSize();
+            nv12RawRenderer->draw(ctx, rtv, fd->planeYSrv.Get(), fd->planeUvSrv.Get(),
+                                  outSize.width(), outSize.height());
+            rtv->Release();
+        }
+        cb->endExternal();
+        return true;
+    };
+
+    if (nv12GpuReady && frameToRender && frameToRender->d3d11FrameData) {
+        if (drawNv12(frameToRender->d3d11FrameData)) {
+            // 无需单独缓存:本帧已由本趟开头的 lastRenderedFrame 持有,无新帧时 redraw 直接画它
+            currentFrameFormat = FrameFormat::Nv12Gpu;
+            hasVideo = true;
+            videoWidth = gpuW;
+            videoHeight = gpuH;
+            if (fpsEnabled) frameCount++;
+        }
+    }
+    // 无新帧的 render(如 resize/expose 触发):重绘上一帧(不能走 CPU 路径,硬解流 CPU 纹理没数据会画黑)
+    else if (hasVideo && currentFrameFormat == FrameFormat::Nv12Gpu && lastRenderedFrame &&
+             lastRenderedFrame->d3d11FrameData) {
+        drawNv12(lastRenderedFrame->d3d11FrameData);
+    }
+    // 4b. CPU 路径(上传后绘制):只有当管线和资源绑定有效时才绘制
+    else if (hasVideo && activePipeline && activeSrb) {
         const QSize outputSize = renderTarget()->pixelSize();
         cb->setGraphicsPipeline(activePipeline);
         cb->setViewport(QRhiViewport{0.0f, 0.0f, float(outputSize.width()), float(outputSize.height()), 0.0f, 1.0f});
@@ -480,25 +557,31 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
 
     cb->endPass();
 
-    // 5. 清理旧帧资源
-    if (frameToRender) {
-        VideoFrame* oldRelease = frameToReleasePtr.exchange(frameToRender, std::memory_order_acq_rel);
-        if (oldRelease) delete oldRelease;
+    // 5. 延迟释放:新帧换入 lastRenderedFrame,上一帧(上一趟画的)此刻析构回池。
+    if (hasNewFrame) {
+        lastRenderedFrame = std::move(popped);
+    }
+
+    // 6. 持续渲染:在 render() 内调 update() 会形成"以 vsync 节流的持续渲染"
+    //    (Qt QRhiWidget 文档)。每次显示刷新都呈现最新帧,节奏稳定平滑。
+    //    开启 vsync(swap interval 1)时呈现对齐刷新率,无撕裂、无画面跳动。
+    if (hasVideo) {
+        this->update();
     }
 }
 
 
 void VideoWidget::releaseResources()
 {
+    nv12RawRenderer.reset();
     pipeline.reset();
     srb.reset();
     nv12Pipeline.reset();
     nv12Srb.reset();
     uniformBuffer.reset();
     videoTextureY.reset();
-    videoTextureU.reset();
-    videoTextureV.reset();
     videoTextureUV.reset();
+    videoTextureI420.reset();
     sampler.reset();
     vertexBuffer.reset();
     resourcesInitialized = false;

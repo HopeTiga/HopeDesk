@@ -135,6 +135,10 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
 
             decodeCompleteCallback->Decoded(decodedFrame, std::nullopt, std::nullopt);
 
+            // 取出的 picture 必须 release 回解码器图像池,否则池只进不出,
+            // 跑一段时间后 de265_decode 返回 IMAGE_BUFFER_FULL/DPB 满 -> 解码中断。
+            de265_release_next_picture(decoderContext);
+
         }
 
         // 5. 错误处理

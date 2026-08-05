@@ -2,7 +2,6 @@
 
 #include <future>
 
-#include "NvdecDecoder.h"
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -406,9 +405,9 @@ bool WebrtcManager::initializePeerConnection()
 
     config.ice_connection_receiving_timeout = 10000;        // 连上后 10s 收不到数据才判断开(检测断开保持 10s)
 
-    config.ice_unwritable_timeout = 30000;                  // 建立阶段 30s 无写成功才标记不可写(放宽,避免慢连被误杀)
+    config.ice_unwritable_timeout = 15000;                  // 建立阶段 15s 无写成功才标记不可写
 
-    config.ice_inactive_timeout = 30000;                    // 30s 无活动才标记非活跃(放宽,配合慢启动)
+    config.ice_inactive_timeout = 15000;                    // 15s 无活动才标记非活跃
 
     config.set_dscp(true);
 
@@ -1360,6 +1359,12 @@ void WebrtcManager::closeTcpSocket()
 void WebrtcManager::releaseSource()
 {
 
+    // 断开时清空工厂缓存的渲染 D3D11 设备:下个连接用新窗口/新设备,
+    // 避免新解码器先拿到上一连接(可能已销毁)的旧设备初始化。
+    if (webrtcVideoDecoderFactory) {
+        webrtcVideoDecoderFactory->clearDecoderD3D11Device();
+    }
+
     if (peerConnection) {
         peerConnection->Close();
     }
@@ -1406,6 +1411,13 @@ void WebrtcManager::setAccountId(const std::string &newAccountId)
     accountId = newAccountId;
 }
 
+void WebrtcManager::setDecoderD3D11Device(ID3D11Device* dev)
+{
+    if (webrtcVideoDecoderFactory) {
+        webrtcVideoDecoderFactory->setDecoderD3D11Device(dev);
+    }
+}
+
 void WebrtcManager::armRequestTimeout()
 {
     // 只在 ioContext 线程调用(asyncRemoteDesk / 收包协程均在 ioContext 上),无数据竞争。
@@ -1418,7 +1430,7 @@ void WebrtcManager::armRequestTimeout()
     }
 
     requestTimeout = std::make_shared<boost::asio::steady_timer>(ioContext);
-    requestTimeout->expires_after(std::chrono::seconds(30));
+    requestTimeout->expires_after(std::chrono::seconds(15));
 
     auto timer = requestTimeout;
 
@@ -1463,13 +1475,15 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
         }
 
         if (self->webrtcVideoDecoderFactory) {
-            self->webrtcVideoDecoderFactory->webrtcEnableNvdec = self->webrtcDeskConfig.webrtcEnableNvdec;
+            self->webrtcVideoDecoderFactory->webrtcEnableD3D11 = self->webrtcDeskConfig.webrtcEnableD3D11;
             // 解码状态 -> 转发给 onCodecStatusHandle(MainWindow 据此更新主页 label)
             self->webrtcVideoDecoderFactory->onDecoderStatusHandle =
                 [self](const std::string& codec, bool hardDecode) {
                     if (self->onCodecStatusHandle) self->onCodecStatusHandle(codec, hardDecode);
                 };
-            LOG_INFO("asyncRemoteDesk: set decoder factory webrtcEnableNvdec=%d", self->webrtcDeskConfig.webrtcEnableNvdec);
+            // 硬解直投:帧回调同步给工厂(下发给存活/新建的硬解解码器)。
+            self->webrtcVideoDecoderFactory->setOnDisplayHandle(self->onVideoFrameHandler);
+            LOG_INFO("asyncRemoteDesk: set decoder factory webrtcEnableD3D11=%d", self->webrtcDeskConfig.webrtcEnableD3D11);
         } else {
             LOG_WARN("asyncRemoteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
         }
@@ -1592,6 +1606,10 @@ void WebrtcManager::writerRemote(unsigned char *data, size_t size)
 void WebrtcManager::setOnVideoFrameHanlder(std::function<void(std::shared_ptr<VideoFrame>)> onVideoFrameHandler)
 {
     this->onVideoFrameHandler = onVideoFrameHandler;
+    // 硬解直投:同一回调也交给解码器工厂;软解仍走 sink。
+    if (webrtcVideoDecoderFactory) {
+        webrtcVideoDecoderFactory->setOnDisplayHandle(onVideoFrameHandler);
+    }
 }
 
 void WebrtcManager::disConnect()
