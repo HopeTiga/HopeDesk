@@ -183,7 +183,7 @@ handler = WebrtcHandlers[requestType]
                若 localTaskQueueSize 回落到 asyncThreshold+1 → 重启 asyncTaskExecute()
 ```
 
-- `WebrtcLogicHandlers[type]` 标记该 handler 是否可搬到全局队列。**当前信令 1–7 全为 false**，即信令始终本地派发（低延迟、贴在连接所在线程）；全局队列主要服务可搬迁的 HTTP handler（`overview` 为 true）。
+- `WebrtcLogicHandlers[type]` 标记该 handler 是否可搬到全局队列。**当前信令 1–7、9 全为 false**，即信令始终本地派发（低延迟、贴在连接所在线程）；全局队列主要服务可搬迁的 HTTP handler（`overview` 为 true）。
 - 全局 `TaskChannel` 由 `threadSize+1` 个排水协程消费（main loop 1 个 + 每通道 LogicSystem 1 个），moodycamel 多消费安全。
 
 ### 5.5 forward 路由（核心）
@@ -274,8 +274,9 @@ flowchart TD
 | 3 | STOPREMOTE | forwardHandler |
 | 6 | CLOSESYSTEM | forwardHandler |
 | 7 | SYSTEMREADLY | forwardHandler |
+| 9 | RPC 跨节点转发 | CoroRpc::asyncRpcRequest → requestForward（见 §8.7） |
 
-5 未使用。所有转发类 handler 复用同一个 `forwardHandler`，仅 `requestTypeStr` 不同（日志区分）。
+5 未使用。1/3/6/7 复用同一个 `forwardHandler`，仅 `requestTypeStr` 不同（日志区分）；9 走 CoroRpc 跨节点 RPC。
 
 ---
 
@@ -481,7 +482,7 @@ auto r = co_await rpc->asyncLbRpcRequest(
 
 **原始字节（attachment）** `asyncRequestRaw<func>(host, payload)`：不走序列化，直接传字节。服务端 handler 须为 `void(coro_rpc::context<void>)`，用 `release_request_attachment()` 取请求、`set_response_attachment()` 回字节。返回的 `string_view` 指向响应缓冲，需立即使用。
 
-**异步等待 `asyncAwait(lazy)`**：将 `async_simple::coro::Lazy` 投递到 RPC 内部 io 池异步执行，回调处理结果，不阻塞当前协程（若在 asio 协程中调用，则立即返回）。常用于在 `boost::asio::awaitable` 上下文中发起 RPC（见 §8.7）。
+**异步等待 `asyncAwait(func, args...)`**：接收一个【协程函数】+ 参数，参数以协程参数形式（走协程 ABI）传进 Lazy，投递到 RPC 内部 io 池异步执行，不阻塞当前协程（若在 asio 协程中调用，则立即返回）。常用于在 `boost::asio::awaitable` 上下文中发起 RPC（见 §8.7）。
 
 **host 黑名单**：对端下线后调 `removeHost(host)`（或 `removeHostsNotIn(onlineList)`）将其剔除，后续 `asyncRpcRequest` 对该 host 直接返回 `std::errc::not_connected`，不再走网络；同时清除该 host 的空闲连接。
 
@@ -591,7 +592,7 @@ CoroRpcHandlerImpl::requestForward(RpcForward rpcforward) {
 
 #### B. 客户端发起 RPC（在 asio 协程中）
 
-在 `boost::asio::awaitable` 协程（如信令 handler）中发起 RPC，由于 `asyncRpcRequest` 返回 `async_simple::coro::Lazy`，不能直接用 `co_await` 与之互操作。此时可利用 `CoroRpc::asyncAwait()` 配合 `boost::asio::steady_timer` 实现“发起 → 等待完成或超时”的同步效果。
+在 `boost::asio::awaitable` 协程（如信令 handler）中发起 RPC，由于 `asyncRpcRequest` 返回 `async_simple::coro::Lazy`，不能直接用 `co_await` 与之互操作。此时利用 `CoroRpc::asyncAwait(func, args...)` 配合 `boost::asio::steady_timer` 实现“发起 → 等待完成或超时”的同步效果。
 
 典型做法（取自实际代码）：
 
@@ -604,54 +605,56 @@ if (!coroRpc->isOpen()) {
 }
 
 // 准备 RPC 请求参数
-RpcForward rpcForward{ 0, R"({"accountId":"A","targetId":"B","requestType":1})" };
-RpcForwardResponse rpcForwardResponse;  // 用于接收结果
+std::string forwardPacketJson = R"({"accountId":"A","targetId":"B","requestType":1})";
+std::shared_ptr<RpcForwardResponse> rpcForwardResponse = std::make_shared<RpcForwardResponse>();
 
-// 定时器：设置超时（如 3000ms）
-boost::asio::steady_timer steadyTimer(ioContext);
-steadyTimer.expires_after(std::chrono::milliseconds(3000));
+// 定时器：设置超时（如 3000ms），用 shared_ptr 以便 Lazy 里也能 cancel
+std::shared_ptr<boost::asio::steady_timer> steadyTimer =
+    std::make_shared<boost::asio::steady_timer>(ioContext);
+steadyTimer->expires_after(std::chrono::milliseconds(3000));
 
-// 通过 asyncAwait 发起 RPC
-coroRpc->asyncAwait([&]() -> async_simple::coro::Lazy<void> {
-    std::string targetHost = "127.0.0.1:" + std::to_string(coroRpc->coroRpcServerConfig.port);
-    auto result = co_await coroRpc->asyncRpcRequest(
-        targetHost,
-        [&](coro_rpc::coro_rpc_client& client)
-        -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
-            co_return co_await client.call<&hope::rpc::CoroRpcHandlerImpl::requestForward>(rpcForward);
-        });
-
-    // 两层错误处理
-    if (!result) {
-        LOG_ERROR("connect failed");
-    } else if (!result.value()) {
-        LOG_ERROR("coroRpc failed");
-    } else {
-        rpcForwardResponse = result.value().value();
-        steadyTimer.cancel();   // 成功，取消定时器
-    }
-    co_return;
-}());
-
-// 等待定时器：若 RPC 在超时前完成，定时器被取消，ec 为 operation_aborted；
-// 若超时，则 ec 为 success（或其它错误）表示超时。
-auto [ec] = co_await steadyTimer.async_wait(boost::asio::as_tuple(boost::asio::use_awaitable));
-if (ec) {
-    if (ec != boost::asio::error::operation_aborted) {
-        LOG_WARN("SteadyTimer Await TimeOut");
+// 通过 asyncAwait 发起 RPC：协程函数零 capture，全部数据走参数
+coroRpc->asyncAwait(
+    [](hope::rpc::CoroRpc* rpc, std::shared_ptr<boost::asio::steady_timer> timer,
+       std::string packet, std::shared_ptr<RpcForwardResponse> resp)
+    -> async_simple::coro::Lazy<void> {
+        std::string targetHost = "127.0.0.1:" + std::to_string(rpc->coroRpcServerConfig.port);
+        auto result = co_await rpc->asyncRpcRequest(
+            targetHost,
+            [packet = std::move(packet), targetHost](coro_rpc::coro_rpc_client& client)
+            -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
+                RpcForward req(0, std::move(packet));
+                co_return co_await client.call<&hope::rpc::CoroRpcHandlerImpl::requestForward>(req);
+            });
+        // 两层错误处理
+        if (!result) {
+            LOG_ERROR("connect failed");
+        } else if (!result.value()) {
+            LOG_ERROR("coroRpc failed");
+        } else {
+            *resp = result.value().value();
+            timer->cancel();   // 成功，取消定时器
+        }
         co_return;
-    }
+    },
+    coroRpc, steadyTimer, std::move(forwardPacketJson), rpcForwardResponse);
+
+// 等 Lazy 完成或超时：定时器被 cancel() 取消 → ec==operation_aborted → 完成；
+// 自然到期（ec 为空/success）→ 超时。
+auto [ec] = co_await steadyTimer->async_wait(boost::asio::as_tuple(boost::asio::use_awaitable));
+if (ec != boost::asio::error::operation_aborted) {
+    LOG_WARN("RpcForward wait timeout (3s), response not received");
+    co_return;
 }
 
 // 正常处理 rpcForwardResponse
-LOG_INFO("rpcResponse state:%d message:%s", rpcForwardResponse.state, rpcForwardResponse.message.c_str());
+LOG_INFO("rpcResponse state:%d message:%s", rpcForwardResponse->state, rpcForwardResponse->message.c_str());
 ```
 
 **关键点**：
-- `asyncAwait` 将 Lazy 投递到 RPC 内部 io 池执行，**不阻塞当前 asio 协程**（立即返回），但通过 `steady_timer` 外部等待，使协程挂起直到 RPC 完成或超时。
-- 捕获 `[&]` 安全：因为当前 asio 协程在 `co_await steadyTimer` 之前不会返回，所以栈上变量的生命周期是完整的，可以安全引用。
-- RPC 成功时主动 `cancel()` 定时器，此时定时器的 `async_wait` 会立即返回 `operation_aborted`，表示正常完成。
-- 若超时，则 `ec` 为 `boost::asio::error::operation_aborted` 以外的值（实际可能是 `boost::system::errc::success`，表示定时器到期），此时可记录超时并跳过后续处理。
+- `asyncAwait(func, args...)` 将协程函数产生的 Lazy 投递到 RPC 内部 io 池执行，**不阻塞当前 asio 协程**（立即返回），但通过 `steady_timer` 外部等待，使协程挂起直到 RPC 完成或超时。
+- 协程函数必须是**零 capture**（`[]`），`coroRpc`/`timer`/`packet`/`resp` 全由 `asyncAwait` 以参数传入。
+- RPC 成功时主动 `cancel()` 定时器，此时 `async_wait` 立即返回 `operation_aborted`，表示正常完成；**只有 `ec == operation_aborted` 才是完成，其它情况（自然到期）都是超时**，应 `co_return` 跳过后续处理。
 - 两层错误检查 `!result` 和 `!result.value()` 缺一不可，直接 `.value().value()` 会在任一层失败时抛出异常。
 
 此模式同样适用于其他需要将 `async_simple::Lazy` 与 `boost::asio::awaitable` 同步等待的场景。
@@ -738,8 +741,13 @@ enablePublicPort = 1     ; 1=监听 0.0.0.0,0=仅 127.0.0.1
 size = 0                 ; 通道数,0=硬件并发数
 certificateFile = server.crt
 privateKeyFile = server.key
-socketWaitTime = 10000   ; 握手超时 ms
-DEBUG=0 INFO=1 WARN=1 ERROR=0   ; 控制台日志级别
+maxTlsHandShakeTime = 3000    ; WebSocket 握手超时 ms
+maxTlsHttpHandShakeTime = 3000 ; HTTP TLS 握手超时 ms
+maxHttpKeepAliveTime = 300    ; HTTP keep-alive 超时 s
+DEBUG = 0                ; 控制台日志级别
+INFO = 1
+WARN = 1
+ERROR = 0
 overload = 256           ; 全局队列容量因子
 threshold = 256          ; 削峰阈值
 exitThreshold = 128
@@ -759,18 +767,18 @@ pingTimeoutSeconds = 10
 multiQueries = 0
 
 [CoroRpc]
-enableRpc = 0            ; 1 才启用 RPC(当前无消费者)
-port = 9001
-threadSize = 4
-enableSsl = 0
+enableRpc = 1            ; 1 才启用 RPC(节点间转发 requestForward 用)
+port = 10018
+threadSize = 2
+enableSsl = 1            ; 0=明文,1=单向 TLS
 basePath = .             ; 证书目录,=当前工作目录
 certFile = server.crt
 keyFile = server.key
-caCertFile =
-enableClientVerify = 0
-enableDoubleSsl = 0
-clientCertFile =
-clientKeyFile =
+caCertFile = server.crt ; 校验服务端证书的 CA(单向也用它)
+enableClientVerify = 0   ; 是否校验客户端证书(mTLS 时为 1)
+enableDoubleSsl = 0      ; 0=单向 TLS,1=mTLS 双向认证
+clientCertFile = server.crt ; 仅 enableDoubleSsl=1 时生效
+clientKeyFile = server.key  ; 仅 enableDoubleSsl=1 时生效
 
 [Protect]
 process = WebrtcSignalServer.exe   ; 预留,当前无代码消费
