@@ -794,7 +794,39 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
     }catch(std::exception & e){
 
-        LOG_ERROR("WebSocket Connect Error : %s",e.what());
+        LOG_ERROR("WebrtcReceiveCoroutine Error : %s",e.what());
+
+        if (webSocket == ws) {
+            closeWebSocket();
+        }
+
+        if (onSignalServerDisConnectHandle) {
+            onSignalServerDisConnectHandle();
+        }
+
+        if (isRemote == false) {
+
+            co_return;
+
+        }
+
+        isRemote = false;
+
+        if (onDisConnectRemoteHandle) {
+
+            onDisConnectRemoteHandle();
+
+        }
+
+        releaseSource();
+
+        initializePeerConnection();
+
+        co_return;
+
+    }catch(...){
+
+        LOG_ERROR("WebrtcReceiveCoroutine Error");
 
         if (webSocket == ws) {
             closeWebSocket();
@@ -1281,6 +1313,8 @@ void WebrtcManager::receiveCoroutineAysnc()
 
                 }
 
+                continue;
+
             }else if(WebrtcRequestState(json["requestType"].as_int64()) == WebrtcRequestState::ENCODE_STATUS){
 
                 // 被控端:本机 System 经本地 TCP 上报当前编码 codec + 硬编/软编 + 采集技术
@@ -1544,9 +1578,6 @@ void WebrtcManager::setWebrtcDeskConfig(const WebrtcDeskConfig &config)
 
 void WebrtcManager::abortPendingConnection()
 {
-    // 统一入口:post 到 ioContext 执行,线程安全。
-    // 无条件重置连接态(不论 isRemote),清掉 tcpSocket/peerConnection 并重建空白 peerConnection,
-    // 保留 webSocket(信令连接不断,便于立即重试)。解决超时/ICE failed 后 tcpSocket 残留导致重连失败。
     boost::asio::post(ioContext, [self = shared_from_this()]() {
         self->isRemote = false;
         self->releaseSource();            // 关 peerConnection/dataChannel/tcpSocket + 停服务
