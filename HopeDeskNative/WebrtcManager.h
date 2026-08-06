@@ -242,7 +242,9 @@ public:
 
     void asyncWrite(std::shared_ptr<WriterData> writerData);
 
-    void webrtcAsyncWrite(std::string str);
+    // 入队到 websocket 发送队列;队列处于 close 状态时返回 false(消息被丢弃),
+    // 调用方应据此记录错误而非当作已发送。
+    bool webrtcAsyncWrite(std::string str);
 
     // 把任务投递到 ioContext 线程执行,保证与 ioContext 上的操作(收发/定时器)串行、线程安全。
     // peerConnection 等回调运行在 WebRTC 信令线程,必须经此投递后再碰 WebrtcManager 状态。

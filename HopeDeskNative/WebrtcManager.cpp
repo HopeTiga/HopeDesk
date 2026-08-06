@@ -446,9 +446,15 @@ void WebrtcManager::asyncWrite(std::shared_ptr<WriterData> writerData){
     asioConcurrentQueue.enqueue(std::move(writerData));
 }
 
-void WebrtcManager::webrtcAsyncWrite(std::string str)
+bool WebrtcManager::webrtcAsyncWrite(std::string str)
 {
-    webrtcAsioConcurrentQueue.enqueue(std::move(str));
+    // enqueue 在队列处于 close 状态(重连窗口内)会返回 false 并丢弃消息,
+    // 之前返回值被忽略导致"点了发送请求但实际没发"且无任何日志。
+    if (!webrtcAsioConcurrentQueue.enqueue(std::move(str))) {
+        LOG_ERROR("webrtcAsyncWrite: websocket send queue is closed, message dropped");
+        return false;
+    }
+    return true;
 }
 
 void WebrtcManager::post(std::function<void()> task)
@@ -597,11 +603,14 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
     try{
 
-        while (webrtcAsyncEvents.load()) {
+        while (webrtcAsyncEvents.load() && webSocket == ws) {
 
             boost::beast::flat_buffer buffer;
 
             co_await ws->async_read(buffer, boost::asio::use_awaitable);
+
+            // 读取挂起期间连接可能已被替换:丢弃旧连接的残留包,并退出(僵尸协程问题)
+            if (webSocket != ws) break;
 
             std::string str = boost::beast::buffers_to_string(buffer.data());
 
@@ -796,31 +805,34 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
 
         LOG_ERROR("WebrtcReceiveCoroutine Error : %s",e.what());
 
+        // 只对"当前连接"做拆除+回调;过期协程(webSocket 已被替换)静默退出,
+        // 避免误拆新连接、误报"网络断开"触发多余重连。
         if (webSocket == ws) {
+
             closeWebSocket();
+
+            if (onSignalServerDisConnectHandle) {
+                onSignalServerDisConnectHandle();
+            }
+
+            if (isRemote == false) {
+
+                co_return;
+
+            }
+
+            isRemote = false;
+
+            if (onDisConnectRemoteHandle) {
+
+                onDisConnectRemoteHandle();
+
+            }
+
+            releaseSource();
+
+            initializePeerConnection();
         }
-
-        if (onSignalServerDisConnectHandle) {
-            onSignalServerDisConnectHandle();
-        }
-
-        if (isRemote == false) {
-
-            co_return;
-
-        }
-
-        isRemote = false;
-
-        if (onDisConnectRemoteHandle) {
-
-            onDisConnectRemoteHandle();
-
-        }
-
-        releaseSource();
-
-        initializePeerConnection();
 
         co_return;
 
@@ -829,30 +841,31 @@ boost::asio::awaitable<void> WebrtcManager::webrtcReceiveCoroutine()
         LOG_ERROR("WebrtcReceiveCoroutine Error");
 
         if (webSocket == ws) {
+
             closeWebSocket();
+
+            if (onSignalServerDisConnectHandle) {
+                onSignalServerDisConnectHandle();
+            }
+
+            if (isRemote == false) {
+
+                co_return;
+
+            }
+
+            isRemote = false;
+
+            if (onDisConnectRemoteHandle) {
+
+                onDisConnectRemoteHandle();
+
+            }
+
+            releaseSource();
+
+            initializePeerConnection();
         }
-
-        if (onSignalServerDisConnectHandle) {
-            onSignalServerDisConnectHandle();
-        }
-
-        if (isRemote == false) {
-
-            co_return;
-
-        }
-
-        isRemote = false;
-
-        if (onDisConnectRemoteHandle) {
-
-            onDisConnectRemoteHandle();
-
-        }
-
-        releaseSource();
-
-        initializePeerConnection();
 
         co_return;
 
@@ -866,13 +879,23 @@ boost::asio::awaitable<void> WebrtcManager::webrtcWriteCoroutine()
 
     if (!ws) co_return;
 
+    // 发送协程自己置位生命周期标志:不再依赖接收协程先跑(消除 spawn 顺序竞态),
+    // 也保证本协程存活期间 webrtcAsyncEvents 恒为 true,不会因"接收协程先退出"而静默停发。
+    webrtcAsyncEvents.store(true);
+
     try {
 
-        while (webrtcAsyncEvents.load()) {
+        // webSocket == ws:本协程只服务自己创建时的那个连接。
+        // connect() 一旦把 webSocket 换成新连接,旧协程在下一次醒来即退出(僵尸协程问题)。
+        while (webrtcAsyncEvents.load() && webSocket == ws) {
 
             std::optional<std::string> optional = co_await webrtcAsioConcurrentQueue.dequeue();
 
             if (optional.has_value()) {
+
+                // 挂起(dequeue)期间连接可能已被替换/关闭:目标 socket 已不是当前连接,
+                // 绝不用旧 socket 写数据,否则消息丢失且误拆新连接。
+                if (webSocket != ws) break;
 
                 std::string str = std::move(optional.value());
 
@@ -880,7 +903,7 @@ boost::asio::awaitable<void> WebrtcManager::webrtcWriteCoroutine()
 
             }else break;
 
-            if (!webrtcAsyncEvents.load()) break;
+            if (!webrtcAsyncEvents.load() || webSocket != ws) break;
 
         }
 
@@ -889,31 +912,34 @@ boost::asio::awaitable<void> WebrtcManager::webrtcWriteCoroutine()
 
         LOG_ERROR("Writer coroutine unhandled exception: %s", e.what());
 
+        // 只对"当前连接"做拆除+回调;过期协程(webSocket 已被替换)静默退出,
+        // 避免误拆新连接、误报"网络断开"触发多余重连。
         if (webSocket == ws) {
+
             closeWebSocket();
+
+            if (onSignalServerDisConnectHandle) {
+                onSignalServerDisConnectHandle();
+            }
+
+            if (isRemote == false) {
+
+                co_return;
+
+            }
+
+            isRemote = false;
+
+            if (onDisConnectRemoteHandle) {
+
+                onDisConnectRemoteHandle();
+
+            }
+
+            releaseSource();
+
+            initializePeerConnection();
         }
-
-        if (onSignalServerDisConnectHandle) {
-            onSignalServerDisConnectHandle();
-        }
-
-        if (isRemote == false) {
-
-            co_return;
-
-        }
-
-        isRemote = false;
-
-        if (onDisConnectRemoteHandle) {
-
-            onDisConnectRemoteHandle();
-
-        }
-
-        releaseSource();
-
-        initializePeerConnection();
 
     }
     catch (...) {
@@ -921,30 +947,31 @@ boost::asio::awaitable<void> WebrtcManager::webrtcWriteCoroutine()
         LOG_ERROR("Writer coroutine unknown exception");
 
         if (webSocket == ws) {
+
             closeWebSocket();
+
+            if (onSignalServerDisConnectHandle) {
+                onSignalServerDisConnectHandle();
+            }
+
+            if (isRemote == false) {
+
+                co_return;
+
+            }
+
+            isRemote = false;
+
+            if (onDisConnectRemoteHandle) {
+
+                onDisConnectRemoteHandle();
+
+            }
+
+            releaseSource();
+
+            initializePeerConnection();
         }
-
-        if (onSignalServerDisConnectHandle) {
-            onSignalServerDisConnectHandle();
-        }
-
-        if (isRemote == false) {
-
-            co_return;
-
-        }
-
-        isRemote = false;
-
-        if (onDisConnectRemoteHandle) {
-
-            onDisConnectRemoteHandle();
-
-        }
-
-        releaseSource();
-
-        initializePeerConnection();
 
     }
     co_return;
@@ -1204,11 +1231,16 @@ boost::asio::awaitable<void> WebrtcManager::writerCoroutineAsync()
 
         std::shared_ptr<boost::asio::ip::tcp::socket> socket = this->tcpSocket;
 
-        while(asyncEvents.load()){
+        // tcpSocket == socket:本协程只服务自己创建时的那个本地 TCP 连接。
+        // 新 accept 替换 tcpSocket 后,旧协程在下次醒来即退出,避免向已关闭的旧 socket 写数据。
+        while(asyncEvents.load() && tcpSocket == socket){
 
             std::optional<std::shared_ptr<WriterData>> optional = co_await asioConcurrentQueue.dequeue();
 
             if(optional.has_value()){
+
+                // dequeue 挂起期间本地 TCP 可能已被替换/关闭
+                if (tcpSocket != socket) break;
 
                 std::shared_ptr<WriterData> writeData = optional.value();
 
@@ -1216,7 +1248,7 @@ boost::asio::awaitable<void> WebrtcManager::writerCoroutineAsync()
 
             }else break;
 
-            if (!asyncEvents.load()) break;
+            if (!asyncEvents.load() || tcpSocket != socket) break;
 
         }
 
@@ -1549,12 +1581,20 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
             message["requestMinBitrateBps"] = self->webrtcDeskConfig.requestMinBitrateBps;
             message["requestMaxFramerate"] = self->webrtcDeskConfig.requestMaxFramerate;
 
-            self->webrtcAsyncWrite(boost::json::serialize(message));
+            bool enqueued = self->webrtcAsyncWrite(boost::json::serialize(message));
 
-            LOG_INFO("Request sent to target: %s", self->targetId.c_str());
+            if (enqueued) {
+                LOG_INFO("Request sent to target: %s", self->targetId.c_str());
+            } else {
+                LOG_ERROR("asyncRemoteDesk: request NOT enqueued, websocket send queue is closed");
+            }
 
             // 唯一看门狗:多次请求只保留一个 timer,最后一次请求发出 15s 未连上才触发一次 re-init
             self->armRequestTimeout();
+        } else {
+
+            LOG_ERROR("asyncRemoteDesk: PeerConnection is null, request not sent");
+
         }
 
     },boost::asio::detached);
