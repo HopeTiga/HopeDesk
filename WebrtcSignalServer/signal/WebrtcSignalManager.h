@@ -28,7 +28,11 @@ namespace hope {
 
 			int asyncThreshold = 32;      // 异步派发阈值
 
-			int socketWaitTime = 10000; // WebSocket 握手超时(ms)
+			int maxTlsHandShakeTime = 10000; // WebSocket 握手超时(ms)
+
+			int maxTlsHttpHandShakeTime = 10000;    // HTTP 读/keep-alive 超时(ms)
+
+			int maxHttpKeepAliveTime = 300;   // 客户端 Keep-Alive 协商超时上限(s)
 
 		};
 
@@ -49,7 +53,7 @@ namespace hope {
 
 			boost::asio::io_context& getIoCompletionPorts();
 
-			std::shared_ptr<hope::signal::WebrtcSignalSocket> generateWebRTCSignalSocket();
+			std::shared_ptr<hope::signal::WebrtcSignalSocket> generateWebrtcSignalSocket();
 
 			std::shared_ptr<HttpSocket> generateHttpSocket();
 

@@ -1,4 +1,6 @@
 #include "WebrtcSignalServer.h"
+
+#include <chrono>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -101,13 +103,53 @@ namespace hope {
 
                 while (asyncEvents.load()) {
 
-                    std::shared_ptr<WebrtcSignalManager> manager = loadBalanceWebrtcManger();
+                    std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = loadBalanceWebrtcManger();
 
-                    std::shared_ptr<hope::signal::WebrtcSignalSocket> webrtcSignalSocket = manager->generateWebRTCSignalSocket();
+                    std::shared_ptr<hope::signal::WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalManager->generateWebrtcSignalSocket();
 
-                    co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
+                    bool shouldBackoff = false;
 
-                    webrtcSignalSocket->setOnDisConnectHandle([sharedManager = manager->shared_from_this()](std::string accountId, std::string sessionId) {
+                    try {
+
+                        co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
+
+                    }
+                    catch (const boost::system::system_error& e) {
+
+                        if (e.code() == boost::asio::error::operation_aborted || !asyncEvents.load() || !acceptor.is_open()) {
+
+                            LOG_INFO("WebrtcSignalServer accept loop exits: %s", e.code().message().c_str());
+
+                            break;
+
+                        }
+
+                        LOG_WARN("WebrtcSignalServer accept failed, backoff and retry: %s", e.code().message().c_str());
+
+                        shouldBackoff = true;
+
+                    }
+                    catch (const std::exception& e) {
+
+                        LOG_ERROR("WebrtcSignalServer accept loop fatal exception: %s", e.what());
+
+                        break;
+
+                    }
+
+                    if (shouldBackoff) {
+
+                        boost::asio::steady_timer backoffTimer(ioContext);
+
+                        backoffTimer.expires_after(std::chrono::milliseconds(100));
+
+                        co_await backoffTimer.async_wait(boost::asio::use_awaitable);
+
+                        continue;
+
+                    }
+
+                    webrtcSignalSocket->setOnDisConnectHandle([sharedManager = webrtcSignalManager->shared_from_this()](std::string accountId, std::string sessionId) {
 
 #ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
@@ -137,7 +179,21 @@ namespace hope {
 
                 }
 
-                }, boost::asio::detached);
+                }, [this](std::exception_ptr ptr) {
+
+                    if (ptr) {
+
+                        try { std::rethrow_exception(ptr); }
+
+                        catch (const std::exception& e) {
+
+                            LOG_ERROR("WebrtcSignalServer accept loop unhandled exception: %s", e.what());
+
+                        }
+
+                    }
+
+                });
 
             if (webrtcSignalConfig.enableHttp == 1) {
 
@@ -149,11 +205,51 @@ namespace hope {
 
                         std::shared_ptr<HttpSocket> httpSocket = manager->generateHttpSocket();
 
-                        co_await httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::use_awaitable);
+                        bool shouldBackoff = false;
+
+                        try {
+
+                            co_await httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::use_awaitable);
+
+                        }
+                        catch (const boost::system::system_error& e) {
+
+                            if (e.code() == boost::asio::error::operation_aborted || !asyncEvents.load() || !httpAcceptor.is_open()) {
+
+                                LOG_INFO("WebrtcSignalServer http accept loop exits: %s", e.code().message().c_str());
+
+                                break;
+
+                            }
+
+                            LOG_WARN("WebrtcSignalServer http accept failed, backoff and retry: %s", e.code().message().c_str());
+
+                            shouldBackoff = true;
+
+                        }
+                        catch (const std::exception& e) {
+
+                            LOG_ERROR("WebrtcSignalServer http accept loop fatal exception: %s", e.what());
+
+                            break;
+
+                        }
+
+                        if (shouldBackoff) {
+
+                            boost::asio::steady_timer backoffTimer(ioContext);
+
+                            backoffTimer.expires_after(std::chrono::milliseconds(100));
+
+                            co_await backoffTimer.async_wait(boost::asio::use_awaitable);
+
+                            continue;
+
+                        }
 
                         boost::asio::co_spawn(httpSocket->getIoContext(), [this, httpSocket = httpSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
-                            co_await httpSocket->asyncEventLoop();
+                            co_await httpSocket->asyncEvent();
 
                             co_return;
 
@@ -163,7 +259,21 @@ namespace hope {
 
                     co_return;
 
-                    }, boost::asio::detached);
+                    }, [this](std::exception_ptr ptr) {
+
+                        if (ptr) {
+
+                            try { std::rethrow_exception(ptr); }
+
+                            catch (const std::exception& e) {
+
+                                LOG_ERROR("WebrtcSignalServer http accept loop unhandled exception: %s", e.what());
+
+                            }
+
+                        }
+
+                    });
 
             }
 
@@ -224,7 +334,7 @@ namespace hope {
 
         void WebrtcSignalServer::closeEvent() {
 
-            if (!closeEvents.exchange(false)) return;
+            if (!asyncEvents.exchange(false)) return;
 
             LOG_INFO("WebrtcSignalServer CloseEvent...");
 
@@ -284,7 +394,9 @@ namespace hope {
                     webrtcSignalConfig.threshold,
                     webrtcSignalConfig.exitThreshold,
                     webrtcSignalConfig.asyncThreshold,
-                    webrtcSignalConfig.socketWaitTime
+                    webrtcSignalConfig.maxTlsHandShakeTime,
+                    webrtcSignalConfig.maxTlsHttpHandShakeTime,
+                    webrtcSignalConfig.maxHttpKeepAliveTime
                 };
 
                 webrtcSignalManagers[i] = std::make_shared<WebrtcSignalManager>(i, ioContext, this, taskQueues, channelConfig);

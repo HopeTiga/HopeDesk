@@ -122,7 +122,7 @@ namespace hope {
 
                     if (localTaskQueueSize.load() >= exitThreshold.load()) {
 
-                        LOG_WARN("WebrtcLogicSystem local queue depth %d exceeds threshold, switching to local processing", taskQueueSize.load());
+                        LOG_WARN("WebrtcLogicSystem local queue depth %d exceeds threshold, switching to local processing", localTaskQueueSize.load());
 
                         asyncTaskExecutes.store(false);
 
@@ -561,7 +561,7 @@ namespace hope {
                                     }
 
                                 }
-                                
+
                                 webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), request = std::move(request), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
                                     absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId);
@@ -708,7 +708,7 @@ namespace hope {
 
                                         LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), requestTypeStr.c_str());
 
-                                        webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable{
+                                        webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
                                             absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -901,7 +901,7 @@ namespace hope {
 
             // ==================== Handlers 1-4 ====================
             webrtcHandlers[1] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "REQUEST"); };
-            
+
             webrtcHandlers[3] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "STOP_REMOTE"); };
 
             webrtcHandlers[6] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
@@ -914,67 +914,88 @@ namespace hope {
 
             webrtcHandlers[9] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
 
-                hope::rpc::CoroRpc * coroRpc =  hope::rpc::CoroRpc::getInstance();
+                hope::rpc::CoroRpc* coroRpc = hope::rpc::CoroRpc::getInstance();
 
                 if (!coroRpc->isOpen()) {
-                
+
                     LOG_WARN("CoroRpc is not accepted yet, request aborted");
 
                     co_return;
 
                 }
-                
-                boost::asio::steady_timer steadyTimer(ioContext);
 
-                steadyTimer.expires_after(std::chrono::milliseconds(3000));
+                std::shared_ptr<boost::asio::steady_timer> sharedTimer = std::make_shared<boost::asio::steady_timer>(ioContext);
 
-                RpcForward rpcForward{ 0,R"({"accountId":"396887208@qq.com","targetId":"913140924@qq.com","requestType":1})" };
+                sharedTimer->expires_after(std::chrono::milliseconds(3000));
 
-                RpcForwardResponse rpcForwadResponse;
+                boost::json::object& request = webrtcSignalPacket.request;
 
-                coroRpc->asyncAwait([&]() -> async_simple::coro::Lazy<void> {
+                if (!request.contains("forwardPacket")) {
 
-                    std::string targetHost = "127.0.0.1:" + std::to_string(coroRpc->coroRpcServerConfig.port);
+                    LOG_WARN("Forward Message Missing forwardPacket.");
 
-                    auto result = co_await coroRpc->asyncRpcRequest(
-                        targetHost,
-                        [&](coro_rpc::coro_rpc_client& client)
-                        -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
+                    webrtcSignalPacket.webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%lld,"state":400,"message":"Forward Message Missing forwardPacket"})", static_cast<long long>(webrtcSignalPacket.requestType)));
 
-                            LOG_INFO("targetHost:%s", targetHost.c_str());
-
-                            co_return co_await client.call<&hope::rpc::CoroRpcHandlerImpl::requestForward>(rpcForward);
-
-                        });
-                    if (!result)              LOG_ERROR("connect failed");
-                    else if (!result.value()) LOG_ERROR("coroRpc failed");
-                    else {
-
-                        rpcForwadResponse = result.value().value();
-
-                        steadyTimer.cancel();
-
-                    }
-                    
                     co_return;
 
-                    }());
+                }
 
-                auto [ec] = co_await steadyTimer.async_wait(boost::asio::as_tuple(boost::asio::use_awaitable));
+                std::string forwardPacketJson = boost::json::serialize(request["forwardPacket"].as_object());
 
-                if (ec) {
+                std::shared_ptr<RpcForwardResponse> rpcForwardResponse = std::make_shared<RpcForwardResponse>();
 
-                    if (ec != boost::asio::error::operation_aborted) {
+                coroRpc->asyncAwait(
+                    [](hope::rpc::CoroRpc* rpc, std::shared_ptr<boost::asio::steady_timer> timer,
+                       std::string packet, std::shared_ptr<RpcForwardResponse> resp)
+                    -> async_simple::coro::Lazy<void> {
 
-                        LOG_WARN("SteadyTimer Await TimeOut:%s", ec.what().c_str());
+                        std::string targetHost = "127.0.0.1:" + std::to_string(rpc->coroRpcServerConfig.port);
+
+                        auto result = co_await rpc->asyncRpcRequest(
+                            targetHost,
+                            [packet = std::move(packet), targetHost](coro_rpc::coro_rpc_client& client)mutable
+                            -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
+
+                                RpcForward rpcForward(0, std::move(packet));
+
+                                co_return co_await client.call<&hope::rpc::CoroRpcHandlerImpl::requestForward>(rpcForward);
+
+                            });
+                        if (!result) {
+
+                            std::error_code connectError = std::make_error_code(result.error());
+
+                            LOG_WARN("RpcForward Connect Failed, Error=%d (%s)", static_cast<int>(result.error()), connectError.message().c_str());
+
+                        }
+                        else if (!result.value()) {
+
+                            LOG_WARN("RpcForward CoroRpc Call Failed");
+
+                        }
+                        else {
+
+                            *resp = result.value().value();
+
+                        }
+
+                        timer->cancel();
 
                         co_return;
 
-                    }
-                
+                    },
+                    coroRpc, sharedTimer, std::move(forwardPacketJson), rpcForwardResponse);
+
+                auto [waitEc] = co_await sharedTimer->async_wait(boost::asio::as_tuple(boost::asio::use_awaitable));
+
+                if (waitEc != boost::asio::error::operation_aborted) {
+
+                    LOG_WARN("RpcForward wait timeout (3s), response not received");
+
+                    co_return;
                 }
 
-                LOG_INFO("rpcRorwadResponse state:%d message:%s", rpcForwadResponse.state, rpcForwadResponse.message.c_str());
+                LOG_INFO("RpcForwardResponse State:%d Message:%s", rpcForwardResponse->state, rpcForwardResponse->message.c_str());
 
                 co_return;
 

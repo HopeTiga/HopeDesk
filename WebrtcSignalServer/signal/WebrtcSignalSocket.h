@@ -55,7 +55,7 @@ namespace hope {
 
 #endif
 
-			WebrtcSignalSocket(boost::asio::io_context& ioContext, WebrtcSignalManager* webrtcSignalManager, int socketWaitTime);
+			WebrtcSignalSocket(boost::asio::io_context& ioContext, WebrtcSignalManager* webrtcSignalManager, int maxTlsHandShakeTime);
 
 			~WebrtcSignalSocket();
 

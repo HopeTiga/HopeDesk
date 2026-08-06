@@ -45,7 +45,11 @@ namespace hope {
 
             int asyncThreshold = 32;
 
-            int socketWaitTime = 10000;
+            int maxTlsHandShakeTime = 10000;
+
+            int maxTlsHttpHandShakeTime = 10000;
+
+            int maxHttpKeepAliveTime = 300;
 
         };
 
@@ -121,8 +125,6 @@ namespace hope {
             std::atomic<size_t> managerIndex{ 0 };
 
             std::atomic<bool> asyncEvents{ false };
-
-            std::atomic<bool> closeEvents{ false };
 
             boost::asio::io_context& ioContext;
 

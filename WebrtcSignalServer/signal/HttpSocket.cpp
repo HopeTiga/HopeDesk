@@ -13,7 +13,7 @@ namespace hope {
 
 	namespace signal {
 
-		HttpSocket::HttpSocket(boost::asio::io_context& ioContext, WebrtcSignalManager* webrtcSignalManager)
+		HttpSocket::HttpSocket(boost::asio::io_context& ioContext, WebrtcSignalManager* webrtcSignalManager, int maxTlsHttpHandShakeTime, int maxHttpKeepAliveTime)
 			: ioContext(ioContext)
 			, webrtcSignalManager(webrtcSignalManager)
 #ifdef WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL
@@ -25,7 +25,8 @@ namespace hope {
 			, sslStream(ioContext, getSslContext())
 
 #endif
-			, timeoutSec(60)
+			, timeoutSec(std::chrono::seconds(maxTlsHttpHandShakeTime / 1000))
+			, maxHttpKeepAliveTimeSec(maxHttpKeepAliveTime)
 			, keepTimer(ioContext)
 		{
 
@@ -53,7 +54,7 @@ namespace hope {
 
 		}
 
-		boost::asio::awaitable<void> HttpSocket::asyncEventLoop()
+		boost::asio::awaitable<void> HttpSocket::asyncEvent()
 		{
 			if (!co_await asyncHandShake()) {
 
@@ -159,17 +160,44 @@ namespace hope {
 
 #ifdef WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL
 
+			// Read idle timeout: prevents a client that finished TLS but sends nothing from holding the coroutine and socket forever
+			boost::asio::steady_timer readTimer(co_await boost::asio::this_coro::executor);
+			readTimer.expires_after(timeoutSec);
+			bool isTimeout = false;
+			readTimer.async_wait([&](const boost::system::error_code& tec) {
+				if (!tec) {
+					isTimeout = true;
+					tcpStream.socket().cancel();
+				}
+			});
+
 			co_await boost::beast::http::async_read(tcpStream, buffer, httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
-			if (ec) {
+			readTimer.cancel();
+
+			if (isTimeout || ec) {
 				LOG_ERROR("HttpSocket::asyncRead async_read failed: %s", ec.message().c_str());
 				throw std::runtime_error("HttpSocket async_read failed");
 			}
 
 #else
 
+			// Read idle timeout: prevents a client that finished TLS but sends nothing from holding the coroutine and socket forever
+			boost::asio::steady_timer readTimer(co_await boost::asio::this_coro::executor);
+			readTimer.expires_after(timeoutSec);
+			bool isTimeout = false;
+			readTimer.async_wait([&](const boost::system::error_code& tec) {
+				if (!tec) {
+					isTimeout = true;
+					sslStream.lowest_layer().cancel();
+				}
+			});
+
 			co_await boost::beast::http::async_read(sslStream, buffer, httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-			if (ec) {
+
+			readTimer.cancel();
+
+			if (isTimeout || ec) {
 				LOG_ERROR("HttpSocket::asyncRead SSL async_read failed: %s", ec.message().c_str());
 				throw std::runtime_error("HttpSocket SSL async_read failed");
 			}
@@ -202,7 +230,8 @@ namespace hope {
 					try {
 						int sec = std::stoi(value.substr(pos, end - pos));
 						if (sec > 0) {
-							timeoutSec = std::chrono::seconds(sec);
+							// 封顶,防止客户端通过 Keep-Alive 把读/空闲超时顶到任意大
+							timeoutSec = std::chrono::seconds((maxHttpKeepAliveTimeSec > 0 && sec > maxHttpKeepAliveTimeSec) ? maxHttpKeepAliveTimeSec : sec);
 						}
 					}
 					catch (...) {
@@ -222,7 +251,7 @@ namespace hope {
 					auto lastTime = self->lastKeepAliveTime;
 
 					while (self->isKeepAlive) {
-						self->keepTimer.expires_at(lastTime);  // �ȴ�������ʱ���
+						self->keepTimer.expires_at(lastTime);  // 锟饺达拷锟斤拷锟斤拷锟斤拷时锟斤拷锟?
 						boost::system::error_code ec;
 						co_await self->keepTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 

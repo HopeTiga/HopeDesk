@@ -46,7 +46,10 @@ namespace hope {
 
 				bool hasClientCert = !coroRpcServerConfig.clientCertFile.empty();
 				bool hasClientKey = !coroRpcServerConfig.clientKeyFile.empty();
-				bool mtls = hasClientCert && hasClientKey;
+				// mTLS 必须显式打开 enableDoubleSsl 才算数：
+				// 单个 TLS(enableDoubleSsl=0) 时即使 config 里填了 clientCertFile/clientKeyFile
+				// 也不准把证书当客户端证书加载；双向(enableDoubleSsl=1) 时才用。
+				bool mtls = coroRpcServerConfig.enableDoubleSsl && hasClientCert && hasClientKey;
 
 				// 双向认证特有的参数校验（保持原逻辑）
 				if (coroRpcServerConfig.enableDoubleSsl) {
@@ -132,7 +135,7 @@ namespace hope {
 			coro_io::load_balance_algorithm lba)
 		{
 
-			if (!clientPools || hosts.empty()) return;
+			if (!clientPools) return;
 
 			LOG_INFO("CoroRpc createLoadBalancer: hostCount=%zu, lba=%d", hosts.size(), static_cast<int>(lba));
 

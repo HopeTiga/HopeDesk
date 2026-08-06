@@ -16,13 +16,13 @@ namespace hope {
 		{
 		public:
 
-			HttpSocket(boost::asio::io_context& ioContext, WebrtcSignalManager* webrtcSignalManager);
+			HttpSocket(boost::asio::io_context& ioContext, WebrtcSignalManager* webrtcSignalManager, int maxTlsHttpHandShakeTime, int maxHttpKeepAliveTime);
 
 			~HttpSocket();
 
 			boost::asio::ip::tcp::socket& getSocket();
 
-			boost::asio::awaitable<void> asyncEventLoop();
+			boost::asio::awaitable<void> asyncEvent();
 
 			boost::asio::awaitable<bool> asyncHandShake();
 
@@ -79,6 +79,8 @@ namespace hope {
 			bool isKeepAlive;
 
 			std::chrono::seconds timeoutSec;
+
+			int maxHttpKeepAliveTimeSec;
 
 			boost::asio::steady_timer keepTimer;
 

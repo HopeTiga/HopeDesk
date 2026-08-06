@@ -12,8 +12,8 @@ namespace hope {
         template<typename T>
         class AsioConcurrentQueue {
         public:
-            explicit AsioConcurrentQueue(boost::asio::any_io_executor ex)
-                : semaphore(ex, 0) {
+            explicit AsioConcurrentQueue(boost::asio::any_io_executor executor)
+                : semaphore(executor, 0) {
             }
 
             boost::asio::awaitable<std::optional<T>> dequeue() {
@@ -21,12 +21,12 @@ namespace hope {
                 T val;
 
                 if (semaphore.try_acquire()) {
-                    // ��Ȼƾ֤�ۼ��ɹ���������ض������ݣ��ų� close �������
+
                     if (queue.try_dequeue(val)) {
                         co_return val;
                     }
                     else {
-                        // �ò���˵���� close ����Ľ����ź�
+
                         if (isClose.load(std::memory_order_acquire)) {
                             semaphore.release();
                             co_return std::nullopt;
@@ -63,6 +63,10 @@ namespace hope {
 
                 }
 
+                while (semaphore.try_acquire()) {
+
+                }
+
                 isClose.store(false);
 
             }
@@ -75,12 +79,6 @@ namespace hope {
                 semaphore.release();
 
                 return true;
-            }
-
-            size_t size() {
-
-                return queue.size_approx();
-
             }
 
         private:

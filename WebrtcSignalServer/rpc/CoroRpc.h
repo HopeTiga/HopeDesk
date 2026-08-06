@@ -18,17 +18,19 @@
 #include <async_simple/coro/SyncAwait.h>
 #include <async_simple/coro/Lazy.h>
 
+#include "../utils/Utils.h"   // LOG_ERROR 等日志宏
+
 namespace hope {
 
 	namespace rpc {
 	
 		struct CoroRpcServerConfig {
 
-			size_t port;
+			size_t port = 10011;
 
-			size_t threadSize;
+			size_t threadSize = 2;
 
-			bool enableSsl;
+			bool enableSsl = false;
 
 			std::string basePath;
 
@@ -96,12 +98,30 @@ namespace hope {
 				const std::vector<int>& weights = std::vector<int>(),
 				coro_io::load_balance_algorithm lba = coro_io::load_balance_algorithm::RR);
 
-			template <typename LazyType>
-			inline auto asyncAwait(LazyType&& lazy) {
-				// syncAwait 的异步(非阻塞)版:把 Lazy 扔到 io 池异步跑,立即返回。
-				// 你在传进来的 Lazy("异步回调")里照常 co_await rpc->asyncRpcRequest(...) 用 rpc,
-				// 用法跟 syncAwait 包一个 lambda 完全一样,只是不阻塞调用方。
-				std::move(lazy).via(ioExecutor()).start([](auto&&) {});
+			// asyncAwait(协程函数, 参数...)：把参数以【协程参数】形式传进 Lazy，跑在 io 池上，立即返回。
+			// 不要用 lambda capture 传数据：capture 走 lambda 对象，跨线程(Linux)会丢/坏，
+			// 参数走协程 ABI 直接进帧，稳定。
+			// 用法：
+			//   coroRpc->asyncAwait([](CoroRpc* rpc, std::string data) -> async_simple::coro::Lazy<void> {
+			//       // 协程体里直接用参数 data
+			//       co_return;
+			//   }, rpc, std::move(data));
+			template <typename Func, typename... Args>
+			inline auto asyncAwait(Func func, Args&&... args) {
+				auto lazy = func(std::forward<Args>(args)...);
+				std::move(lazy).via(ioExecutor()).start([](auto&& result) {
+					if (result.hasError()) {
+						try {
+							std::rethrow_exception(result.getException());
+						}
+						catch (const std::exception& e) {
+							LOG_ERROR("CoroRpc::asyncAwait coroutine exception: %s", e.what());
+						}
+						catch (...) {
+							LOG_ERROR("CoroRpc::asyncAwait coroutine unknown exception");
+						}
+					}
+				});
 			}
 
 
