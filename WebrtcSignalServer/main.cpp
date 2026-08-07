@@ -11,7 +11,7 @@
 int main() {
 
 #ifdef _WIN32
-
+  
     SetConsoleOutputCP(CP_UTF8);
 
     SetConsoleCP(CP_UTF8);
@@ -49,7 +49,11 @@ int main() {
     webrtcSignalConfig.threshold = configManager.GetInt("WebrtcSignalServer.threshold");
     webrtcSignalConfig.exitThreshold = configManager.GetInt("WebrtcSignalServer.exitThreshold");
     webrtcSignalConfig.asyncThreshold = configManager.GetInt("WebrtcSignalServer.asyncThreshold");
-    webrtcSignalConfig.socketWaitTime = configManager.GetInt("WebrtcSignalServer.socketWaitTime");
+    webrtcSignalConfig.maxTlsHandShakeTime = configManager.GetInt("WebrtcSignalServer.maxTlsHandShakeTime");
+
+    webrtcSignalConfig.maxTlsHttpHandShakeTime = configManager.GetInt("WebrtcSignalServer.maxTlsHttpHandShakeTime", 10000);
+
+    webrtcSignalConfig.maxHttpKeepAliveTime = configManager.GetInt("WebrtcSignalServer.maxHttpKeepAliveTime", 300);
 
     webrtcSignalConfig.enableRpc = configManager.GetInt("CoroRpc.enableRpc", 0) != 0;
     hope::rpc::CoroRpcServerConfig& coroRpcConfig = webrtcSignalConfig.coroRpcServerConfig;
@@ -88,7 +92,7 @@ int main() {
     std::shared_ptr<hope::signal::WebrtcSignalServer> WebrtcSignalServer = std::make_shared<hope::signal::WebrtcSignalServer>(ioContext, webrtcSignalConfig);
 
     if (!WebrtcSignalServer->asyncEvent()) {
-    
+
         LOG_INFO("WebrtcSignalServer AsyncEvent Failed");
 
         return -1;
