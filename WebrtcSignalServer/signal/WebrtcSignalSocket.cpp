@@ -187,7 +187,7 @@ namespace hope {
 
                             }
 
-                            LOG_ERROR("WebrtcSignalSocket error: %s", e.what());
+                            LOG_ERROR("WebrtcSignalSocket Error: %s", e.what());
 
                         }
                         catch (...) {
@@ -198,7 +198,7 @@ namespace hope {
 
                             }
 
-                            LOG_ERROR("WebrtcSignalSocket error: unknown");
+                            LOG_ERROR("WebrtcSignalSocket Error: Unknown");
 
                         }
                     }
@@ -291,13 +291,11 @@ namespace hope {
                 }
                 catch (std::exception& e) {
 
-                    LOG_WARN("Json Parse Error: %s", e.what());
+                    LOG_ERROR("Json Parse Error: %s", e.what());
 
                     buffer.consume(buffer.size());
 
-                    closeEvent();
-
-                    continue;
+					throw std::runtime_error("Json Parse Error");
 
                 }
 
@@ -305,11 +303,9 @@ namespace hope {
 
                 if (!webrtcSignalPakcet.request.contains("requestType")) {
 
-                    LOG_WARN("WebrtcSignalSocket Invalid Request: missing requestType");
+                    LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
 
-                    closeEvent();
-
-                    continue;
+                    throw std::runtime_error("Invalid Request: Missing RequestType");
 
                 }
 
@@ -342,10 +338,10 @@ namespace hope {
                 }
             }
             catch (const std::exception& e) {
-                LOG_ERROR("Writer coroutine unhandled exception: %s", e.what());
+                LOG_ERROR("writerCoroutine unhandled exception: %s", e.what());
             }
             catch (...) {
-                LOG_ERROR("Writer coroutine unknown exception");
+                LOG_ERROR("writerCoroutine unknown exception");
             }
             co_return;
         }

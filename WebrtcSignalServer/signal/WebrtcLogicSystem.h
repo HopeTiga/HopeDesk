@@ -16,12 +16,6 @@
 
 namespace hope {
 
-	namespace rpc {
-	
-		class CoroRpc;
-
-	}
-
 	namespace signal {
 
 		class WebrtcSignalServer;
@@ -76,8 +70,6 @@ namespace hope {
 			absl::flat_hash_map<std::string, bool> httpLogicHandlers;
 
 			std::shared_ptr<hope::mysql::WebrtcMysqlManagerPools> webrtcMysqlManagerPools;
-
-			std::atomic<size_t> taskQueueSize{ 0 };
 
 			std::atomic<size_t> localTaskQueueSize{ 0 };
 

@@ -26,6 +26,7 @@ namespace hope {
 
 #endif
 			, timeoutSec(std::chrono::seconds(maxTlsHttpHandShakeTime / 1000))
+			, handshakeTimeout(maxTlsHttpHandShakeTime)
 			, maxHttpKeepAliveTimeSec(maxHttpKeepAliveTime)
 			, keepTimer(ioContext)
 		{
@@ -106,7 +107,7 @@ namespace hope {
 
 #if !defined(WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL)
 
-			auto timeout = std::chrono::seconds(5);
+			std::chrono::milliseconds timeout = handshakeTimeout;
 
 			try {
 				boost::system::error_code ec;
@@ -132,7 +133,7 @@ namespace hope {
 				auto [handshake_ec] = std::move(op);
 
 				if (isTimeout) {
-					LOG_ERROR("HttpSocket::asyncHandShake Timeout after %llds", timeout.count());
+					LOG_ERROR("HttpSocket::asyncHandShake Timeout after %lldms", timeout.count());
 					co_return false;
 				}
 

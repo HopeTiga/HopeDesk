@@ -92,11 +92,11 @@ namespace hope {
 
             if (!asyncTaskExecutes.compare_exchange_strong(expected, true)) return;
 
-            boost::asio::co_spawn(ioContext, [this]()mutable->boost::asio::awaitable<void> {
+            boost::asio::co_spawn(ioContext, [webrtcLogicSystem = shared_from_this()]()mutable->boost::asio::awaitable<void> {
 
-                while (asyncEvents.load()) {
+                while (webrtcLogicSystem->asyncEvents.load()) {
 
-                    std::optional<AwaitableTask> optional = co_await taskQueues.dequeue();
+                    std::optional<AwaitableTask> optional = co_await webrtcLogicSystem->taskQueues.dequeue();
 
                     if (!optional.has_value()) break;
 
@@ -104,7 +104,7 @@ namespace hope {
 
                     if (func) {
 
-                        boost::asio::co_spawn(ioContext, [func = std::move(func), this]() mutable -> boost::asio::awaitable<void> {
+                        boost::asio::co_spawn(webrtcLogicSystem->ioContext, [func = std::move(func)]() mutable -> boost::asio::awaitable<void> {
 
                             co_await func();
 
@@ -114,24 +114,24 @@ namespace hope {
                                         std::rethrow_exception(ptr);
                                     }
                                     catch (const std::exception& e) {
-                                        LOG_ERROR("WebrtcLogicSystem asyncTaskExecute Task Exception: %s", e.what());
+                                        LOG_ERROR("WebrtcLogicSystem AsyncTaskExecute Task Exception: %s", e.what());
                                     }
                                 }
                                 });
                     }
 
-                    if (localTaskQueueSize.load() >= exitThreshold.load()) {
+                    if (webrtcLogicSystem->localTaskQueueSize.load() >= webrtcLogicSystem->exitThreshold.load()) {
 
-                        LOG_WARN("WebrtcLogicSystem local queue depth %d exceeds threshold, switching to local processing", localTaskQueueSize.load());
+                        LOG_WARN("WebrtcLogicSystem local queue depth %d exceeds threshold, switching to local processing", webrtcLogicSystem->localTaskQueueSize.load());
 
-                        asyncTaskExecutes.store(false);
+                        webrtcLogicSystem->asyncTaskExecutes.store(false);
 
                         break;
                     }
 
-                    if (!asyncEvents.load()) {
+                    if (!webrtcLogicSystem->asyncEvents.load()) {
 
-                        asyncTaskExecutes.store(false);
+                        webrtcLogicSystem->asyncTaskExecutes.store(false);
 
                         break;
 
@@ -139,7 +139,7 @@ namespace hope {
 
                 }
 
-                LOG_INFO("WebrtcLogicSystem asyncTaskExecute closeAsyncEvent");
+                LOG_INFO("WebrtcLogicSystem AsyncTaskExecute CloseAsyncEvent");
 
                 co_return;
 
@@ -153,19 +153,17 @@ namespace hope {
 
             int type = webrtcSignalPacket.requestType;
 
-            auto it = this->webrtcHandlers.find(type);
+            absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<void>(WebrtcSignalPacket)>>::iterator iterator = this->webrtcHandlers.find(type);
 
-            if (it != this->webrtcHandlers.end()) {
+            if (iterator != this->webrtcHandlers.end()) {
 
-                absl::AnyInvocable<boost::asio::awaitable<void>(WebrtcSignalPacket)>& func = it->second;
+                absl::AnyInvocable<boost::asio::awaitable<void>(WebrtcSignalPacket)>& func = iterator->second;
 
-                taskQueueSize.fetch_add(1);
-
-                if (taskQueueSize.load() >= threshold.load() && localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
+                if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
 
                     std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket->shared_from_this();
 
-                    bool success = taskQueues.enqueue([this, type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]()mutable -> boost::asio::awaitable<void> {
+                    bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]()mutable -> boost::asio::awaitable<void> {
 
                         try {
 
@@ -174,21 +172,15 @@ namespace hope {
                         }
                         catch (...) {
 
-                            taskQueueSize.fetch_sub(1);
-
                             throw;
 
                         }
-
-                        taskQueueSize.fetch_sub(1);
 
                         co_return;
 
                         });
 
                     if (!success) {
-
-                        taskQueueSize.fetch_sub(1);
 
                         webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%d,"state":503,"message":"webrtcSignalServer busy, please retry later"})", type));
 
@@ -200,14 +192,12 @@ namespace hope {
 
                 localTaskQueueSize.fetch_add(1);
 
-                boost::asio::co_spawn(ioContext, [this, type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
+                boost::asio::co_spawn(ioContext, [type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
 
                     co_await func(std::move(webrtcSignalPacket));
 
                     },
                     [this, type](std::exception_ptr ptr) {
-
-                        taskQueueSize.fetch_sub(1);
 
                         if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
 
@@ -237,23 +227,24 @@ namespace hope {
 
         void WebrtcLogicSystem::postHttpTaskAsync(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest)
         {
+
             std::string targetUrl = httpRequest.target();
 
-            if (httpHandlers.find(targetUrl) != httpHandlers.end()) {
+            absl::flat_hash_map<std::string, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>>::iterator iterator = this->httpHandlers.find(targetUrl);
+
+            if (iterator != this->httpHandlers.end()) {
 
                 LOG_INFO("Http Request: %s", targetUrl.data());
 
-                absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>& func = httpHandlers[targetUrl];
+                absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>& func = iterator->second;
 
-                taskQueueSize.fetch_add(1);
-
-                if (taskQueueSize.load() >= threshold.load() && localTaskQueueSize.load() >= threshold.load() && httpLogicHandlers[targetUrl]) {
+                if (localTaskQueueSize.load() >= threshold.load() && httpLogicHandlers[targetUrl]) {
 
                     unsigned int version = httpRequest.version();
 
                     std::shared_ptr<HttpSocket> httpSocketShared = httpSocket->shared_from_this();
 
-                    bool success = taskQueues.enqueue([this, httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), &func]()mutable -> boost::asio::awaitable<void> {
+                    bool success = taskQueues.enqueue([httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), &func]()mutable -> boost::asio::awaitable<void> {
 
                         try {
 
@@ -262,21 +253,15 @@ namespace hope {
                         }
                         catch (...) {
 
-                            taskQueueSize.fetch_sub(1);
-
                             throw;
 
                         }
-
-                        taskQueueSize.fetch_sub(1);
 
                         co_return;
 
                         });
 
                     if (!success) {
-
-                        taskQueueSize.fetch_sub(1);
 
                         boost::asio::io_context& ioContext = httpSocketShared->getIoContext();
 
@@ -320,8 +305,6 @@ namespace hope {
                     co_await func(httpSocket, httpRquest);
 
                     }, [this, targetUrl](std::exception_ptr ptr) {
-
-                        taskQueueSize.fetch_sub(1);
 
                         if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
 
@@ -379,7 +362,7 @@ namespace hope {
 
                     co_return;
 
-                    }, [this, targetUrl](std::exception_ptr ptr) {
+                    }, [targetUrl](std::exception_ptr ptr) {
                         if (ptr) {
                             try {
                                 std::rethrow_exception(ptr);
@@ -395,6 +378,8 @@ namespace hope {
         }
 
         void WebrtcLogicSystem::initHandlers() {
+
+			std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem = shared_from_this();
 
             // ==================== Forward Handler ====================
             std::function<boost::asio::awaitable<void>(WebrtcSignalPacket, std::string)> forwardHandler = [this](WebrtcSignalPacket webrtcSignalPacket, std::string requestTypeStr)->boost::asio::awaitable<void> {

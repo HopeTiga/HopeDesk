@@ -80,6 +80,8 @@ namespace hope {
 
 			std::chrono::seconds timeoutSec;
 
+			std::chrono::milliseconds handshakeTimeout{ 10000 };
+
 			int maxHttpKeepAliveTimeSec;
 
 			boost::asio::steady_timer keepTimer;
