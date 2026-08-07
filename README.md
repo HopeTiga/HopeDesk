@@ -69,6 +69,66 @@ graph TD
 
 ---
 
+## 📂 源码结构（分包）
+
+### Native（HopeDeskNative · Qt/qmake）
+
+```
+HopeDeskNative/
+├── main.cpp / mainwindow.ui / res.qrc / config.ini / hope.ico
+├── rtc/                          # hope::rtc —— 主窗口与 WebRTC 会话
+│   ├── MainWindow.* / WebrtcManager.*
+│   ├── impl/                     # hope::rtc::impl     回调/Observer 实现
+│   ├── factory/                  # hope::rtc::factory  编码/解码器工厂
+│   ├── widget/                   # hope::rtc::widget   VideoWidget 渲染控件
+│   ├── audio/                    # hope::rtc::audio    音频采集
+│   └── codec/                    # hope::rtc::codec    D3D11/NVDEC 硬解 + 软解
+├── net/                          # hope::net —— 网络层
+│   ├── WebSocket.*               # 信令 WebSocket 客户端（消息回调由封装类提供）
+│   ├── TcpAcceptor.*             # 本地 TCP 监听（127.0.0.1:19998，与连接分离）
+│   ├── TcpSocket.*               # 本地 TCP 单连接（accept/connect 双入口）
+│   ├── WriterData.h              # 长度前缀帧（int64 网络序 + body）
+│   └── AsioConcurrentQueue.h     # 协程发送队列
+├── system/                       # hope::system —— WindowsServiceManager / InterceptionHook
+└── utils/                        # 全局工具（LOG、ConfigManager、Options）
+```
+
+### System（HopeDeskSystem · MSVC）
+
+```
+HopeDeskSystem/
+├── main.cpp
+├── rtc/                          # hope::rtc（平铺）
+│   ├── WebrtcManager.* / HWebRTC.h
+│   ├── capture/                  # ScreenCapture / VirtualDisplayCapture / HAudioCatch
+│   ├── encoder/                  # Nvenc 系列 / X265Encoder
+│   ├── input/                    # KeyMouseSimulator / CursorHooks
+│   ├── impl/                     # 回调/Observer 实现
+│   ├── factory/                  # 编码/解码器工厂
+│   ├── buffer/                   # Webrtc I420/NV12/D3D11 帧缓冲
+│   └── audio/                    # 音频采集
+├── net/                          # hope::net（与 Native 同套）
+│   ├── TcpSocket.*               # 本地 TCP 连接（connect 侧，连 127.0.0.1:19998）
+│   ├── WriterData.h
+│   └── AsioConcurrentQueue.h
+├── system/                       # hope::system —— WinLogon / SessionHelper
+└── utils/                        # 全局工具（LOG、并发队列）
+```
+
+### Signal（WebrtcSignalServer）
+
+```
+WebrtcSignalServer/
+├── main.cpp / Ssl.* / config.ini / makefile
+├── signal/                       # WebSocket 信令 + HTTP 运维
+├── rpc/                          # CoroRpc 跨节点 RPC
+├── mysql/                        # boost::mysql 连接池
+├── iocp/                         # io_context 线程池
+└── utils/                        # 全局工具
+```
+
+---
+
 ## 🚀 快速开始（使用配置）
 
 ### 前提条件
