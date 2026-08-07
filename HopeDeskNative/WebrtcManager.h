@@ -365,6 +365,10 @@ private:
 
     std::shared_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> webSocket;
 
+    // 防重叠连接:connect() 握手期间置 true,成功/失败后复位。重复的 connect() 直接跳过,
+    // 避免同一代际 spawn 出多个发送/接收协程(僵尸协程从共享队列偷走消息→"点了发送请求但没发")。
+    bool websocketConnecting{ false };
+
     boost::asio::ssl::context sslContext{ boost::asio::ssl::context::tlsv12_client };
 
     AsioConcurrentQueue<std::string> webrtcAsioConcurrentQueue;

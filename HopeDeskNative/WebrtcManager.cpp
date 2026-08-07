@@ -142,6 +142,15 @@ void WebrtcManager::connect(std::string ip)
 
         std::shared_ptr<boost::beast::websocket::stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>> ws;
 
+        // 防重叠连接:上一个 connect() 握手未完成时跳过本次。并发 connect() 会在同一
+        // 代际重复 spawn 发送/接收协程,旧协程悬停在队列 async_acquire 上形成僵尸,
+        // 新消息被僵尸偷走丢弃(表现为"点了发送请求但没发")。
+        if (self->websocketConnecting) {
+            LOG_WARN("connect: websocket handshake already in progress, skip duplicate connect");
+            co_return;
+        }
+        self->websocketConnecting = true;
+
         try {
 
             if(self->webSocket){
@@ -204,8 +213,12 @@ void WebrtcManager::connect(std::string ip)
 
             }
 
+            self->websocketConnecting = false;
+
         }
         catch (std::exception & e) {
+
+            self->websocketConnecting = false;
 
             // 取消/eof/断开属拆除或重连取消在途 connect 的预期情况,降 WARN;
             // 其余(服务器不可达、握手失败等)仍记 ERROR。
@@ -894,8 +907,14 @@ boost::asio::awaitable<void> WebrtcManager::webrtcWriteCoroutine()
             if (optional.has_value()) {
 
                 // 挂起(dequeue)期间连接可能已被替换/关闭:目标 socket 已不是当前连接,
-                // 绝不用旧 socket 写数据,否则消息丢失且误拆新连接。
-                if (webSocket != ws) break;
+                // 绝不用旧 socket 写数据。消息取自共享队列、属于当前代际,放回队列交给
+                // 当前发送协程处理,而不是 break 时把消息丢掉(否则"点了发送请求但没发")。
+                if (webSocket != ws) {
+                    if (!webrtcAsioConcurrentQueue.enqueue(std::move(optional.value()))) {
+                        LOG_WARN("webrtcWriteCoroutine: stale connection, message re-queue failed (queue closed), dropped");
+                    }
+                    break;
+                }
 
                 std::string str = std::move(optional.value());
 
