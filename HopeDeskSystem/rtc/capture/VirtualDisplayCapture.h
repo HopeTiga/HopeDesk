@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "zako-vdd/vdd_control_ioctl.h"
+#include "VddChannelSync.h"
 
 namespace hope {
 namespace rtc {
@@ -115,6 +116,10 @@ public:
     void setGpuDataHandle(GpuDataHandle h);
     void setDataHandle(DataHandle h);
 
+    // 与下游编码器共享的通道同步状态。下游在 keyed-mutex AcquireSync 失败
+    // 时置 reopenRequested；捕获线程在循环里消费该标志并重开帧通道。
+    void setChannelSync(std::shared_ptr<VddChannelSync> s);
+
     GUID getMonitorGuid() const;
     LUID getAdapterLuid() const;
 
@@ -127,6 +132,7 @@ private:
     bool applyTopology();       // activate VDD (primary on headless, else mirror)
     bool openFrameChannel();
     void closeFrameChannel();
+    bool reopenFrameChannel();  // close + open（必须在捕获线程执行）
     bool initLocalDevice();
     bool readStableMetadata(ZakoFrameMetadata& out);
     bool deliverNewFrame(const ZakoFrameMetadata& meta);
@@ -164,6 +170,7 @@ private:
     std::thread captureThread;
     GpuDataHandle gpuDataHandle;
     DataHandle dataHandle;
+    std::shared_ptr<VddChannelSync> channelSync;
 };
 
 } // namespace rtc

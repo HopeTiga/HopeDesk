@@ -33,6 +33,9 @@ namespace hope {
             , screenCapture(nullptr)
             , hAudioCatch(nullptr) {
 
+            // 共享通道同步状态：下游编码器与上游捕获通过它互相通知（VDD 重建自愈）。
+            channelSync = std::make_shared<VddChannelSync>();
+
             ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
                 boost::asio::make_work_guard(ioContext));
 
@@ -716,6 +719,10 @@ namespace hope {
 
                 screenCapture->setConfig(config);
 
+                // 与下游编码器共享通道同步状态：编码器 keyed-mutex 同步丢失时
+                // 请求本捕获重开帧通道自愈。
+                screenCapture->setChannelSync(channelSync);
+
                 if (!screenCapture->initialize()) {
                     LOG_ERROR("Failed to initialize screen capture");
                     return false;
@@ -1020,6 +1027,10 @@ namespace hope {
 
                             if (webrtcVideoEncoderFactory) {
                                 webrtcVideoEncoderFactory->webrtcEnableNvenc = webrtcDeskSystemConfig.webrtcEnableNvenc;
+
+                                // 注入 VDD 通道同步状态：编码器检测到 keyed-mutex 同步丢失时
+                                // 请求上游重开帧通道自愈。
+                                webrtcVideoEncoderFactory->channelSync = channelSync;
 
                                 webrtcVideoEncoderFactory->onEncoderStatusHandle =
                                     [this](const std::string& codec, bool hardEncode) {

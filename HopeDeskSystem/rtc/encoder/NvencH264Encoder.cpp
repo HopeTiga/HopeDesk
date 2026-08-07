@@ -199,6 +199,16 @@ namespace hope {
                 auto* d3dBuffer = static_cast<WebrtcD3D11TextureBuffer*>(buffer.get());
                 HANDLE h = d3dBuffer->GetSharedHandle();
 
+                // 上游因 keyed-mutex 同步丢失重开了帧通道（generation++），旧的
+                // 共享纹理/handle 已全部失效，必须清空缓存用新 handle 重新打开。
+                if (channelSync) {
+                    uint32_t gen = channelSync->generation.load(std::memory_order_acquire);
+                    if (gen != lastSeenGeneration) {
+                        lastSeenGeneration = gen;
+                        resourceCache.clear();
+                    }
+                }
+
                 auto& cached = resourceCache[h];
                 if (!cached.tex) {
                     // Producer slot handles are NT handles (CreateSharedHandle);
@@ -223,7 +233,7 @@ namespace hope {
                     // 失败则 cached.regPtr 保持 nullptr → 走拷贝回退路径
                 }
 
-                if (cached.km && cached.km->AcquireSync(1, INFINITE) == S_OK) {
+                if (cached.km && cached.km->AcquireSync(1, 5000) == S_OK) {
                     if (cached.regPtr) {
                         // 直注路径：NVENC 直接 DMA 读共享纹理，零拷贝
                         // keyed mutex 必须持有到 GetEncodedPacket 里 unmap 之后
@@ -253,6 +263,16 @@ namespace hope {
                 }
                 else {
                     LOG_ERROR("[NVENC] D3D AcquireSync failed. handle=%p", h);
+                    // keyed mutex 失效（多半是驱动重建了共享纹理）：丢弃该 handle 的
+                    // 缓存，避免后续每帧对旧纹理空等；并请求上游重开通道，让
+                    // generation++ 后本编码器清空全部缓存、用新 handle 重建同步。
+                    resourceCache.erase(h);
+                    if (channelSync) {
+                        if (channelSync->generation.load(std::memory_order_acquire) != lastRequestedGeneration) {
+                            lastRequestedGeneration = channelSync->generation.load(std::memory_order_acquire);
+                            channelSync->reopenRequested.store(1, std::memory_order_release);
+                        }
+                    }
                     return WEBRTC_VIDEO_CODEC_ERROR;
                 }
             }
@@ -421,6 +441,12 @@ namespace hope {
             webrtc::EncodedImageCallback* callback) {
             encodedImageCallback = callback;
             return WEBRTC_VIDEO_CODEC_OK;
+        }
+
+        void NvencH264Encoder::SetChannelSync(std::shared_ptr<VddChannelSync> s) {
+            channelSync = std::move(s);
+            // 立即同步当前 generation，避免误把注入前的通道当作"已重开"而清空缓存。
+            if (channelSync) lastSeenGeneration = channelSync->generation.load(std::memory_order_acquire);
         }
 
         void NvencH264Encoder::SetRates(const RateControlParameters& parameters) {

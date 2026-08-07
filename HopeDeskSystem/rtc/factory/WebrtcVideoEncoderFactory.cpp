@@ -24,7 +24,9 @@ namespace hope {
 
                 LOG_INFO("NvencAV1Encoder");
                 if (onEncoderStatusHandle) onEncoderStatusHandle("AV1", true);
-                return std::make_unique<NvencAV1Encoder>();
+                auto encoder = std::make_unique<NvencAV1Encoder>();
+                encoder->SetChannelSync(channelSync);
+                return encoder;
 
             }
 
@@ -32,7 +34,9 @@ namespace hope {
 
                 LOG_INFO("NvencH2651Encoder");
                 if (onEncoderStatusHandle) onEncoderStatusHandle("H265", true);
-                return std::make_unique<NvencH265Encoder>();
+                auto encoder = std::make_unique<NvencH265Encoder>();
+                encoder->SetChannelSync(channelSync);
+                return encoder;
 
             }
             else if (format.name == "H265" || format.name == "h265") {

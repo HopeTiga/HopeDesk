@@ -8,7 +8,9 @@
 #include <mutex>
 #include <deque>
 #include <vector>
+#include <memory>
 #include "Nvenc.h"
+#include "../capture/VddChannelSync.h"
 
 namespace hope {
     namespace rtc {
@@ -22,6 +24,11 @@ namespace hope {
                 const webrtc::VideoEncoder::Settings& settings) override;
             int RegisterEncodeCompleteCallback(
                 webrtc::EncodedImageCallback* callback) override;
+
+            // 注入与上游 VirtualDisplayCapture 共享的通道同步状态：keyed-mutex
+            // AcquireSync 失败（驱动重建共享纹理）时请求上游重开通道，并在
+            // generation 变化后清空本编码器缓存的共享纹理。
+            void SetChannelSync(std::shared_ptr<VddChannelSync> s);
             int Release() override;
             int Encode(const webrtc::VideoFrame& frame,
                 const std::vector<webrtc::VideoFrameType>* frameTypes) override;
@@ -73,6 +80,11 @@ namespace hope {
             std::mutex nvencApiMutex;
             int widths = 0;
             int heights = 0;
+
+            // 通道同步：见 NvencAV1Encoder 同名字段的说明。
+            std::shared_ptr<VddChannelSync> channelSync;
+            uint32_t lastSeenGeneration = 0;
+            uint32_t lastRequestedGeneration = 0;
 
             std::chrono::steady_clock::time_point lastRateChangeTime;
         };

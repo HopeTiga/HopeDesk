@@ -55,6 +55,7 @@ namespace hope {
         void VirtualDisplayCapture::setConfig(Config c) { config = c; }
         void VirtualDisplayCapture::setGpuDataHandle(GpuDataHandle h) { gpuDataHandle = h; }
         void VirtualDisplayCapture::setDataHandle(DataHandle h) { dataHandle = h; }
+        void VirtualDisplayCapture::setChannelSync(std::shared_ptr<VddChannelSync> s) { channelSync = std::move(s); }
         GUID VirtualDisplayCapture::getMonitorGuid() const { return monitorGuid; }
         LUID VirtualDisplayCapture::getAdapterLuid() const { return adapterLuid; }
 
@@ -510,6 +511,21 @@ namespace hope {
             slotCount = 0;
         }
 
+        // 驱动重建共享纹理（ChannelGeneration 变化）后，旧 slot handle 全部失效。
+        // 重新打开通道拿新 handle，让下游编码器（其 resourceCache 也已随
+        // generation 变化被清空）用新 handle 重新建立同步。
+        bool VirtualDisplayCapture::reopenFrameChannel()
+        {
+            closeFrameChannel();
+            if (!openFrameChannel()) {
+                LOG_ERROR("VirtualDisplayCapture::reopenFrameChannel openFrameChannel failed");
+                return false;
+            }
+            haveFrame = false;  // 新通道后首个发布视为新帧
+            LOG_INFO("VirtualDisplayCapture frame channel reopened");
+            return true;
+        }
+
         bool VirtualDisplayCapture::readStableMetadata(ZakoFrameMetadata& out)
         {
             if (!pMeta) return false;
@@ -614,6 +630,19 @@ namespace hope {
 
 
             while (capturing.load()) {
+                // 下游编码器报告 keyed-mutex 同步丢失（驱动重建了共享纹理）：
+                // 在捕获线程里重开帧通道。必须在 WaitForSingleObject 之前做，
+                // 因为重开会关闭/重建 frameReadyEvent。
+                if (channelSync && channelSync->reopenRequested.exchange(0)) {
+                    if (reopenFrameChannel()) {
+                        channelSync->generation.fetch_add(1);
+                    }
+                    else {
+                        // 重开失败（驱动仍在中途切换），下一拍重试。
+                        channelSync->reopenRequested.store(1);
+                        continue;
+                    }
+                }
                 DWORD wr = WaitForSingleObject(frameReadyEvent, waitMs);
 
                 if (wr == WAIT_OBJECT_0) {
