@@ -628,21 +628,50 @@ namespace hope {
         {
             const DWORD waitMs = 100; // repeat-frame cadence
 
+            // 建立 ChannelGeneration 基线，避免首圈误判通道已重建。
+            if (pMeta) {
+                ZakoFrameMetadata meta{};
+                if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
+            }
 
             while (capturing.load()) {
-                // 下游编码器报告 keyed-mutex 同步丢失（驱动重建了共享纹理）：
-                // 在捕获线程里重开帧通道。必须在 WaitForSingleObject 之前做，
-                // 因为重开会关闭/重建 frameReadyEvent。
-                if (channelSync && channelSync->reopenRequested.exchange(0)) {
-                    if (reopenFrameChannel()) {
-                        channelSync->generation.fetch_add(1);
+                // 主动检测驱动重建共享通道（ChannelGeneration 变化）。只依赖
+                // frameReadyEvent 不可靠：静止/熄屏后驱动可能不再 signal 旧事件，
+                // 捕获线程会无任何日志地空转定格。这里每圈轮询 metadata 对比基线。
+                bool reopenNeeded = false;
+                if (pMeta) {
+                    ZakoFrameMetadata meta{};
+                    if (readStableMetadata(meta)) {
+                        reopenNeeded = (static_cast<UINT16>(meta.MetadataSequence >> 16) != lastChannelGen);
                     }
                     else {
-                        // 重开失败（驱动仍在中途切换），下一拍重试。
-                        channelSync->reopenRequested.store(1);
-                        continue;
+                        reopenNeeded = true; // metadata 读不到 = 通道异常
                     }
                 }
+                else {
+                    reopenNeeded = true; // 通道未建立（如上次重开失败），持续重开
+                }
+
+                // 下游编码器报告 keyed-mutex 同步丢失 → 同样触发重开（双保险）。
+                if (channelSync && channelSync->reopenRequested.exchange(0)) {
+                    reopenNeeded = true;
+                }
+
+                if (reopenNeeded) {
+                    if (reopenFrameChannel()) {
+                        // 重开后刷新基线，避免下一圈重复触发。
+                        ZakoFrameMetadata meta{};
+                        if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
+                        if (channelSync) channelSync->generation.fetch_add(1);
+                        LOG_INFO("VirtualDisplayCapture frame channel reopened after channel generation change");
+                    }
+                    else {
+                        // 重开失败：短暂退避，避免热自旋，下一圈再试。
+                        LOG_WARN("VirtualDisplayCapture frame channel reopen failed, will retry");
+                        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                    }
+                }
+
                 DWORD wr = WaitForSingleObject(frameReadyEvent, waitMs);
 
                 if (wr == WAIT_OBJECT_0) {

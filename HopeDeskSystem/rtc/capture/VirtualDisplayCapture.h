@@ -171,6 +171,11 @@ private:
     GpuDataHandle gpuDataHandle;
     DataHandle dataHandle;
     std::shared_ptr<VddChannelSync> channelSync;
+
+    // 捕获线程主动检测驱动重建（ChannelGeneration，即 MetadataSequence 高 16 位）
+    // 时的基线。驱动重建后可能不再 signal 旧 frameReadyEvent，只靠事件等待会
+    // 静默定格（无日志），因此每圈轮询 metadata 对比该值。
+    UINT16 lastChannelGen = 0;
 };
 
 } // namespace rtc
