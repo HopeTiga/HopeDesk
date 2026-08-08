@@ -92,6 +92,7 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
         case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
             LOG_INFO("WebRTC connection established");
             manager->isRemote = true;
+            manager->cancelRequestTimeout();  // 连上即取消挂起的请求超时看门狗,防止断开后幽灵补刀
             manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
             if (manager->onRTCStatsCollectorHandle) {
                 manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = manager->onRTCStatsCollectorHandle;

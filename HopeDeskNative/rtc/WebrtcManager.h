@@ -95,6 +95,15 @@ enum class WebrtcRequestState {
     ENCODE_STATUS = 9   // System -> 被控 Native:上报当前编码 codec + 硬编/软编
 };
 
+// 本端在连接里的角色:
+//  - Caller  主动方/调用方/操控端:发起 REQUEST
+//  - Callee  被动方/被调用方/被控端:收到 REQUEST
+enum class WebrtcRole {
+    None,
+    Caller,
+    Callee
+};
+
 
 enum class FrameFormat {
     Unknown,
@@ -231,6 +240,11 @@ public:
     // peerConnection 等回调运行在 WebRTC 信令线程,必须经此投递后再碰 WebrtcManager 状态。
     void post(std::function<void()> task);
 
+    // 取消挂起的请求超时看门狗:连上/断开/超时重置时调用,防止过期定时器在连接结束后
+    // 带着 isRemote=false 再做一次幽灵 teardown(releaseSource+onRemoteFailedHandle)。
+    // epoch 自增使已挂起的看门狗协程醒来后按 epoch 不匹配直接退出。
+    void cancelRequestTimeout();
+
     void disConnectRemote();
 
     std::function<void(void)> onSignalServerDisConnectHandle;
@@ -267,9 +281,8 @@ private:
 
     void disConnectRemoteHandler();
 
-    // 唯一看门狗:发请求时 arm,15 秒内再发请求则刷新(取消旧 timer),只有最后一次请求
-    // 发出后 15s 仍没连上才触发一次 re-init。避免每次请求各建一个 timer 导致的并发 re-init。
-    void armRequestTimeout();
+    // 请求超时看门狗:主动方 15s 失败上报 UI;被动方 30s 静默清理。一次只存活一个。
+    void armRequestTimeout(WebrtcRole role);
 
     void handleSignalMessage(std::string str);
 
@@ -332,6 +345,9 @@ private:
     std::atomic<int> videoHeight{1080};
 
     std::atomic<bool> isRemote {false};
+
+    // 主动断开标记:disConnectRemote() 置位,ack/ICE/System断开消费。防止主动断开被误判成"连接失败"。
+    std::atomic<bool> disconnectRequested {false};
 
     boost::asio::io_context ioContext;
 

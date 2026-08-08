@@ -353,8 +353,12 @@ void WebrtcManager::disConnectRemote()
 {
     if(onResetCursorHandle) onResetCursorHandle();
 
+    // 主动断开:先置标记再清 isRemote,ack 回来后 wasRemote 已为 false,靠标记识别是主动断而非失败。
+    disconnectRequested = true;
+
     bool wasRemote = isRemote.exchange(false);
     boost::asio::post(ioContext, [self = shared_from_this(), wasRemote]() {
+        self->cancelRequestTimeout();     // 主动断开:取消挂起的看门狗,防止连接结束后幽灵 teardown
         self->closeTcpSocket();
         self->releaseSource();            // 含 closeTcpSocket(此时已 null)+ 停服务
         self->initializePeerConnection();
@@ -384,11 +388,13 @@ void WebrtcManager::disConnectRemoteHandler()
     if(onResetCursorHandle) onResetCursorHandle();
 
     bool wasRemote = isRemote.exchange(false);
-    boost::asio::post(ioContext, [self = shared_from_this(), wasRemote]() {
+    bool explicitDisconnect = disconnectRequested.exchange(false);
+    boost::asio::post(ioContext, [self = shared_from_this(), wasRemote, explicitDisconnect]() {
+        self->cancelRequestTimeout();
         self->closeTcpSocket();
         self->releaseSource();
         self->initializePeerConnection();
-        if (wasRemote) {
+        if (wasRemote || explicitDisconnect) {
             if (self->onDisConnectRemoteHandle) self->onDisConnectRemoteHandle();
         } else {
             if (self->onRemoteFailedHandle) self->onRemoteFailedHandle();
@@ -436,6 +442,8 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
                     if (type == "request") {
 
+                        this->disconnectRequested = false;  // 被控端收到新一轮请求:清除残留的主动断开标记
+
                         targetId = std::string(json["accountId"].as_string().c_str());
 
                         json["localMaxBitrateBps"] = webrtcDeskConfig.localMaxBitrateBps;
@@ -464,7 +472,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
                             LOG_INFO("WindowsServiceManager::startService Successful!");
 
-                            this->armRequestTimeout();
+                            this->armRequestTimeout(WebrtcRole::Callee);
 
                             return;
                         }
@@ -588,6 +596,8 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
 void WebrtcManager::handleSignalServerDisconnect()
 {
+
+    cancelRequestTimeout();  // 信令断连:取消挂起的看门狗
 
     if (onSignalServerDisConnectHandle) {
 
@@ -933,7 +943,10 @@ void WebrtcManager::handleSystemDisconnect()
 {
     if (onResetCursorHandle) onResetCursorHandle();
 
+    cancelRequestTimeout();  // 本地 System 断开:取消挂起的看门狗
+
     bool wasRemote = isRemote.exchange(false);
+    bool explicitDisconnect = disconnectRequested.exchange(false);
 
     closeTcpSocket();
 
@@ -941,7 +954,7 @@ void WebrtcManager::handleSystemDisconnect()
 
     initializePeerConnection();
 
-    if (wasRemote) {
+    if (wasRemote || explicitDisconnect) {
 
         if (onDisConnectRemoteHandle) onDisConnectRemoteHandle();
 
@@ -1045,8 +1058,10 @@ void WebrtcManager::setDecoderD3D11Device(ID3D11Device* dev)
     }
 }
 
-void WebrtcManager::armRequestTimeout()
+void WebrtcManager::armRequestTimeout(WebrtcRole role)
 {
+    bool caller = (role == WebrtcRole::Caller);
+    int timeoutSeconds = caller ? 15 : 30;
 
     uint64_t epoch = ++timeoutEpoch;
 
@@ -1055,17 +1070,17 @@ void WebrtcManager::armRequestTimeout()
     }
 
     requestTimeout = std::make_shared<boost::asio::steady_timer>(ioContext);
-    requestTimeout->expires_after(std::chrono::seconds(15));
+    requestTimeout->expires_after(std::chrono::seconds(timeoutSeconds));
 
     auto timer = requestTimeout;
 
-    boost::asio::co_spawn(ioContext,[self = shared_from_this(), timer, epoch]()mutable->boost::asio::awaitable<void>{
+    boost::asio::co_spawn(ioContext,[self = shared_from_this(), timer, epoch, caller]()mutable->boost::asio::awaitable<void>{
 
         boost::system::error_code ec;
 
         co_await timer->async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
-        if (ec == boost::asio::error::operation_aborted) co_return;  // 被新一轮请求刷新取消
+        if (ec == boost::asio::error::operation_aborted) co_return;  // 被新一轮请求刷新/取消
 
         if (epoch != self->timeoutEpoch) co_return;                   // 兜底:纪元对不上说明已过期
 
@@ -1077,13 +1092,25 @@ void WebrtcManager::armRequestTimeout()
 
             self->initializePeerConnection();
 
-            if (self->onRemoteFailedHandle) self->onRemoteFailedHandle();
+            if (caller && self->onRemoteFailedHandle) self->onRemoteFailedHandle();
 
-            LOG_INFO("WebRTCManager Request Timeout ReInit");
+            LOG_INFO("WebrtcManager Request Timeout ReInit (caller=%d)", caller ? 1 : 0);
 
         }
 
     },boost::asio::detached);
+}
+
+void WebrtcManager::cancelRequestTimeout()
+{
+
+    ++timeoutEpoch;  // 使任何已挂起的看门狗协程按 epoch 不匹配退出
+
+    if (requestTimeout) {
+        requestTimeout->cancel();  // 挂起的 async_wait 以 operation_aborted 返回,协程 co_return
+        requestTimeout.reset();
+    }
+
 }
 
 void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
@@ -1092,6 +1119,8 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
     this->webrtcDeskConfig = webrtcDeskConfig;
 
     boost::asio::co_spawn(ioContext,[self = shared_from_this()]()->boost::asio::awaitable<void>{
+
+        self->disconnectRequested = false;  // 新一轮连接尝试:清除上次主动断开的残留标记
 
         if(self->peerConnection == nullptr){
 
@@ -1108,13 +1137,13 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
                 };
             // 硬解直投:帧回调同步给工厂(下发给存活/新建的硬解解码器)。
             self->webrtcVideoDecoderFactory->setOnDisplayHandle(self->onVideoFrameHandler);
-            LOG_INFO("asyncRemoteDesk: set decoder factory webrtcEnableD3D11=%d", self->webrtcDeskConfig.webrtcEnableD3D11);
+            LOG_INFO("AsyncRemoteDesk: set decoder factory webrtcEnableD3D11=%d", self->webrtcDeskConfig.webrtcEnableD3D11);
         } else {
-            LOG_WARN("asyncRemoteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
+            LOG_WARN("AsyncRemoteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
         }
 
         if (self->targetId.empty()) {
-            LOG_ERROR("Target ID not set");
+            LOG_ERROR("TargetId not set");
             co_return;
         }
 
@@ -1143,15 +1172,15 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
             bool enqueued = self->webrtcAsyncWrite(boost::json::serialize(message));
 
             if (enqueued) {
-                LOG_INFO("Request sent to target: %s", self->targetId.c_str());
+                LOG_INFO("AsyncRemoteDesk to Target: %s", self->targetId.c_str());
             } else {
-                LOG_ERROR("asyncRemoteDesk: request NOT enqueued, websocket send queue is closed");
+                LOG_ERROR("AsyncRemoteDesk: request NOT enqueued, websocket send queue is closed");
             }
 
-            self->armRequestTimeout();
+            self->armRequestTimeout(WebrtcRole::Caller);
         } else {
 
-            LOG_ERROR("asyncRemoteDesk: PeerConnection is null, request not sent");
+            LOG_ERROR("AsyncRemoteDesk: PeerConnection is null, request not sent");
 
         }
 
@@ -1178,6 +1207,7 @@ void WebrtcManager::abortPendingConnection()
 {
     boost::asio::post(ioContext, [self = shared_from_this()]() {
         self->isRemote = false;
+        self->cancelRequestTimeout();     // UI 超时重置:取消挂起的看门狗,避免与 onRemoteConnectionTimeout 双份 teardown
         self->releaseSource();            // 关 peerConnection/dataChannel/tcpSocket + 停服务
         self->initializePeerConnection();
         LOG_INFO("abortPendingConnection: connection state reset");
@@ -1244,6 +1274,8 @@ void WebrtcManager::disConnect()
 {
 
     boost::asio::post(ioContext,[self = shared_from_this()](){
+
+        self->cancelRequestTimeout();  // 彻底断开:取消挂起的看门狗
 
         if (self->webSocket) {
 
