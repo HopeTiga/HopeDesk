@@ -50,11 +50,11 @@ WebrtcManager::WebrtcManager()
 
 void WebrtcManager::asyncEvent(){
 
-    if (tcpListener) return;
+    if (tcpAcceptor) return;
 
-    tcpListener = std::make_shared<TcpAcceptor>(ioContext, 19998);
+    tcpAcceptor = std::make_shared<TcpAcceptor>(ioContext, 19998);
 
-    tcpListener->setOnAcceptHandle([this](std::shared_ptr<TcpSocket> connection) {
+    tcpAcceptor->setOnAcceptHandle([this](std::shared_ptr<TcpSocket> connection) {
         connection->setOnMessageHandle([this](std::string str) {
             handleSystemMessage(std::move(str));
         });
@@ -65,15 +65,15 @@ void WebrtcManager::asyncEvent(){
         handleSystemAccept();
     });
 
-    tcpListener->startAccept();
+    tcpAcceptor->startAccept();
 
     LOG_INFO("WebrtcManager local TCP accept started on 127.0.0.1:19998");
 }
 
 void WebrtcManager::closeEvent(){
 
-    if (tcpListener) {
-        tcpListener->stopAccept();
+    if (tcpAcceptor) {
+        tcpAcceptor->stopAccept();
     }
 
 }
@@ -159,8 +159,8 @@ WebrtcManager::~WebrtcManager()
 
         releaseSource();
 
-        if (tcpListener) {
-            tcpListener.reset();
+        if (tcpAcceptor) {
+            tcpAcceptor.reset();
         }
 
         if (tcpSocket) {
@@ -353,16 +353,12 @@ void WebrtcManager::disConnectRemote()
 {
     if(onResetCursorHandle) onResetCursorHandle();
 
-    // 主动断开:先置标记再清 isRemote,ack 回来后 wasRemote 已为 false,靠标记识别是主动断而非失败。
-    disconnectRequested = true;
-
-    bool wasRemote = isRemote.exchange(false);
-    boost::asio::post(ioContext, [self = shared_from_this(), wasRemote]() {
+    boost::asio::post(ioContext, [self = shared_from_this()]() {
         self->cancelRequestTimeout();     // 主动断开:取消挂起的看门狗,防止连接结束后幽灵 teardown
         self->closeTcpSocket();
         self->releaseSource();            // 含 closeTcpSocket(此时已 null)+ 停服务
         self->initializePeerConnection();
-        if (wasRemote && self->webSocket && self->webSocket->isOpen()) {
+        if (self->webSocket && self->webSocket->isOpen()) {
             boost::json::object message;
             message["accountId"] = self->accountId;
             message["targetId"] = self->targetId;
@@ -387,14 +383,12 @@ void WebrtcManager::disConnectRemoteHandler()
 {
     if(onResetCursorHandle) onResetCursorHandle();
 
-    bool wasRemote = isRemote.exchange(false);
-    bool explicitDisconnect = disconnectRequested.exchange(false);
-    boost::asio::post(ioContext, [self = shared_from_this(), wasRemote, explicitDisconnect]() {
+    boost::asio::post(ioContext, [self = shared_from_this()]() {
         self->cancelRequestTimeout();
         self->closeTcpSocket();
         self->releaseSource();
         self->initializePeerConnection();
-        if (wasRemote || explicitDisconnect) {
+        if (self->isRemote.load()) {
             if (self->onDisConnectRemoteHandle) self->onDisConnectRemoteHandle();
         } else {
             if (self->onRemoteFailedHandle) self->onRemoteFailedHandle();
@@ -441,8 +435,6 @@ void WebrtcManager::handleSignalMessage(std::string str)
                     std::string type(json["type"].as_string().c_str());
 
                     if (type == "request") {
-
-                        this->disconnectRequested = false;  // 被控端收到新一轮请求:清除残留的主动断开标记
 
                         targetId = std::string(json["accountId"].as_string().c_str());
 
@@ -946,7 +938,6 @@ void WebrtcManager::handleSystemDisconnect()
     cancelRequestTimeout();  // 本地 System 断开:取消挂起的看门狗
 
     bool wasRemote = isRemote.exchange(false);
-    bool explicitDisconnect = disconnectRequested.exchange(false);
 
     closeTcpSocket();
 
@@ -954,7 +945,7 @@ void WebrtcManager::handleSystemDisconnect()
 
     initializePeerConnection();
 
-    if (wasRemote || explicitDisconnect) {
+    if (wasRemote) {
 
         if (onDisConnectRemoteHandle) onDisConnectRemoteHandle();
 
@@ -1119,8 +1110,6 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
     this->webrtcDeskConfig = webrtcDeskConfig;
 
     boost::asio::co_spawn(ioContext,[self = shared_from_this()]()->boost::asio::awaitable<void>{
-
-        self->disconnectRequested = false;  // 新一轮连接尝试:清除上次主动断开的残留标记
 
         if(self->peerConnection == nullptr){
 
@@ -1297,7 +1286,6 @@ void WebrtcManager::disConnect()
     });
 
 }
-
 
 }
 

@@ -236,13 +236,8 @@ public:
 
     bool webrtcAsyncWrite(std::string str);
 
-    // 把任务投递到 ioContext 线程执行,保证与 ioContext 上的操作(收发/定时器)串行、线程安全。
-    // peerConnection 等回调运行在 WebRTC 信令线程,必须经此投递后再碰 WebrtcManager 状态。
     void post(std::function<void()> task);
 
-    // 取消挂起的请求超时看门狗:连上/断开/超时重置时调用,防止过期定时器在连接结束后
-    // 带着 isRemote=false 再做一次幽灵 teardown(releaseSource+onRemoteFailedHandle)。
-    // epoch 自增使已挂起的看门狗协程醒来后按 epoch 不匹配直接退出。
     void cancelRequestTimeout();
 
     void disConnectRemote();
@@ -338,16 +333,9 @@ private:
 
     WebrtcVideoEncoderFactory * webrtcVideoEncoderFactory;
 
-    WebrtcVideoDecoderFactory* webrtcVideoDecoderFactory;
-
-    std::atomic<int> videoWidth{1920};
-
-    std::atomic<int> videoHeight{1080};
+    WebrtcVideoDecoderFactory * webrtcVideoDecoderFactory;
 
     std::atomic<bool> isRemote {false};
-
-    // 主动断开标记:disConnectRemote() 置位,ack/ICE/System断开消费。防止主动断开被误判成"连接失败"。
-    std::atomic<bool> disconnectRequested {false};
 
     boost::asio::io_context ioContext;
 
@@ -357,12 +345,10 @@ private:
 
     std::shared_ptr<WebSocket> webSocket;
 
-    std::shared_ptr<TcpAcceptor> tcpListener;
+    std::shared_ptr<TcpAcceptor> tcpAcceptor;
 
     std::shared_ptr<TcpSocket> tcpSocket;
 
-    // 请求超时看门狗。一次只存活一个;新请求先 cancel 旧 timer 再重建。
-    // timeoutEpoch 递增,旧协程醒来后按 epoch 不匹配直接退出,双保险防并发 re-init。
     std::shared_ptr<boost::asio::steady_timer> requestTimeout;
 
     uint64_t timeoutEpoch = 0;
@@ -382,7 +368,6 @@ private:
     WebrtcManagerConfig webrtcManagerConfig;
 
 };
-
 
 }
 
