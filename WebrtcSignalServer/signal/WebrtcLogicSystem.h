@@ -14,6 +14,8 @@
 
 #include "AwaitableTask.h"
 
+#include "HttpFilters.h"
+
 namespace hope {
 
 	namespace signal {
@@ -53,6 +55,8 @@ namespace hope {
 
 			void initHandlers();
 
+			void initFilters();
+
 			void initHttpHandlers();
 
 		public:
@@ -68,6 +72,8 @@ namespace hope {
 			absl::flat_hash_map<int, bool> webrtcLogicHandlers;
 
 			absl::flat_hash_map<std::string, bool> httpLogicHandlers;
+
+			HttpFilters httpFilters;
 
 			std::shared_ptr<hope::mysql::WebrtcMysqlManagerPools> webrtcMysqlManagerPools;
 
@@ -86,6 +92,7 @@ namespace hope {
 			std::atomic<uint32_t> asyncThreshold{ 0 };
 
 		};
+
 	}
 
 }

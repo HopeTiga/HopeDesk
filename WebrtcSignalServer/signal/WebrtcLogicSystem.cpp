@@ -14,6 +14,7 @@
 #include "WebrtcSignalServer.h"
 #include "WebrtcSignalManager.h"
 #include "WebrtcSignalSocket.h"
+#include "HttpFilters.h"
 #include "HttpSocket.h"
 #include "WebrtcSignalPacket.h"
 
@@ -69,6 +70,8 @@ namespace hope {
             if (asyncEvents.exchange(true)) return;
 
             initHandlers();
+
+            initFilters();
 
             initHttpHandlers();
 
@@ -244,11 +247,31 @@ namespace hope {
 
                     std::shared_ptr<HttpSocket> httpSocketShared = httpSocket->shared_from_this();
 
-                    bool success = taskQueues.enqueue([httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), &func]()mutable -> boost::asio::awaitable<void> {
+                    bool success = taskQueues.enqueue([httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest), &func, this]()mutable -> boost::asio::awaitable<void> {
 
                         try {
 
-                            co_await func(httpSocket, httpRquest);
+                            if (!httpFilters.authorization(httpSocket, httpRequest)) {
+
+                                boost::beast::http::response<boost::beast::http::string_body> httpResponse{ boost::beast::http::status::ok, httpRequest.version() };
+
+                                httpResponse.set(boost::beast::http::field::content_type, "application/json");
+
+                                httpResponse.body() = R"({"state":403,"message":"webrtcSignalServer forbidden, please check your request","data":null})";
+
+                                httpResponse.prepare_payload();
+
+                                httpResponse.keep_alive(httpSocket->getKeepAlive());
+
+                                co_await httpSocket->asyncWrite(std::move(httpResponse));
+
+                                LOG_WARN("Http Request: %s Filtered Out", httpRequest.target().data());
+
+                                co_return;
+
+                            }
+
+                            co_await func(httpSocket, httpRequest);
 
                         }
                         catch (...) {
@@ -300,9 +323,29 @@ namespace hope {
 
                 localTaskQueueSize.fetch_add(1);
 
-                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRquest = std::move(httpRequest), &func]()mutable->boost::asio::awaitable<void> {
+                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest), &func, this]()mutable->boost::asio::awaitable<void> {
 
-                    co_await func(httpSocket, httpRquest);
+                    if (!httpFilters.authorization(httpSocket, httpRequest)) {
+
+                        boost::beast::http::response<boost::beast::http::string_body> httpResponse{ boost::beast::http::status::ok, httpRequest.version() };
+
+                        httpResponse.set(boost::beast::http::field::content_type, "application/json");
+
+                        httpResponse.body() = R"({"state":403,"message":"webrtcSignalServer forbidden, please check your request","data":null})";
+
+                        httpResponse.prepare_payload();
+
+                        httpResponse.keep_alive(httpSocket->getKeepAlive());
+
+                        co_await httpSocket->asyncWrite(std::move(httpResponse));
+
+                        LOG_WARN("Http Request: %s Filtered Out", httpRequest.target().data());
+
+                        co_return;
+
+                    }
+
+                    co_await func(httpSocket, httpRequest);
 
                     }, [this, targetUrl](std::exception_ptr ptr) {
 
@@ -381,12 +424,11 @@ namespace hope {
 
 			std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem = shared_from_this();
 
-            // ==================== Forward Handler ====================
             std::function<boost::asio::awaitable<void>(WebrtcSignalPacket, std::string)> forwardHandler = [this](WebrtcSignalPacket webrtcSignalPacket, std::string requestTypeStr)->boost::asio::awaitable<void> {
 
                 boost::json::object& request = webrtcSignalPacket.request;
 
-                auto webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
+                std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
                 int64_t requestTypeValue = webrtcSignalPacket.requestType;
 
@@ -998,6 +1040,29 @@ namespace hope {
 
         }
 
+        void WebrtcLogicSystem::initFilters()
+        {
+
+            httpFilters.addRule("/api/v1/managers/login");
+
+            httpFilters.addFilter([](std::shared_ptr<HttpSocket> httpSocket, const boost::beast::http::request<boost::beast::http::string_body>& httpRequest) -> bool {
+
+                boost::beast::http::request<boost::beast::http::string_body>::const_iterator iterator = httpRequest.find(boost::beast::http::field::authorization);
+
+                if (iterator == httpRequest.end()) return false;
+
+                std::string_view authView{ iterator->value().data(), iterator->value().size() };
+
+                LOG_INFO("authView:%s", authView.data());
+
+                if (authView.size() < 7 || authView.substr(0, 7) != "Bearer ") return false;
+
+                return authView.substr(7) == "913140924@qq.com";
+
+                });
+
+        }
+
         void WebrtcLogicSystem::initHttpHandlers()
         {
 
@@ -1063,35 +1128,11 @@ namespace hope {
                 return boost::json::serialize(resp);
                 };
 
-
-            std::function<bool(const boost::beast::http::request<boost::beast::http::string_body>&)> verifyAuthorization =
-                [this, httpSocketAsyncWrite](const boost::beast::http::request<boost::beast::http::string_body>& req) {
-                try {
-                    auto it = req.find(boost::beast::http::field::authorization);
-                    if (it == req.end()) return false;
-                    std::string_view authView{ it->value().data(), it->value().size() };
-                    if (authView.size() < 7 || authView.substr(0, 7) != "Bearer ")
-                        return false;
-
-                    return authView.substr(7) == "913140924@qq.com";
-                }
-                catch (std::exception& e) {
-                    LOG_ERROR("Authorization Verify Error:%s", e.what());
-                    return false;
-                }
-                };
-
             // -------- 路由 /api/v1/managers/overview --------
             httpHandlers["/api/v1/managers/overview"] =
-                [this, httpSocketAsyncWrite, verifyAuthorization, serializeHttpResp, awaitableHttpSocketAsyncWrite](
+                [this, httpSocketAsyncWrite,serializeHttpResp, awaitableHttpSocketAsyncWrite](
                     std::shared_ptr<HttpSocket> httpSocket,
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
-                        if (!verifyAuthorization(httpRequest)) {
-
-                            co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(), serializeHttpResp(403, "Forbidden", nullptr));
-
-                            co_return;
-                        }
 
                         WebrtcSignalServer* server = httpSocket->getWebrtcSignalManager()->webrtcSignalServer;
 
@@ -1117,32 +1158,22 @@ namespace hope {
 
             // -------- 路由 /api/v1/managers/stat --------
             httpHandlers["/api/v1/managers/stat"] =
-                [this, httpSocketAsyncWrite, verifyAuthorization, serializeHttpResp, awaitableHttpSocketAsyncWrite](
+                [this, httpSocketAsyncWrite, serializeHttpResp,awaitableHttpSocketAsyncWrite](
                     std::shared_ptr<HttpSocket> httpSocket,
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
 
-                        // ========== 第一步：获取 manager 和通道索引，比较 ==========
                         auto manager = httpSocket->getWebrtcSignalManager();
+
                         int currentChannelIndex = manager->channelIndex;
+
                         bool isSameChannel = (currentChannelIndex == threadChannelIndex);  // threadChannelIndex 是 thread_local
 
-                        // ========== 第二步：鉴权（不管同不同通道，都要验证） ==========
-                        if (!verifyAuthorization(httpRequest)) {
-                            if (isSameChannel) {
-                                co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(),
-                                    serializeHttpResp(403, "Forbidden", nullptr));
-                            }
-                            else {
-                                httpSocketAsyncWrite(httpSocket, httpRequest.version(),
-                                    serializeHttpResp(403, "Forbidden", nullptr));
-                            }
-                            co_return;
-                        }
-
-                        // ========== 第三步：解析请求体（获取要查询的目标通道索引） ==========
                         unsigned char parseBuf[256];
+
                         boost::json::monotonic_resource parseMr(parseBuf, sizeof(parseBuf));
+
                         boost::json::value reqBody;
+
                         try {
                             reqBody = boost::json::parse(httpRequest.body(), &parseMr);
                         }
@@ -1194,7 +1225,6 @@ namespace hope {
                             co_return;
                         }
 
-                        // ========== 第四步：处理请求 ==========
                         if (targetIdx == static_cast<size_t>(currentChannelIndex)) {
                             // 查询的是当前 manager 自己的通道
                             boost::json::storage_ptr sp = boost::json::make_shared_resource<boost::json::monotonic_resource>();

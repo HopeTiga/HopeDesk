@@ -91,7 +91,7 @@ namespace hope {
 			}
 			catch (std::exception& e) {
 
-				LOG_ERROR("HttpSocket asyncRead or postHttpTaskAsync or asyncReadKeepAlive Exception: %s", e.what());
+				LOG_ERROR("HttpSocket AsyncRead or PostHttpTaskAsync or AsyncReadKeepAlive Exception: %s", e.what());
 
 				closeSocket();
 
@@ -133,18 +133,18 @@ namespace hope {
 				auto [handshake_ec] = std::move(op);
 
 				if (isTimeout) {
-					LOG_ERROR("HttpSocket::asyncHandShake Timeout after %lldms", timeout.count());
+					LOG_ERROR("HttpSocket::AsyncHandShake Timeout after %lldms", timeout.count());
 					co_return false;
 				}
 
 				if (handshake_ec) {
-					LOG_ERROR("HttpSocket::asyncHandShake Error: %s", handshake_ec.message().c_str());
+					LOG_ERROR("HttpSocket::AsyncHandShake Error: %s", handshake_ec.message().c_str());
 					co_return false;
 				}
 
 			}
 			catch (const std::exception& e) {
-				LOG_ERROR("HttpSocket::asyncHandShake Exception: %s", e.what());
+				LOG_ERROR("HttpSocket::AsyncHandShake Exception: %s", e.what());
 				co_return false;
 			}
 
@@ -199,8 +199,8 @@ namespace hope {
 			readTimer.cancel();
 
 			if (isTimeout || ec) {
-				LOG_ERROR("HttpSocket::asyncRead SSL async_read failed: %s", ec.message().c_str());
-				throw std::runtime_error("HttpSocket SSL async_read failed");
+				LOG_ERROR("HttpSocket::AsyncRead SSL Async_read failed: %s", ec.message().c_str());
+				throw std::runtime_error("HttpSocket SSL Async_read failed");
 			}
 
 #endif

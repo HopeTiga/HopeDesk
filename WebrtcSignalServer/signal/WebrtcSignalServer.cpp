@@ -10,6 +10,7 @@
 #include "../iocp/AsioProactors.h"
 #include "WebrtcSignalSocket.h"
 #include "HttpSocket.h"
+#include "HttpFilters.h"
 
 #include "../rpc/CoroRpc.h"
 
