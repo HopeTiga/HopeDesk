@@ -1053,8 +1053,6 @@ namespace hope {
 
                 std::string_view authView{ iterator->value().data(), iterator->value().size() };
 
-                LOG_INFO("authView:%s", authView.data());
-
                 if (authView.size() < 7 || authView.substr(0, 7) != "Bearer ") return false;
 
                 return authView.substr(7) == "913140924@qq.com";
