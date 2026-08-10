@@ -38,6 +38,7 @@ WebrtcSignalServer/
 │   ├── WebrtcSignalPacket.*      # 信令包:socket+json request+requestType
 │   ├── HttpSocket.*              # HTTPS 连接:握手、keep-alive、读写
 │   ├── HttpClient.*              # 出站 HTTP 客户端(对接 Polaris 等服务发现)
+│   ├── HttpFilters.*             # HTTP 鉴权:放行规则(addRule)+全局过滤器(addFilter)
 │   ├── AsioConcurrentQueue.h     # moodycamel 队列 + sam 信号量 的 awaitable 封装
 │   └── AwaitableTask.h           # TaskChannel:全局任务队列(concurrent_channel + moodycamel)
 ├── rpc/
@@ -297,15 +298,41 @@ flowchart TD
 
 `postHttpTaskAsync` 与信令同构：`httpHandlers[targetUrl]` 命中 → 过载判断（`httpLogicHandlers[url]` 决定可否搬全局队列）→ 本地 co_spawn 或全局队列；满则回 503；未命中路由回 404。
 
-### 6.3 路由
+### 6.3 路由与鉴权（`HttpFilters`）
 
-| 方法+路径 | 鉴权 | 作用 |
-|-----------|------|------|
-| `/api/v1/managers/overview` | Bearer token | 返回 `totalManagers`(通道数) |
-| `/api/v1/managers/stat` | Bearer token | body `{"channelIndex":N}`，返回该通道 socket 列表(accountId/remoteAddr/sessionId/cachedRouteCount) |
-| 其他 | — | 404 JSON |
+| 方法+路径 | 作用 |
+|-----------|------|
+| `/api/v1/managers/overview` | 返回 `totalManagers`(通道数) |
+| `/api/v1/managers/stat` | body `{"channelIndex":N}`，返回该通道 socket 列表(accountId/remoteAddr/sessionId/cachedRouteCount) |
+| `/api/v1/managers/login` | 放行规则(免 token,见下)；当前无对应 handler,未命中路由回 404 |
+| 其他 | 未命中路由回 404 JSON |
 
-- **鉴权**：`Authorization: Bearer 913140924@qq.com`（`verifyAuthorization` 里硬编码 token，仅示例，生产需替换）。
+**鉴权由每通道的 `HttpFilters` 承担**（`WebrtcLogicSystem` 的成员 `httpFilters`，每实例一份，不走 thread_local / 单例，便于规则内协程查库）。配置在 `initFilters()`（`asyncEvent` 依次调 `initHandlers → initFilters → initHttpHandlers`）：
+
+- `addRule(pathPattern)`：**放行规则**，纯路径、无回调。请求路径命中即**直接放行**，不再走过滤器。`matchPath` 规则：空或 `*` 全中；尾部 `*` 前缀匹配；否则精确相等。
+- `addFilter(check)`：**全局过滤器**，真正的校验回调 `bool(shared_ptr<HttpSocket>, const request&)`。**未命中任何规则**的请求才落到这里，任一返回 `false` 即拒绝。
+- `authorization()` 裁决顺序（先规则、后过滤器）：规则命中 → 放行短路；无规则命中 → 逐个过全局过滤器；什么都没配置 → 直接放行。
+
+当前配置（`initFilters()`）：
+
+```cpp
+httpFilters.addRule("/api/v1/managers/login");        // 登录路径放行,免 token
+httpFilters.addFilter([](std::shared_ptr<HttpSocket> httpSocket,
+                         const boost::beast::http::request<boost::beast::http::string_body>& httpRequest) -> bool {
+    // 校验 Authorization: Bearer 913140924@qq.com
+    // 缺头 / 前缀不是 "Bearer " / token 不匹配 → false
+    ...
+});
+```
+
+鉴权失败时 `postHttpTaskAsync`（本地与过载两条派发路径一致）写回：
+
+```json
+{"state":403,"message":"webrtcSignalServer forbidden, please check your request","data":null}
+```
+
+> 注意：token 是逐字节精确比较，客户端发什么就比什么。用 ApiPost/Postman 等工具测试时填了 token 却发出去另一个值，通常不是服务端问题——检查「鉴权/Auth 标签页」里保存的 Bearer Token 或环境变量是否覆盖了手动 Header。
+
 - **跨通道查询**：`/stat` 若查询的不是当前通道，用 `postTaskAsync(targetIdx,...)` 跨通道取数据，再 `postTaskAsync` 回当前通道写响应（`threadChannelIndex` 是 thread_local，用于判断同通道直接 `co_await` 还是跨通道 `co_spawn`）。
 
 ### 6.4 响应序列化
@@ -873,6 +900,7 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
 | `ActorMapping` | `WebrtcSignalManager.h` | `{sessionId, channelIndex}` |
 | `AsyncTransactionGuard` | `mysql/AsyncTransactionGuard.h` | 事务 RAII |
+| `HttpFilters` | `signal/HttpFilters.h` | HTTP 鉴权(放行规则 + 全局过滤器) |
 
 ---
 
