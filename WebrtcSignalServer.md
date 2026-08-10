@@ -43,7 +43,8 @@ WebrtcSignalServer/
 ├── rpc/
 │   ├── CoroRpc.h/.cpp                 # ylt/coro_rpc 封装(server+client pool+LB,单例 getInstance)
 │   ├── CoroRpcHandleInterface.h       # RPC handler 抽象基类(纯虚 registerRpcHandle,只持 server 引用)
-│   └── CoroRpcHandleImpl.h/.cpp       # RPC handler 实现(requestForward 跨节点转发)+ 默认注册
+│   ├── CoroRpcHandleImpl.h/.cpp       # RPC handler 实现(requestForward 跨节点转发,自注册)
+│   └── Rpc.h/.cpp                     # RpcForward/RpcForwardResponse + 默认 handler 注册 initCoroRpcHandleInterface
 ├── mysql/
 │   ├── MysqlConfig.h             # 全局 MysqlConfig 结构体 + inline globalMysqlConfig
 │   ├── WebrtcMysqlManagerPools.* # boost::mysql 连接池(每通道一个)
@@ -503,20 +504,46 @@ auto r = co_await rpc->asyncLbRpcRequest(
 
 ```cpp
 hope::rpc::CoroRpc* coroRpc = hope::rpc::CoroRpc::getInstance();
-coroRpc->initCoroRpc(webrtcSignalConfig.coroRpcServerConfig);        // 用 [CoroRpc] 配置初始化服务端
-coroRpc->createClientPools();                                        // 初始化连接池
-std::vector<std::string> hosts;                                      // 启动为空，运行时由服务发现填充
-coroRpc->createLoadBalancer(hosts);                                  // 空 LB，后续可更新
-for (std::unique_ptr<hope::rpc::CoroRpcHandleInterface>& coroRpcHandleInterface : coroRpcHandleInterfaces) {
-    coroRpcHandleInterface->registerRpcHandle();                     // 数组里每个 handler 自注册 requestForward
+
+if (!coroRpc->initCoroRpc(webrtcSignalConfig.coroRpcServerConfig)) {          // 用 [CoroRpc] 配置初始化服务端,失败则中止启动
+    LOG_ERROR("CoroRpc::initCoroRpc Failed");
+    asyncEvents.store(false);
+    return false;
 }
-coroRpc->asyncEvent();                                               // 启动 coro_rpc_server
+
+coroRpc->createClientPools();                                                // 初始化连接池
+
+std::vector<std::string> hosts;                                              // 启动为空，运行时由服务发现填充
+
+coroRpc->createLoadBalancer(hosts);                                          // 空 LB，后续可更新
+
+for (std::unique_ptr<hope::rpc::CoroRpcHandleInterface>& coroRpcHandleInterface : coroRpcHandleInterfaces) {
+    coroRpcHandleInterface->registerRpcHandle();                             // 数组里每个 handler 自注册 requestForward
+}
+
+coroRpc->asyncEvent();                                                       // 启动 coro_rpc_server
+
+LOG_INFO("WebrtcSginalServer Protocol: CoroRpc , Listen Accept Port: %zu", webrtcSignalConfig.coroRpcServerConfig.port);
+```
+
+`coroRpcHandleInterfaces` 的填充（vector 的 registerHandle）由 `initCoroRpcHandleInterface` 在 `main.cpp` 组合期调用一次完成——构造默认 handler，经 `registerRpcHandleImpl` move 进数组：
+
+```cpp
+void initCoroRpcHandleInterface(std::shared_ptr<hope::signal::WebrtcSignalServer> webrtcSignalServer) {
+    std::unique_ptr<hope::rpc::CoroRpcHandleInterface> coroRpcHandleInterface =
+        std::make_unique<hope::rpc::CoroRpcHandleImpl>(*webrtcSignalServer.get());
+    webrtcSignalServer->registerRpcHandleImpl(std::move(coroRpcHandleInterface));   // 注册进 vector
+}
+
+void WebrtcSignalServer::registerRpcHandleImpl(std::unique_ptr<hope::rpc::CoroRpcHandleInterface> coroRpcHandleInterface) {
+    coroRpcHandleInterfaces.push_back(std::move(coroRpcHandleInterface));           // move 进数组,asyncEvent 里逐个 registerRpcHandle()
+}
 ```
 
 - `coroRpc` 是**单例** `CoroRpc::getInstance()`，`initCoroRpc(config)` 初始化服务端、`asyncEvent()` 开始监听。
 - `coroRpcHandleInterfaces` 是 `WebrtcSignalServer` 的 `std::vector<std::unique_ptr<CoroRpcHandleInterface>>` 数组成员，`asyncEvent` 里逐个 `registerRpcHandle()` 自注册。
 - 对外接口 `registerRpcHandleImpl(std::unique_ptr<CoroRpcHandleInterface>)` 把 handler **move 进**数组，允许外部注册更多 RPC handler。
-- 默认 handler 由自由函数 `initCoroRpcHandleInterface(std::shared_ptr<WebrtcSignalServer>)`（声明在 `rpc/CoroRpcHandleImpl.h`，定义在 `rpc/CoroRpcHandleImpl.cpp`）创建并注册：`std::make_unique<CoroRpcHandleImpl>(*server)` 后 `server->registerRpcHandleImpl(std::move(...))`；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
+- 默认 handler 由自由函数 `initCoroRpcHandleInterface(std::shared_ptr<WebrtcSignalServer>)`（声明在 `rpc/Rpc.h`，定义在 `rpc/Rpc.cpp`）创建并注册：`std::make_unique<CoroRpcHandleImpl>(*server)` 后 `server->registerRpcHandleImpl(std::move(...))`；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
 - `closeEvent()` 中 `CoroRpc::getInstance()->closeEvent();` 停止 RPC 服务。
 
 **默认 RPC handler：`CoroRpcHandleImpl::requestForward`**  
