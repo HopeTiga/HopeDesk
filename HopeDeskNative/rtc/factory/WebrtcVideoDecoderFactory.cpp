@@ -128,6 +128,13 @@ namespace hope {
             decoderD3D11Device.Reset();
         }
 
+        void WebrtcVideoDecoderFactory::wakeUpAllDecoders() {
+            std::lock_guard<std::mutex> lock(decoderMutex);
+            for (auto* d : liveAv1Decoders) {
+                if (d) d->requestRelease();
+            }
+        }
+
         void WebrtcVideoDecoderFactory::removeDecoder(D3D11Av1VideoDecoder* d) {
             std::lock_guard<std::mutex> lock(decoderMutex);
             liveAv1Decoders.erase(

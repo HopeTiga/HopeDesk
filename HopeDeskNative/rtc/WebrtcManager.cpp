@@ -994,7 +994,10 @@ void WebrtcManager::closeTcpSocket()
 void WebrtcManager::releaseSource()
 {
 
+    // 先唤醒解码线程再 Close:否则 Close() 内 Stop 等待解码线程,而解码线程
+    // 卡在 renderCv.wait(等渲染设备注入)或 GPU 查询自旋,ioContext 线程被永久拖死。
     if (webrtcVideoDecoderFactory) {
+        webrtcVideoDecoderFactory->wakeUpAllDecoders();
         webrtcVideoDecoderFactory->clearDecoderD3D11Device();
     }
 

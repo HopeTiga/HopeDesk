@@ -1243,6 +1243,11 @@ int32_t D3D11Av1VideoDecoder::Release() {
     return WEBRTC_VIDEO_CODEC_OK;
 }
 
+void D3D11Av1VideoDecoder::requestRelease() {
+    released.store(true, std::memory_order_release);  // 无锁:解码线程可能持 mutex 卡在自旋里
+    renderCv.notify_all();
+}
+
 webrtc::VideoDecoder::DecoderInfo D3D11Av1VideoDecoder::GetDecoderInfo() const {
     DecoderInfo info;
     info.implementation_name = "D3D11(AV1/DXVA)";

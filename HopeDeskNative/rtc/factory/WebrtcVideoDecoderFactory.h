@@ -42,6 +42,10 @@ namespace hope {
 			// 断开连接时清空缓存的渲染设备:避免下个连接复用上一连接(可能已销毁)的设备。
 			void clearDecoderD3D11Device();
 
+			// 释放前唤醒所有存活硬解解码器(置 released),必须在 peerConnection->Close() 前调用,
+			// 否则解码线程卡死会让 Close() 永久阻塞(Stop 等待解码线程)。
+			void wakeUpAllDecoders();
+
 			// 解码器析构时从 liveAv1Decoders 注销(仅 D3D11Av1VideoDecoder 参与设备注入)。
 			void removeDecoder(D3D11Av1VideoDecoder* d);
 

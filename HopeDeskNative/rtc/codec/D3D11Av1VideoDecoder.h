@@ -48,6 +48,9 @@ public:
     // 跨设备要求同适配器)。可在解码器创建后任意时刻调用。
     void setD3D11Device(ID3D11Device* dev);
 
+    // 释放前唤醒解码线程(工厂在 peerConnection->Close() 前调用),无锁,不销毁资源。
+    void requestRelease();
+
     // 记录创建者工厂,析构时从工厂注销(防悬垂)。
     void setOwnerFactory(WebrtcVideoDecoderFactory* f) { ownerFactory = f; }
 
