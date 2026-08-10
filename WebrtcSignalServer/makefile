@@ -38,7 +38,7 @@ LDLIBS += -lpthread -ldl -lquadmath
 TARGET := $(BUILDDIR)/WebrtcSignalServer
 
 SRCS := main.cpp \
-	Ssl.cpp \
+	ssl/Ssl.cpp \
 	signal/WebrtcSignalServer.cpp \
 	signal/WebrtcSignalSocket.cpp \
 	signal/WebrtcSignalManager.cpp \
@@ -46,8 +46,9 @@ SRCS := main.cpp \
 	signal/WebrtcLogicSystem.cpp \
 	signal/HttpSocket.cpp \
 	signal/HttpClient.cpp \
+	rpc/Rpc.cpp \
 	rpc/CoroRpc.cpp \
-	rpc/CoroRpcHandlerImpl.cpp \
+	rpc/CoroRpcHandleImpl.cpp \
 	mysql/WebrtcMysqlManagerPools.cpp \
 	iocp/AsioProactors.cpp \
 	utils/Utils.cpp
