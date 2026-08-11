@@ -11,6 +11,10 @@ namespace hope {
 
         typedef NVENCSTATUS(NVENCAPI* PNVENCODEAPICREATEINSTANCE)(NV_ENCODE_API_FUNCTION_LIST*);
 
+        // keyed-mutex 有界等待：超时=本帧跳过（背压），仅非超时失败才算 handle 死亡。
+        // 参考 Sunshine bounded_consumer_acquire_timeout_ms。100ms 取中值防误跳。
+        constexpr DWORD kVddAcquireTimeoutMs = 100;
+
         NvencH265Encoder::NvencH265Encoder() {}
 
         NvencH265Encoder::~NvencH265Encoder() {
@@ -233,7 +237,8 @@ namespace hope {
                     // 失败则 cached.regPtr 保持 nullptr → 走拷贝回退路径
                 }
 
-                if (cached.km && cached.km->AcquireSync(1, 5000) == S_OK) {
+                HRESULT hr = cached.km ? cached.km->AcquireSync(1, kVddAcquireTimeoutMs) : static_cast<HRESULT>(E_FAIL);
+                if (hr == S_OK) {
                     if (cached.regPtr) {
                         // 直注路径：NVENC 直接 DMA 读共享纹理，零拷贝
                         // keyed mutex 必须持有到 GetEncodedPacket 里 unmap 之后
@@ -261,8 +266,14 @@ namespace hope {
                         pendingInputs[idx].isShared = false;
                     }
                 }
+                else if (hr == static_cast<HRESULT>(WAIT_TIMEOUT)) {
+                    // 该 slot 自上次 ReleaseSync(0) 后未被驱动重新发布（背压/陈旧 relay）：
+                    // 跳过本帧，等下一帧事件重送。不 erase 缓存、不置 reopenRequested、
+                    // 不返回 ERROR（避免触发 libwebrtc 编码器重建），静默丢帧即可。
+                    return WEBRTC_VIDEO_CODEC_OK;
+                }
                 else {
-                    LOG_ERROR("[NVENC] D3D AcquireSync failed. handle=%p", h);
+                    LOG_ERROR("[NVENC] D3D AcquireSync failed. handle=%p hr=0x%08X", h, (unsigned)hr);
                     // keyed mutex 失效（多半是驱动重建了共享纹理）：丢弃该 handle 的
                     // 缓存，避免后续每帧对旧纹理空等；并请求上游重开通道，让
                     // generation++ 后本编码器清空全部缓存、用新 handle 重建同步。

@@ -30,6 +30,7 @@
 #include <thread>
 #include <functional>
 #include <cstdint>
+#include <chrono>
 #include <vector>
 
 #include "zako-vdd/vdd_control_ioctl.h"
@@ -130,9 +131,10 @@ private:
     bool enableHardwareCursor();  // keep the OS cursor out of captured frames
     bool ensureDisplay();       // find-or-create + verify client resolution
     bool applyTopology();       // activate VDD (primary on headless, else mirror)
-    bool openFrameChannel();
+    bool openFrameChannel(int maxAttempts = 30);   // maxAttempts 限制 NOT_READY 重试时长（30×500ms 留给启动）
     void closeFrameChannel();
-    bool reopenFrameChannel();  // close + open（必须在捕获线程执行）
+    bool reopenFrameChannel();  // close + open（必须在捕获线程执行，有界重试）
+    bool probeChannelGeneration(UINT16& outGen);  // 非破坏性：临时开通道读 gen，不碰现有通道
     bool initLocalDevice();
     bool readStableMetadata(ZakoFrameMetadata& out);
     bool deliverNewFrame(const ZakoFrameMetadata& meta);
@@ -176,6 +178,12 @@ private:
     // 时的基线。驱动重建后可能不再 signal 旧 frameReadyEvent，只靠事件等待会
     // 静默定格（无日志），因此每圈轮询 metadata 对比该值。
     UINT16 lastChannelGen = 0;
+
+    // 通道-down 指数退避：open/reopen 失败后先退避再重试，避免热自旋与 15s 阻塞。
+    bool channelDown = false;
+    std::chrono::steady_clock::time_point nextOpenRetryAt{};
+    int  openBackoffMs = 0;
+    int  downLogCounter = 0;
 };
 
 } // namespace rtc

@@ -21,6 +21,13 @@ namespace hope {
 
         static const wchar_t* kVddMonitorId = L"HPD"; // EDID manufacturer -> DeviceID contains "HPD"
 
+        // reopen/probe 的有界 open 重试（NOT_READY 每 500ms 一次）。启动仍用 30 次
+        // 等驱动懒建纹理；运行期通道维护最坏 2s 返回，配合退避不阻塞采集。
+        constexpr int kVddReopenMaxAttempts = 4;   // reopen：4×500ms ≈ 2s
+        constexpr int kVddProbeMaxAttempts = 2;    // 探测：2×500ms ≈ 1s
+        constexpr int kVddBackoffStartMs = 1000;   // 指数退避 1s→2s→4s→8s 封顶
+        constexpr int kVddBackoffMaxMs = 8000;
+
         // Deterministic GUID from a string (FNV-1a 64-bit, spread across the 16 bytes).
         // Used so the same `id` (e.g. a systemService string) maps to the same identity.
         static void DeriveGuidFromString(const char* s, GUID& g)
@@ -417,11 +424,11 @@ namespace hope {
             return true;
         }
 
-        bool VirtualDisplayCapture::openFrameChannel()
+        bool VirtualDisplayCapture::openFrameChannel(int maxAttempts)
         {
             // The producer creates its shared textures lazily on the first frame, so the
             // channel may report NOT_READY for a short while after the monitor connects.
-            for (int attempt = 0; attempt < 30; ++attempt) {
+            for (int attempt = 0; attempt < maxAttempts; ++attempt) {
                 VDD_FRAME_CHANNEL_CAPS caps = {};
                 caps.Size = sizeof(caps);
                 DWORD br = 0;
@@ -514,16 +521,76 @@ namespace hope {
         // 驱动重建共享纹理（ChannelGeneration 变化）后，旧 slot handle 全部失效。
         // 重新打开通道拿新 handle，让下游编码器（其 resourceCache 也已随
         // generation 变化被清空）用新 handle 重新建立同步。
+        // 有界重试；失败静默返回，由采集线程的退避 + WARN 节流统一上报。
         bool VirtualDisplayCapture::reopenFrameChannel()
         {
             closeFrameChannel();
-            if (!openFrameChannel()) {
-                LOG_ERROR("VirtualDisplayCapture::reopenFrameChannel openFrameChannel failed");
+            if (!openFrameChannel(kVddReopenMaxAttempts)) {
                 return false;
             }
             haveFrame = false;  // 新通道后首个发布视为新帧
-            LOG_INFO("VirtualDisplayCapture frame channel reopened");
             return true;
+        }
+
+        // 非破坏性探测：临时开一次通道，只读生产者当前 ChannelGeneration 后即关。
+        // 不动现有通道状态、不 OpenSharedResource1 开槽纹理（探测只需读元数据）。
+        // 用于静止时检测"映射已冻结"的生产端重建（新 exporter 的 gen 更高）。
+        bool VirtualDisplayCapture::probeChannelGeneration(UINT16& outGen)
+        {
+            for (int attempt = 0; attempt < kVddProbeMaxAttempts; ++attempt) {
+                VDD_FRAME_CHANNEL_OPEN_REQUEST req = {};
+                req.Size = sizeof(req);
+                req.Version = VDD_FRAME_CHANNEL_OPEN_VERSION;
+                req.MonitorIndex = 0;
+                req.RequiredFlags = 0;
+                req.TargetProcessId = GetCurrentProcessId();
+                req.DesiredSlots = 0;
+                req.AdapterLuidLowPart = adapterLuid.LowPart;
+                req.AdapterLuidHighPart = adapterLuid.HighPart;
+
+                VDD_FRAME_CHANNEL_OPEN_RESPONSE resp = {};
+                DWORD br = 0;
+                BOOL ok = DeviceIoControl(driverDevice, IOCTL_VDD_OPEN_FRAME_CHANNEL,
+                    &req, sizeof(req), &resp, sizeof(resp), &br, nullptr);
+                if (!ok) {
+                    if (GetLastError() == ERROR_NOT_READY) { Sleep(500); continue; }
+                    return false;
+                }
+                if (resp.SlotCount == 0 || resp.MetadataHandle == 0) return false;
+
+                HANDLE hEvent = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.FrameReadyEventHandle));
+                HANDLE hMeta = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.MetadataHandle));
+                if (hEvent) CloseHandle(hEvent);
+
+                auto* view = static_cast<const ZakoFrameMetadata*>(
+                    MapViewOfFile(hMeta, FILE_MAP_READ, 0, 0, sizeof(ZakoFrameMetadata)));
+                if (!view) { CloseHandle(hMeta); return false; }
+
+                // seqlock 读高 16 位 generation（与 readStableMetadata 同一模式）。
+                bool got = false;
+                UINT32 gen = 0;
+                for (int s = 0; s < 8; ++s) {
+                    UINT32 s1 = view->MetadataSequence;
+                    if (s1 & 1u) { std::this_thread::yield(); continue; } // producer mid-write
+                    UINT32 g = s1 >> 16;
+                    UINT32 s2 = view->MetadataSequence;
+                    if (s1 == s2 && !(s2 & 1u)) { gen = g; got = true; break; }
+                    std::this_thread::yield();
+                }
+
+                UnmapViewOfFile(view);
+                CloseHandle(hMeta);
+                // 响应里重复出来的槽句柄本探测用不到，必须关掉避免句柄泄漏。
+                for (UINT32 s = 0; s < resp.SlotCount; ++s) {
+                    HANDLE hSlot = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.Slots[s].TextureHandle));
+                    if (hSlot) CloseHandle(hSlot);
+                }
+
+                if (!got) return false;
+                outGen = static_cast<UINT16>(gen);
+                return true;
+            }
+            return false;
         }
 
         bool VirtualDisplayCapture::readStableMetadata(ZakoFrameMetadata& out)
@@ -626,7 +693,9 @@ namespace hope {
 
         void VirtualDisplayCapture::captureThreadFunc()
         {
-            const DWORD waitMs = 100; // repeat-frame cadence
+            const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
+            const UINT32 idleReopenTicks = 30;  // 连续静止 30 圈（~3s）→ 非破坏性探测
+            UINT32 idleTicks = 0;
 
             // 建立 ChannelGeneration 基线，避免首圈误判通道已重建。
             if (pMeta) {
@@ -634,10 +703,46 @@ namespace hope {
                 if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
             }
 
+            // 统一 reopen：有界打开；成功则刷新基线，仅 gen 变化才通知下游清缓存；
+            // 失败则进入指数退避（1s→2s→4s→8s 封顶），退避期外才重试，WARN 节流上报。
+            auto reopenChannel = [this]() -> bool {
+                const UINT16 oldGen = lastChannelGen;
+                if (reopenFrameChannel()) {
+                    ZakoFrameMetadata meta{};
+                    if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
+                    if (channelSync && lastChannelGen != oldGen) {
+                        channelSync->generation.fetch_add(1, std::memory_order_release);
+                    }
+                    if (channelDown) {
+                        channelDown = false;
+                        openBackoffMs = 0;
+                        downLogCounter = 0;
+                        LOG_INFO("VirtualDisplayCapture frame channel recovered");
+                    }
+                    return true;
+                }
+                // 有界 open 已失败（≤2s），进入指数退避，避免热自旋与刷屏。
+                channelDown = true;
+                if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
+                nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
+                if (++downLogCounter == 1 || downLogCounter % 10 == 0) {
+                    LOG_WARN("VirtualDisplayCapture frame channel down, retry in %d ms", openBackoffMs);
+                }
+                openBackoffMs *= 2;
+                if (openBackoffMs > kVddBackoffMaxMs) openBackoffMs = kVddBackoffMaxMs;
+                return false;
+            };
+
             while (capturing.load()) {
-                // 主动检测驱动重建共享通道（ChannelGeneration 变化）。只依赖
-                // frameReadyEvent 不可靠：静止/熄屏后驱动可能不再 signal 旧事件，
-                // 捕获线程会无任何日志地空转定格。这里每圈轮询 metadata 对比基线。
+                // 退避期内（通道 down）不尝试 open；pMeta 在时通道健康，恒为 false。
+                const bool inBackoff = channelDown &&
+                    std::chrono::steady_clock::now() < nextOpenRetryAt;
+
+                // ---- 快速路径：映射活跃时每圈轮询 metadata 对比基线。
+                // 驱动重建纹理（BumpChannelGeneration）但 exporter 未销毁时，
+                // 映射仍指向活的元数据，这里能立刻发现。若映射已冻结（exporter
+                // 整体重建，见下），读到的永远是旧 generation，此处不会误判，
+                // 由 idle 非破坏性探测兜底。
                 bool reopenNeeded = false;
                 if (pMeta) {
                     ZakoFrameMetadata meta{};
@@ -649,7 +754,8 @@ namespace hope {
                     }
                 }
                 else {
-                    reopenNeeded = true; // 通道未建立（如上次重开失败），持续重开
+                    // 通道未建立：退避期外才尝试（不再每圈 15s 阻塞）。
+                    reopenNeeded = !channelDown;
                 }
 
                 // 下游编码器报告 keyed-mutex 同步丢失 → 同样触发重开（双保险）。
@@ -657,24 +763,23 @@ namespace hope {
                     reopenNeeded = true;
                 }
 
-                if (reopenNeeded) {
-                    if (reopenFrameChannel()) {
-                        // 重开后刷新基线，避免下一圈重复触发。
-                        ZakoFrameMetadata meta{};
-                        if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
-                        if (channelSync) channelSync->generation.fetch_add(1);
-                        LOG_INFO("VirtualDisplayCapture frame channel reopened after channel generation change");
-                    }
-                    else {
-                        // 重开失败：短暂退避，避免热自旋，下一圈再试。
-                        LOG_WARN("VirtualDisplayCapture frame channel reopen failed, will retry");
-                        std::this_thread::sleep_for(std::chrono::milliseconds(250));
-                    }
+                if (reopenNeeded && !inBackoff) {
+                    reopenChannel();
                 }
 
-                DWORD wr = WaitForSingleObject(frameReadyEvent, waitMs);
+                DWORD wr;
+                if (frameReadyEvent) {
+                    wr = WaitForSingleObject(frameReadyEvent, waitMs);
+                }
+                else {
+                    // 通道 down：事件句柄为空，WaitForSingleObject 会立刻 WAIT_FAILED
+                    // 忙旋；改为同粒度睡眠，退避到期自然进入 reopen 尝试。
+                    std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+                    wr = WAIT_TIMEOUT;
+                }
 
                 if (wr == WAIT_OBJECT_0) {
+                    idleTicks = 0; // 收到新帧，静止计时清零
                     ZakoFrameMetadata meta{};
                     if (!readStableMetadata(meta) || meta.Magic != 0x5A564446u || meta.SlotIndex >= slotCount) {
                         continue;
@@ -688,9 +793,33 @@ namespace hope {
                 }
                 else if (wr == WAIT_TIMEOUT) {
                     deliverRepeatFrame();
+                    ++idleTicks;
                 }
                 else {
+                    // 事件句柄异常（WAIT_FAILED/WAIT_ABANDONED）：当作静止累计，
+                    // 尽快触发下面的探测，避免依赖一个失效的事件句柄空转。
+                    ++idleTicks;
+                }
 
+                // ---- 非破坏性 idle 探测：连续静止超过阈值。休眠/唤醒时驱动可能
+                // 整体重建 SwapChainProcessor+exporter（新事件/新映射/新纹理）。旧
+                // pMeta 映射冻结，快速路径读不到新 generation。这里临时开一次通道
+                // 读新映射的 generation：变了才采纳（有界 reopen），没变则零扰动，
+                // 健康通道绝不被拆建。
+                if (pMeta && !channelDown && idleTicks >= idleReopenTicks) {
+                    idleTicks = 0;
+                    UINT16 probeGen = 0;
+                    if (probeChannelGeneration(probeGen)) {
+                        if (probeGen != lastChannelGen) {
+                            const UINT16 oldGen = lastChannelGen;
+                            if (reopenChannel() && lastChannelGen != oldGen) {
+                                LOG_INFO("VirtualDisplayCapture channel rebuilt by producer (gen %u -> %u)",
+                                         oldGen, lastChannelGen);
+                            }
+                        }
+                        // probeGen == lastChannelGen：通道健康，什么都不做（零扰动）。
+                    }
+                    // 探测失败：生产端 down/重建中，静默；下一轮探测继续。
                 }
             }
 
