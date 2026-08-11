@@ -177,12 +177,16 @@ void VideoWidget::createTextures(int width, int height)
         videoTextureUV.reset();
     }
 
-    // I420 三平面打包成一张 R8(w x (h+chromaH)):Y 顶部 h 行,U/V 左右拼在底部 chromaH 行。
-    // 每帧 1 次 uploadTexture 代替 3 次独立 staging 上传。
-    videoTextureI420.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height + chromaHeight), 1));
-    if (!videoTextureI420 || !videoTextureI420->create()) {
-        LOG_ERROR("I420: videoTextureI420(R8 %dx%d) create failed", width, height + chromaHeight);
-        videoTextureI420.reset();
+    // I420 拆三平面:Y 用上面的 videoTextureY,这里建 U、V 两个 R8 色度纹理。
+    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
+    if (!videoTextureU || !videoTextureU->create()) {
+        LOG_ERROR("I420: videoTextureU(R8 %dx%d) create failed", chromaWidth, chromaHeight);
+        videoTextureU.reset();
+    }
+    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
+    if (!videoTextureV || !videoTextureV->create()) {
+        LOG_ERROR("I420: videoTextureV(R8 %dx%d) create failed", chromaWidth, chromaHeight);
+        videoTextureV.reset();
     }
 
     texWidth = width;
@@ -202,8 +206,8 @@ void VideoWidget::createShaderResourceBindings()
 {
     if (!rhi || !uniformBuffer || !sampler) return;
 
-    // I420 管线:三平面打包在一张 R8 纹理(videoTextureI420),只绑 binding 1。
-    if (videoTextureI420) {
+    // I420 管线:Y/U/V 三平面独立纹理(binding 1/2/3),全幅采样。
+    if (videoTextureY && videoTextureU && videoTextureV) {
         srb.reset(rhi->newShaderResourceBindings());
         srb->setBindings({
             QRhiShaderResourceBinding::uniformBuffer(
@@ -211,7 +215,13 @@ void VideoWidget::createShaderResourceBindings()
                 uniformBuffer.get()),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage,
-                videoTextureI420.get(), sampler.get())
+                videoTextureY.get(), sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                2, QRhiShaderResourceBinding::FragmentStage,
+                videoTextureU.get(), sampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(
+                3, QRhiShaderResourceBinding::FragmentStage,
+                videoTextureV.get(), sampler.get())
         });
         srb->create();
     }
@@ -322,13 +332,14 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 
 void VideoWidget::ensureTexturesForSize(int width, int height)
 {
-    if (width == texWidth && height == texHeight && videoTextureY && videoTextureUV && videoTextureI420)
+    if (width == texWidth && height == texHeight && videoTextureY && videoTextureUV && videoTextureU && videoTextureV)
         return; // 尺寸未变，纹理有效
 
     // 销毁旧纹理并重建，同时重建 SRB/pipeline（因为纹理绑定变了）
     videoTextureY.reset();
     videoTextureUV.reset();
-    videoTextureI420.reset();
+    videoTextureU.reset();
+    videoTextureV.reset();
 
     videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height), 1));
     videoTextureY->create();
@@ -338,9 +349,11 @@ void VideoWidget::ensureTexturesForSize(int width, int height)
     videoTextureUV.reset(rhi->newTexture(QRhiTexture::RG8, QSize(chromaWidth, chromaHeight), 1));
     videoTextureUV->create();
 
-    // I420 打包纹理(与 createTextures 保持一致)
-    videoTextureI420.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height + chromaHeight), 1));
-    videoTextureI420->create();
+    // I420 色度平面(与 createTextures 保持一致)
+    videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
+    videoTextureU->create();
+    videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
+    videoTextureV->create();
 
     texWidth = width;
     texHeight = height;
@@ -420,31 +433,27 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             uploaded = true;
 
         }
-        // --- I420 软解路径(三平面打包一张纹理,1 次 uploadTexture) ---
-        else if (frameToRender->buffer && videoTextureI420 && pipeline && srb) {
+        // --- I420 软解路径(拆 Y/U/V 三平面独立纹理,各一次全幅上传) ---
+        else if (frameToRender->buffer && videoTextureY && videoTextureU && videoTextureV && pipeline && srb) {
             auto* i420 = frameToRender->buffer.get();
             int chromaW = (srcWidth + 1) / 2;
             int chromaH = (srcHeight + 1) / 2;
 
-            // 打包布局:R8(w x (h+chromaH)),Y 顶部 h 行,U 左半、V 右半在底部 chromaH 行。
+            // 三个平面分别上传到各自 R8 纹理,无坐标换算,shader 全幅采样。
             QRhiTextureSubresourceUploadDescription subY(i420->DataY(), i420->StrideY() * srcHeight);
             subY.setSourceSize(QSize(srcWidth, srcHeight));
-            subY.setDestinationTopLeft(QPoint(0, 0));
             subY.setDataStride(i420->StrideY());
+            batch->uploadTexture(videoTextureY.get(), QRhiTextureUploadDescription{{0, 0, subY}});
 
             QRhiTextureSubresourceUploadDescription subU(i420->DataU(), i420->StrideU() * chromaH);
             subU.setSourceSize(QSize(chromaW, chromaH));
-            subU.setDestinationTopLeft(QPoint(0, srcHeight));
             subU.setDataStride(i420->StrideU());
+            batch->uploadTexture(videoTextureU.get(), QRhiTextureUploadDescription{{0, 0, subU}});
 
             QRhiTextureSubresourceUploadDescription subV(i420->DataV(), i420->StrideV() * chromaH);
             subV.setSourceSize(QSize(chromaW, chromaH));
-            subV.setDestinationTopLeft(QPoint(chromaW, srcHeight));
             subV.setDataStride(i420->StrideV());
-
-            // 同一次 uploadTexture:3 个 sub-description,QRhi 合并进一个 staging + 一次 UpdateSubresource。
-            batch->uploadTexture(videoTextureI420.get(),
-                                 QRhiTextureUploadDescription{{0, 0, subY}, {0, 0, subU}, {0, 0, subV}});
+            batch->uploadTexture(videoTextureV.get(), QRhiTextureUploadDescription{{0, 0, subV}});
 
             activePipeline = pipeline.get();
             activeSrb = srb.get();
@@ -457,17 +466,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             UniformData uniformData;
             uniformData.mvp.setToIdentity();
             uniformData.uvScale = QVector2D(1.0f, 1.0f);
-            if (currentFrameFormat == FrameFormat::I420 && srcHeight > 0) {
-                // I420 打包纹理:params.x = Y 占纹理高比例, params.y = 色度带占高比例,
-                // params.z = 0.5(U/V 各占半宽)。shader 按此三组 UV 采样。
-                int chromaH = (srcHeight + 1) / 2;
-                uniformData.params = QVector4D(
-                    float(srcHeight) / float(srcHeight + chromaH),
-                    float(chromaH) / float(srcHeight + chromaH),
-                    0.5f, 0.0f);
-            } else {
-                uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f);
-            }
+            uniformData.params = QVector4D(1.0f, 0.0f, 1.0f, 0.0f); // I420/NV12 shader 均全幅采样,不用打包坐标
 
             if (uniformData != lastUniformData) {
                 batch->updateDynamicBuffer(uniformBuffer.get(), 0, sizeof(UniformData), &uniformData);
@@ -574,7 +573,8 @@ void VideoWidget::releaseResources()
     uniformBuffer.reset();
     videoTextureY.reset();
     videoTextureUV.reset();
-    videoTextureI420.reset();
+    videoTextureU.reset();
+    videoTextureV.reset();
     sampler.reset();
     vertexBuffer.reset();
     resourcesInitialized = false;

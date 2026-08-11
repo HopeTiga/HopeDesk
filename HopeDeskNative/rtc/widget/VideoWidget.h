@@ -94,11 +94,11 @@ private:
     std::unique_ptr<QRhiSampler> sampler;
 
     std::unique_ptr<QRhiBuffer> uniformBuffer;
-    std::unique_ptr<QRhiTexture> videoTextureY;      // NV12 Y 平面(R8)
+    std::unique_ptr<QRhiTexture> videoTextureY;      // Y 平面(R8):NV12 与 I420 共用
     std::unique_ptr<QRhiTexture> videoTextureUV;     // NV12 交错 UV 平面(RG8)
-    // I420 三平面打包成一张 R8(w x (h+h/2)):Y 顶部 h 行,U/V 左右拼在底部 h/2 行,
-    // 每帧 1 次 uploadTexture 代替 3 次(Y/U/V 三个独立 staging)。
-    std::unique_ptr<QRhiTexture> videoTextureI420;
+    // I420 拆三平面独立纹理:U/V 各为 R8(chromaW × chromaH),每平面一次全幅上传
+    std::unique_ptr<QRhiTexture> videoTextureU;
+    std::unique_ptr<QRhiTexture> videoTextureV;
     std::unique_ptr<QRhiShaderResourceBindings> srb;
 
     // NV12 渲染管线(硬解路径;I420 用上面的 pipeline/srb,软解保持不变)

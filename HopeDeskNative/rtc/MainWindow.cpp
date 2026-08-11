@@ -1266,8 +1266,8 @@ void MainWindow::onBtnConnectClicked()
         return;
     }
     if (targetId == currentDeviceId) {
-         ConfirmDialog(tr("提示"), tr("无法连接本机"), tr("知道了"), QString(), this).exec();
-         return;
+        ConfirmDialog(tr("提示"), tr("无法连接本机"), tr("知道了"), QString(), this).exec();
+        return;
     }
 
     ui->remoteStatusLabel->setText("正在建立安全连接...");
