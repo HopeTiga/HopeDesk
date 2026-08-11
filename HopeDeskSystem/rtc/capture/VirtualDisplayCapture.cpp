@@ -850,6 +850,10 @@ namespace hope {
             frameIntervalMs = (config.refreshRate > 0) ? (1000 / config.refreshRate) : 16;
             if (frameIntervalMs < 1) frameIntervalMs = 1;
 
+            // [诊断] 打印配置的虚拟显示器参数（对比向日葵前后）
+            LOG_INFO("[Display] config: %dx%d@%dHz mirror=%d",
+                     config.width, config.height, config.refreshRate, (int)config.mirrorPrimary);
+
             if (!ensureDisplay()) {
 
                 LOG_ERROR("EnsureDisplay Failed");

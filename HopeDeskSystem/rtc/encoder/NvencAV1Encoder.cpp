@@ -44,6 +44,57 @@ namespace hope {
             return !!d3dDevice;
         }
 
+        // DXVA VideoProcessor：BGRA 共享纹理 -> NV12 池槽
+        bool NvencAV1Encoder::InitVideoProcessor(int width, int height) {
+            if (videoProcessor) return true;
+
+            // D3D11_CREATE_DEVICE_VIDEO_SUPPORT 已保证 d3dDevice 可查询视频接口
+            HRESULT hr = d3dDevice.As(&videoDevice);
+            if (FAILED(hr) || !videoDevice) {
+                LOG_ERROR("[NVENC] ID3D11VideoDevice 不可用 hr=0x%08X", (unsigned)hr);
+                return false;
+            }
+            hr = d3dContext.As(&videoContext);
+            if (FAILED(hr) || !videoContext) {
+                LOG_ERROR("[NVENC] ID3D11VideoContext 不可用 hr=0x%08X", (unsigned)hr);
+                return false;
+            }
+
+            D3D11_VIDEO_PROCESSOR_CONTENT_DESC desc = {};
+            desc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
+            desc.InputWidth = (UINT)width;
+            desc.InputHeight = (UINT)height;
+            desc.OutputWidth = (UINT)width;
+            desc.OutputHeight = (UINT)height;
+            desc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
+
+            hr = videoDevice->CreateVideoProcessorEnumerator(&desc, &vpEnumerator);
+            if (FAILED(hr) || !vpEnumerator) {
+                LOG_ERROR("[NVENC] CreateVideoProcessorEnumerator 失败 hr=0x%08X", (unsigned)hr);
+                return false;
+            }
+            hr = videoDevice->CreateVideoProcessor(vpEnumerator.Get(), 0, &videoProcessor);
+            if (FAILED(hr) || !videoProcessor) {
+                LOG_ERROR("[NVENC] CreateVideoProcessor 失败 hr=0x%08X", (unsigned)hr);
+                return false;
+            }
+
+            // 输入：桌面 BGRA 全范围 RGB（d3d11.h 字段是位域老名字 Usage/RGB_Range，无 RGBFullRange）
+            D3D11_VIDEO_PROCESSOR_COLOR_SPACE inCS = {};
+            inCS.Usage = 0;          // 0 = RGB 输入
+            inCS.RGB_Range = 1;      // 全范围 0-255
+            videoContext->VideoProcessorSetStreamColorSpace(videoProcessor.Get(), 0, &inCS);
+            videoContext->VideoProcessorSetStreamFrameFormat(videoProcessor.Get(), 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+
+            // 输出色彩空间：NV12 全范围 YUV
+            D3D11_VIDEO_PROCESSOR_COLOR_SPACE outCS = {};
+            outCS.Usage = 1;                       // 1 = YCbCr 输出
+            outCS.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255;
+            videoContext->VideoProcessorSetOutputColorSpace(videoProcessor.Get(), &outCS);
+
+            return true;
+        }
+
         bool NvencAV1Encoder::InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate) {
 
             nvVideoCodecHandle = LoadLibrary(TEXT("nvEncodeAPI64.dll"));
@@ -127,6 +178,11 @@ namespace hope {
             swInputBuffers.resize(bufCount, nullptr);
             pendingInputs.resize(bufCount);
 
+            if (!InitVideoProcessor(width, height)) {
+                LOG_ERROR("[NVENC] VideoProcessor 初始化失败，无法走 NV12 输入路径");
+                return false;
+            }
+
             for (uint32_t i = 0; i < bufCount; i++) {
                 NvBitstream bs;
                 NV_ENC_CREATE_BITSTREAM_BUFFER bsParam = { NV_ENC_CREATE_BITSTREAM_BUFFER_VER };
@@ -134,17 +190,28 @@ namespace hope {
                 bs.ptr = bsParam.bitstreamBuffer;
                 bitstreams.push_back(bs);
 
+                // NV12 池槽：VP 输出目标 + NVENC 输入
                 NvInputTexture it;
-                D3D11_TEXTURE2D_DESC desc = { (UINT)width, (UINT)height, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, {1,0}, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET, 0, 0 };
+                D3D11_TEXTURE2D_DESC desc = { (UINT)width, (UINT)height, 1, 1, DXGI_FORMAT_NV12, {1,0}, D3D11_USAGE_DEFAULT, D3D11_BIND_RENDER_TARGET, 0, 0 };
                 d3dDevice->CreateTexture2D(&desc, nullptr, &it.tex);
 
                 NV_ENC_REGISTER_RESOURCE reg = { NV_ENC_REGISTER_RESOURCE_VER };
                 reg.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX;
                 reg.resourceToRegister = it.tex.Get();
                 reg.width = width; reg.height = height;
-                reg.bufferFormat = NV_ENC_BUFFER_FORMAT_ARGB;
+                reg.bufferFormat = NV_ENC_BUFFER_FORMAT_NV12;
                 nvencFuncs.nvEncRegisterResource(nvencSession, &reg);
                 it.regPtr = reg.registeredResource;
+
+                // 每帧 VideoProcessorBlt 把 BGRA 转进这个池槽（VP 输出视图，池槽维度）
+                D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC ovDesc = {};
+                ovDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+                ovDesc.Texture2D.MipSlice = 0;
+                HRESULT ovr = videoDevice->CreateVideoProcessorOutputView(it.tex.Get(), vpEnumerator.Get(), &ovDesc, &it.vpOutputView);
+                if (FAILED(ovr) || !it.vpOutputView) {
+                    LOG_ERROR("[NVENC] CreateVideoProcessorOutputView(slot %u) 失败 hr=0x%08X", i, (unsigned)ovr);
+                    return false;
+                }
                 inputPool.push_back(it);
             }
             return true;
@@ -198,47 +265,47 @@ namespace hope {
                         return WEBRTC_VIDEO_CODEC_ERROR;
                     }
                     cached.tex.As(&cached.km);
-                    // 直注：把共享纹理直接注册给 NVENC，省掉 CopyResource
-                    NV_ENC_REGISTER_RESOURCE reg = { NV_ENC_REGISTER_RESOURCE_VER };
-                    reg.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX;
-                    reg.resourceToRegister = cached.tex.Get();
-                    reg.width = buffer->width();
-                    reg.height = buffer->height();
-                    reg.bufferFormat = NV_ENC_BUFFER_FORMAT_ARGB;
-                    NVENCSTATUS regStatus = nvencFuncs.nvEncRegisterResource(nvencSession, &reg);
-                    if (regStatus == NV_ENC_SUCCESS)
-                        cached.regPtr = reg.registeredResource;
-                    // 失败则 cached.regPtr 保持 nullptr → 走拷贝回退路径
+                    // VP 输入视图：BGRA 共享纹理 -> VideoProcessor
+                    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC ivDesc = {};
+                    ivDesc.FourCC = 0;
+                    ivDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+                    ivDesc.Texture2D.MipSlice = 0;
+                    HRESULT ivr = videoDevice->CreateVideoProcessorInputView(cached.tex.Get(), vpEnumerator.Get(), &ivDesc, &cached.vpInputView);
+                    if (FAILED(ivr) || !cached.vpInputView) {
+                        LOG_ERROR("[NVENC] CreateVideoProcessorInputView 失败 hr=0x%08X", (unsigned)ivr);
+                        return WEBRTC_VIDEO_CODEC_ERROR;
+                    }
                 }
 
                 HRESULT hr = cached.km ? cached.km->AcquireSync(1, kVddAcquireTimeoutMs) : static_cast<HRESULT>(E_FAIL);
                 if (hr == S_OK) {
-                    if (cached.regPtr) {
-                        // 直注路径：NVENC 直接 DMA 读共享纹理，零拷贝
-                        // keyed mutex 必须持有到 GetEncodedPacket 里 unmap 之后
-                        map.registeredResource = cached.regPtr;
-                        nvencFuncs.nvEncMapInputResource(nvencSession, &map);
-                        params.inputBuffer = map.mappedResource;
-                        params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
-                        mappedResources[idx] = map.mappedResource;
-                        swInputBuffers[idx] = nullptr;
-                        pendingInputs[idx].km = cached.km;
-                        pendingInputs[idx].buffer = buffer;
-                        pendingInputs[idx].isShared = true;
-                    }
-                    else {
-                        // 回退：私有纹理拷贝路径（ReleaseSync 会等 CopyResource 完成后再放锁，无需 Flush）
-                        d3dContext->CopyResource(inputPool[idx].tex.Get(), cached.tex.Get());
+                    // DXVA VP：固定功能视频引擎转 BGRA -> NV12（无矩形参数，全图转换）
+                    D3D11_VIDEO_PROCESSOR_STREAM stream = {};
+                    stream.Enable = TRUE;
+                    stream.OutputIndex = 0;
+                    stream.pInputSurface = cached.vpInputView.Get();
+                    HRESULT vbr = videoContext->VideoProcessorBlt(videoProcessor.Get(), inputPool[idx].vpOutputView.Get(), 0, 1, &stream);
+                    // Flush 确保 VP 读完共享纹理后再还锁，避免撕裂
+                    d3dContext->Flush();
+                    if (FAILED(vbr)) {
+                        LOG_ERROR("[NVENC] VideoProcessorBlt 失败 hr=0x%08X", (unsigned)vbr);
                         cached.km->ReleaseSync(0);
                         d3dBuffer->FreeSharedSlot();
-                        map.registeredResource = inputPool[idx].regPtr;
-                        nvencFuncs.nvEncMapInputResource(nvencSession, &map);
-                        params.inputBuffer = map.mappedResource;
-                        params.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
-                        mappedResources[idx] = map.mappedResource;
-                        swInputBuffers[idx] = nullptr;
-                        pendingInputs[idx].isShared = false;
+                        return WEBRTC_VIDEO_CODEC_ERROR;
                     }
+
+                    // VP 已把数据搬进 NV12 池槽，共享纹理立即归还
+                    cached.km->ReleaseSync(0);
+                    d3dBuffer->FreeSharedSlot();
+
+                    // 映射 NV12 池槽给 NVENC 编码（不再直注共享纹理）
+                    map.registeredResource = inputPool[idx].regPtr;
+                    nvencFuncs.nvEncMapInputResource(nvencSession, &map);
+                    params.inputBuffer = map.mappedResource;
+                    params.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
+                    mappedResources[idx] = map.mappedResource;
+                    swInputBuffers[idx] = nullptr;
+                    pendingInputs[idx].isShared = false;
                 }
                 else if (hr == static_cast<HRESULT>(WAIT_TIMEOUT)) {
                     // 该 slot 自上次 ReleaseSync(0) 后未被驱动重新发布（背压/陈旧 relay）：
@@ -318,7 +385,8 @@ namespace hope {
                 lock.outputBitstream = bitstreams[curBitstream].ptr;
                 lock.doNotWait = false;
 
-                if (nvencFuncs.nvEncLockBitstream(nvencSession, &lock) == NV_ENC_SUCCESS) {
+                NVENCSTATUS lockStatus = nvencFuncs.nvEncLockBitstream(nvencSession, &lock);
+                if (lockStatus == NV_ENC_SUCCESS) {
                     webrtc::EncodedImage image;
                     image.SetEncodedData(webrtc::EncodedImageBuffer::Create((uint8_t*)lock.bitstreamBufferPtr, lock.bitstreamSizeInBytes));
                     image._encodedWidth = widths;

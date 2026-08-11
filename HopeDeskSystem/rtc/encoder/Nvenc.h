@@ -21,4 +21,9 @@ struct NvInputTexture {
     Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
     Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;
     NV_ENC_REGISTERED_PTR regPtr = nullptr;
+    // DXVA VideoProcessor 视图：
+    //  resourceCache 条目用 vpInputView（BGRA 共享纹理 -> VP 输入）
+    //  inputPool 槽位用 vpOutputView（NV12 池槽 <- VP 输出）
+    Microsoft::WRL::ComPtr<ID3D11VideoProcessorInputView> vpInputView;
+    Microsoft::WRL::ComPtr<ID3D11VideoProcessorOutputView> vpOutputView;
 };

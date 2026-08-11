@@ -35,11 +35,18 @@ namespace hope {
         private:
             bool InitD3D11();
             bool InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate);
+            bool InitVideoProcessor(int width, int height); // DXVA VP：BGRA 共享纹理 -> NV12 池槽
             bool GetEncodedPacket(bool finalize); // 参照 OBS 的 get_encoded_packet
 
             webrtc::EncodedImageCallback* encodedImageCallback = nullptr;
             Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
+
+            // DXVA VideoProcessor：BGRA 共享纹理 -> NV12 池槽
+            Microsoft::WRL::ComPtr<ID3D11VideoDevice> videoDevice;
+            Microsoft::WRL::ComPtr<ID3D11VideoContext> videoContext;
+            Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> vpEnumerator;
+            Microsoft::WRL::ComPtr<ID3D11VideoProcessor> videoProcessor;
 
             void* nvencSession = nullptr;
             NV_ENCODE_API_FUNCTION_LIST nvencFuncs = { NV_ENCODE_API_FUNCTION_LIST_VER };
