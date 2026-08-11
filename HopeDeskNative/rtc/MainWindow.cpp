@@ -127,6 +127,7 @@ MainWindow::MainWindow(QWidget* parent)
             videoWidget->showMaximized();
             videoWidget->raise();
             videoWidget->activateWindow();
+            videoWidget->injectD3D11DeviceToManager();
             isRemoteConnected = true;
             ui->btnStartControl->setText("控制中...");
             ui->btnStartControl->setEnabled(false);

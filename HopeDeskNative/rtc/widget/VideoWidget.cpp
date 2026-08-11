@@ -77,19 +77,12 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
         return;
     }
 
+    injectD3D11DeviceToManager();
+
     if (rhi != QRhiWidget::rhi()) {
         LOG_INFO("RHI instance changed, recreating resources");
         releaseResources();
         rhi = QRhiWidget::rhi();
-
-        // 把渲染端 D3D11 设备交给解码器,零拷贝解码->渲染(共用同一设备)。
-        const QRhiD3D11NativeHandles* nativeHandles =
-            static_cast<const QRhiD3D11NativeHandles*>(rhi->nativeHandles());
-        if (nativeHandles && nativeHandles->dev && webrtcManager) {
-            webrtcManager->setDecoderD3D11Device(
-                reinterpret_cast<ID3D11Device*>(nativeHandles->dev));
-        }
-
         loadPipelineCache();
         resourcesInitialized = false;
     }
@@ -665,6 +658,18 @@ void VideoWidget::setWebrtcManager(std::shared_ptr<WebrtcManager> webrtcManager)
     interceptionHook->setWebrtcManager(webrtcManager);
     interceptionHook->setVideoSize(width(), height());
     interceptionHook->startCapture();
+}
+
+void VideoWidget::injectD3D11DeviceToManager()
+{
+    QRhi* currentRhi = QRhiWidget::rhi();
+    if (!currentRhi || !webrtcManager) return;
+    const QRhiD3D11NativeHandles* nativeHandles =
+        static_cast<const QRhiD3D11NativeHandles*>(currentRhi->nativeHandles());
+    if (nativeHandles && nativeHandles->dev) {
+        webrtcManager->setDecoderD3D11Device(
+            reinterpret_cast<ID3D11Device*>(nativeHandles->dev));
+    }
 }
 
 void VideoWidget::resizeEvent(QResizeEvent* event)

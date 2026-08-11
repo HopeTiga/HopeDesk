@@ -50,6 +50,7 @@ public:
     void exitFullScreen();
     bool isInFullScreenMode() const { return isFullScreenMode; }
     void setWebrtcManager(std::shared_ptr<WebrtcManager> webrtcManager);
+    void injectD3D11DeviceToManager();
 
 Q_SIGNALS:
     void disConnectRemote();
