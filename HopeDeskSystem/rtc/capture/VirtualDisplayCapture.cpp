@@ -766,6 +766,10 @@ namespace hope {
                 if (reopenNeeded && !inBackoff) {
                     reopenChannel();
                 }
+                else if (channelDown && !inBackoff) {
+                    // 退避到期：僵尸映射也要尝试重开，否则无法自愈。
+                    reopenChannel();
+                }
 
                 DWORD wr;
                 if (frameReadyEvent) {
@@ -801,11 +805,7 @@ namespace hope {
                     ++idleTicks;
                 }
 
-                // ---- 非破坏性 idle 探测：连续静止超过阈值。休眠/唤醒时驱动可能
-                // 整体重建 SwapChainProcessor+exporter（新事件/新映射/新纹理）。旧
-                // pMeta 映射冻结，快速路径读不到新 generation。这里临时开一次通道
-                // 读新映射的 generation：变了才采纳（有界 reopen），没变则零扰动，
-                // 健康通道绝不被拆建。
+                // 静止探测：生产端不可达则升级为退避重开（否则僵尸映射下静默定格）。
                 if (pMeta && !channelDown && idleTicks >= idleReopenTicks) {
                     idleTicks = 0;
                     UINT16 probeGen = 0;
@@ -817,9 +817,17 @@ namespace hope {
                                          oldGen, lastChannelGen);
                             }
                         }
-                        // probeGen == lastChannelGen：通道健康，什么都不做（零扰动）。
                     }
-                    // 探测失败：生产端 down/重建中，静默；下一轮探测继续。
+                    else {
+                        channelDown = true;
+                        if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
+                        nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
+                        if (++downLogCounter == 1 || downLogCounter % 10 == 0) {
+                            LOG_WARN("VirtualDisplayCapture producer unreachable (probe failed), retry in %d ms", openBackoffMs);
+                        }
+                        openBackoffMs *= 2;
+                        if (openBackoffMs > kVddBackoffMaxMs) openBackoffMs = kVddBackoffMaxMs;
+                    }
                 }
             }
 
