@@ -829,7 +829,7 @@ pingTimeoutSeconds = 10
 multiQueries = 0
 
 [CoroRpc]
-enableRpc = 1            ; 1 才启用 RPC(节点间转发 requestForward 用)
+enableRpc = 0            ; 1 才启用 RPC(节点间转发 requestForward 用)
 port = 10018
 threadSize = 2
 enableSsl = 1            ; 0=明文,1=单向 TLS
