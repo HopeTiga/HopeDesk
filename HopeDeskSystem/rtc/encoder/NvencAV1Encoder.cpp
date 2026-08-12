@@ -44,7 +44,6 @@ namespace hope {
             return !!d3dDevice;
         }
 
-        // DXVA VideoProcessor：BGRA 共享纹理 -> NV12 池槽
         bool NvencAV1Encoder::InitVideoProcessor(int width, int height) {
             if (videoProcessor) return true;
 
@@ -79,17 +78,16 @@ namespace hope {
                 return false;
             }
 
-            // 输入：桌面 BGRA 全范围 RGB（d3d11.h 字段是位域老名字 Usage/RGB_Range，无 RGBFullRange）
+            // 输入桌面全范围 RGB，输出 NV12 有限范围(16-235)——解码端默认按电视范围解
             D3D11_VIDEO_PROCESSOR_COLOR_SPACE inCS = {};
             inCS.Usage = 0;          // 0 = RGB 输入
             inCS.RGB_Range = 1;      // 全范围 0-255
             videoContext->VideoProcessorSetStreamColorSpace(videoProcessor.Get(), 0, &inCS);
             videoContext->VideoProcessorSetStreamFrameFormat(videoProcessor.Get(), 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
 
-            // 输出色彩空间：NV12 全范围 YUV
             D3D11_VIDEO_PROCESSOR_COLOR_SPACE outCS = {};
-            outCS.Usage = 1;                       // 1 = YCbCr 输出
-            outCS.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255;
+            outCS.Usage = 1;         // 1 = YCbCr 输出
+            outCS.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
             videoContext->VideoProcessorSetOutputColorSpace(videoProcessor.Get(), &outCS);
 
             return true;
