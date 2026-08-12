@@ -84,14 +84,14 @@ namespace hope {
 
 				boost::beast::http::request<boost::beast::http::string_body> httpRequest = co_await asyncRead();
 
-				webrtcSignalManager->getLogicSystem()->postHttpTaskAsync(shared_from_this(), httpRequest);
+				webrtcSignalManager->getLogicSystem()->postHttpTask(shared_from_this(), httpRequest);
 
 				asyncReadKeepAlive(httpRequest);
 
 			}
 			catch (std::exception& e) {
 
-				LOG_ERROR("HttpSocket AsyncRead or PostHttpTaskAsync or AsyncReadKeepAlive Exception: %s", e.what());
+				LOG_ERROR("HttpSocket AsyncRead or PostHttpTask or AsyncReadKeepAlive Exception: %s", e.what());
 
 				closeSocket();
 
@@ -297,14 +297,14 @@ namespace hope {
 
 					boost::beast::http::request<boost::beast::http::string_body> httpRequest = co_await self->asyncRead();
 
-					self->webrtcSignalManager->getLogicSystem()->postHttpTaskAsync(self->shared_from_this(), httpRequest);
+					self->webrtcSignalManager->getLogicSystem()->postHttpTask(self->shared_from_this(), httpRequest);
 
 					self->asyncReadKeepAlive(httpRequest);
 
 				}
 				catch (std::exception& e) {
 
-					LOG_ERROR("HttpSocket asyncRead or postHttpTaskAsync or asyncReadKeepAlive Exception: %s", e.what());
+					LOG_ERROR("HttpSocket asyncRead or postHttpTask or asyncReadKeepAlive Exception: %s", e.what());
 
 					self->closeSocket();
 

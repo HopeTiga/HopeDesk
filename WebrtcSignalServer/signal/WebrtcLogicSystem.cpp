@@ -152,83 +152,7 @@ namespace hope {
 
         }
 
-        void WebrtcLogicSystem::postTaskAsync(WebrtcSignalPacket webrtcSignalPacket) {
-
-            int type = webrtcSignalPacket.requestType;
-
-            absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<void>(WebrtcSignalPacket)>>::iterator iterator = this->webrtcHandlers.find(type);
-
-            if (iterator != this->webrtcHandlers.end()) {
-
-                absl::AnyInvocable<boost::asio::awaitable<void>(WebrtcSignalPacket)>& func = iterator->second;
-
-                if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
-
-                    std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket->shared_from_this();
-
-                    bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]()mutable -> boost::asio::awaitable<void> {
-
-                        try {
-
-                            co_await func(std::move(webrtcSignalPacket));
-
-                        }
-                        catch (...) {
-
-                            throw;
-
-                        }
-
-                        co_return;
-
-                        });
-
-                    if (!success) {
-
-                        webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%d,"state":503,"message":"webrtcSignalServer busy, please retry later"})", type));
-
-                    }
-
-                    return;
-
-                }
-
-                localTaskQueueSize.fetch_add(1);
-
-                boost::asio::co_spawn(ioContext, [type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
-
-                    co_await func(std::move(webrtcSignalPacket));
-
-                    },
-                    [this, type](std::exception_ptr ptr) {
-
-                        if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
-
-                            asyncTaskExecute();
-
-                        }
-
-                        if (ptr) {
-                            try {
-
-                                std::rethrow_exception(ptr);
-
-                            }
-                            catch (const std::exception& e) {
-
-                                LOG_ERROR("WebrtcLogicSystem boost::asio::co_spawn Task: %d Exception: %s", type, e.what());
-
-                            }
-                        }
-                    });
-
-            }
-            else {
-                LOG_ERROR("Unknown Webrtc Request Type: %d", type);
-            }
-        }
-
-        void WebrtcLogicSystem::postHttpTaskAsync(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest)
+        void WebrtcLogicSystem::postHttpTask(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest)
         {
 
             std::string targetUrl = httpRequest.target();
@@ -1038,6 +962,12 @@ namespace hope {
 
             webrtcLogicHandlers[9] = false;
 
+            webrtcValueHandlers[10] = [this](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<boost::json::value> {
+				co_return 10;
+				};
+
+            webrtcValueLogicHandlers[10] = false;
+
         }
 
         void WebrtcLogicSystem::initFilters()
@@ -1253,8 +1183,8 @@ namespace hope {
                             co_return;
                         }
                         else {
-                            // 查询的是其他通道，通过 postTaskAsync 跨通道获取
-                            server->postTaskAsync(
+                            // 查询的是其他通道，通过 postTask 跨通道获取
+                            server->postTask(
                                 targetIdx,
                                 [this, httpSocket = httpSocket->shared_from_this(), version = httpRequest.version(),
                                 currentChannelIndex, httpSocketAsyncWrite](
@@ -1277,7 +1207,7 @@ namespace hope {
                                         targetData["totalSockets"] = static_cast<std::int64_t>(targetManager->webrtcSocketMap.size());
                                         targetData["sockets"] = std::move(socketList);
 
-                                        targetManager->webrtcSignalServer->postTaskAsync(
+                                        targetManager->webrtcSignalServer->postTask(
                                             currentChannelIndex,
                                             [this, httpSocket, version, targetData = std::move(targetData), sp,
                                             httpSocketAsyncWrite](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable -> boost::asio::awaitable<void> {
@@ -1288,6 +1218,7 @@ namespace hope {
                                                 httpSocketAsyncWrite(httpSocket, version, boost::json::serialize(resp));
                                                 co_return;
                                             });
+
                                         co_return;
                                 });
                             co_return;

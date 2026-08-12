@@ -8,7 +8,7 @@
 #include <boost/uuid/uuid_io.hpp>
 
 #include "../ssl/Ssl.h"
-
+#include "WebrtcSignalServer.h"
 #include "WebrtcSignalManager.h"
 #include "WebrtcSignalPacket.h"
 
@@ -311,7 +311,7 @@ namespace hope {
 
                 webrtcSignalPakcet.requestType = webrtcSignalPakcet.request["requestType"].as_int64();
 
-                webrtcSignalManager->getLogicSystem()->postTaskAsync(std::move(webrtcSignalPakcet));
+                webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPakcet));
 
             }
         }
@@ -374,12 +374,6 @@ namespace hope {
         }
 
         void WebrtcSignalSocket::asyncWrite(std::string packet) {
-
-            if (!asyncEvents.load()) {
-
-                return;
-
-            }
 
             asioConcurrentQueue.enqueue(std::move(packet));
 

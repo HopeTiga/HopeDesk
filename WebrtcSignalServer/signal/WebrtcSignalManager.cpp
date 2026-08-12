@@ -134,7 +134,7 @@ namespace hope {
             }
             else {
 
-                webrtcSignalServer->postTaskAsync(mapChannelIndex,
+                webrtcSignalServer->postTask(mapChannelIndex,
                     [managers = shared_from_this(), updateGlobalIndexAndKick = std::move(updateGlobalIndexAndKick)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager)mutable -> boost::asio::awaitable<void> {
 
                         updateGlobalIndexAndKick(webrtcSignalManager.get());
@@ -173,7 +173,7 @@ namespace hope {
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            webrtcSignalServer->postTaskAsync(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
+            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
 
                 auto itIndex = manager->actorSocketMappingIndex.find(accountId);
 

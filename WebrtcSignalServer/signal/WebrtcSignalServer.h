@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <type_traits>
 #include <boost/json.hpp>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -51,6 +52,37 @@ namespace hope {
 
         };
 
+        template <typename T>
+        struct AwaitableReturnValue;
+
+        template <typename T, typename Executor>
+        struct AwaitableReturnValue<boost::asio::awaitable<T, Executor>> {
+            using type = T;
+        };
+
+        template <typename AsyncHandle>
+        using AwaitableReturnValueType = typename AwaitableReturnValue<std::decay_t<
+            std::invoke_result_t<AsyncHandle, std::shared_ptr<WebrtcSignalManager>>>>::type;
+
+        template <typename T>
+        struct PostTaskCompletionSignature {
+            using type = void(std::exception_ptr, T);
+        };
+
+        template <>
+        struct PostTaskCompletionSignature<void> {
+            using type = void(std::exception_ptr);
+        };
+
+        template <typename AsyncHandle, typename = void>
+        struct IsAwaitableReturning : std::false_type {
+        };
+
+        template <typename AsyncHandle>
+        struct IsAwaitableReturning<AsyncHandle, std::void_t<AwaitableReturnValueType<AsyncHandle>>>
+            : std::true_type {
+        };
+
         class WebrtcSignalServer : public std::enable_shared_from_this<WebrtcSignalServer> {
 
         public:
@@ -67,41 +99,74 @@ namespace hope {
 
             void closeEvent();
 
-            struct PostTaskDetachedLogger {
-                void operator()(std::exception_ptr exception) const {
+            struct CompletionPostTask {
+                template <typename... Args>
+                void operator()(std::exception_ptr exception, Args&&... /*value*/) const {
                     if (exception) {
                         try { std::rethrow_exception(exception); }
                         catch (const std::exception& e) {
-                            LOG_ERROR("WebrtcSignalServer postTaskAsync co_spawn Exception: %s", e.what());
+                            LOG_ERROR("WebrtcSignalServer postTask co_spawn Exception: %s", e.what());
                         }
                     }
                 }
             };
 
-            template <typename CompletionToken = PostTaskDetachedLogger>
-            auto postTaskAsync(size_t channelIndex,
-                absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle,
+            template <typename AsyncHandle, typename CompletionToken = CompletionPostTask,
+                std::enable_if_t<IsAwaitableReturning<AsyncHandle>::value, int> = 0>
+            auto postTask(size_t channelIndex, AsyncHandle&& asyncHandle,
                 CompletionToken&& token = CompletionToken{})
-                -> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::return_type
+                -> typename boost::asio::async_result<std::decay_t<CompletionToken>,
+                    typename PostTaskCompletionSignature<AwaitableReturnValueType<AsyncHandle>>::type>::return_type
             {
-                boost::asio::async_completion<CompletionToken, void(std::exception_ptr)> completion(token);
+                using ValueType = AwaitableReturnValueType<AsyncHandle>;
 
-                if (channelIndex >= webrtcSignalManagers.size() || !webrtcSignalManagers[channelIndex]) {
-                    LOG_ERROR("WebrtcSignalServer postTaskAsync invalid channelIndex: %zu, size: %zu", channelIndex, webrtcSignalManagers.size());
-                    auto ex = boost::asio::get_associated_executor(completion.completion_handler, ioContext);
-                    boost::asio::post(ex,
-                        [h = std::move(completion.completion_handler)]() mutable {
-                            h(std::make_exception_ptr(std::runtime_error("postTaskAsync: invalid channelIndex")));
-                        });
-                    return completion.result.get();
-                }
+                return boost::asio::async_initiate<CompletionToken,
+                    typename PostTaskCompletionSignature<ValueType>::type>(
+                    [this, channelIndex, asyncHandle = std::move(asyncHandle)](auto completionHandler) mutable {
 
-                std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = webrtcSignalManagers[channelIndex];
-                boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
-                    [webrtcSignalManager = webrtcSignalManager->shared_from_this(), asyncHandle = std::move(asyncHandle)]() mutable
-                    -> boost::asio::awaitable<void> { co_await asyncHandle(std::move(webrtcSignalManager)); },
-                    std::move(completion.completion_handler));
-                return completion.result.get();
+                        using CompletionHandlerType = std::decay_t<decltype(completionHandler)>;
+
+                        std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
+
+                        if (channelIndex >= webrtcSignalManagers.size() || !webrtcSignalManagers[channelIndex]) {
+                            LOG_ERROR("WebrtcSignalServer postTask invalid channelIndex: %zu, size: %zu", channelIndex, webrtcSignalManagers.size());
+                            boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext),
+                                [completionHandlerPtr]() mutable {
+                                    if constexpr (std::is_void_v<ValueType>) {
+                                        (*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("postTask: invalid channelIndex")));
+                                    }
+                                    else {
+                                        (*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("postTask: invalid channelIndex")), ValueType{});
+                                    }
+                                });
+                            return;
+                        }
+
+                        std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = webrtcSignalManagers[channelIndex];
+
+                        if constexpr (std::is_void_v<ValueType>) {
+                            boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
+                                [webrtcSignalManager = webrtcSignalManager->shared_from_this(), asyncHandle = std::move(asyncHandle)]() mutable
+                                -> boost::asio::awaitable<void> {
+                                    co_await asyncHandle(std::move(webrtcSignalManager));
+                                    co_return;
+                                },
+                                [completionHandlerPtr](std::exception_ptr exception) mutable {
+                                    (*completionHandlerPtr)(std::move(exception));
+                                });
+                        }
+                        else {
+                            boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
+                                [webrtcSignalManager = webrtcSignalManager->shared_from_this(), asyncHandle = std::move(asyncHandle)]() mutable
+                                -> boost::asio::awaitable<ValueType> {
+                                    co_return co_await asyncHandle(std::move(webrtcSignalManager));
+                                },
+                                [completionHandlerPtr](std::exception_ptr exception, ValueType value = {}) mutable {
+                                    (*completionHandlerPtr)(std::move(exception), std::move(value));
+                                });
+                        }
+                    },
+                    token);
             }
 
             bool postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle);
