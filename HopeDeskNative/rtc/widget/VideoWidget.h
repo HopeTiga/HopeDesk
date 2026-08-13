@@ -11,7 +11,6 @@
 #include <QElapsedTimer>
 #include <rhi/qrhi.h>
 #include <rhi/qshader.h>
-#include <chrono>
 #include <api/video/video_frame.h>
 #include <api/video/i420_buffer.h>
 #include "windows.h"

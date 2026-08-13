@@ -327,7 +327,10 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
     while (frameQueue.size_approx() > kMaxQueuedFrames && frameQueue.try_dequeue(dropped)) {
     }
 
-    this->update();
+    // 跨线程 update() 会打断渲染循环，仅无视频时 QueuedConnection 唤醒一次。
+    if (!hasVideo.load()) {
+        QMetaObject::invokeMethod(this, [this] { update(); }, Qt::QueuedConnection);
+    }
 }
 
 void VideoWidget::ensureTexturesForSize(int width, int height)
@@ -479,7 +482,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             videoHeight = srcHeight;
             if (fpsEnabled) frameCount++;
         } else {
-            // 上传失败（格式不匹配等），清理帧,shared_ptr 自动释放
+            // 上传失败（格式不匹配或资源未就绪），清理帧
             frameToRender.reset();
         }
     }
