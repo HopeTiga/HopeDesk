@@ -25,9 +25,6 @@ namespace hope {
             int RegisterEncodeCompleteCallback(
                 webrtc::EncodedImageCallback* callback) override;
 
-            // 注入与上游 VirtualDisplayCapture 共享的通道同步状态：keyed-mutex
-            // AcquireSync 失败（驱动重建共享纹理）时请求上游重开通道，并在
-            // generation 变化后清空本编码器缓存的共享纹理。
             void SetChannelSync(std::shared_ptr<VddChannelSync> s);
             int Release() override;
             int Encode(const webrtc::VideoFrame& frame,
@@ -38,7 +35,7 @@ namespace hope {
         private:
             bool InitD3D11();
             bool InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate);
-            bool InitVideoProcessor(int width, int height); // DXVA VP：BGRA 共享纹理 -> NV12 池槽
+            bool InitVideoProcessor(int width, int height);
             bool GetEncodedPacket(bool finalize);
 
             webrtc::EncodedImageCallback* encodedImageCallback = nullptr;
@@ -46,7 +43,6 @@ namespace hope {
             Microsoft::WRL::ComPtr<ID3D11Device>        d3dDevice;
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dContext;
 
-            // DXVA VideoProcessor：BGRA 共享纹理 -> NV12 池槽
             Microsoft::WRL::ComPtr<ID3D11VideoDevice> videoDevice;
             Microsoft::WRL::ComPtr<ID3D11VideoContext> videoContext;
             Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> vpEnumerator;
@@ -67,8 +63,7 @@ namespace hope {
             std::vector<NV_ENC_INPUT_PTR>  mappedResources;
             std::vector<NV_ENC_INPUT_PTR>  swInputBuffers;
 
-            // 直注路径下，每个 bitstream 槽位在途输入的同步状态：
-            // NVENC 直接读共享纹理，keyed mutex 必须持有到 nvEncUnmapInputResource 之后
+            // 直注路径在途输入
             struct PendingInput {
                 Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;          // 持有到 unmap
                 webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer; // 保活 d3dBuffer 以便 FreeSharedSlot
@@ -76,7 +71,6 @@ namespace hope {
             };
             std::vector<PendingInput> pendingInputs;
 
-            // 状态控制 (参照 AV1)
             uint32_t bufCount = 0;
             uint32_t curBitstream = 0;
             uint32_t nextBitstream = 0;
@@ -88,10 +82,9 @@ namespace hope {
             int widths = 0;
             int heights = 0;
 
-            // 通道同步：见 NvencAV1Encoder 同名字段的说明。
             std::shared_ptr<VddChannelSync> channelSync;
             uint32_t lastSeenGeneration = 0;
-            uint32_t lastRequestedGeneration = 0;
+            uint32_t lastRequestedGeneration = ~0u;
 
             std::chrono::steady_clock::time_point lastRateChangeTime;
         };

@@ -11,8 +11,6 @@ namespace hope {
 
         typedef NVENCSTATUS(NVENCAPI* PNVENCODEAPICREATEINSTANCE)(NV_ENCODE_API_FUNCTION_LIST*);
 
-        // keyed-mutex 有界等待：超时=本帧跳过（背压），仅非超时失败才算 handle 死亡。
-        // 参考 Sunshine bounded_consumer_acquire_timeout_ms。100ms 取中值防误跳。
         constexpr DWORD kVddAcquireTimeoutMs = 100;
 
         NvencH265Encoder::NvencH265Encoder() {}
@@ -267,8 +265,6 @@ namespace hope {
                 auto* d3dBuffer = static_cast<WebrtcD3D11TextureBuffer*>(buffer.get());
                 HANDLE h = d3dBuffer->GetSharedHandle();
 
-                // 上游因 keyed-mutex 同步丢失重开了帧通道（generation++），旧的
-                // 共享纹理/handle 已全部失效，必须清空缓存用新 handle 重新打开。
                 if (channelSync) {
                     uint32_t gen = channelSync->generation.load(std::memory_order_acquire);
                     if (gen != lastSeenGeneration) {
@@ -279,8 +275,6 @@ namespace hope {
 
                 auto& cached = resourceCache[h];
                 if (!cached.tex) {
-                    // Producer slot handles are NT handles (CreateSharedHandle);
-                    // OpenSharedResource1 is required, not legacy OpenSharedResource.
                     Microsoft::WRL::ComPtr<ID3D11Device1> dev1;
                     HRESULT oh = d3dDevice.As(&dev1);
                     if (SUCCEEDED(oh)) oh = dev1->OpenSharedResource1(h, IID_PPV_ARGS(&cached.tex));
@@ -332,16 +326,12 @@ namespace hope {
                     pendingInputs[idx].isShared = false;
                 }
                 else if (hr == static_cast<HRESULT>(WAIT_TIMEOUT)) {
-                    // 该 slot 自上次 ReleaseSync(0) 后未被驱动重新发布（背压/陈旧 relay）：
-                    // 跳过本帧，等下一帧事件重送。不 erase 缓存、不置 reopenRequested、
-                    // 不返回 ERROR（避免触发 libwebrtc 编码器重建），静默丢帧即可。
+                    // 背压：跳帧
                     return WEBRTC_VIDEO_CODEC_OK;
                 }
                 else {
                     LOG_ERROR("[NVENC] D3D AcquireSync failed. handle=%p hr=0x%08X", h, (unsigned)hr);
-                    // keyed mutex 失效（多半是驱动重建了共享纹理）：丢弃该 handle 的
-                    // 缓存，避免后续每帧对旧纹理空等；并请求上游重开通道，让
-                    // generation++ 后本编码器清空全部缓存、用新 handle 重建同步。
+                    // keyed mutex 失效：请求重开
                     resourceCache.erase(h);
                     if (channelSync) {
                         if (channelSync->generation.load(std::memory_order_acquire) != lastRequestedGeneration) {
@@ -441,7 +431,7 @@ namespace hope {
                         nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedResources[curBitstream]);
                         mappedResources[curBitstream] = nullptr;
                     }
-                    // 直注路径：unmap 完成后 NVENC 不再读共享纹理，此时归还 keyed mutex 并释放捕获槽
+                    // 直注路径归还锁
                     if (pendingInputs[curBitstream].isShared) {
                         if (pendingInputs[curBitstream].km)
                             pendingInputs[curBitstream].km->ReleaseSync(0);
@@ -483,12 +473,11 @@ namespace hope {
                     if (bs.ptr) nvencFuncs.nvEncDestroyBitstreamBuffer(nvencSession, bs.ptr);
                 }
 
-                // 注销直注路径下注册的共享纹理
                 for (auto& kv : resourceCache)
                     if (kv.second.regPtr) nvencFuncs.nvEncUnregisterResource(nvencSession, kv.second.regPtr);
                 resourceCache.clear();
 
-                // 兜底：销毁时若仍有在途的共享槽未释放，归还 keyed mutex 与捕获槽，避免卡住捕获侧
+                // 兜底归还
                 for (auto& p : pendingInputs) {
                     if (p.isShared) {
                         if (p.km) p.km->ReleaseSync(0);
@@ -521,7 +510,6 @@ namespace hope {
 
         void NvencH265Encoder::SetChannelSync(std::shared_ptr<VddChannelSync> s) {
             channelSync = std::move(s);
-            // 立即同步当前 generation，避免误把注入前的通道当作"已重开"而清空缓存。
             if (channelSync) lastSeenGeneration = channelSync->generation.load(std::memory_order_acquire);
         }
 

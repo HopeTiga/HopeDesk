@@ -511,6 +511,7 @@ namespace hope {
         {
             slotKm.clear();
             slotTex.clear();
+            for (HANDLE h : slotHandles) { if (h) CloseHandle(h); }
             slotHandles.clear();
             if (pMeta) { UnmapViewOfFile(pMeta); pMeta = nullptr; }
             if (metaMapping) { CloseHandle(metaMapping); metaMapping = nullptr; }
@@ -703,14 +704,11 @@ namespace hope {
                 if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
             }
 
-            // 统一 reopen：有界打开；成功则刷新基线，仅 gen 变化才通知下游清缓存；
-            // 失败则进入指数退避（1s→2s→4s→8s 封顶），退避期外才重试，WARN 节流上报。
             auto reopenChannel = [this]() -> bool {
-                const UINT16 oldGen = lastChannelGen;
                 if (reopenFrameChannel()) {
                     ZakoFrameMetadata meta{};
                     if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
-                    if (channelSync && lastChannelGen != oldGen) {
+                    if (channelSync) {
                         channelSync->generation.fetch_add(1, std::memory_order_release);
                     }
                     if (channelDown) {
@@ -721,7 +719,6 @@ namespace hope {
                     }
                     return true;
                 }
-                // 有界 open 已失败（≤2s），进入指数退避，避免热自旋与刷屏。
                 channelDown = true;
                 if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
                 nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
@@ -734,41 +731,20 @@ namespace hope {
             };
 
             while (capturing.load()) {
-                // 退避期内（通道 down）不尝试 open；pMeta 在时通道健康，恒为 false。
-                const bool inBackoff = channelDown &&
-                    std::chrono::steady_clock::now() < nextOpenRetryAt;
-
-                // ---- 快速路径：映射活跃时每圈轮询 metadata 对比基线。
-                // 驱动重建纹理（BumpChannelGeneration）但 exporter 未销毁时，
-                // 映射仍指向活的元数据，这里能立刻发现。若映射已冻结（exporter
-                // 整体重建，见下），读到的永远是旧 generation，此处不会误判，
-                // 由 idle 非破坏性探测兜底。
-                bool reopenNeeded = false;
-                if (pMeta) {
-                    ZakoFrameMetadata meta{};
-                    if (readStableMetadata(meta)) {
-                        reopenNeeded = (static_cast<UINT16>(meta.MetadataSequence >> 16) != lastChannelGen);
+                // 通道未建立或已 down：退避期外才尝试 open，退避期内休眠。
+                if (channelDown || !pMeta) {
+                    if (channelDown && std::chrono::steady_clock::now() < nextOpenRetryAt) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
+                        continue;
                     }
-                    else {
-                        reopenNeeded = true; // metadata 读不到 = 通道异常
-                    }
-                }
-                else {
-                    // 通道未建立：退避期外才尝试（不再每圈 15s 阻塞）。
-                    reopenNeeded = !channelDown;
+                    reopenChannel();
+                    continue;
                 }
 
-                // 下游编码器报告 keyed-mutex 同步丢失 → 同样触发重开（双保险）。
+                // 编码器报告 keyed-mutex 同步丢失 → 重开（明确信号）。
                 if (channelSync && channelSync->reopenRequested.exchange(0)) {
-                    reopenNeeded = true;
-                }
-
-                if (reopenNeeded && !inBackoff) {
                     reopenChannel();
-                }
-                else if (channelDown && !inBackoff) {
-                    // 退避到期：僵尸映射也要尝试重开，否则无法自愈。
-                    reopenChannel();
+                    continue;
                 }
 
                 DWORD wr;
@@ -776,59 +752,45 @@ namespace hope {
                     wr = WaitForSingleObject(frameReadyEvent, waitMs);
                 }
                 else {
-                    // 通道 down：事件句柄为空，WaitForSingleObject 会立刻 WAIT_FAILED
-                    // 忙旋；改为同粒度睡眠，退避到期自然进入 reopen 尝试。
                     std::this_thread::sleep_for(std::chrono::milliseconds(waitMs));
                     wr = WAIT_TIMEOUT;
                 }
 
                 if (wr == WAIT_OBJECT_0) {
-                    idleTicks = 0; // 收到新帧，静止计时清零
+                    // 与 Sunshine 一致：所有校验都在帧事件后做。
                     ZakoFrameMetadata meta{};
                     if (!readStableMetadata(meta) || meta.Magic != 0x5A564446u || meta.SlotIndex >= slotCount) {
+                        reopenChannel();  // 元数据不可读 = 通道异常（Sunshine: → reinit）
+                        continue;
+                    }
+                    if (static_cast<UINT16>(meta.MetadataSequence >> 16) != lastChannelGen) {
+                        // 生产端重建纹理/通道（Sunshine: generation changed → reinit）。
+                        reopenChannel();
                         continue;
                     }
                     if (meta.FrameCounter == lastFrameId && haveFrame) {
-                        // Same frame id re-signalled; treat as a repeat tick.
-                        deliverRepeatFrame();
-                        continue;
-                    }
-                    deliverNewFrame(meta);
-                }
-                else if (wr == WAIT_TIMEOUT) {
-                    deliverRepeatFrame();
-                    ++idleTicks;
-                }
-                else {
-                    // 事件句柄异常（WAIT_FAILED/WAIT_ABANDONED）：当作静止累计，
-                    // 尽快触发下面的探测，避免依赖一个失效的事件句柄空转。
-                    ++idleTicks;
-                }
-
-                // 静止探测：生产端不可达则升级为退避重开（否则僵尸映射下静默定格）。
-                if (pMeta && !channelDown && idleTicks >= idleReopenTicks) {
-                    idleTicks = 0;
-                    UINT16 probeGen = 0;
-                    if (probeChannelGeneration(probeGen)) {
-                        if (probeGen != lastChannelGen) {
-                            const UINT16 oldGen = lastChannelGen;
-                            if (reopenChannel() && lastChannelGen != oldGen) {
-                                LOG_INFO("VirtualDisplayCapture channel rebuilt by producer (gen %u -> %u)",
-                                         oldGen, lastChannelGen);
-                            }
-                        }
+                        deliverRepeatFrame();  // 同一帧重发，落入下方静止探测
                     }
                     else {
-                        channelDown = true;
-                        if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
-                        nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
-                        if (++downLogCounter == 1 || downLogCounter % 10 == 0) {
-                            LOG_WARN("VirtualDisplayCapture producer unreachable (probe failed), retry in %d ms", openBackoffMs);
-                        }
-                        openBackoffMs *= 2;
-                        if (openBackoffMs > kVddBackoffMaxMs) openBackoffMs = kVddBackoffMaxMs;
+                        deliverNewFrame(meta);
+                        idleTicks = 0;  // 有新帧，静止计数清零
+                        continue;
                     }
                 }
+                else {
+                    deliverRepeatFrame();
+                }
+
+                // 连续无新帧（帧事件在响但 FrameCounter 冻结，或事件超时）→ 非破坏性探测，
+                // 兜底映射冻结的生产端重建；probe 失败静默，不误判 down。
+                if (pMeta && ++idleTicks >= idleReopenTicks) {
+                    idleTicks = 0;
+                    UINT16 probeGen = 0;
+                    if (probeChannelGeneration(probeGen) && probeGen != lastChannelGen) {
+                        reopenChannel();
+                    }
+                }
+
             }
 
         }
