@@ -25,6 +25,7 @@ namespace hope {
         // 等驱动懒建纹理；运行期通道维护最坏 2s 返回，配合退避不阻塞采集。
         constexpr int kVddReopenMaxAttempts = 4;   // reopen：4×500ms ≈ 2s
         constexpr int kVddProbeMaxAttempts = 2;    // 探测：2×500ms ≈ 1s
+        constexpr int kVddStartupAttempts = 6;     // 启动：6×500ms ≈ 3s，快速失败交给采集线程后台重试
         constexpr int kVddBackoffStartMs = 1000;   // 指数退避 1s→2s→4s→8s 封顶
         constexpr int kVddBackoffMaxMs = 8000;
 
@@ -110,6 +111,19 @@ namespace hope {
             }
 
             return true;
+        }
+
+        // 驱动进入 D3 / swap chain 丢失后，旧 device handle 不会自动唤醒设备。
+        // 重新 CreateFileW 打开 device interface 会触发 PnP 把驱动拉回 D0（驱动侧
+        // WdfDeviceLifecycle.cpp 注释：opening the interface PnP-wakes the driver
+        // back into D0 transparently）。
+        bool VirtualDisplayCapture::reopenDriver()
+        {
+            if (driverDevice != INVALID_HANDLE_VALUE) {
+                CloseHandle(driverDevice);
+                driverDevice = INVALID_HANDLE_VALUE;
+            }
+            return openDriver();
         }
 
         bool VirtualDisplayCapture::sendCommand(const wchar_t* cmd)
@@ -696,18 +710,30 @@ namespace hope {
         {
             const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
             const UINT32 idleReopenTicks = 30;  // 连续静止 30 圈（~3s）→ 非破坏性探测
+            const UINT32 probeFailRecoverThreshold = 3;  // 连续探测失败 3 次（~10s）→ 驱动重载
             UINT32 idleTicks = 0;
+            UINT32 probeFailCount = 0;
 
-            // 建立 ChannelGeneration 基线，避免首圈误判通道已重建。
+            // 建立 ChannelGeneration + 分辨率/格式基线，避免首圈误判通道已重建。
             if (pMeta) {
                 ZakoFrameMetadata meta{};
-                if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
+                if (readStableMetadata(meta)) {
+                    lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
+                    lastWidth = (int)meta.Width;
+                    lastHeight = (int)meta.Height;
+                    lastFormat = meta.DxgiFormat;
+                }
             }
 
             auto reopenChannel = [this]() -> bool {
                 if (reopenFrameChannel()) {
                     ZakoFrameMetadata meta{};
-                    if (readStableMetadata(meta)) lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
+                    if (readStableMetadata(meta)) {
+                        lastChannelGen = static_cast<UINT16>(meta.MetadataSequence >> 16);
+                        lastWidth = (int)meta.Width;
+                        lastHeight = (int)meta.Height;
+                        lastFormat = meta.DxgiFormat;
+                    }
                     if (channelSync) {
                         channelSync->generation.fetch_add(1, std::memory_order_release);
                     }
@@ -731,6 +757,7 @@ namespace hope {
             };
 
             while (capturing.load()) {
+
                 // 通道未建立或已 down：退避期外才尝试 open，退避期内休眠。
                 if (channelDown || !pMeta) {
                     if (channelDown && std::chrono::steady_clock::now() < nextOpenRetryAt) {
@@ -768,6 +795,12 @@ namespace hope {
                         reopenChannel();
                         continue;
                     }
+                    if ((int)meta.Width != lastWidth || (int)meta.Height != lastHeight ||
+                        meta.DxgiFormat != lastFormat) {
+                        // 生产端换了分辨率/格式（Sunshine: resolution/format changed → reinit）。
+                        reopenChannel();
+                        continue;
+                    }
                     if (meta.FrameCounter == lastFrameId && haveFrame) {
                         deliverRepeatFrame();  // 同一帧重发，落入下方静止探测
                     }
@@ -781,13 +814,31 @@ namespace hope {
                     deliverRepeatFrame();
                 }
 
-                // 连续无新帧（帧事件在响但 FrameCounter 冻结，或事件超时）→ 非破坏性探测，
-                // 兜底映射冻结的生产端重建；probe 失败静默，不误判 down。
+                // 连续无新帧（帧事件在响但 FrameCounter 冻结，或事件超时）→ 非破坏性探测。
+                // probe 成功 = 通道可达（swap chain 活跃），gen 变则重开（重建场景）。
+                // probe 失败 = OpenFrameChannel NOT_READY（swap chain 丢失 / 设备 D3），
+                // 仅 reopen 无法恢复，必须驱动重载重建 swap chain。
                 if (pMeta && ++idleTicks >= idleReopenTicks) {
                     idleTicks = 0;
                     UINT16 probeGen = 0;
-                    if (probeChannelGeneration(probeGen) && probeGen != lastChannelGen) {
-                        reopenChannel();
+                    if (probeChannelGeneration(probeGen)) {
+                        probeFailCount = 0;
+                        if (probeGen != lastChannelGen) {
+                            reopenChannel();
+                        }
+                    }
+                    else if (++probeFailCount >= probeFailRecoverThreshold) {
+                        probeFailCount = 0;
+                        LOG_WARN("VirtualDisplayCapture driver stalled, reopening device to wake D0");
+                        // 仅重开 device interface 触发 PnP 唤醒 D3→D0。D0Entry 里
+                        // InitAdapter 后 OS 会自动重新 AssignSwapChain（monitor 还在），
+                        // 无需 RELOAD_DRIVER —— 那会 DestroyAllMonitors 把 monitor 删掉。
+                        reopenDriver();
+                        closeFrameChannel();            // 旧帧通道失效，pMeta 置空
+                        channelDown = true;
+                        openBackoffMs = kVddBackoffStartMs;
+                        nextOpenRetryAt = std::chrono::steady_clock::now();
+                        continue;
                     }
                 }
 
@@ -820,10 +871,6 @@ namespace hope {
             frameIntervalMs = (config.refreshRate > 0) ? (1000 / config.refreshRate) : 16;
             if (frameIntervalMs < 1) frameIntervalMs = 1;
 
-            // [诊断] 打印配置的虚拟显示器参数（对比向日葵前后）
-            LOG_INFO("[Display] config: %dx%d@%dHz mirror=%d",
-                     config.width, config.height, config.refreshRate, (int)config.mirrorPrimary);
-
             if (!ensureDisplay()) {
 
                 LOG_ERROR("EnsureDisplay Failed");
@@ -848,12 +895,16 @@ namespace hope {
 
             }
 
-            if (!openFrameChannel()) {
-
-                LOG_ERROR("OpenFrameChannel Failed");
-
-                return false;
-
+            if (!openFrameChannel(kVddStartupAttempts)) {
+                // 启动期帧通道未就绪（设备 D3 / 懒建纹理）。不在信令线程上长阻塞：
+                // 唤醒一次 D0 后立即返回，通道交给采集线程后台退避重试（channelDown）。
+                // 否则 initialize 卡 33s，会拖垮 offer/answer 协商导致 encoder 不生成。
+                LOG_WARN("OpenFrameChannel not ready at startup, deferring to capture thread");
+                closeFrameChannel();
+                reopenDriver();
+                channelDown = true;
+                openBackoffMs = kVddBackoffStartMs;
+                nextOpenRetryAt = std::chrono::steady_clock::now();
             }
 
             LOG_INFO("VirtualDisplayCapture::initialize Successful");
@@ -864,8 +915,7 @@ namespace hope {
         bool VirtualDisplayCapture::startCapture()
         {
             if (capturing.load()) return true;
-            if (driverDevice == INVALID_HANDLE_VALUE || !pMeta) {
-
+            if (driverDevice == INVALID_HANDLE_VALUE) {
                 return false;
             }
             capturing = true;

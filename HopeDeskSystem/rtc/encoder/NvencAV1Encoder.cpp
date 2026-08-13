@@ -217,6 +217,7 @@ namespace hope {
         int NvencAV1Encoder::Encode(const webrtc::VideoFrame& frame, const std::vector<webrtc::VideoFrameType>* frameTypes) {
             std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (!nvencSession) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+
             auto buffer = frame.video_frame_buffer();
             uint32_t idx = nextBitstream;
 

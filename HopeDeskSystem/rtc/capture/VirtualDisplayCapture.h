@@ -127,6 +127,7 @@ public:
 private:
     void captureThreadFunc();
     bool openDriver();
+    bool reopenDriver();  // 关闭旧 device handle 后重新 CreateFileW，触发 PnP 唤醒（D3→D0）
     bool sendCommand(const wchar_t* cmd);
     bool enableHardwareCursor();  // keep the OS cursor out of captured frames
     bool ensureDisplay();       // find-or-create + verify client resolution
@@ -178,6 +179,12 @@ private:
     // 时的基线。驱动重建后可能不再 signal 旧 frameReadyEvent，只靠事件等待会
     // 静默定格（无日志），因此每圈轮询 metadata 对比该值。
     UINT16 lastChannelGen = 0;
+
+    // 帧校验基线：生产端重建 swap chain 换分辨率/格式时（generation 不变但宽高/
+    // 格式变），旧 slot 纹理尺寸已失效，须重开通道（Sunshine next_frame 同款检测）。
+    int   lastWidth = 0;
+    int   lastHeight = 0;
+    UINT  lastFormat = 0;
 
     // 通道-down 指数退避：open/reopen 失败后先退避再重试，避免热自旋与 15s 阻塞。
     bool channelDown = false;
