@@ -70,7 +70,7 @@ namespace hope {
 
 			};
 
-			struct CompletionCoReturnPostTask {
+			struct CompletionCoPostTask {
 
 				template <typename... Args>
 				void operator()(std::exception_ptr exception, Args&&... /*value*/) const {
@@ -84,7 +84,7 @@ namespace hope {
 						}
 						catch (const std::exception& e) {
 
-							LOG_ERROR("WebrtcLogicSystem coReturnPostTask co_spawn Exception: %s", e.what());
+							LOG_ERROR("WebrtcLogicSystem coPostTask co_spawn Exception: %s", e.what());
 
 						}
 
@@ -190,8 +190,8 @@ namespace hope {
 
 			}
 
-			template <typename CompletionToken = CompletionCoReturnPostTask>
-			auto coReturnPostTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token = CompletionToken{})
+			template <typename CompletionToken = CompletionCoPostTask>
+			auto coPostTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token = CompletionToken{})
 				-> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr, boost::json::value)>::return_type
 			{
 
@@ -345,4 +345,3 @@ namespace hope {
 	}
 
 }
-
