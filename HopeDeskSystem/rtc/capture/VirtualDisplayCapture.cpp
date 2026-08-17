@@ -22,12 +22,13 @@ namespace hope {
         static const wchar_t* kVddMonitorId = L"HPD"; // EDID manufacturer -> DeviceID contains "HPD"
 
         // reopen/probe 的有界 open 重试（NOT_READY 每 500ms 一次）。启动仍用 30 次
-        // 等驱动懒建纹理；运行期通道维护最坏 2s 返回，配合退避不阻塞采集。
-        constexpr int kVddReopenMaxAttempts = 4;   // reopen：4×500ms ≈ 2s
+        // 等驱动懒建纹理；运行期通道维护最坏 1s 返回，配合退避不阻塞采集。
+        // 恢复期快速重试：0.3s→0.6s→1s 封顶，驱动 D0 重建完成后最多 ~2s 内重连。
+        constexpr int kVddReopenMaxAttempts = 2;   // reopen：2×500ms ≈ 1s
         constexpr int kVddProbeMaxAttempts = 2;    // 探测：2×500ms ≈ 1s
         constexpr int kVddStartupAttempts = 6;     // 启动：6×500ms ≈ 3s，快速失败交给采集线程后台重试
-        constexpr int kVddBackoffStartMs = 1000;   // 指数退避 1s→2s→4s→8s 封顶
-        constexpr int kVddBackoffMaxMs = 8000;
+        constexpr int kVddBackoffStartMs = 300;    // 指数退避 0.3s→0.6s→1s 封顶
+        constexpr int kVddBackoffMaxMs = 1000;
 
         // Deterministic GUID from a string (FNV-1a 64-bit, spread across the 16 bytes).
         // Used so the same `id` (e.g. a systemService string) maps to the same identity.
@@ -709,8 +710,8 @@ namespace hope {
         void VirtualDisplayCapture::captureThreadFunc()
         {
             const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
-            const UINT32 idleReopenTicks = 30;  // 连续静止 30 圈（~3s）→ 非破坏性探测
-            const UINT32 probeFailRecoverThreshold = 3;  // 连续探测失败 3 次（~10s）→ 驱动重载
+            const UINT32 idleReopenTicks = 8;   // 连续静止 8 圈（~0.8s）→ 非破坏性探测
+            const UINT32 probeFailRecoverThreshold = 2;  // 连续探测失败 2 次（~3s）→ 驱动重载
             UINT32 idleTicks = 0;
             UINT32 probeFailCount = 0;
 
@@ -748,7 +749,7 @@ namespace hope {
                 channelDown = true;
                 if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
                 nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
-                if (++downLogCounter == 1 || downLogCounter % 10 == 0) {
+                if (++downLogCounter == 1 || downLogCounter % 30 == 0) {
                     LOG_WARN("VirtualDisplayCapture frame channel down, retry in %d ms", openBackoffMs);
                 }
                 openBackoffMs *= 2;
