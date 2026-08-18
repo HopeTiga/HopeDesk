@@ -1,3 +1,4 @@
+
 #include "WebrtcSignalSocket.h"
 
 #include <boost/json.hpp>
@@ -129,6 +130,20 @@ namespace hope {
                 if (accountId.empty()) {
 
                     LOG_WARN("WebrtcSignalSocket Handshake Rejected: Missing Authorization (Expect Authorization Header OR ? Authorization = Query)");
+
+                    boost::beast::http::response<boost::beast::http::string_body> res{ boost::beast::http::status::unauthorized, req.version() };
+
+                    res.set(boost::beast::http::field::server, "WebrtcSignalServer");
+
+                    res.set(boost::beast::http::field::content_type, "application/json");
+
+                    res.keep_alive(false);
+
+                    res.body() = R"json({"state":401,"message":"Handshake Rejected: Missing Authorization (Expect Authorization Header OR ?Authorization=Query)"})json";
+
+                    res.prepare_payload();
+
+                    co_await boost::beast::http::async_write(webSocket.next_layer(), res, boost::asio::cancel_after(handshakeTimeout, boost::asio::use_awaitable));
 
                     closeSocket();
 
@@ -282,11 +297,11 @@ namespace hope {
 
                 WebrtcSignalPacket webrtcSignalPakcet(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
+                boost::json::value json;
+
                 try {
 
-                    boost::json::value pv = boost::json::parse(sv, webrtcSignalPakcet.request.storage());
-
-                    webrtcSignalPakcet.request = std::move(pv.as_object());
+                    json = boost::json::parse(sv, webrtcSignalPakcet.request.storage());
 
                 }
                 catch (std::exception& e) {
@@ -301,15 +316,9 @@ namespace hope {
 
                 buffer.consume(buffer.size());
 
-                if (!webrtcSignalPakcet.request.contains("requestType")) {
+                webrtcSignalPakcet.requestType = boost::json::value_to<WebrtcSignalMessage>(json).requestType;
 
-                    LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
-
-                    throw std::runtime_error("Invalid Request: Missing RequestType");
-
-                }
-
-                webrtcSignalPakcet.requestType = webrtcSignalPakcet.request["requestType"].as_int64();
+                webrtcSignalPakcet.request = std::move(json.as_object());
 
                 webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPakcet));
 

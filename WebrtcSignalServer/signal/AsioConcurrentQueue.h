@@ -1,5 +1,6 @@
 #pragma once
 
+
 #include <boost/asio.hpp>
 #include <boost/sam.hpp>
 #include <stdexcept>
@@ -12,7 +13,7 @@ namespace hope {
         template<typename T>
         class AsioConcurrentQueue {
         public:
-            explicit AsioConcurrentQueue(boost::asio::any_io_executor executor)
+            explicit AsioConcurrentQueue(boost::asio::io_context::executor_type executor)
                 : semaphore(executor, 0) {
             }
 
@@ -83,7 +84,7 @@ namespace hope {
 
         private:
             hopeMoodycamel::ConcurrentQueue<T> queue;
-            boost::sam::basic_semaphore<> semaphore;
+            boost::sam::basic_semaphore<boost::asio::io_context::executor_type> semaphore;
             std::atomic<bool> isClose{ false };
         };
     }

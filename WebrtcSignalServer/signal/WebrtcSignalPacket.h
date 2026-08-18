@@ -1,6 +1,5 @@
 #pragma once
 #include <memory>
-
 #include <boost/json.hpp>
 
 namespace hope {
@@ -36,6 +35,14 @@ namespace hope {
 			int channelIndex;
 
 		};
+
+		struct WebrtcSignalMessage {
+
+			int requestType = 0;
+
+		};
+
+		WebrtcSignalMessage tag_invoke(const boost::json::value_to_tag<WebrtcSignalMessage>&, const boost::json::value& json);
 	}
 
 }

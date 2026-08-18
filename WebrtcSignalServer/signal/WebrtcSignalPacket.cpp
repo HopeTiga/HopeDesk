@@ -3,6 +3,8 @@
 #include "WebrtcSignalSocket.h"
 #include "WebrtcSignalManager.h"
 
+#include "../utils/Utils.h"
+
 namespace hope {
 
 	namespace signal {
@@ -37,6 +39,29 @@ namespace hope {
 			this->channelIndex = webrtcSignalPacket.channelIndex;
 
 			return *this;
+
+		}
+
+		WebrtcSignalMessage tag_invoke(const boost::json::value_to_tag<WebrtcSignalMessage>&, const boost::json::value& json) {
+
+			WebrtcSignalMessage out;
+
+			const boost::json::object& obj = json.as_object();
+
+			if (const boost::json::value* jt = obj.if_contains("requestType")) {
+
+				out.requestType = static_cast<int>(jt->as_int64());
+
+			}
+			else {
+
+				LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
+
+				throw std::runtime_error("Invalid Request: Missing RequestType");
+
+			}
+
+			return out;
 
 		}
 
