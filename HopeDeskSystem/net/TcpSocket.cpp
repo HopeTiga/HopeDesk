@@ -39,33 +39,6 @@ TcpSocket::~TcpSocket() {
     closeEvent();
 }
 
-boost::asio::awaitable<bool> TcpSocket::accept(boost::asio::ip::tcp::acceptor& acceptor) {
-    try {
-
-        co_await acceptor.async_accept(tcpSocket, boost::asio::use_awaitable);
-
-        asioConcurrentQueue.reset();
-
-        setTcpKeepAlive(tcpSocket);
-
-        asyncEvents.store(true);
-
-        startCoroutines();
-
-        co_return true;
-    }
-    catch (const std::exception& e) {
-        LOG_ERROR("TcpSocket::accept error: %s", e.what());
-        closeSocket();
-        co_return false;
-    }
-    catch (...) {
-        LOG_ERROR("TcpSocket::accept unknown error");
-        closeSocket();
-        co_return false;
-    }
-}
-
 boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
     if (connecting.exchange(true)) {
         LOG_WARN("TcpSocket::connect: already connecting, skip duplicate connect");
