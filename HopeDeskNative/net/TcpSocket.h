@@ -15,6 +15,8 @@ namespace hope {
 
 namespace net {
 
+class TcpAcceptor;
+
 class TcpSocket : public std::enable_shared_from_this<TcpSocket> {
 public:
     explicit TcpSocket(boost::asio::io_context& ioContext);
@@ -24,8 +26,6 @@ public:
     TcpSocket(const TcpSocket&) = delete;
 
     TcpSocket& operator=(const TcpSocket&) = delete;
-
-    boost::asio::awaitable<bool> accept(boost::asio::ip::tcp::acceptor& acceptor);
 
     boost::asio::awaitable<bool> connect(unsigned short port);
 
@@ -40,6 +40,8 @@ public:
     void setOnDisConnectHandle(std::function<void()> handle);
 
 private:
+    friend class TcpAcceptor;
+
     void startCoroutines();
 
     boost::asio::awaitable<void> receiveCoroutine();
@@ -50,7 +52,7 @@ private:
 
     void closeSocket();
 
-    void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket, int idle = 0, int interval = 3, int probes = 3);
+    void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket, int idle = 30, int interval = 30, int probes = 30);
 
     boost::asio::io_context& ioContext;
 

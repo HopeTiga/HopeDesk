@@ -65,7 +65,7 @@ private:
 
     void closeWebSocket();
 
-    void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket, int idle = 0, int interval = 3, int probes = 3);
+    void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket, int idle = 30, int interval = 30, int probes = 30);
 
     boost::asio::io_context& ioContext;
 

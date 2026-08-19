@@ -47,33 +47,37 @@ void TcpAcceptor::setOnAcceptHandle(std::function<void(std::shared_ptr<TcpSocket
 boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
     while (acceptRunning.load()) {
 
-        std::shared_ptr<TcpSocket> connection = std::make_shared<TcpSocket>(ioContext);
+        std::shared_ptr<TcpSocket> tcpSocket = std::make_shared<TcpSocket>(ioContext);
 
-        bool accepted = false;
         try {
-            accepted = co_await connection->accept(acceptor);
+            co_await acceptor.async_accept(tcpSocket->tcpSocket, boost::asio::use_awaitable);
         }
         catch (const std::exception& e) {
+            acceptRunning.store(false);
             LOG_WARN("TcpAcceptor accept loop stopped: %s", e.what());
             co_return;
         }
         catch (...) {
+            acceptRunning.store(false);
             LOG_WARN("TcpAcceptor accept loop stopped: unknown error");
             co_return;
         }
 
-        if (!accepted) continue;
+        tcpSocket->asioConcurrentQueue.reset();
+        tcpSocket->setTcpKeepAlive(tcpSocket->tcpSocket);
+        tcpSocket->asyncEvents.store(true);
+        tcpSocket->startCoroutines();
 
         if (currentTcpSocket) {
             currentTcpSocket->closeEvent();
         }
 
-        currentTcpSocket = connection;
+        currentTcpSocket = tcpSocket;
 
-        LOG_INFO("TcpAcceptor accepted a new connection");
+        LOG_INFO("TcpAcceptor accepted a new tcpSocket");
 
         if (onAcceptHandle) {
-            onAcceptHandle(connection);
+            onAcceptHandle(tcpSocket);
         }
     }
 
