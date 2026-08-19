@@ -99,7 +99,7 @@ namespace hope {
 			boost::asio::awaitable<void> writerCoroutine();
 
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
-				int idle = 30, int intvl = 30, int probes = 30);
+				int idle = 0, int intvl = 10, int probes = 10);
 
 		private:
 
