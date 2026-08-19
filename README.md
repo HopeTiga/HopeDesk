@@ -143,10 +143,10 @@ WebrtcSignalServer/
 3.  **重启电脑**使驱动生效。
 
 ### 步骤 2：安装虚拟显示器驱动（高性能采集）
-为启用 Hope Virtual Display 高性能采集（绕开 Desktop Duplication API），需安装 HopeDesk 虚拟显示器驱动。驱动包已预签名，直接使用安装器即可：
-1.  进入 `HopeDesk/driver` 目录，以**管理员身份**运行 `HopeDeskVddInstaller.exe`（SetupAPI 安装器，默认安装 `ZakoVDD.inf` 到 `Root\ZakoVDD`，自动清理旧设备节点）。
-2.  若提示 **REBOOT required**，重启后再使用；未安装本驱动时 System 自动回退 Desktop Duplication API 兼容采集，不影响连接。
-3.  需要自定义签名或完整「清理 + 签名 + 安装」流程的用户，可改用 `install.bat`——该脚本专供**拥有 WDK 且不想使用默认签名**的用户（也内置免 WDK 的 PowerShell 签名回退；驱动已签名时自动跳过签名）。
+为启用 Hope Virtual Display 高性能采集（绕开 Desktop Duplication API），需安装 HopeDesk 虚拟显示器驱动：
+1.  进入 `HopeDesk/driver` 目录，以**管理员身份**先运行 `install.bat`——清理旧 ZakoVDD 设备节点 + 签名 + 调用 `HopeDeskVddInstaller.exe` 完成 SetupAPI 安装（默认安装 `ZakoVDD.inf` 到 `Root\ZakoVDD`）。
+2.  再以**管理员身份**运行 `HopeDeskVddInstaller.exe`（SetupAPI 安装器，自动清理旧设备节点），确保驱动正确安装。
+3.  若提示 **REBOOT required**，重启后再使用；未安装本驱动时 System 自动回退 Desktop Duplication API 兼容采集，不影响连接。
 4.  **签名提示**：驱动为自签名测试证书签名，**无需开启测试签名**。
 
 ### 步骤 3：配置被控端 (Host)
