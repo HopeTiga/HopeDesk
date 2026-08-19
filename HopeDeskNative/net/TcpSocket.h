@@ -52,7 +52,7 @@ private:
 
     void closeSocket();
 
-    void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket, int idle = 30, int interval = 30, int probes = 30);
+    void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket, int idle = 00, int interval = 10, int probes = 10);
 
     boost::asio::io_context& ioContext;
 
