@@ -167,11 +167,11 @@ WebrtcManager::~WebrtcManager()
             tcpSocket.reset();
         }
 
-        peerConnectionFactory = nullptr;
+        webrtcVideoDecoderFactory = nullptr;
 
         webrtcVideoEncoderFactory = nullptr;
 
-        webrtcVideoDecoderFactory = nullptr;
+        peerConnectionFactory = nullptr;
 
         if(networkThread){
             networkThread->Quit();
@@ -276,6 +276,10 @@ bool WebrtcManager::initializePeerConnection()
 
         if (!peerConnectionFactory) {
             LOG_ERROR("Failed to create PeerConnectionFactory");
+            // 工厂已被 CreatePeerConnectionFactory 吞进 dependencies,失败时随依赖销毁;
+            // 摘掉成员,否则 releaseSource 会对已析构工厂调用 wakeUpAllDecoders。
+            webrtcVideoEncoderFactory = nullptr;
+            webrtcVideoDecoderFactory = nullptr;
             return false;
         }
     }

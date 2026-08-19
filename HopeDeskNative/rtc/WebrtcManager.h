@@ -331,9 +331,9 @@ private:
 
     webrtc::scoped_refptr<RTCStatsCollectorHandle> rtcStatsCollectorHandle;
 
-    WebrtcVideoEncoderFactory * webrtcVideoEncoderFactory;
+    WebrtcVideoEncoderFactory * webrtcVideoEncoderFactory = nullptr;
 
-    WebrtcVideoDecoderFactory * webrtcVideoDecoderFactory;
+    WebrtcVideoDecoderFactory * webrtcVideoDecoderFactory = nullptr;
 
     std::atomic<bool> isRemote {false};
 
