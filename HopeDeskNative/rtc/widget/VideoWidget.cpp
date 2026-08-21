@@ -327,7 +327,6 @@ void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
     while (frameQueue.size_approx() > kMaxQueuedFrames && frameQueue.try_dequeue(dropped)) {
     }
 
-    // 跨线程 update() 会打断渲染循环，仅无视频时 QueuedConnection 唤醒一次。
     if (!hasVideo.load()) {
         QMetaObject::invokeMethod(this, [this] { update(); }, Qt::QueuedConnection);
     }
@@ -374,10 +373,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
         }
         return;
     }
-
-    // 1. 取队列最新帧:排空积压的旧帧、只取最新一帧绘制。渲染跟不上解码时,
-    //    FIFO 逐帧取会造成"显示旧帧 -> 突然跳最新"的画面跳动;取最新帧则始终
-    //    显示当前最新画面,节奏平滑。被丢的旧帧未绘制,槽位安全回池。
     std::shared_ptr<VideoFrame> popped;
     while (frameQueue.try_dequeue(popped)) {}
     const bool hasNewFrame = (popped != nullptr);
@@ -387,8 +382,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
     QRhiGraphicsPipeline* activePipeline = nullptr;
     QRhiShaderResourceBindings* activeSrb = nullptr;
 
-    // 2. 如果有新帧，进行纹理上传/导入和管线选择
-    // 2a. 零拷贝 GPU 路径:D3D11 解码产出的 NV12 共享纹理 + plane SRV,裸 D3D11 直接画,不碰 CPU
     bool nv12GpuReady = false;
     int gpuW = 0, gpuH = 0;
     if (frameToRender && frameToRender->format == FrameFormat::Nv12Gpu &&
@@ -486,8 +479,7 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             frameToRender.reset();
         }
     }
-    // 3. 如果没有新帧，但之前有视频，保持使用上一次的管线状态
-    // 解决切换窗口回来瞬间 "activePipeline为空或错误" 导致的绿屏
+
     else if (hasVideo) {
         if (currentFrameFormat == FrameFormat::Nv12) {
             activePipeline = nv12Pipeline.get();
@@ -496,14 +488,13 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             activePipeline = pipeline.get();
             activeSrb = srb.get();
         }
-        // 此时不需要提交资源更新，只是复用上一帧的纹理状态进行绘制
+
     }
 
     // 4. 开始绘制
     const QColor clearColor = hasVideo ? Qt::black : QColor(48, 48, 48);
     cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, nullptr);
 
-    // 裸 D3D11 画 NV12 帧(新帧或定时器无新帧时重绘上一帧)。
     auto drawNv12 = [&](const std::shared_ptr<D3D11VideoFrameData>& fd) -> bool {
         if (!fd || !fd->planeYSrv || !fd->planeUvSrv || !nv12RawRenderer) return false;
         const QRhiD3D11NativeHandles* nh =
@@ -525,7 +516,6 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
 
     if (nv12GpuReady && frameToRender && frameToRender->d3d11FrameData) {
         if (drawNv12(frameToRender->d3d11FrameData)) {
-            // 无需单独缓存:本帧已由本趟开头的 lastRenderedFrame 持有,无新帧时 redraw 直接画它
             currentFrameFormat = FrameFormat::Nv12Gpu;
             hasVideo = true;
             videoWidth = gpuW;
@@ -533,12 +523,12 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
             if (fpsEnabled) frameCount++;
         }
     }
-    // 无新帧的 render(如 resize/expose 触发):重绘上一帧(不能走 CPU 路径,硬解流 CPU 纹理没数据会画黑)
+
     else if (hasVideo && currentFrameFormat == FrameFormat::Nv12Gpu && lastRenderedFrame &&
              lastRenderedFrame->d3d11FrameData) {
         drawNv12(lastRenderedFrame->d3d11FrameData);
     }
-    // 4b. CPU 路径(上传后绘制):只有当管线和资源绑定有效时才绘制
+
     else if (hasVideo && activePipeline && activeSrb) {
         const QSize outputSize = renderTarget()->pixelSize();
         cb->setGraphicsPipeline(activePipeline);
@@ -552,14 +542,10 @@ void VideoWidget::render(QRhiCommandBuffer* cb) {
 
     cb->endPass();
 
-    // 5. 延迟释放:新帧换入 lastRenderedFrame,上一帧(上一趟画的)此刻析构回池。
     if (hasNewFrame) {
         lastRenderedFrame = std::move(popped);
     }
 
-    // 6. 持续渲染:在 render() 内调 update() 会形成"以 vsync 节流的持续渲染"
-    //    (Qt QRhiWidget 文档)。每次显示刷新都呈现最新帧,节奏稳定平滑。
-    //    开启 vsync(swap interval 1)时呈现对齐刷新率,无撕裂、无画面跳动。
     if (hasVideo) {
         this->update();
     }

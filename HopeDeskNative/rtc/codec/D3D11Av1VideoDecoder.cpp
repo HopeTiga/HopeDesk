@@ -36,8 +36,6 @@ namespace rtc {
 
 namespace {
 
-// 输出槽位 + AV1Picture 的子类:携带解码输出槽,show_existing_frame 的
-// Duplicate() 复用同一槽。
 class D3D11Av1Picture : public media::AV1Picture {
 public:
     D3D11Av1Picture(D3D11Av1VideoDecoder* decoder,
@@ -49,17 +47,10 @@ public:
     bool ApplyGrain() const { return applyGrain; }
 
     webrtc::scoped_refptr<media::AV1Picture> createDuplicate() override {
-        // 与 Chromium D3D11AV1Picture 一致:返回同一对象(引用计数+1),而不是新建一个
-        // 共享同一 slot 的新 picture。否则 show_existing_frame 时,重复 picture 一旦析构
-        // 就会 returnSlot,把仍被 refFrames_ 引用的槽位提前/重复归还,下一帧复用该槽位
-        // 解码即覆盖参考帧 -> 帧间帧解码失败(第一帧正常、第二帧报错)。
         return webrtc::scoped_refptr<media::AV1Picture>(this);
     }
 
     ~D3D11Av1Picture() override {
-        // RAII:槽位在 picture 完全不再被引用(参考帧 + 渲染端都释放)后自动入队回池。
-        // 携带创建时的池代次:若期间槽位池已重建/销毁,returnSlot 直接丢弃,
-        // 避免把已释放的槽位塞回 freeSlots(悬垂 UAF)。
         if (slot) {
             decoder->returnSlot(slot, poolEpoch);
             slot = nullptr;
@@ -72,8 +63,7 @@ private:
     uint32_t poolEpoch;
     bool applyGrain;
 };
-// 从 Chromium media/gpu/windows/d3d11_av1_accelerator.cc 移植的 FillPicParams:
-// 把 libgav1 解析出的序列头/帧头填进 DXVA_PicParams_AV1。
+
 bool FillPicParams(size_t pictureIndex,
                    bool applyGrain,
                    const libgav1::ObuFrameHeader& frameHeader,
