@@ -87,7 +87,7 @@ HopeDeskNative/
 │   ├── WebSocket.*               # 信令 WebSocket 客户端（消息回调由封装类提供）
 │   ├── TcpAcceptor.*             # 本地 TCP 监听（127.0.0.1:19998，与连接分离）
 │   ├── TcpSocket.*               # 本地 TCP 单连接（accept/connect 双入口）
-│   ├── WriterData.h              # 长度前缀帧（int64 网络序 + body）
+│   ├── Socket.h              # 长度前缀帧（int64 网络序 + body）
 │   └── AsioConcurrentQueue.h     # 协程发送队列
 ├── system/                       # hope::system —— WindowsServiceManager / InterceptionHook
 └── utils/                        # 全局工具（LOG、ConfigManager、Options）
@@ -109,7 +109,7 @@ HopeDeskSystem/
 │   └── audio/                    # 音频采集
 ├── net/                          # hope::net（与 Native 同套）
 │   ├── TcpSocket.*               # 本地 TCP 连接（connect 侧，连 127.0.0.1:19998）
-│   ├── WriterData.h
+│   ├── Socket.h
 │   └── AsioConcurrentQueue.h
 ├── system/                       # hope::system —— WinLogon / SessionHelper
 └── utils/                        # 全局工具（LOG、并发队列）
@@ -256,7 +256,6 @@ HopeDesk 采用以 WebSocket 为核心的稳健信令架构，旨在各类生产
 
 - **Windows 被控端**：✅ 完整支持（核心平台，享驱动级输入、硬件采集与**NVENC硬件编码**）。高性能采集（Hope Virtual Display）需 Windows + NVIDIA 显卡（NVENC）及已安装虚拟显示器驱动；兼容采集（Desktop Duplication API）无需 NVIDIA 也能运行。
 - **Windows 桌面操控端**：✅ 完整支持（基于Qt，通过WebSocket信令连接，支持**D3D11(DXVA)/NVDEC 硬件解码**）
-- **Web 浏览器操控端**：✅ 完整支持（通过WebSocket + WebRTC，可进行远程控制与桌面观看）
 - **Linux / macOS 被控端**：🗓️ 规划中（将基于统一的架构进行扩展）
 - **移动端（App）**：🗓️ 规划中
 
