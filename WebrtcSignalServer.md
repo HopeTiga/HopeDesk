@@ -35,7 +35,7 @@ WebrtcSignalServer/
 │   ├── WebrtcSignalManager.*     # 单通道:socket 表、actor 路由索引、LogicSystem
 │   ├── WebrtcSignalSocket.*      # WebSocket 连接:握手、收发协程、keepalive
 │   ├── WebrtcLogicSystem.*       # 业务派发:handler 表、过载调度、forward 路由、HTTP 路由
-│   ├── WebrtcSignalPacket.*      # 信令包:socket+json request+requestType
+│   ├── WebrtcSignalPacket.*      # 信令包:socket+WebrtcRequest+requestType
 │   ├── HttpSocket.*              # HTTPS 连接:握手、keep-alive、读写
 │   ├── HttpClient.*              # 出站 HTTP 客户端(对接 Polaris 等服务发现)
 │   ├── HttpFilters.*             # HTTP 鉴权:放行规则(addRule)+全局过滤器(addFilter)
@@ -159,7 +159,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 ### 5.2 收发循环
 
 - `asyncEvent()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
-- **revice**：`async_read` → 解析 JSON 到 `WebrtcSignalPacket.request`（`monotonic_resource` arena）→ 取 `requestType` → `logicSystem->postTask(packet)`。
+- **revice**：`async_read` → `struct_pack::deserialize_to` 解析到 `WebrtcRequest` → 取 `requestType` → 组装 `WebrtcSignalPacket`（内嵌 `webrtcRequest`）→ `logicSystem->postTask(packet)`。
 - **writer**：从 `AsioConcurrentQueue<std::string>`（moodycamel + sam 信号量）dequeue → `async_write`。`asyncWrite(packet)` 入队。
 - 异常/断开 → `onDisConnectHandle(accountId, sessionId)` → `removeConnection`。
 
@@ -783,7 +783,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 4. **concurrent_channel / sam 信号量** 做协程唤醒，避免轮询。
 5. **RST 强关**（`linger{1,0}`）避免 TIME_WAIT，短连接高 churn 场景友好。
 6. **TCP keepalive** 按平台精细调参，及时探活。
-7. **boost::json `monotonic_resource`** arena 分配信令包/HTTP 响应，减少堆分配。
+7. **boost::json `monotonic_resource`** arena 分配 HTTP 响应，减少堆分配（信令包已改 struct_pack 二进制帧）。
 8. **过载两级调度 + 503 背压**，防止雪崩。
 9. **构建优化**：clang `-O3 -march=native -flto=thin`、`-ffunction-sections -Wl,--gc-sections -Wl,--icf=all`、tcmalloc、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）、`-MMD -MP` 头依赖。
 10. **round-robin accept** 均衡连接到各通道；Linux 下 `SO_REUSEPORT` 多 acceptor 分流。
@@ -867,10 +867,12 @@ cd <含 config.ini + server.crt + server.key 的目录>
 ### 12.4 客户端协议（信令）
 
 - 连接：`wss://host:8088`，请求头带 `Authorization: <accountId>`（或 `?authorization=<accountId>`）。
-- 发送 JSON：`{"requestType":1,"accountId":"A","targetId":"B", ...}`。
-- 服务器转发给 B：原 JSON 补 `"state":200,"message":"WebrtcSignalServer forward"`。
-- 目标未注册：回 `{"requestType":1,"state":404,"message":"TargetId is not register"}`。
-- 过载：回 `{"requestType":1,"state":503,"message":"WebrtcSignalServer busy, please retry later"}`。
+- 握手后帧类型为 **binary**（`webSocket.binary(true)`），载荷为 **struct_pack**（ylt）序列化的二进制信封，非 JSON。
+- 客户端→服务端：`struct_pack::serialize(WebrtcRequest{requestType, accountId, targetId, payload})`。
+- 服务器转发给目标：`struct_pack::serialize(WebrtcResponse{requestType, state=200, message="webrtcSignalServer forward", accountId, targetId, payload})`。
+- 目标未注册：`WebrtcResponse{requestType, state=404, message="TargetId is not register"}`。
+- 过载：`WebrtcResponse{requestType, state=503, message="webrtcSignalServer busy, please retry later"}`。
+- `payload` 承载业务字段（SDP/ICE 等）的 JSON 文本，服务端原样转发、不解析。
 - requestType 4 = 主动断开。
 
 ### 12.5 运维 HTTP
@@ -895,7 +897,7 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 | `WebrtcSignalChannelConfig` | `WebrtcSignalManager.h` | 透传到通道的标量配置 |
 | `CoroRpcServerConfig` | `CoroRpc.h` | RPC 配置 |
 | `MysqlConfig` / `globalMysqlConfig` | `mysql/MysqlConfig.h` | MySQL 全局配置 |
-| `WebrtcSignalPacket` | `WebrtcSignalPacket.h` | 信令包（socket+json+requestType） |
+| `WebrtcSignalPacket` | `WebrtcSignalPacket.h` | 信令包（socket+WebrtcRequest+requestType） |
 | `TaskChannel` | `AwaitableTask.h` | 全局任务队列 |
 | `AsioConcurrentQueue<T>` | `AsioConcurrentQueue.h` | socket 写队列 |
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
