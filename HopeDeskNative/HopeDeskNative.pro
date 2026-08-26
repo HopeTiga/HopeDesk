@@ -68,7 +68,7 @@ HEADERS += \
     net/TcpSocket.h \
     net/TcpAcceptor.h \
     net/WebSocket.h \
-    net/WriterData.h \
+    net/Socket.h \
     rtc/MainWindow.h \
     rtc/WebrtcManager.h \
     rtc/audio/AudioDeviceModuleImpl.h \
@@ -122,6 +122,7 @@ win32 {
     INCLUDEPATH += $$PWD/include/libde265
     INCLUDEPATH += $$PWD/include/nvidia   # NVDEC/NVENC 头(用户稍后恢复 NVDEC 用)
     INCLUDEPATH += $$PWD/include/libgav1
+    INCLUDEPATH += $$PWD/include/ylt
     INCLUDEPATH += $$PWD/thirdParty
 
     # 包目录(目录名与命名空间一致,include 文件名保持原样靠 INCLUDEPATH 解析)

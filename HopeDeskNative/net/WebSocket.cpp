@@ -103,6 +103,8 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
             boost::asio::cancel_after(connectTimeout, boost::asio::use_awaitable)
             );
 
+        webSocket.binary(true);   // 信令帧统一按二进制发出(struct_pack 编码)
+
         asioConcurrentQueue.reset();
 
         setTcpKeepAlive(webSocket.next_layer().next_layer());

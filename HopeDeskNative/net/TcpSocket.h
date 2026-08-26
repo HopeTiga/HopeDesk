@@ -9,7 +9,7 @@
 #include <boost/asio.hpp>
 
 #include "AsioConcurrentQueue.h"
-#include "WriterData.h"
+#include "Socket.h"
 
 namespace hope {
 

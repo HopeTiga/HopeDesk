@@ -60,7 +60,7 @@
 #include "../net/WebSocket.h"
 #include "../net/TcpSocket.h"
 #include "../net/TcpAcceptor.h"
-#include "../net/WriterData.h"
+#include "../net/Socket.h"
 
 
 #ifndef NTSTATUS
@@ -81,6 +81,10 @@ using hope::net::TcpSocket;
 using hope::net::TcpAcceptor;
 
 using hope::net::WriterData;
+
+using hope::net::WebrtcRequest;
+
+using hope::net::WebrtcResponse;
 
 using hope::system::WindowsServiceManager;
 
