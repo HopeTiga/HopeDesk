@@ -46,6 +46,7 @@ SRCS := main.cpp \
 	signal/WebrtcLogicSystem.cpp \
 	signal/HttpSocket.cpp \
 	signal/HttpClient.cpp \
+	signal/HttpFilters.cpp \
 	rpc/Rpc.cpp \
 	rpc/CoroRpc.cpp \
 	rpc/CoroRpcHandleImpl.cpp \

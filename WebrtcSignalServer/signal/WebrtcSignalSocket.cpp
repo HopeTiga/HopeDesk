@@ -1,12 +1,13 @@
 
 #include "WebrtcSignalSocket.h"
 
-#include <boost/json.hpp>
 #include <boost/url.hpp>
 #include <string_view>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+
+#include <ylt/struct_pack.hpp>
 
 #include "../ssl/Ssl.h"
 #include "WebrtcSignalServer.h"
@@ -153,6 +154,8 @@ namespace hope {
 
                 co_await webSocket.async_accept(req, boost::asio::use_awaitable);
 
+                webSocket.binary(true);
+
                 setTcpKeepAlive(getSocket());
 
                 buffer.consume(buffer.size());
@@ -297,28 +300,35 @@ namespace hope {
 
                 WebrtcSignalPacket webrtcSignalPakcet(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
-                boost::json::value json;
+                WebrtcRequest webrtcRequest;
 
-                try {
+                struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcRequest, sv);
 
-                    json = boost::json::parse(sv, webrtcSignalPakcet.request.storage());
+                if (deserializeError) {
 
-                }
-                catch (std::exception& e) {
-
-                    LOG_ERROR("Json Parse Error: %s", e.what());
+                    LOG_ERROR("StructPack Parse Error: %s", deserializeError.message().data());
 
                     buffer.consume(buffer.size());
 
-					throw std::runtime_error("Json Parse Error");
+                    throw std::runtime_error("StructPack Parse Error");
 
                 }
 
                 buffer.consume(buffer.size());
 
-                webrtcSignalPakcet.requestType = boost::json::value_to<WebrtcSignalMessage>(json).requestType;
+                if (webrtcRequest.requestType == 0) {
 
-                webrtcSignalPakcet.request = std::move(json.as_object());
+                    LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
+
+                    buffer.consume(buffer.size());
+
+                    throw std::runtime_error("Invalid Request: Missing RequestType");
+
+                }
+
+                webrtcSignalPakcet.webrtcRequest = std::move(webrtcRequest);
+
+                webrtcSignalPakcet.requestType = webrtcSignalPakcet.webrtcRequest.requestType;
 
                 webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPakcet));
 

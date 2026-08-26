@@ -11,6 +11,8 @@
 #include <boost/beast/http.hpp>
 #include <boost/json.hpp>
 
+#include <ylt/struct_pack.hpp>
+
 #include <absl/container/flat_hash_map.h>
 #include <absl/functional/any_invocable.h>
 #include <absl/strings/str_format.h>
@@ -140,7 +142,15 @@ namespace hope {
 
 								if (!success) {
 
-									webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%d,"state":503,"message":"webrtcSignalServer busy, please retry later"})", type));
+									WebrtcResponse webrtcResponse;
+
+									webrtcResponse.requestType = type;
+
+									webrtcResponse.state = 503;
+
+									webrtcResponse.message = "webrtcSignalServer busy, please retry later";
+
+									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
 
 									boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
 
@@ -236,7 +246,15 @@ namespace hope {
 
 								if (!success) {
 
-									webrtcSignalSocket->asyncWrite(absl::StrFormat(R"({"requestType":%d,"state":503,"message":"webrtcSignalServer busy, please retry later"})", type));
+									WebrtcResponse webrtcResponse;
+
+									webrtcResponse.requestType = type;
+
+									webrtcResponse.state = 503;
+
+									webrtcResponse.message = "webrtcSignalServer busy, please retry later";
+
+									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
 
 									boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
 

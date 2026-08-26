@@ -1,6 +1,6 @@
 #pragma once
 #include <memory>
-#include <boost/json.hpp>
+#include <string>
 
 namespace hope {
 
@@ -9,6 +9,34 @@ namespace hope {
 		class WebrtcSignalSocket;
 
 		class WebrtcSignalManager;
+
+		struct WebrtcRequest {
+
+			int requestType = 0;
+
+			std::string accountId;
+
+			std::string targetId;
+
+			std::string payload;
+
+		};
+
+		struct WebrtcResponse {
+
+			int requestType = 0;
+
+			int state = 0;
+
+			std::string message;
+
+			std::string accountId;
+
+			std::string targetId;
+
+			std::string payload;
+
+		};
 
 		class WebrtcSignalPacket {
 
@@ -26,7 +54,7 @@ namespace hope {
 
 			std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket;
 
-			boost::json::object request;
+			WebrtcRequest webrtcRequest;
 
 			int requestType = 0;
 
@@ -35,15 +63,6 @@ namespace hope {
 			int channelIndex;
 
 		};
-
-		struct WebrtcSignalMessage {
-
-			int requestType = 0;
-
-		};
-
-		WebrtcSignalMessage tag_invoke(const boost::json::value_to_tag<WebrtcSignalMessage>&, const boost::json::value& json);
 	}
 
 }
-
