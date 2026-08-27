@@ -8,7 +8,7 @@
 #include <boost/random/uniform_int_distribution.hpp>
 #include <api/video/i420_buffer.h>
 #include <api/video/nv12_buffer.h>
-#include <api/field_trials.h>
+#include <api/environment/deprecated_global_field_trials.h>
 #include <third_party/libyuv/libyuv.h>
 
 #include "buffer/WebrtcI420Buffer.h"
@@ -164,6 +164,10 @@ namespace hope {
         }
 
         bool WebrtcManager::initializePeerConnection() {
+
+            webrtc::DeprecatedGlobalFieldTrials::Set(
+                "WebRTC-VideoPacketDirectAlloc/Enabled/");
+
             // Clean up any existing connection first
             if (peerConnection) {
 
