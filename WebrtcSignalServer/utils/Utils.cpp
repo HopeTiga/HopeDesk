@@ -1,3 +1,4 @@
+
 #ifdef _WIN32
 #define _CRT_SECURE_NO_WARNINGS
 #endif
@@ -180,13 +181,11 @@ static boost::asio::awaitable<void> logProcessor() {
 
     while (true) {
 
-        auto optEntry = co_await asyncQueue->dequeue();
-        if (!optEntry.has_value()) {
-            // 队列已关闭
+        LogEntry entry;
+        if (!asyncQueue->tryDequeue(entry)
+            && !co_await asyncQueue->awaitDequeue(entry)) {
             break;
         }
-
-        LogEntry& entry = *optEntry;
 
         // 时间戳格式化（下沉到消费线程）
         formatTimestampMicros(entry.timeMicros, ts, sizeof(ts));

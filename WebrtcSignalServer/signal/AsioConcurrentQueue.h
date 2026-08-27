@@ -17,36 +17,48 @@ namespace hope {
                 : semaphore(executor, 0) {
             }
 
-            boost::asio::awaitable<std::optional<T>> dequeue() {
-
-                T val;
+            bool tryDequeue(T& out) {
 
                 if (semaphore.try_acquire()) {
 
-                    if (queue.try_dequeue(val)) {
-                        co_return val;
-                    }
-                    else {
+                    if (queue.try_dequeue(out)) {
 
-                        if (isClose.load(std::memory_order_acquire)) {
-                            semaphore.release();
-                            co_return std::nullopt;
-                        }
+                        return true;
+
                     }
+
+                    semaphore.release();
+
+                    return false;
+
                 }
+
+                return false;
+
+            }
+
+            boost::asio::awaitable<bool> awaitDequeue(T& out) {
 
                 co_await semaphore.async_acquire(boost::asio::use_awaitable);
 
-                if (queue.try_dequeue(val)) {
-                    co_return val;
+                if (queue.try_dequeue(out)) {
+
+                    co_return true;
+
                 }
 
                 if (isClose.load(std::memory_order_acquire)) {
+
                     semaphore.release();
-                    co_return std::nullopt;
+
+                    out = T{};
+
+                    co_return false;
+
                 }
 
                 throw std::logic_error("Queue is empty but semaphore was acquired without close!");
+
             }
 
             void close() {

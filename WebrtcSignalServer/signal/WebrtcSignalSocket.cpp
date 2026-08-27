@@ -199,7 +199,7 @@ namespace hope {
                         }
                         catch (std::exception& e) {
 
-                            if (self->onDisConnectHandle) {
+                            if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
 
                                 self->onDisConnectHandle(self->accountId, self->sessionId);
 
@@ -210,7 +210,7 @@ namespace hope {
                         }
                         catch (...) {
 
-                            if (self->onDisConnectHandle) {
+                            if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
 
                                 self->onDisConnectHandle(self->accountId, self->sessionId);
 
@@ -341,26 +341,48 @@ namespace hope {
 
                 while (asyncEvents.load()) {
 
-                    std::optional<std::string> optional = co_await asioConcurrentQueue.dequeue();
+                    std::string packet;
 
-                    if (optional.has_value()) {
+                    if (!asioConcurrentQueue.tryDequeue(packet)
+                        && !co_await asioConcurrentQueue.awaitDequeue(packet)) {
 
-                        std::string packet = std::move(optional.value());
-
-                        co_await webSocket.async_write(boost::asio::buffer(packet), boost::asio::use_awaitable);
+                        break;
 
                     }
-                    else break;
+
+                    co_await webSocket.async_write(boost::asio::buffer(packet), boost::asio::use_awaitable);
 
                     if (!asyncEvents.load()) break;
 
                 }
             }
             catch (const std::exception& e) {
+
                 LOG_ERROR("writerCoroutine unhandled exception: %s", e.what());
+
+                asyncEvents.store(false);
+
+                closeSocket();
+
+                if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
+
+                    onDisConnectHandle(accountId, sessionId);
+
+                }
             }
             catch (...) {
+
                 LOG_ERROR("writerCoroutine unknown exception");
+
+                asyncEvents.store(false);
+
+                closeSocket();
+
+                if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
+
+                    onDisConnectHandle(accountId, sessionId);
+
+                }
             }
             co_return;
         }
@@ -370,6 +392,8 @@ namespace hope {
             int fd = sock.native_handle();
             int on = 1;
             setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
+                reinterpret_cast<const char*>(&on), sizeof(on));
+            setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
                 reinterpret_cast<const char*>(&on), sizeof(on));
 #if defined(__linux__)
             setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
