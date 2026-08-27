@@ -16,6 +16,8 @@
 #include "buffer/WebrtcD3D11TextureBuffer.h"
 #include <chrono>
 
+#include "../utils/PerfBoost.h"
+
 
 namespace hope {
 
@@ -34,7 +36,6 @@ namespace hope {
             , screenCapture(nullptr)
             , hAudioCatch(nullptr) {
 
-            // 共享通道同步状态：下游编码器与上游捕获通过它互相通知（VDD 重建自愈）。
             channelSync = std::make_shared<VddChannelSync>();
 
             ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
@@ -59,11 +60,11 @@ namespace hope {
                 co_return;
             }, boost::asio::detached);
 
-                keyMouseSim = std::make_unique<KeyMouseSimulator>();
+            keyMouseSim = std::make_unique<KeyMouseSimulator>();
 
-                if (!keyMouseSim->Initialize()) {
-                    LOG_ERROR("KeyMouseSimulator initialization failed");
-                }
+            if (!keyMouseSim->Initialize()) {
+                LOG_ERROR("KeyMouseSimulator initialization failed");
+            }
 
         }
 
@@ -377,7 +378,7 @@ namespace hope {
 
             encodings.push_back(encoding);
 
-            std::vector<std::string> streamIds = { "mediaStream" };
+            std::vector<std::string> streamIds = { "videoStream" };
 
             webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> videoTrackResult = peerConnection->AddTrack(videoTrack, streamIds, encodings);
 
@@ -1067,6 +1068,9 @@ namespace hope {
                                 }
                             }
 
+                            // 会话已确认要传输视频/音频:提升进程优先级类 + 定时器精度
+                            hope::perf::boostStreamingPriority();
+
                             if (json.contains("accountId")) {
                                 targetId = std::string(json["accountId"].as_string().c_str());
                             }
@@ -1106,6 +1110,9 @@ namespace hope {
 
         // Add releaseSource implementation
         void WebrtcManager::releaseSource() {
+            // 会话结束:还原进程优先级类和定时器精度(幂等,未提升过则为空操作)
+            hope::perf::restoreStreamingPriority();
+
             // Stop screen capture first (either mode)
             if (screenCapture) {
                 screenCapture.reset();

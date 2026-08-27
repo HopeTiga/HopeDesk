@@ -6,6 +6,7 @@
 #include <dxgi.h>
 #include <d3d11_1.h>
 #include "../../utils/Utils.h"
+#include "../../utils/PerfBoost.h"
 
 namespace hope {
     namespace rtc {
@@ -40,6 +41,10 @@ namespace hope {
             }
             D3D11CreateDevice(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
                 nullptr, 0, D3D11_SDK_VERSION, &d3dDevice, nullptr, &d3dContext);
+
+            // 降低设备级延迟:GPU 线程优先级 + 最大帧延迟(进程 GPU 调度优先级已在首台设备设置)
+            hope::perf::applyGpuDeviceLatency(d3dDevice.Get());
+
             return !!d3dDevice;
         }
 

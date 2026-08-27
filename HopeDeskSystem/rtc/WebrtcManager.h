@@ -147,7 +147,6 @@ namespace hope {
                 encoding.bitrate_priority = 4.0;
                 encoding.max_framerate = 144;
                 encoding.scale_resolution_down_by = 1.0;
-                encoding.bitrate_priority = 1.0;
                 encoding.scalability_mode = "L1T1";
                 encoding.network_priority = webrtc::Priority::kHigh;
                 return encoding;

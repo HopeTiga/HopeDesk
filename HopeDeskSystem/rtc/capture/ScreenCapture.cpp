@@ -2,7 +2,8 @@
 #include <algorithm>
 #include <vector>
 #include <d3dcompiler.h>
-#include "../../utils/Utils.h" 
+#include "../../utils/Utils.h"
+#include "../../utils/PerfBoost.h"
 
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -182,6 +183,9 @@ namespace hope {
 			d3dDevice.As(&d3dDevice1);
 			d3dContext.As(&d3dContext1);
 			d3dDevice.As(&dxgiDevice);
+
+			// 降低设备级延迟:GPU 线程优先级 + 最大帧延迟(进程 GPU 调度优先级已在首台设备设置)
+			hope::perf::applyGpuDeviceLatency(d3dDevice.Get());
 
 			Microsoft::WRL::ComPtr<IDXGIAdapter> tempAdapter;
 			hr = dxgiDevice->GetAdapter(&tempAdapter);

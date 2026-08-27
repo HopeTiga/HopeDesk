@@ -5,6 +5,7 @@
 #include <dxgi.h>
 #include <d3d11_1.h>
 #include "../../utils/Utils.h"
+#include "../../utils/PerfBoost.h"
 
 namespace hope {
     namespace rtc {
@@ -59,6 +60,10 @@ namespace hope {
             if (FAILED(hr)) {
                 LOG_ERROR("[NVENC] D3D11CreateDevice failed: 0x%X", hr);
             }
+
+            // 降低设备级延迟:GPU 线程优先级 + 最大帧延迟(进程 GPU 调度优先级已在首台设备设置)
+            hope::perf::applyGpuDeviceLatency(d3dDevice.Get());
+
             return !!d3dDevice;
         }
 

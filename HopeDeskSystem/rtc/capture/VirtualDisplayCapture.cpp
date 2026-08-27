@@ -8,6 +8,7 @@
 #include <cfgmgr32.h>
 
 #include "../../utils/Utils.h"
+#include "../../utils/PerfBoost.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -425,6 +426,9 @@ namespace hope {
             }
             d3dDevice.As(&d3dDevice1);
 
+            // 降低设备级延迟:GPU 线程优先级 + 最大帧延迟,并设置进程 GPU 调度优先级(只做一次)
+            hope::perf::applyGpuDeviceLatency(d3dDevice.Get());
+
             Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDev;
             if (SUCCEEDED(d3dDevice.As(&dxgiDev))) {
                 Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
@@ -709,6 +713,9 @@ namespace hope {
 
         void VirtualDisplayCapture::captureThreadFunc()
         {
+            // 帧通道采集线程对帧率/延迟最敏感,提到 TIME_CRITICAL
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
             const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
             const UINT32 idleReopenTicks = 8;   // 连续静止 8 圈（~0.8s）→ 非破坏性探测
             const UINT32 probeFailRecoverThreshold = 2;  // 连续探测失败 2 次（~3s）→ 驱动重载
