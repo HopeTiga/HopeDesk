@@ -10,22 +10,14 @@ namespace hope {
 
 namespace net {
 
-// 客户端 → 服务端:信令请求
-struct WebrtcRequest {
-    int requestType = 0;
-    std::string accountId;
-    std::string targetId;
-    std::string payload;
-};
-
-// 服务端 → 客户端:信令响应
-struct WebrtcResponse {
+// 信令信封:头部 struct_pack 编码,业务载荷(body)在头部之后原样拼接。
+// 字段顺序与服务端 WebrtcEnvelopeView 一致:requestType/state/message/accountId/targetId。
+struct WebrtcEnvelope {
     int requestType = 0;
     int state = 0;
     std::string message;
     std::string accountId;
     std::string targetId;
-    std::string payload;
 };
 
 class WriterData {

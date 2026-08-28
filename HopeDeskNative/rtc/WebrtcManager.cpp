@@ -363,12 +363,12 @@ void WebrtcManager::disConnectRemote()
         self->releaseSource();            // 含 closeTcpSocket(此时已 null)+ 停服务
         self->initializePeerConnection();
         if (self->webSocket && self->webSocket->isOpen()) {
-            WebrtcRequest webrtcRequest;
-            webrtcRequest.requestType = static_cast<int>(WebrtcRequestState::STOPREMOTE);
-            webrtcRequest.accountId = self->accountId;
-            webrtcRequest.targetId = self->targetId;
-            // payload 为空:STOPREMOTE 无业务载荷
-            self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcRequest));
+            WebrtcEnvelope webrtcEnvelope;
+            webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::STOPREMOTE);
+            webrtcEnvelope.state = 200;   // 接收端按 state==200 处理;body 为空:STOPREMOTE 无业务载荷
+            webrtcEnvelope.accountId = self->accountId;
+            webrtcEnvelope.targetId = self->targetId;
+            self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope));
         }
     });
 }
@@ -404,21 +404,25 @@ void WebrtcManager::disConnectRemoteHandler()
 void WebrtcManager::handleSignalMessage(std::string str)
 {
 
-    WebrtcResponse webrtcResponse;
+    WebrtcEnvelope webrtcEnvelope;
 
-    struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcResponse, str);
+    size_t envelopeSize = 0;
+
+    struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcEnvelope, str, envelopeSize);
     if (deserializeError) {
         LOG_ERROR("WebSocket received invalid struct_pack: %s", deserializeError.message().data());
         return;
     }
 
-    // 信封(WebrtcResponse)反序列化出 requestType/state/accountId/targetId,业务载荷仍是 JSON 文本。
-    // 把信封字段合并回 payload,还原成旧协议整包 JSON,供本地 System(仍讲 JSON)与下方逻辑使用。
+    // 信封(WebrtcEnvelope)反序列化出 requestType/state/accountId/targetId,业务载荷是头部之后原样拼接的 body。
+    // 用 deserialize_to 消耗的字节数切出 body,再把信封字段合并回 payload,还原成整包 JSON,供本地 System(仍讲 JSON)与下方逻辑使用。
+    std::string payload = str.substr(envelopeSize);
+
     boost::json::object json;
 
-    if (!webrtcResponse.payload.empty()) {
+    if (!payload.empty()) {
         try {
-            json = boost::json::parse(webrtcResponse.payload).as_object();
+            json = boost::json::parse(payload).as_object();
         }
         catch (const std::exception& e) {
             LOG_ERROR("WebSocket received invalid payload JSON: %s", e.what());
@@ -426,15 +430,15 @@ void WebrtcManager::handleSignalMessage(std::string str)
         }
     }
 
-    json["requestType"] = webrtcResponse.requestType;
+    json["requestType"] = webrtcEnvelope.requestType;
 
-    json["state"] = webrtcResponse.state;
+    json["state"] = webrtcEnvelope.state;
 
-    json["message"] = webrtcResponse.message;
+    json["message"] = webrtcEnvelope.message;
 
-    json["accountId"] = webrtcResponse.accountId;
+    json["accountId"] = webrtcEnvelope.accountId;
 
-    json["targetId"] = webrtcResponse.targetId;
+    json["targetId"] = webrtcEnvelope.targetId;
 
     std::string dataStr = boost::json::serialize(json);
 
@@ -587,15 +591,17 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
                 targetId = json["accountId"].as_string().c_str();
 
-                WebrtcRequest webrtcRequest;
+                WebrtcEnvelope webrtcEnvelope;
 
-                webrtcRequest.requestType = static_cast<int>(WebrtcRequestState::SYSTEMREADLY);
+                webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::SYSTEMREADLY);
 
-                webrtcRequest.accountId = accountId;
+                webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
 
-                webrtcRequest.targetId = targetId;
+                webrtcEnvelope.accountId = accountId;
 
-                webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcRequest));
+                webrtcEnvelope.targetId = targetId;
+
+                webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope));
 
             }
 
@@ -932,21 +938,22 @@ void WebrtcManager::handleSystemMessage(std::string str)
     }
 
     if (webSocket && webSocket->isOpen()) {
-        // System 消息拆成信封 + 业务载荷:requestType/accountId/targetId 入信封,其余进 payload
-        WebrtcRequest webrtcRequest;
-        webrtcRequest.requestType = static_cast<int>(json["requestType"].as_int64());
+        // System 消息拆成信封 + 业务载荷:requestType/accountId/targetId 入信封,其余进 body
+        WebrtcEnvelope webrtcEnvelope;
+        webrtcEnvelope.requestType = static_cast<int>(json["requestType"].as_int64());
+        webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
         if (json.contains("accountId")) {
-            webrtcRequest.accountId = std::string(json["accountId"].as_string().c_str());
+            webrtcEnvelope.accountId = std::string(json["accountId"].as_string().c_str());
         }
         if (json.contains("targetId")) {
-            webrtcRequest.targetId = std::string(json["targetId"].as_string().c_str());
+            webrtcEnvelope.targetId = std::string(json["targetId"].as_string().c_str());
         }
         json.erase("requestType");
         json.erase("accountId");
         json.erase("targetId");
         json.erase("state");
-        webrtcRequest.payload = boost::json::serialize(json);
-        webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcRequest));
+        std::string webrtcPayload = boost::json::serialize(json);
+        webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(webrtcPayload));
     }
 }
 
@@ -1009,17 +1016,18 @@ void WebrtcManager::sendSignalingMessage(boost::json::object& msg) {
         return;
     }
 
-    // 业务载荷(msg)保持 JSON 文本,信封字段拆出;不修改 msg,也不往 payload 里塞 state
-    WebrtcRequest webrtcRequest;
-    webrtcRequest.requestType = static_cast<int>(WebrtcRequestState::REQUEST);
-    webrtcRequest.accountId = accountId;
+    // 业务载荷(msg)保持 JSON 文本,信封字段拆出;不修改 msg,也不往 body 里塞 state
+    WebrtcEnvelope webrtcEnvelope;
+    webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::REQUEST);
+    webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
+    webrtcEnvelope.accountId = accountId;
     if (!targetId.empty()) {
-        webrtcRequest.targetId = targetId;
+        webrtcEnvelope.targetId = targetId;
     }
-    webrtcRequest.payload = boost::json::serialize(msg);
+    std::string webrtcPayload = boost::json::serialize(msg);
 
     try {
-        webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcRequest));
+        webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(webrtcPayload));
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to send signaling message: %s",e.what());
     }
@@ -1201,13 +1209,14 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
             message["requestMinBitrateBps"] = self->webrtcDeskConfig.requestMinBitrateBps;
             message["requestMaxFramerate"] = self->webrtcDeskConfig.requestMaxFramerate;
 
-            WebrtcRequest webrtcRequest;
-            webrtcRequest.requestType = static_cast<int>(WebrtcRequestState::REQUEST);
-            webrtcRequest.accountId = self->accountId;
-            webrtcRequest.targetId = self->targetId;
-            webrtcRequest.payload = boost::json::serialize(message);
+            WebrtcEnvelope webrtcEnvelope;
+            webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::REQUEST);
+            webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
+            webrtcEnvelope.accountId = self->accountId;
+            webrtcEnvelope.targetId = self->targetId;
+            std::string webrtcPayload = boost::json::serialize(message);
 
-            bool enqueued = self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcRequest));
+            bool enqueued = self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(webrtcPayload));
 
             if (enqueued) {
                 LOG_INFO("AsyncRemoteDesk to Target: %s", self->targetId.c_str());

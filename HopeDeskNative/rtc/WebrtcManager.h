@@ -82,9 +82,7 @@ using hope::net::TcpAcceptor;
 
 using hope::net::WriterData;
 
-using hope::net::WebrtcRequest;
-
-using hope::net::WebrtcResponse;
+using hope::net::WebrtcEnvelope;
 
 using hope::system::WindowsServiceManager;
 
