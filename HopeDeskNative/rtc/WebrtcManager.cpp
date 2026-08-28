@@ -278,8 +278,6 @@ bool WebrtcManager::initializePeerConnection()
 
         if (!peerConnectionFactory) {
             LOG_ERROR("Failed to create PeerConnectionFactory");
-            // 工厂已被 CreatePeerConnectionFactory 吞进 dependencies,失败时随依赖销毁;
-            // 摘掉成员,否则 releaseSource 会对已析构工厂调用 wakeUpAllDecoders。
             webrtcVideoEncoderFactory = nullptr;
             webrtcVideoDecoderFactory = nullptr;
             return false;
@@ -293,9 +291,9 @@ bool WebrtcManager::initializePeerConnection()
 
     config.ice_connection_receiving_timeout = 10000;        // 连上后 10s 收不到数据才判断开(检测断开保持 10s)
 
-    config.ice_unwritable_timeout = 15000;                  // 建立阶段 15s 无写成功才标记不可写
+    config.ice_unwritable_timeout = 30000;                  // 建立阶段 30s 无写成功才标记不可写
 
-    config.ice_inactive_timeout = 15000;                    // 15s 无活动才标记非活跃
+    config.ice_inactive_timeout = 30000;                    // 30s 无活动才标记非活跃
 
     config.set_dscp(true);
 
