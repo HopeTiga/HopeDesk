@@ -102,7 +102,7 @@ namespace hope {
 				-> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::return_type
 			{
 
-				int type = webrtcSignalPacket.requestType;
+				int type = webrtcSignalPacket.webrtcEnvelope.requestType;
 
 				return boost::asio::async_initiate<CompletionToken, void(std::exception_ptr)>(
 					[this, type, webrtcSignalPacket = std::move(webrtcSignalPacket)](auto completionHandler) mutable {
@@ -142,15 +142,15 @@ namespace hope {
 
 								if (!success) {
 
-									WebrtcResponse webrtcResponse;
+									WebrtcEnvelopeView env;
 
-									webrtcResponse.requestType = type;
+									env.requestType = type;
 
-									webrtcResponse.state = 503;
+									env.state = 503;
 
-									webrtcResponse.message = "webrtcSignalServer busy, please retry later";
+									env.message = "webrtcSignalServer busy, please retry later";
 
-									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
 
 									boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
 
@@ -206,7 +206,7 @@ namespace hope {
 				-> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr, boost::json::value)>::return_type
 			{
 
-				int type = webrtcSignalPacket.requestType;
+				int type = webrtcSignalPacket.webrtcEnvelope.requestType;
 
 				return boost::asio::async_initiate<CompletionToken, void(std::exception_ptr, boost::json::value)>(
 					[this, type, webrtcSignalPacket = std::move(webrtcSignalPacket)](auto completionHandler) mutable {
@@ -246,15 +246,15 @@ namespace hope {
 
 								if (!success) {
 
-									WebrtcResponse webrtcResponse;
+									WebrtcEnvelopeView env;
 
-									webrtcResponse.requestType = type;
+									env.requestType = type;
 
-									webrtcResponse.state = 503;
+									env.state = 503;
 
-									webrtcResponse.message = "webrtcSignalServer busy, please retry later";
+									env.message = "webrtcSignalServer busy, please retry later";
 
-									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
 
 									boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
 

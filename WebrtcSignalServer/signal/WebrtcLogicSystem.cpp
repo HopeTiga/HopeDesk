@@ -355,11 +355,15 @@ namespace hope {
 
                 std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
-                WebrtcRequest& webrtcRequest = webrtcSignalPacket.webrtcRequest;
+                WebrtcEnvelopeView& webrtcEnvelope = webrtcSignalPacket.webrtcEnvelope;
 
-                int64_t requestTypeValue = webrtcSignalPacket.requestType;
+                int64_t requestTypeValue = webrtcSignalPacket.webrtcEnvelope.requestType;
 
-                if (webrtcRequest.accountId.empty() || webrtcRequest.targetId.empty()) {
+                std::string accountId(webrtcEnvelope.accountId);
+
+                std::string targetId(webrtcEnvelope.targetId);
+
+                if (accountId.empty() || targetId.empty()) {
 
                     LOG_WARN("Forward Message Missing accountId or targetId.");
 
@@ -370,7 +374,7 @@ namespace hope {
                 std::shared_ptr<WebrtcSignalSocket> targetSocket = nullptr;
 
                 {
-                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalPacket.webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalPacket.webrtcSignalManager->webrtcSocketMap.find(targetId);
 
                     if (iterator != webrtcSignalPacket.webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -382,7 +386,7 @@ namespace hope {
 
                 if (!targetSocket) {
 
-                    absl::node_hash_map<std::string, int>::iterator iterator = webrtcSignalPacket.webrtcSignalSocket->actorMappingIndex.find(webrtcRequest.targetId);
+                    absl::node_hash_map<std::string, int>::iterator iterator = webrtcSignalPacket.webrtcSignalSocket->actorMappingIndex.find(targetId);
 
                     int index = 0;
 
@@ -397,7 +401,7 @@ namespace hope {
 
                     }
 
-                    int mapChannelIndex = webrtcSignalPacket.webrtcSignalManager->hasher(webrtcRequest.targetId.c_str()) % webrtcSignalPacket.webrtcSignalManager->hashSize;
+                    int mapChannelIndex = webrtcSignalPacket.webrtcSignalManager->hasher(targetId.c_str()) % webrtcSignalPacket.webrtcSignalManager->hashSize;
 
                     int channelIndex = webrtcSignalPacket.webrtcSignalManager->getChannelIndex();
 
@@ -405,15 +409,15 @@ namespace hope {
 
                         if (mapChannelIndex == channelIndex) {
 
-                            absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalPacket.webrtcSignalManager->actorSocketMappingIndex.find(webrtcRequest.targetId);
+                            absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalPacket.webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                             if (indexIterator != webrtcSignalPacket.webrtcSignalManager->actorSocketMappingIndex.end()) {
 
                                 int targetChannelIndex = indexIterator->second.channelIndex;
 
-                                webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcRequest = std::move(webrtcRequest), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcEnvelope = std::move(webrtcSignalPacket.webrtcEnvelope), packet = std::move(webrtcSignalPacket.packet), requestTypeValue, requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -421,23 +425,13 @@ namespace hope {
 
                                         std::shared_ptr<WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-                                        WebrtcResponse webrtcResponse;
+                                        webrtcEnvelope.state = 200;
 
-                                        webrtcResponse.requestType = webrtcRequest.requestType;
+                                        webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                                        webrtcResponse.state = 200;
+                                        targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                        webrtcResponse.message = "webrtcSignalServer forward";
-
-                                        webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                                        webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                                        webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                                        targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
-
-                                        std::string targetId = std::move(webrtcResponse.targetId);
+                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -447,24 +441,22 @@ namespace hope {
 
                                             });
 
-                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
-
                                         return;
 
                                     }
                                     else {
 
-                                        WebrtcResponse webrtcResponse;
+                                        WebrtcEnvelopeView notFoundEnvelope;
 
-                                        webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                        notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                        webrtcResponse.state = 404;
+                                        notFoundEnvelope.state = 404;
 
-                                        webrtcResponse.message = "TargetId is not register";
+                                        notFoundEnvelope.message = "TargetId is not register";
 
-                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         return;
 
@@ -475,17 +467,17 @@ namespace hope {
                             }
                             else {
 
-                                WebrtcResponse webrtcResponse;
+                                WebrtcEnvelopeView notFoundEnvelope;
 
-                                webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                webrtcResponse.state = 404;
+                                notFoundEnvelope.state = 404;
 
-                                webrtcResponse.message = "TargetId is not register";
+                                notFoundEnvelope.message = "TargetId is not register";
 
-                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                 co_return;
 
@@ -493,9 +485,9 @@ namespace hope {
 
                         }
 
-                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcRequest = std::move(webrtcSignalPacket.webrtcRequest), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcEnvelope = std::move(webrtcSignalPacket.webrtcEnvelope), packet = std::move(webrtcSignalPacket.packet), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                            absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(webrtcRequest.targetId);
+                            absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                             if (indexIterator != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
@@ -503,29 +495,19 @@ namespace hope {
 
                                 if (targetChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                         std::shared_ptr<WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-                                        WebrtcResponse webrtcResponse;
+                                        webrtcEnvelope.state = 200;
 
-                                        webrtcResponse.requestType = webrtcRequest.requestType;
+                                        webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                                        webrtcResponse.state = 200;
+                                        targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                        webrtcResponse.message = "webrtcSignalServer forward";
-
-                                        webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                                        webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                                        webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                                        targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
-
-                                        std::string targetId = std::move(webrtcResponse.targetId);
+                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -535,24 +517,22 @@ namespace hope {
 
                                             });
 
-                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
-
                                         return;
 
                                     }
                                     else {
 
-                                        WebrtcResponse webrtcResponse;
+                                        WebrtcEnvelopeView notFoundEnvelope;
 
-                                        webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                        notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                        webrtcResponse.state = 404;
+                                        notFoundEnvelope.state = 404;
 
-                                        webrtcResponse.message = "TargetId is not register";
+                                        notFoundEnvelope.message = "TargetId is not register";
 
-                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         return;
 
@@ -560,9 +540,9 @@ namespace hope {
 
                                 }
 
-                                webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcRequest = std::move(webrtcRequest), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcEnvelope = std::move(webrtcEnvelope), packet = std::move(packet), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -570,23 +550,13 @@ namespace hope {
 
                                         std::shared_ptr<WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-                                        WebrtcResponse webrtcResponse;
+                                        webrtcEnvelope.state = 200;
 
-                                        webrtcResponse.requestType = webrtcRequest.requestType;
+                                        webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                                        webrtcResponse.state = 200;
+                                        targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                        webrtcResponse.message = "webrtcSignalServer forward";
-
-                                        webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                                        webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                                        webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                                        targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
-
-                                        std::string targetId = std::move(webrtcResponse.targetId);
+                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -596,25 +566,22 @@ namespace hope {
 
                                             });
 
-
-                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
-
                                         return;
 
                                     }
                                     else {
 
-                                        WebrtcResponse webrtcResponse;
+                                        WebrtcEnvelopeView notFoundEnvelope;
 
-                                        webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                        notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                        webrtcResponse.state = 404;
+                                        notFoundEnvelope.state = 404;
 
-                                        webrtcResponse.message = "TargetId is not register";
+                                        notFoundEnvelope.message = "TargetId is not register";
 
-                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         return;
 
@@ -623,17 +590,17 @@ namespace hope {
                             }
                             else {
 
-                                WebrtcResponse webrtcResponse;
+                                WebrtcEnvelopeView notFoundEnvelope;
 
-                                webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                webrtcResponse.state = 404;
+                                notFoundEnvelope.state = 404;
 
-                                webrtcResponse.message = "TargetId is not register";
+                                notFoundEnvelope.message = "TargetId is not register";
 
-                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                 return;
 
@@ -642,31 +609,21 @@ namespace hope {
                     }
                     else {
 
-                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(index, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), mapChannelIndex = std::move(mapChannelIndex), webrtcRequest = std::move(webrtcSignalPacket.webrtcRequest), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                        webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(index, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), mapChannelIndex = std::move(mapChannelIndex), webrtcEnvelope = std::move(webrtcSignalPacket.webrtcEnvelope), packet = std::move(webrtcSignalPacket.packet), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                 std::shared_ptr<WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-                                WebrtcResponse webrtcResponse;
+                                webrtcEnvelope.state = 200;
 
-                                webrtcResponse.requestType = webrtcRequest.requestType;
+                                webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                                webrtcResponse.state = 200;
+                                targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                webrtcResponse.message = "webrtcSignalServer forward";
-
-                                webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                                webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                                webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                                targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
-
-                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
+                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                 return;
 
@@ -675,15 +632,15 @@ namespace hope {
 
                                 if (mapChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                    absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(webrtcRequest.targetId);
+                                    absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                                     if (indexIterator != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
                                         int targetChannelIndex = indexIterator->second.channelIndex;
 
-                                        webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcRequest = std::move(webrtcRequest), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                        webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcEnvelope = std::move(webrtcEnvelope), packet = std::move(packet), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -691,23 +648,13 @@ namespace hope {
 
                                                 std::shared_ptr<WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-                                                WebrtcResponse webrtcResponse;
+                                                webrtcEnvelope.state = 200;
 
-                                                webrtcResponse.requestType = webrtcRequest.requestType;
+                                                webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                                                webrtcResponse.state = 200;
+                                                targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                                webrtcResponse.message = "webrtcSignalServer forward";
-
-                                                webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                                                webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                                                webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                                                targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
-
-                                                std::string targetId = std::move(webrtcResponse.targetId);
+                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -717,26 +664,24 @@ namespace hope {
 
                                                     });
 
-                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
-
                                                 return;
 
                                             }
                                             else {
 
-                                                WebrtcResponse webrtcResponse;
+                                                WebrtcEnvelopeView notFoundEnvelope;
 
-                                                webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                                notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                                webrtcResponse.state = 404;
+                                                notFoundEnvelope.state = 404;
 
-                                                webrtcResponse.message = "TargetId is not register";
+                                                notFoundEnvelope.message = "TargetId is not register";
 
-                                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
-                                                webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(webrtcRequest.accountId), targetId = std::move(webrtcRequest.targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                                webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
                                                     absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -761,19 +706,19 @@ namespace hope {
                                     }
                                     else {
 
-                                        WebrtcResponse webrtcResponse;
+                                        WebrtcEnvelopeView notFoundEnvelope;
 
-                                        webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                        notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                        webrtcResponse.state = 404;
+                                        notFoundEnvelope.state = 404;
 
-                                        webrtcResponse.message = "TargetId is not register";
+                                        notFoundEnvelope.message = "TargetId is not register";
 
-                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
-                                        webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(webrtcRequest.accountId), targetId = std::move(webrtcRequest.targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                        webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
                                             absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -795,9 +740,9 @@ namespace hope {
 
                                 }
 
-                                webrtcSignalManager->webrtcSignalServer->postTask(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcRequest = std::move(webrtcRequest), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                webrtcSignalManager->webrtcSignalServer->postTask(mapChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcEnvelope = std::move(webrtcEnvelope), packet = std::move(packet), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                    absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(webrtcRequest.targetId);
+                                    absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                                     if (indexIterator != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
@@ -805,29 +750,19 @@ namespace hope {
 
                                         if (targetChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
                                                 std::shared_ptr<WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-                                                WebrtcResponse webrtcResponse;
+                                                webrtcEnvelope.state = 200;
 
-                                                webrtcResponse.requestType = webrtcRequest.requestType;
+                                                webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                                                webrtcResponse.state = 200;
+                                                targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                                webrtcResponse.message = "webrtcSignalServer forward";
-
-                                                webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                                                webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                                                webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                                                targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
-
-                                                std::string targetId = std::move(webrtcResponse.targetId);
+                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -837,26 +772,24 @@ namespace hope {
 
                                                     });
 
-                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
-
                                                 return;
 
                                             }
                                             else {
 
-                                                WebrtcResponse webrtcResponse;
+                                                WebrtcEnvelopeView notFoundEnvelope;
 
-                                                webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                                notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                                webrtcResponse.state = 404;
+                                                notFoundEnvelope.state = 404;
 
-                                                webrtcResponse.message = "TargetId is not register";
+                                                notFoundEnvelope.message = "TargetId is not register";
 
-                                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
-                                                webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(webrtcRequest.accountId), targetId = std::move(webrtcRequest.targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                                webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
                                                     absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -878,9 +811,9 @@ namespace hope {
 
                                         }
 
-                                        webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcRequest = std::move(webrtcRequest), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                        webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), channelIndex = std::move(channelIndex), webrtcEnvelope = std::move(webrtcEnvelope), packet = std::move(packet), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(webrtcRequest.targetId);
+                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -888,23 +821,13 @@ namespace hope {
 
                                                 std::shared_ptr<WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-                                                WebrtcResponse webrtcResponse;
+                                                webrtcEnvelope.state = 200;
 
-                                                webrtcResponse.requestType = webrtcRequest.requestType;
+                                                webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                                                webrtcResponse.state = 200;
+                                                targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                                webrtcResponse.message = "webrtcSignalServer forward";
-
-                                                webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                                                webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                                                webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                                                targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(webrtcResponse));
-
-                                                std::string targetId = std::move(webrtcResponse.targetId);
+                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -914,26 +837,24 @@ namespace hope {
 
                                                     });
 
-                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
-
                                                 return;
 
                                             }
                                             else {
 
-                                                WebrtcResponse webrtcResponse;
+                                                WebrtcEnvelopeView notFoundEnvelope;
 
-                                                webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                                notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                                webrtcResponse.state = 404;
+                                                notFoundEnvelope.state = 404;
 
-                                                webrtcResponse.message = "TargetId is not register";
+                                                notFoundEnvelope.message = "TargetId is not register";
 
-                                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                                webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
-                                                webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(webrtcRequest.accountId), targetId = std::move(webrtcRequest.targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                                webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
                                                     absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -956,19 +877,19 @@ namespace hope {
                                     }
                                     else {
 
-                                        WebrtcResponse webrtcResponse;
+                                        WebrtcEnvelopeView notFoundEnvelope;
 
-                                        webrtcResponse.requestType = static_cast<int>(requestTypeValue);
+                                        notFoundEnvelope.requestType = static_cast<int>(requestTypeValue);
 
-                                        webrtcResponse.state = 404;
+                                        notFoundEnvelope.state = 404;
 
-                                        webrtcResponse.message = "TargetId is not register";
+                                        notFoundEnvelope.message = "TargetId is not register";
 
-                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", webrtcRequest.accountId.c_str(), webrtcRequest.targetId.c_str(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
-                                        webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(webrtcRequest.accountId), targetId = std::move(webrtcRequest.targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
+                                        webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
                                             absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
@@ -1000,23 +921,13 @@ namespace hope {
 
                 }
 
-                WebrtcResponse webrtcResponse;
+                webrtcEnvelope.state = 200;
 
-                webrtcResponse.requestType = webrtcRequest.requestType;
+                webrtcEnvelope.message = "webrtcSignalServer forward";
 
-                webrtcResponse.state = 200;
+                targetSocket->asyncWrite(std::move(webrtcSignalPacket.packet));
 
-                webrtcResponse.message = "webrtcSignalServer forward";
-
-                webrtcResponse.accountId = std::move(webrtcRequest.accountId);
-
-                webrtcResponse.targetId = std::move(webrtcRequest.targetId);
-
-                webrtcResponse.payload = std::move(webrtcRequest.payload);
-
-                targetSocket->asyncWrite(struct_pack::serialize<std::string>(webrtcResponse));
-
-                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), requestTypeStr.c_str());
+                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                 co_return;
 
@@ -1051,27 +962,25 @@ namespace hope {
 
                 sharedTimer->expires_after(std::chrono::milliseconds(3000));
 
-                WebrtcRequest& webrtcRequest = webrtcSignalPacket.webrtcRequest;
+                size_t forwardEnvelopeSize = struct_pack::get_needed_size(webrtcSignalPacket.webrtcEnvelope);
 
-                if (webrtcRequest.payload.empty()) {
+                if (webrtcSignalPacket.packet.size() <= forwardEnvelopeSize) {
 
                     LOG_WARN("Forward Message Missing forwardPacket.");
 
-                    WebrtcResponse webrtcResponse;
+                    webrtcSignalPacket.webrtcEnvelope.state = 400;
 
-                    webrtcResponse.requestType = static_cast<int>(webrtcSignalPacket.requestType);
+                    webrtcSignalPacket.webrtcEnvelope.message = "Forward Message Missing forwardPacket";
 
-                    webrtcResponse.state = 400;
-
-                    webrtcResponse.message = "Forward Message Missing forwardPacket";
-
-                    webrtcSignalPacket.webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+                    webrtcSignalPacket.webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(webrtcSignalPacket.webrtcEnvelope));
 
                     co_return;
 
                 }
 
-                std::string forwardPacket = std::move(webrtcRequest.payload);
+                webrtcSignalPacket.packet.erase(0, forwardEnvelopeSize);
+
+                std::string forwardPacket(std::move(webrtcSignalPacket.packet));
 
                 std::shared_ptr<RpcForwardResponse> rpcForwardResponse = std::make_shared<RpcForwardResponse>();
 

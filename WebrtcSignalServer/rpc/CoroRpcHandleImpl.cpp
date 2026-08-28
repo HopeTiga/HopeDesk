@@ -81,7 +81,7 @@ namespace hope {
 
 						std::shared_ptr<hope::signal::WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-						hope::signal::WebrtcResponse webrtcResponse;
+						hope::signal::WebrtcEnvelopeView webrtcResponse;
 
 						webrtcResponse.state = 200;
 
@@ -93,9 +93,9 @@ namespace hope {
 							}
 						}
 
-						webrtcResponse.accountId = std::move(accountId);
+						webrtcResponse.accountId = accountId;
 
-						webrtcResponse.targetId = std::move(targetId);
+						webrtcResponse.targetId = targetId;
 
 						forwardPacketJson.erase("requestType");
 
@@ -103,11 +103,11 @@ namespace hope {
 
 						forwardPacketJson.erase("targetId");
 
-						webrtcResponse.payload = boost::json::serialize(forwardPacketJson);
+						std::string forwardPayload = boost::json::serialize(forwardPacketJson);
 
-						targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+						targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(webrtcResponse).append(forwardPayload));
 
-						LOG_INFO("RpcRequest forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), "requestForward");
+						LOG_INFO("RpcRequest forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), "requestForward");
 
 						RpcForwardResponse rpcforwardResponse{ 200,"Forward Success !" };
 
@@ -138,7 +138,7 @@ namespace hope {
 
 						std::shared_ptr<hope::signal::WebrtcSignalSocket>& targetWebrtcSignalSocket = iterator->second;
 
-						hope::signal::WebrtcResponse webrtcResponse;
+						hope::signal::WebrtcEnvelopeView webrtcResponse;
 
 						webrtcResponse.state = 200;
 
@@ -151,9 +151,9 @@ namespace hope {
 						}
 
 
-						webrtcResponse.accountId = std::move(accountId);
+						webrtcResponse.accountId = accountId;
 
-						webrtcResponse.targetId = std::move(targetId);
+						webrtcResponse.targetId = targetId;
 
 						forwardPacketJson.erase("requestType");
 
@@ -161,15 +161,15 @@ namespace hope {
 
 						forwardPacketJson.erase("targetId");
 
-						webrtcResponse.payload = boost::json::serialize(forwardPacketJson);
+						std::string forwardPayload = boost::json::serialize(forwardPacketJson);
 
-						LOG_INFO("RpcRequest forward: %s -> %s (Request Type: %s)", webrtcResponse.accountId.c_str(), webrtcResponse.targetId.c_str(), "requestForward");
+						LOG_INFO("RpcRequest forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), "requestForward");
 
 						RpcForwardResponse rpcforwardResponse{ 200,"Forward Success !" };
 
 						promise.setValue(rpcforwardResponse);
 
-						targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(std::move(webrtcResponse)));
+						targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(webrtcResponse).append(forwardPayload));
 
 						co_return;
 

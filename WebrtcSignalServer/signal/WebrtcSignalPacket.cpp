@@ -19,8 +19,8 @@ namespace hope {
 
 		WebrtcSignalPacket::WebrtcSignalPacket(WebrtcSignalPacket&& webrtcSignalPacket) noexcept
 			: webrtcSignalSocket(std::move(webrtcSignalPacket.webrtcSignalSocket))
-			, webrtcRequest(std::move(webrtcSignalPacket.webrtcRequest))
-			, requestType(webrtcSignalPacket.requestType)
+			, packet(std::move(webrtcSignalPacket.packet))
+			, webrtcEnvelope(webrtcSignalPacket.webrtcEnvelope)
 			, webrtcSignalManager(webrtcSignalPacket.webrtcSignalManager)
 			, channelIndex(webrtcSignalPacket.channelIndex) {
 		}
@@ -31,9 +31,9 @@ namespace hope {
 
 			this->webrtcSignalManager = webrtcSignalPacket.webrtcSignalManager;
 
-			this->webrtcRequest = std::move(webrtcSignalPacket.webrtcRequest);
+			this->packet = std::move(webrtcSignalPacket.packet);
 
-			this->requestType = webrtcSignalPacket.requestType;
+			this->webrtcEnvelope = webrtcSignalPacket.webrtcEnvelope;
 
 			this->channelIndex = webrtcSignalPacket.channelIndex;
 

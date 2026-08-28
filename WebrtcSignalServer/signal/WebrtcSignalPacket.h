@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace hope {
 
@@ -10,31 +11,17 @@ namespace hope {
 
 		class WebrtcSignalManager;
 
-		struct WebrtcRequest {
-
-			int requestType = 0;
-
-			std::string accountId;
-
-			std::string targetId;
-
-			std::string payload;
-
-		};
-
-		struct WebrtcResponse {
+		struct WebrtcEnvelopeView {
 
 			int requestType = 0;
 
 			int state = 0;
 
-			std::string message;
+			std::string_view message;
 
-			std::string accountId;
+			std::string_view accountId;
 
-			std::string targetId;
-
-			std::string payload;
+			std::string_view targetId;
 
 		};
 
@@ -54,9 +41,9 @@ namespace hope {
 
 			std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket;
 
-			WebrtcRequest webrtcRequest;
+			std::string packet;
 
-			int requestType = 0;
+			WebrtcEnvelopeView webrtcEnvelope;
 
 			WebrtcSignalManager* webrtcSignalManager;
 
