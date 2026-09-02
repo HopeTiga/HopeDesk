@@ -63,7 +63,7 @@ namespace hope {
 						}
 						catch (const std::exception& e) {
 
-							LOG_ERROR("WebrtcLogicSystem postTask co_spawn Exception: %s", e.what());
+							LOG_ERROR("WebrtcLogicSystem postTask co_spawn Exception: {}", e.what());
 
 						}
 
@@ -87,7 +87,7 @@ namespace hope {
 						}
 						catch (const std::exception& e) {
 
-							LOG_ERROR("WebrtcLogicSystem coPostTask co_spawn Exception: %s", e.what());
+							LOG_ERROR("WebrtcLogicSystem coPostTask co_spawn Exception: {}", e.what());
 
 						}
 
@@ -187,7 +187,7 @@ namespace hope {
 						}
 						else {
 
-							LOG_ERROR("Unknown Webrtc Request Type: %d", type);
+							LOG_ERROR("Unknown Webrtc Request Type: {}", type);
 
 							boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
 
@@ -291,7 +291,7 @@ namespace hope {
 						}
 						else {
 
-							LOG_ERROR("Unknown Webrtc Request Type: %d", type);
+							LOG_ERROR("Unknown Webrtc Request Type: {}", type);
 
 							boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr, type]() mutable {
 

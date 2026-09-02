@@ -120,7 +120,7 @@ namespace hope {
                                         std::rethrow_exception(ptr);
                                     }
                                     catch (const std::exception& e) {
-                                        LOG_ERROR("WebrtcLogicSystem AsyncTaskExecute Task Exception: %s", e.what());
+                                        LOG_ERROR("WebrtcLogicSystem AsyncTaskExecute Task Exception: {}", e.what());
                                     }
                                 }
                                 });
@@ -128,7 +128,7 @@ namespace hope {
 
                     if (webrtcLogicSystem->localTaskQueueSize.load() >= webrtcLogicSystem->exitThreshold.load()) {
 
-                        LOG_WARN("WebrtcLogicSystem local queue depth %d exceeds threshold, switching to local processing", webrtcLogicSystem->localTaskQueueSize.load());
+                        LOG_WARN("WebrtcLogicSystem local queue depth {} exceeds threshold, switching to local processing", webrtcLogicSystem->localTaskQueueSize.load());
 
                         webrtcLogicSystem->asyncTaskExecutes.store(false);
 
@@ -164,7 +164,7 @@ namespace hope {
 
             if (iterator != this->httpHandlers.end()) {
 
-                LOG_INFO("Http Request: %s", targetUrl.data());
+                LOG_INFO("Http Request: {}", targetUrl.data());
 
                 absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>& func = iterator->second;
 
@@ -192,7 +192,7 @@ namespace hope {
 
                                 co_await httpSocket->asyncWrite(std::move(httpResponse));
 
-                                LOG_WARN("Http Request: %s Filtered Out", httpRequest.target().data());
+                                LOG_WARN("Http Request: {} Filtered Out", httpRequest.target().data());
 
                                 co_return;
 
@@ -237,7 +237,7 @@ namespace hope {
                                         std::rethrow_exception(ptr);
                                     }
                                     catch (const std::exception& e) {
-                                        LOG_ERROR("Overload boost::asio::co_spawn HttpTask Response Exception: %s", e.what());
+                                        LOG_ERROR("Overload boost::asio::co_spawn HttpTask Response Exception: {}", e.what());
                                     }
                                 }
                                 });
@@ -266,7 +266,7 @@ namespace hope {
 
                         co_await httpSocket->asyncWrite(std::move(httpResponse));
 
-                        LOG_WARN("Http Request: %s Filtered Out", httpRequest.target().data());
+                        LOG_WARN("Http Request: {} Filtered Out", httpRequest.target().data());
 
                         co_return;
 
@@ -290,7 +290,7 @@ namespace hope {
                             }
                             catch (const std::exception& e) {
 
-                                LOG_ERROR("WebrtcLogicSystem boost::asio::co_spawn HttpTask: %s Exception: %s", targetUrl.c_str(), e.what());
+                                LOG_ERROR("WebrtcLogicSystem boost::asio::co_spawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
 
                             }
                         }
@@ -303,7 +303,7 @@ namespace hope {
 
                 boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest)]()mutable->boost::asio::awaitable<void> {
 
-                    LOG_WARN("Http Request Not Found: %s", httpRequest.target().data());
+                    LOG_WARN("Http Request Not Found: {}", httpRequest.target().data());
 
                     boost::beast::http::response<boost::beast::http::string_body> httpResponse{ boost::beast::http::status::not_found,httpRequest.version() };
 
@@ -324,7 +324,7 @@ namespace hope {
                     }
                     catch (const std::exception& e) {
 
-                        LOG_ERROR("Http Write Error: %s", e.what());
+                        LOG_ERROR("Http Write Error: {}", e.what());
 
                         httpSocket->closeSocket();
 
@@ -338,7 +338,7 @@ namespace hope {
                                 std::rethrow_exception(ptr);
                             }
                             catch (const std::exception& e) {
-                                LOG_ERROR("WebrtcLogicSystem boost::asio::co_spawn HttpTask: %s Exception: %s", targetUrl.c_str(), e.what());
+                                LOG_ERROR("WebrtcLogicSystem boost::asio::co_spawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
                             }
                         }
                         });
@@ -431,7 +431,7 @@ namespace hope {
 
                                         targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -456,7 +456,7 @@ namespace hope {
 
                                         webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         return;
 
@@ -477,7 +477,7 @@ namespace hope {
 
                                 webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                 co_return;
 
@@ -507,7 +507,7 @@ namespace hope {
 
                                         targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -532,7 +532,7 @@ namespace hope {
 
                                         webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         return;
 
@@ -556,7 +556,7 @@ namespace hope {
 
                                         targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                        LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -581,7 +581,7 @@ namespace hope {
 
                                         webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         return;
 
@@ -600,7 +600,7 @@ namespace hope {
 
                                 webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                 return;
 
@@ -623,7 +623,7 @@ namespace hope {
 
                                 targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                 return;
 
@@ -654,7 +654,7 @@ namespace hope {
 
                                                 targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                                LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -679,7 +679,7 @@ namespace hope {
 
                                                 webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                                LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -689,7 +689,7 @@ namespace hope {
 
                                                         webrtcSignalSocket->actorMappingIndex.erase(routeIterator);
 
-                                                        LOG_DEBUG("Stale route cache cleared for: %s -> %s", accountId.c_str(), targetId.c_str());
+                                                        LOG_DEBUG("Stale route cache cleared for: {} -> {}", accountId.c_str(), targetId.c_str());
 
                                                     }
 
@@ -716,7 +716,7 @@ namespace hope {
 
                                         webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -726,7 +726,7 @@ namespace hope {
 
                                                 webrtcSignalSocket->actorMappingIndex.erase(routeIterator);
 
-                                                LOG_DEBUG("Stale route cache cleared for: %s -> %s", accountId.c_str(), targetId.c_str());
+                                                LOG_DEBUG("Stale route cache cleared for: {} -> {}", accountId.c_str(), targetId.c_str());
 
                                             }
 
@@ -762,7 +762,7 @@ namespace hope {
 
                                                 targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                                LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -787,7 +787,7 @@ namespace hope {
 
                                                 webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                                LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -797,7 +797,7 @@ namespace hope {
 
                                                         webrtcSignalSocket->actorMappingIndex.erase(routeIterator);
 
-                                                        LOG_DEBUG("Stale route cache cleared for: %s -> %s", accountId.c_str(), targetId.c_str());
+                                                        LOG_DEBUG("Stale route cache cleared for: {} -> {}", accountId.c_str(), targetId.c_str());
 
                                                     }
 
@@ -827,7 +827,7 @@ namespace hope {
 
                                                 targetWebrtcSignalSocket->asyncWrite(std::move(packet));
 
-                                                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                                LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), targetChannelIndex, targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -852,7 +852,7 @@ namespace hope {
 
                                                 webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                                LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                                LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -862,7 +862,7 @@ namespace hope {
 
                                                         webrtcSignalSocket->actorMappingIndex.erase(routeIterator);
 
-                                                        LOG_DEBUG("Stale route cache cleared for: %s -> %s", accountId.c_str(), targetId.c_str());
+                                                        LOG_DEBUG("Stale route cache cleared for: {} -> {}", accountId.c_str(), targetId.c_str());
 
                                                     }
 
@@ -887,7 +887,7 @@ namespace hope {
 
                                         webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(notFoundEnvelope));
 
-                                        LOG_WARN("Request forward Not Found (404): %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                                        LOG_WARN("Request forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
@@ -897,7 +897,7 @@ namespace hope {
 
                                                 webrtcSignalSocket->actorMappingIndex.erase(routeIterator);
 
-                                                LOG_DEBUG("Stale route cache cleared for: %s -> %s", accountId.c_str(), targetId.c_str());
+                                                LOG_DEBUG("Stale route cache cleared for: {} -> {}", accountId.c_str(), targetId.c_str());
 
                                             }
 
@@ -927,7 +927,7 @@ namespace hope {
 
                 targetSocket->asyncWrite(std::move(webrtcSignalPacket.packet));
 
-                LOG_INFO("Request forward: %s -> %s (Request Type: %s)", accountId.data(), targetId.data(), requestTypeStr.c_str());
+                LOG_INFO("Request forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
                 co_return;
 
@@ -1005,7 +1005,7 @@ namespace hope {
 
                             std::error_code connectError = std::make_error_code(result.error());
 
-                            LOG_WARN("RpcForward Connect Failed, Error=%d (%s)", static_cast<int>(result.error()), connectError.message().c_str());
+                            LOG_WARN("RpcForward Connect Failed, Error={} ({})", static_cast<int>(result.error()), connectError.message().c_str());
 
                         }
                         else if (!result.value()) {
@@ -1035,7 +1035,7 @@ namespace hope {
                     co_return;
                 }
 
-                LOG_INFO("RpcForwardResponse State:%d Message:%s", rpcForwardResponse->state, rpcForwardResponse->message.c_str());
+                LOG_INFO("RpcForwardResponse State:{} Message:{}", rpcForwardResponse->state, rpcForwardResponse->message.c_str());
 
                 co_return;
 
@@ -1124,7 +1124,7 @@ namespace hope {
                                 std::rethrow_exception(ptr);
                             }
                             catch (const std::exception& e) {
-                                LOG_ERROR("WebrtcLogicSystem boost::asio::co_spawn HttpTask Response Exception: %s", e.what());
+                                LOG_ERROR("WebrtcLogicSystem boost::asio::co_spawn HttpTask Response Exception: {}", e.what());
                             }
                         }
                     });
@@ -1157,7 +1157,7 @@ namespace hope {
 
                         data["totalManagers"] = server->getChannelNumbers();
 
-                        LOG_INFO("channelIndex:%d threadChannelIndex:%d", httpSocket->getWebrtcSignalManager()->getChannelIndex(), threadChannelIndex);
+                        LOG_INFO("channelIndex:{} threadChannelIndex:{}", httpSocket->getWebrtcSignalManager()->getChannelIndex(), threadChannelIndex);
 
                         if (httpSocket->getWebrtcSignalManager()->getChannelIndex() == threadChannelIndex) {
 

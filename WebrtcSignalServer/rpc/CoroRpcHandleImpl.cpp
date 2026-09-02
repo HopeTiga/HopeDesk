@@ -35,9 +35,9 @@ namespace hope {
 
 		async_simple::coro::Lazy<RpcForwardResponse> CoroRpcHandleImpl::requestForward(RpcForward rpcforward) {
 
-			LOG_INFO("requestForward forwardChannel: %d", rpcforward.forwardChannel);
+			LOG_INFO("requestForward forwardChannel: {}", rpcforward.forwardChannel);
 
-			LOG_INFO("requestForward forwardPacket: %s", rpcforward.forwardPacket.c_str());
+			LOG_INFO("requestForward forwardPacket: {}", rpcforward.forwardPacket.c_str());
 
 			boost::json::object forwardPacketJson = boost::json::parse(rpcforward.forwardPacket).as_object();
 
@@ -65,7 +65,7 @@ namespace hope {
 
 					promise.setValue(rpcforwardResponse);
 
-					LOG_INFO("TargetId:%s Not Register In The WebrtcSignalServer!", targetId.c_str());
+					LOG_INFO("TargetId:{} Not Register In The WebrtcSignalServer!", targetId.c_str());
 
 					co_return;
 
@@ -107,7 +107,7 @@ namespace hope {
 
 						targetWebrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(webrtcResponse).append(forwardPayload));
 
-						LOG_INFO("RpcRequest forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), "requestForward");
+						LOG_INFO("RpcRequest forward: {} -> {} (Request Type: {})", accountId.c_str(), targetId.c_str(), "requestForward");
 
 						RpcForwardResponse rpcforwardResponse{ 200,"Forward Success !" };
 
@@ -118,7 +118,7 @@ namespace hope {
 					}
 					else {
 
-						LOG_WARN("RpcRequest forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), "requestForward");
+						LOG_WARN("RpcRequest forward Not Found (404): {} -> {} (Request Type: {})", accountId.c_str(), targetId.c_str(), "requestForward");
 
 						RpcForwardResponse rpcforwardResponse{ 404,"TargetId Not Register In The WebrtcSignalServer!" };
 
@@ -163,7 +163,7 @@ namespace hope {
 
 						std::string forwardPayload = boost::json::serialize(forwardPacketJson);
 
-						LOG_INFO("RpcRequest forward: %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), "requestForward");
+						LOG_INFO("RpcRequest forward: {} -> {} (Request Type: {})", accountId.c_str(), targetId.c_str(), "requestForward");
 
 						RpcForwardResponse rpcforwardResponse{ 200,"Forward Success !" };
 
@@ -176,7 +176,7 @@ namespace hope {
 					}
 					else {
 
-						LOG_WARN("RpcRequest forward Not Found (404): %s -> %s (Request Type: %s)", accountId.c_str(), targetId.c_str(), "requestForward");
+						LOG_WARN("RpcRequest forward Not Found (404): {} -> {} (Request Type: {})", accountId.c_str(), targetId.c_str(), "requestForward");
 
 						RpcForwardResponse rpcforwardResponse{ 404,"TargetId Not Register In The WebrtcSignalServer!" };
 

@@ -106,7 +106,7 @@ namespace hope {
                     if (exception) {
                         try { std::rethrow_exception(exception); }
                         catch (const std::exception& e) {
-                            LOG_ERROR("WebrtcSignalServer postTask co_spawn Exception: %s", e.what());
+                            LOG_ERROR("WebrtcSignalServer postTask co_spawn Exception: {}", e.what());
                         }
                     }
                 }
@@ -130,7 +130,7 @@ namespace hope {
                         std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
 
                         if (channelIndex >= webrtcSignalManagers.size() || !webrtcSignalManagers[channelIndex]) {
-                            LOG_ERROR("WebrtcSignalServer postTask invalid channelIndex: %zu, size: %zu", channelIndex, webrtcSignalManagers.size());
+                            LOG_ERROR("WebrtcSignalServer postTask invalid channelIndex: {}, size: {}", channelIndex, webrtcSignalManagers.size());
                             boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext),
                                 [completionHandlerPtr]() mutable {
                                     if constexpr (std::is_void_v<ValueType>) {
@@ -143,7 +143,7 @@ namespace hope {
                             return;
                         }
 
-                        std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = webrtcSignalManagers[channelIndex];
+                        std::shared_ptr<WebrtcSignalManager> & webrtcSignalManager = webrtcSignalManagers[channelIndex];
 
                         if constexpr (std::is_void_v<ValueType>) {
                             boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),

@@ -1,6 +1,8 @@
 #include <iostream>
 #include <string>
 #include <clocale>
+#include <mimalloc/mimalloc-new-delete.h>
+#include "utils/MimallocConfig.h"
 #include "ssl/Ssl.h"
 #include "iocp/AsioProactors.h"
 #include "signal/WebrtcSignalServer.h"
@@ -11,8 +13,10 @@
 
 int main() {
 
+    mi_version();
+
 #ifdef _WIN32
-  
+
     SetConsoleOutputCP(CP_UTF8);
 
     SetConsoleCP(CP_UTF8);
@@ -27,12 +31,24 @@ int main() {
 
     configManager.Load("config.ini", hope::utils::ConfigManager::Format::Ini);
 
+    hope::utils::MimallocConfig mimallocConfig;
+    hope::utils::loadMimallocConfig(mimallocConfig, configManager);
+    hope::utils::applyMimallocConfig(mimallocConfig);
+
+    setLoggerAsyncConfig(configManager.GetInt("Logger.queueSize", 8192)
+        , configManager.GetInt("Logger.threadCount", 1));
+
     initLogger();
 
-    setConsoleOutputLevels(configManager.GetInt("WebrtcSignalServer.DEBUG")
-        , configManager.GetInt("WebrtcSignalServer.INFO")
-        , configManager.GetInt("WebrtcSignalServer.WARN")
-        , configManager.GetInt("WebrtcSignalServer.ERROR"));
+    setConsoleOutputLevels(configManager.GetInt("Logger.DEBUG")
+        , configManager.GetInt("Logger.INFO")
+        , configManager.GetInt("Logger.WARN")
+        , configManager.GetInt("Logger.ERROR"));
+
+    setFileLoggingConfig(configManager.GetInt("Logger.logToFile", 1)
+        , configManager.GetString("Logger.logDirectory", "logs").c_str()
+        , configManager.GetInt("Logger.maxFileSizeMB", 10)
+        , configManager.GetInt("Logger.maxFiles", 5));
 
     std::string certificateFile = configManager.GetString("WebrtcSignalServer.certificateFile");
 

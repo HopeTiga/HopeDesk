@@ -24,7 +24,7 @@ namespace hope {
 			coroRpcServer = std::make_shared<coro_rpc::coro_rpc_server>(
 				coroRpcServerConfig.threadSize, coroRpcServerConfig.port);
 
-			LOG_INFO("CoroRpc constructed: port=%zu, threadSize=%zu, enableSsl=%d",
+			LOG_INFO("CoroRpc constructed: port={}, threadSize={}, enableSsl={}",
 				coroRpcServerConfig.port, coroRpcServerConfig.threadSize,
 				coroRpcServerConfig.enableSsl ? 1 : 0);
 
@@ -137,7 +137,7 @@ namespace hope {
 
 			if (!clientPools) return;
 
-			LOG_INFO("CoroRpc createLoadBalancer: hostCount=%zu, lba=%d", hosts.size(), static_cast<int>(lba));
+			LOG_INFO("CoroRpc createLoadBalancer: hostCount={}, lba={}", hosts.size(), static_cast<int>(lba));
 
 			std::vector<std::string_view> hostViews(hosts.begin(), hosts.end());
 
@@ -166,13 +166,13 @@ namespace hope {
 		void CoroRpc::removeHosts(const std::vector<std::string>& hosts) {
 			if (!clientPools) return;
 			for (auto& h : hosts) clientPools->erase(h);
-			LOG_DEBUG("CoroRpc removeHosts: count=%zu", hosts.size());
+			LOG_DEBUG("CoroRpc removeHosts: count={}", hosts.size());
 		}
 
 		void CoroRpc::removeHostsNotIn(const std::vector<std::string>& existingHosts) {
 			if (clientPools) {
 				clientPools->erase_not_in(existingHosts);
-				LOG_DEBUG("CoroRpc removeHostsNotIn: existingCount=%zu", existingHosts.size());
+				LOG_DEBUG("CoroRpc removeHostsNotIn: existingCount={}", existingHosts.size());
 			}
 		}
 

@@ -70,7 +70,7 @@ namespace hope {
 
 					co_await sslStream.async_shutdown(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
-					if (ec) LOG_ERROR("HttpSocket SSL async_shutdown failed: %s", ec.message().c_str());
+					if (ec) LOG_ERROR("HttpSocket SSL async_shutdown failed: {}", ec.message().c_str());
 
 				}
 
@@ -92,7 +92,7 @@ namespace hope {
 			}
 			catch (std::exception& e) {
 
-				LOG_ERROR("HttpSocket AsyncRead or PostHttpTask or AsyncReadKeepAlive Exception: %s", e.what());
+				LOG_ERROR("HttpSocket AsyncRead or PostHttpTask or AsyncReadKeepAlive Exception: {}", e.what());
 
 				closeSocket();
 
@@ -134,18 +134,18 @@ namespace hope {
 				auto [handshake_ec] = std::move(op);
 
 				if (isTimeout) {
-					LOG_ERROR("HttpSocket::AsyncHandShake Timeout after %lldms", timeout.count());
+					LOG_ERROR("HttpSocket::AsyncHandShake Timeout after {}ms", timeout.count());
 					co_return false;
 				}
 
 				if (handshake_ec) {
-					LOG_ERROR("HttpSocket::AsyncHandShake Error: %s", handshake_ec.message().c_str());
+					LOG_ERROR("HttpSocket::AsyncHandShake Error: {}", handshake_ec.message().c_str());
 					co_return false;
 				}
 
 			}
 			catch (const std::exception& e) {
-				LOG_ERROR("HttpSocket::AsyncHandShake Exception: %s", e.what());
+				LOG_ERROR("HttpSocket::AsyncHandShake Exception: {}", e.what());
 				co_return false;
 			}
 
@@ -178,7 +178,7 @@ namespace hope {
 			readTimer.cancel();
 
 			if (isTimeout || ec) {
-				LOG_ERROR("HttpSocket::asyncRead async_read failed: %s", ec.message().c_str());
+				LOG_ERROR("HttpSocket::asyncRead async_read failed: {}", ec.message().c_str());
 				throw std::runtime_error("HttpSocket async_read failed");
 			}
 
@@ -200,7 +200,7 @@ namespace hope {
 			readTimer.cancel();
 
 			if (isTimeout || ec) {
-				LOG_ERROR("HttpSocket::AsyncRead SSL Async_read failed: %s", ec.message().c_str());
+				LOG_ERROR("HttpSocket::AsyncRead SSL Async_read failed: {}", ec.message().c_str());
 				throw std::runtime_error("HttpSocket SSL Async_read failed");
 			}
 
@@ -237,7 +237,7 @@ namespace hope {
 						}
 					}
 					catch (...) {
-						LOG_WARN("Failed to parse Keep-Alive timeout value: %s", value.c_str());
+						LOG_WARN("Failed to parse Keep-Alive timeout value: {}", value.c_str());
 					}
 				}
 			}
@@ -262,7 +262,7 @@ namespace hope {
 							continue;
 						}
 						else if (ec) {
-							LOG_ERROR("HttpSocket::KeepAlive timer error: %s", ec.message().c_str());
+							LOG_ERROR("HttpSocket::KeepAlive timer error: {}", ec.message().c_str());
 							break;
 						}
 
@@ -279,7 +279,7 @@ namespace hope {
 					if (self->enableSsl) {
 						boost::system::error_code ec;
 						co_await self->sslStream.async_shutdown(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-						if (ec) LOG_ERROR("HttpSocket SSL async_shutdown failed: %s", ec.message().c_str());
+						if (ec) LOG_ERROR("HttpSocket SSL async_shutdown failed: {}", ec.message().c_str());
 					}
 
 #endif
@@ -288,7 +288,7 @@ namespace hope {
 
 					}, boost::asio::detached);
 
-				LOG_INFO("HttpSocket Keep-Alive Started with timeout: %lld seconds", timeoutSec.count());
+				LOG_INFO("HttpSocket Keep-Alive Started with timeout: {} seconds", timeoutSec.count());
 
 			}
 
@@ -305,7 +305,7 @@ namespace hope {
 				}
 				catch (std::exception& e) {
 
-					LOG_ERROR("HttpSocket asyncRead or postHttpTask or asyncReadKeepAlive Exception: %s", e.what());
+					LOG_ERROR("HttpSocket asyncRead or postHttpTask or asyncReadKeepAlive Exception: {}", e.what());
 
 					self->closeSocket();
 
@@ -337,7 +337,7 @@ namespace hope {
 			co_await boost::beast::http::async_write(tcpStream, httpResponse, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
 			if (ec) {
-				LOG_ERROR("HttpSocket::asyncWrite async_write failed: %s", ec.message().c_str());
+				LOG_ERROR("HttpSocket::asyncWrite async_write failed: {}", ec.message().c_str());
 				co_return false;
 			}
 
@@ -346,7 +346,7 @@ namespace hope {
 			co_await boost::beast::http::async_write(sslStream, httpResponse, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
 			if (ec) {
-				LOG_ERROR("HttpSocket::asyncWrite SSL async_write failed: %s", ec.message().c_str());
+				LOG_ERROR("HttpSocket::asyncWrite SSL async_write failed: {}", ec.message().c_str());
 				co_return false;
 			}
 

@@ -150,12 +150,12 @@ namespace hope {
 
         void WebrtcSignalManager::removeConnection(std::string accountId, std::string sessionId)
         {
-            LOG_INFO("Remove WebrtcSignalSocket Request: Account=%s, SessionId=%s", accountId.c_str(), sessionId.c_str());
+            LOG_INFO("Remove WebrtcSignalSocket Request: Account={}, SessionId={}", accountId.c_str(), sessionId.c_str());
 
             auto it = webrtcSocketMap.find(accountId);
 
             if (it == webrtcSocketMap.end()) {
-                LOG_WARN("Connection already removed or not found: %s", accountId.c_str());
+                LOG_WARN("Connection already removed or not found: {}", accountId.c_str());
                 return;
             }
 
@@ -163,7 +163,7 @@ namespace hope {
 
             if (currentSocket->getSessionId() != sessionId) {
                 LOG_WARN("Race Condition Detected! Ignore remove request. "
-                    "Account: %s, RequestSessionId: %s, CurrentMapSessionId: %s",
+                    "Account: {}, RequestSessionId: {}, CurrentMapSessionId: {}",
                     accountId.c_str(), sessionId.c_str(), currentSocket->getSessionId().c_str());
                 return;
             }
@@ -182,7 +182,7 @@ namespace hope {
 
                     manager->actorSocketMappingIndex.erase(itIndex);
 
-                    LOG_INFO("Global Index Removed: %s", accountId.c_str());
+                    LOG_INFO("Global Index Removed: {}", accountId.c_str());
 
                 }
 
@@ -230,20 +230,20 @@ namespace hope {
 
                         if (e.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !self->acceptor.is_open()) {
 
-                            LOG_INFO("WebrtcSignalManager accept loop exits: %s", e.code().message().c_str());
+                            LOG_INFO("WebrtcSignalManager accept loop exits: {}", e.code().message().c_str());
 
                             break;
 
                         }
 
-                        LOG_WARN("WebrtcSignalManager accept failed, backoff and retry: %s", e.code().message().c_str());
+                        LOG_WARN("WebrtcSignalManager accept failed, backoff and retry: {}", e.code().message().c_str());
 
                         shouldBackoff = true;
 
                     }
                     catch (const std::exception& e) {
 
-                        LOG_ERROR("WebrtcSignalManager accept loop fatal exception: %s", e.what());
+                        LOG_ERROR("WebrtcSignalManager accept loop fatal exception: {}", e.what());
 
                         break;
 
@@ -302,7 +302,7 @@ namespace hope {
 
                         catch (const std::exception& e) {
 
-                            LOG_ERROR("WebrtcSignalManager accept loop unhandled exception: %s", e.what());
+                            LOG_ERROR("WebrtcSignalManager accept loop unhandled exception: {}", e.what());
 
                         }
 
@@ -339,20 +339,20 @@ namespace hope {
 
                                 if (e.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !self->httpAcceptor.is_open()) {
 
-                                    LOG_INFO("WebrtcSignalManager http accept loop exits: %s", e.code().message().c_str());
+                                    LOG_INFO("WebrtcSignalManager http accept loop exits: {}", e.code().message().c_str());
 
                                     break;
 
                                 }
 
-                                LOG_WARN("WebrtcSignalManager http accept failed, backoff and retry: %s", e.code().message().c_str());
+                                LOG_WARN("WebrtcSignalManager http accept failed, backoff and retry: {}", e.code().message().c_str());
 
                                 shouldBackoff = true;
 
                             }
                             catch (const std::exception& e) {
 
-                                LOG_ERROR("WebrtcSignalManager http accept loop fatal exception: %s", e.what());
+                                LOG_ERROR("WebrtcSignalManager http accept loop fatal exception: {}", e.what());
 
                                 break;
 
@@ -390,7 +390,7 @@ namespace hope {
 
                                 catch (const std::exception& e) {
 
-                                    LOG_ERROR("WebrtcSignalManager http accept loop unhandled exception: %s", e.what());
+                                    LOG_ERROR("WebrtcSignalManager http accept loop unhandled exception: {}", e.what());
 
                                 }
 

@@ -1,4 +1,5 @@
 #pragma once
+
 #include <boost/mysql/any_connection.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <memory>

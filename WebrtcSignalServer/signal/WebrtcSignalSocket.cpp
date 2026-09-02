@@ -165,12 +165,12 @@ namespace hope {
 
                 webrtcSignalManager->registerSocket(accountId, shared_from_this());
 
-                LOG_INFO("User Register Successful (HandShake): %s (channelIndex: %d)", accountId.c_str(), webrtcSignalManager->getChannelIndex());
+                LOG_INFO("User Register Successful (HandShake): {} (channelIndex: {})", accountId.c_str(), webrtcSignalManager->getChannelIndex());
 
             }
             catch (const boost::system::system_error& se) {
 
-                LOG_ERROR("WebrtcSignalSocket handshake failed! ERROR: %s", se.what());
+                LOG_ERROR("WebrtcSignalSocket handshake failed! ERROR: {}", se.what());
 
                 closeSocket();
 
@@ -206,7 +206,7 @@ namespace hope {
 
                             }
 
-                            LOG_ERROR("WebrtcSignalSocket Error: %s", e.what());
+                            LOG_ERROR("WebrtcSignalSocket Error: {}", e.what());
 
                         }
                         catch (...) {
@@ -261,7 +261,7 @@ namespace hope {
                 tcpSocket.cancel(ec);
 
                 if (ec) {
-                    LOG_ERROR("WebrtcSignalSocket::closeSocket() cancel failed: %s", ec.message().c_str());
+                    LOG_ERROR("WebrtcSignalSocket::closeSocket() cancel failed: {}", ec.message().c_str());
                 }
 
                 // Force RST close: skip graceful TCP FIN handshake, send RST immediately
@@ -270,14 +270,14 @@ namespace hope {
                 tcpSocket.set_option(lingerOption, ec);
 
                 if (ec) {
-                    LOG_ERROR("WebrtcSignalSocket::closeSocket() set SO_LINGER failed: %s", ec.message().c_str());
+                    LOG_ERROR("WebrtcSignalSocket::closeSocket() set SO_LINGER failed: {}", ec.message().c_str());
                 }
 
                 tcpSocket.close(ec);
 
                 if (ec && ec != boost::asio::error::not_connected) {
 
-                    LOG_ERROR("WebrtcSignalSocket::closeSocket() force close failed: %s", ec.message().c_str());
+                    LOG_ERROR("WebrtcSignalSocket::closeSocket() force close failed: {}", ec.message().c_str());
 
                 }
 
@@ -305,7 +305,7 @@ namespace hope {
 
                 if (deserializeError) {
 
-                    LOG_ERROR("StructPack Parse Error: %s", deserializeError.message().data());
+                    LOG_ERROR("StructPack Parse Error: {}", deserializeError.message().data());
 
                     throw std::runtime_error("StructPack Parse Error");
 
@@ -349,7 +349,7 @@ namespace hope {
             }
             catch (const std::exception& e) {
 
-                LOG_ERROR("writerCoroutine unhandled exception: %s", e.what());
+                LOG_ERROR("writerCoroutine unhandled exception: {}", e.what());
 
                 asyncEvents.store(false);
 

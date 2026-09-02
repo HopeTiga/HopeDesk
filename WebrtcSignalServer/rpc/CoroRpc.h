@@ -115,7 +115,7 @@ namespace hope {
 							std::rethrow_exception(result.getException());
 						}
 						catch (const std::exception& e) {
-							LOG_ERROR("CoroRpc::asyncAwait coroutine exception: %s", e.what());
+							LOG_ERROR("CoroRpc::asyncAwait coroutine exception: {}", e.what());
 						}
 						catch (...) {
 							LOG_ERROR("CoroRpc::asyncAwait coroutine unknown exception");

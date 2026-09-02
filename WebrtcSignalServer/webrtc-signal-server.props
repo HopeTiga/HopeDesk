@@ -2,12 +2,15 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros">
-    <TCMALLOC_AGGRESSIVE_DECOMMIT>true</TCMALLOC_AGGRESSIVE_DECOMMIT>
-    <TCMALLOC_RELEASE_RATE>10.0</TCMALLOC_RELEASE_RATE>
+    <MIMALLOC_PURGE_DELAY>1000</MIMALLOC_PURGE_DELAY>
+    <MIMALLOC_PURGE_DECOMMITS>1</MIMALLOC_PURGE_DECOMMITS>
+    <MIMALLOC_DESTROY_ON_EXIT>1</MIMALLOC_DESTROY_ON_EXIT>
+    <MIMALLOC_SHOW_STATS>1</MIMALLOC_SHOW_STATS>
+    <MIMALLOC_VERBOSE>1</MIMALLOC_VERBOSE>
   </PropertyGroup>
   <PropertyGroup>
-    <IncludePath>D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\coroRpc;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\openssl;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\boost;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\abseil-cpp;$(IncludePath)</IncludePath>
-    <LibraryPath>D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\openssl;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\abseil-cpp;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\boost;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\tcmalloc;$(LibraryPath)</LibraryPath>
+    <IncludePath>D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\mimalloc;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\spdlog;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\coroRpc;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\openssl;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\boost;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\include\abseil-cpp;$(IncludePath)</IncludePath>
+    <LibraryPath>D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\mimalloc;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\openssl;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\abseil-cpp;D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer\lib\boost;$(LibraryPath)</LibraryPath>
     <_PropertySheetDisplayName>webrtc-signal-server</_PropertySheetDisplayName>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -33,23 +36,35 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
-      <PreprocessorDefinitions>BOOST_SAM_HEADER_ONLY;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>SPDLOG_HEADER_ONLY;SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE;BOOST_SAM_HEADER_ONLY;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>libcrypto.lib;libssl.lib;libtcmalloc_minimal.lib;absl_graphcycles_internal.lib;absl_kernel_timeout_internal.lib;absl_synchronization.lib;absl_spinlock_wait.lib;absl_strerror.lib;absl_throw_delegate.lib;absl_tracing_internal.lib;absl_base.lib;absl_log_severity.lib;absl_malloc_internal.lib;absl_poison.lib;absl_raw_logging_internal.lib;absl_scoped_set_env.lib;absl_hashtablez_sampler.lib;absl_raw_hash_set.lib;absl_civil_time.lib;absl_time.lib;absl_time_zone.lib;absl_city.lib;absl_hash.lib;absl_stacktrace.lib;absl_symbolize.lib;absl_utf8_for_code_point.lib;absl_debugging_internal.lib;absl_decode_rust_punycode.lib;absl_demangle_internal.lib;absl_demangle_rust.lib;absl_examine_stack.lib;absl_failure_signal_handler.lib;absl_leak_check.lib;absl_int128.lib;absl_strings.lib;absl_strings_internal.lib;absl_str_format_internal.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <ForceSymbolReferences>__tcmalloc</ForceSymbolReferences>
+      <AdditionalDependencies>mimalloc.dll.lib;libcrypto.lib;libssl.lib;absl_graphcycles_internal.lib;absl_kernel_timeout_internal.lib;absl_synchronization.lib;absl_spinlock_wait.lib;absl_strerror.lib;absl_throw_delegate.lib;absl_tracing_internal.lib;absl_base.lib;absl_log_severity.lib;absl_malloc_internal.lib;absl_poison.lib;absl_raw_logging_internal.lib;absl_scoped_set_env.lib;absl_hashtablez_sampler.lib;absl_raw_hash_set.lib;absl_civil_time.lib;absl_time.lib;absl_time_zone.lib;absl_city.lib;absl_hash.lib;absl_stacktrace.lib;absl_symbolize.lib;absl_utf8_for_code_point.lib;absl_debugging_internal.lib;absl_decode_rust_punycode.lib;absl_demangle_internal.lib;absl_demangle_rust.lib;absl_examine_stack.lib;absl_failure_signal_handler.lib;absl_leak_check.lib;absl_int128.lib;absl_strings.lib;absl_strings_internal.lib;absl_str_format_internal.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ForceSymbolReferences>mi_version</ForceSymbolReferences>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <BuildMacro Include="TCMALLOC_AGGRESSIVE_DECOMMIT">
-      <Value>$(TCMALLOC_AGGRESSIVE_DECOMMIT)</Value>
+    <BuildMacro Include="MIMALLOC_PURGE_DELAY">
+      <Value>$(MIMALLOC_PURGE_DELAY)</Value>
       <EnvironmentVariable>true</EnvironmentVariable>
     </BuildMacro>
-    <BuildMacro Include="TCMALLOC_RELEASE_RATE">
-      <Value>$(TCMALLOC_RELEASE_RATE)</Value>
+    <BuildMacro Include="MIMALLOC_PURGE_DECOMMITS">
+      <Value>$(MIMALLOC_PURGE_DECOMMITS)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+    <BuildMacro Include="MIMALLOC_DESTROY_ON_EXIT">
+      <Value>$(MIMALLOC_DESTROY_ON_EXIT)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+    <BuildMacro Include="MIMALLOC_SHOW_STATS">
+      <Value>$(MIMALLOC_SHOW_STATS)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+    <BuildMacro Include="MIMALLOC_VERBOSE">
+      <Value>$(MIMALLOC_VERBOSE)</Value>
       <EnvironmentVariable>true</EnvironmentVariable>
     </BuildMacro>
   </ItemGroup>
