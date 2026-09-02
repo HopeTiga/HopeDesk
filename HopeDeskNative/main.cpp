@@ -1,3 +1,5 @@
+#include <mimalloc/mimalloc.h>
+
 #include "rtc/MainWindow.h"
 #include <QApplication>
 #include <QSurfaceFormat>
@@ -6,6 +8,8 @@
 
 int main(int argc, char *argv[])
 {
+
+    mi_version();
 
     ConfigManager::Instance().Load();
     bool verticalSyncEnabled = ConfigManager::Instance().GetBool("Render.VSync", false);

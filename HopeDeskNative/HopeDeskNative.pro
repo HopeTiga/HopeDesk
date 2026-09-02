@@ -7,8 +7,11 @@ CONFIG -= debug debug_and_release
 
 RC_ICONS = hope.ico
 
-TCMALLOC_AGGRESSIVE_DECOMMIT = true
-TCMALLOC_RELEASE_RATE = 10.0
+MIMALLOC_PURGE_DELAY = 1000
+MIMALLOC_PURGE_DECOMMITS = 1
+MIMALLOC_DESTROY_ON_EXIT = 1
+MIMALLOC_SHOW_STATS = 1
+MIMALLOC_VERBOSE = 1
 
 win32-msvc* {
 
@@ -123,6 +126,7 @@ win32 {
     INCLUDEPATH += $$PWD/include/nvidia   # NVDEC/NVENC 头(用户稍后恢复 NVDEC 用)
     INCLUDEPATH += $$PWD/include/libgav1
     INCLUDEPATH += $$PWD/include/ylt
+    INCLUDEPATH += $$PWD/include/mimalloc
     INCLUDEPATH += $$PWD/thirdParty
 
     # 包目录(目录名与命名空间一致,include 文件名保持原样靠 INCLUDEPATH 解析)
@@ -140,7 +144,7 @@ win32 {
     LIBS += -L$$PWD/lib/webrtc/
     LIBS += -L$$PWD/lib/openssl/
     LIBS += -L$$PWD/lib/interception/x64/
-    LIBS += -L$$PWD/lib/tcmalloc/
+    LIBS += -L$$PWD/lib/mimalloc/
     LIBS += -L$$PWD/lib/libde265/
     LIBS += -L$$PWD/lib/libgav1/   # libgav1_static(cmake 编译产物)
 
@@ -156,7 +160,7 @@ win32 {
 
     LIBS += -llibssl
 
-    LIBS += -llibtcmalloc_minimal
+    LIBS += $$PWD/lib/mimalloc/mimalloc.dll.lib   # mimalloc 导入库(其 DLL 名带 .dll,-l 形式会拼错后缀,故用全路径)
 
     LIBS += -ld3d11           # D3D11(零拷贝共享纹理/DXVA)
     LIBS += -ldxgi            # DXGI
@@ -183,7 +187,7 @@ win32 {
     LIBS += -lmfuuid          # Media Foundation UUIDs
 
 
-    QMAKE_LFLAGS += /INCLUDE:_tcmalloc
+    QMAKE_LFLAGS += /INCLUDE:mi_version
 
     DEFINES += WIN32_LEAN_AND_MEAN
     DEFINES += NOMINMAX
