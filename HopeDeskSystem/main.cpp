@@ -13,6 +13,8 @@
 
 #include <windows.h>
 
+#include <mimalloc/mimalloc-new-delete.h>
+
 #include <iostream>
 #include <chrono>
 #include <atomic>
@@ -252,6 +254,8 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 }
 
 int main(int argc, char* argv[]) {
+
+    mi_version();
 
     DWORD sessionId = GetCurrentSessionId();
 

@@ -2,18 +2,21 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros">
-    <TCMALLOC_AGGRESSIVE_DECOMMIT>true</TCMALLOC_AGGRESSIVE_DECOMMIT>
-    <TCMALLOC_RELEASE_RATE>10.0</TCMALLOC_RELEASE_RATE>
+    <MIMALLOC_PURGE_DELAY>1000</MIMALLOC_PURGE_DELAY>
+    <MIMALLOC_PURGE_DECOMMITS>1</MIMALLOC_PURGE_DECOMMITS>
+    <MIMALLOC_DESTROY_ON_EXIT>1</MIMALLOC_DESTROY_ON_EXIT>
+    <MIMALLOC_SHOW_STATS>1</MIMALLOC_SHOW_STATS>
+    <MIMALLOC_VERBOSE>1</MIMALLOC_VERBOSE>
   </PropertyGroup>
   <PropertyGroup>
-    <IncludePath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\openssl;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\zako-vdd;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\nvidia;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\interception;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\boost;$(ProjectDir)rtc;$(ProjectDir)rtc\capture;$(ProjectDir)rtc\input;$(ProjectDir)rtc\impl;$(ProjectDir)rtc\factory;$(ProjectDir)rtc\encoder;$(ProjectDir)rtc\buffer;$(ProjectDir)rtc\audio;$(ProjectDir)system;$(ProjectDir)net;$(ProjectDir)utils;$(IncludePath)</IncludePath>
+    <IncludePath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\mimalloc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\openssl;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\zako-vdd;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\nvidia;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\interception;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\include\boost;$(ProjectDir)rtc;$(ProjectDir)rtc\capture;$(ProjectDir)rtc\input;$(ProjectDir)rtc\impl;$(ProjectDir)rtc\factory;$(ProjectDir)rtc\encoder;$(ProjectDir)rtc\buffer;$(ProjectDir)rtc\audio;$(ProjectDir)system;$(ProjectDir)net;$(ProjectDir)utils;$(IncludePath)</IncludePath>
     <LibraryWPath>$(LibraryWPath)</LibraryWPath>
-    <LibraryPath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\openssl;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\zako-vdd;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\tcmalloc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\interception\x64;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\boost;$(LibraryPath)</LibraryPath>
+    <LibraryPath>D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\mimalloc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\openssl;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\zako-vdd;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\x265;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\interception\x64;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\webrtc;D:\cppPro\HopeDeskSystem-version\HopeDeskSystem\lib\boost;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalDependencies>webrtc.lib;ZakoVDD.lib;x265-static.lib;interception.lib;libtcmalloc_minimal.lib;libssl_static.lib;libcrypto_static.lib;ws2_32.lib;mswsock.lib;wtsapi32.lib;d3d11.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;windowscodecs.lib;gdiplus.lib;dwmapi.lib;windowsapp.lib;runtimeobject.lib;userenv.lib;Wtsapi32.lib;Advapi32.lib;winmm.lib;msdmo.lib;dmoguids.lib;wmcodecdspuuid.lib;strmiids.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <ForceSymbolReferences>_tcmalloc</ForceSymbolReferences>
+      <AdditionalDependencies>mimalloc.dll.lib;webrtc.lib;ZakoVDD.lib;x265-static.lib;interception.lib;libssl_static.lib;libcrypto_static.lib;ws2_32.lib;mswsock.lib;wtsapi32.lib;d3d11.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;windowscodecs.lib;gdiplus.lib;dwmapi.lib;windowsapp.lib;runtimeobject.lib;userenv.lib;Wtsapi32.lib;Advapi32.lib;winmm.lib;msdmo.lib;dmoguids.lib;wmcodecdspuuid.lib;strmiids.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ForceSymbolReferences>mi_version</ForceSymbolReferences>
     </Link>
     <ClCompile>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -36,12 +39,24 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <BuildMacro Include="TCMALLOC_AGGRESSIVE_DECOMMIT">
-      <Value>$(TCMALLOC_AGGRESSIVE_DECOMMIT)</Value>
+    <BuildMacro Include="MIMALLOC_PURGE_DELAY">
+      <Value>$(MIMALLOC_PURGE_DELAY)</Value>
       <EnvironmentVariable>true</EnvironmentVariable>
     </BuildMacro>
-    <BuildMacro Include="TCMALLOC_RELEASE_RATE">
-      <Value>$(TCMALLOC_RELEASE_RATE)</Value>
+    <BuildMacro Include="MIMALLOC_PURGE_DECOMMITS">
+      <Value>$(MIMALLOC_PURGE_DECOMMITS)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+    <BuildMacro Include="MIMALLOC_DESTROY_ON_EXIT">
+      <Value>$(MIMALLOC_DESTROY_ON_EXIT)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+    <BuildMacro Include="MIMALLOC_SHOW_STATS">
+      <Value>$(MIMALLOC_SHOW_STATS)</Value>
+      <EnvironmentVariable>true</EnvironmentVariable>
+    </BuildMacro>
+    <BuildMacro Include="MIMALLOC_VERBOSE">
+      <Value>$(MIMALLOC_VERBOSE)</Value>
       <EnvironmentVariable>true</EnvironmentVariable>
     </BuildMacro>
   </ItemGroup>
