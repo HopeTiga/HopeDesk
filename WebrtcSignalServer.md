@@ -35,7 +35,7 @@ WebrtcSignalServer/
 │   ├── WebrtcSignalManager.*     # 单通道:socket 表、actor 路由索引、LogicSystem
 │   ├── WebrtcSignalSocket.*      # WebSocket 连接:握手、收发协程、keepalive
 │   ├── WebrtcLogicSystem.*       # 业务派发:handler 表、过载调度、forward 路由、HTTP 路由
-│   ├── WebrtcSignalPacket.*      # 信令包:socket+WebrtcRequest+requestType
+│   ├── WebrtcSignalPacket.*      # 信令包:socket+整帧packet+信封头 WebrtcEnvelopeView(requestType/state/message/accountId/targetId)
 │   ├── HttpSocket.*              # HTTPS 连接:握手、keep-alive、读写
 │   ├── HttpClient.*              # 出站 HTTP 客户端(对接 Polaris 等服务发现)
 │   ├── HttpFilters.*             # HTTP 鉴权:放行规则(addRule)+全局过滤器(addFilter)
@@ -52,10 +52,24 @@ WebrtcSignalServer/
 │   └── AsyncTransactionGuard.h   # 事务 RAII(START TRANSACTION / COMMIT / ROLLBACK)
 └── utils/
     ├── ConfigManager.h           # ini/json/xml 配置单例(只在 main 用)
-    ├── Utils.h/.cpp              # 日志(LOG_INFO/...)、控制台级别
+    ├── MimallocConfig.h          # mimalloc 配置:默认值 + 读 [Mimalloc] 段 + mi_option_set 注入
+    ├── Utils.h/.cpp              # spdlog 日志:异步线程池 + 控制台/滚动文件 sink + flush_every
     ├── concurrentqueue.h         # moodycamel::ConcurrentQueue(改名 hopeMoodycamel 隔离)
     └── SpinLock.h
 ```
+
+### 2.1 日志（`utils/Utils.*`，基于 spdlog）
+
+整个日志子系统基于 **spdlog**（header-only，内置 fmt）：
+
+- **编译面**：只有 `utils/Utils.cpp` 一个 TU `#include <spdlog/spdlog.h>` 编译完整 spdlog；其余 TU 仅经 `Utils.h` 引入内置 `fmt`（`{}` 占位 + 编译期格式校验）与 `LOG_*` 宏。`SPDLOG_HEADER_ONLY` / `SPDLOG_ACTIVE_LEVEL` 由编译期定义。
+- **异步**：`spdlog::async_logger`（名 `webrtc-signal`），线程池在 `initLogger()` 用 `spdlog::init_thread_pool(queueSize, threadCount)` 创建（两值来自 `[Logger]` 段，须先经 `setLoggerAsyncConfig` 设定）；队列满策略 `overrun_oldest`——丢最旧不阻塞业务线程。
+- **双 sink**：
+  - 控制台 `LevelFilterConsoleSink`（自实现 `base_sink`）：按 `[Logger]` 的 `DEBUG/INFO/WARN/ERROR` 开关 + ANSI 着色。`DEBUG/INFO` 可被开关关掉；`WARN/ERROR` **无条件**打印（关键日志不受开关影响）。
+  - 文件 `rotating_file_sink_mt`：`logs/signal.log`，单文件 `maxFileSizeMB`、保留 `maxFiles` 个（默认 10MB × 5）。
+- **实时落盘**：`spdlog::flush_every(3s)` 周期 flush；`closeLogger()` 里 `logger->flush()` + `spdlog::shutdown()` 冲刷并停掉异步线程池。
+- **宏短路**：`LOG_DEBUG/LOG_INFO` 在调用点先查 `consoleOutputLevels[]` 与 `logToFileEnabled`——控制台与文件都不需要时**连 fmt 格式化都不做**；`LOG_WARN/LOG_ERROR` 无条件执行。
+- **格式**：`[%Y-%m-%d %H:%M:%S.%e][%l] %s:%# %v`（时间毫秒 / 级别 / 文件:行 / 消息）。
 
 ## 3. 整体架构
 
@@ -107,6 +121,8 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
         → 读 [WebrtcSignalServer] 填 WebrtcSignalConfig(构造注入)
         → 读 [CoroRpc]          填 WebrtcSignalConfig.coroRpcServerConfig + enableRpc
         → 读 [Mysql]            填 globalMysqlConfig(全局)
+        → 读 [Logger]           异步线程池队列/线程数 + 控制台级别 + 滚动文件日志
+        → 读 [Mimalloc]         填 MimallocConfig → mi_option_set 注入(编译期,等价 MIMALLOC_* 环境变量)
 ```
 
 两条注入路径：
@@ -123,14 +139,17 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 ### 启动（`main.cpp`）
 
 1. 设置控制台 UTF-8。
-2. `ConfigManager.Load("config.ini")`，`initLogger()`，按 `DEBUG/INFO/WARN/ERROR` 设控制台日志级别。
-3. `initSslContext(certificateFile, privateKeyFile)`（主 WebSocket/HTTP 的 SSL 上下文）。
-4. 组装 `WebrtcSignalConfig`（port/httpPort/enableHttp/enablePublicPort/threadSize/overload/threshold/exitThreshold/asyncThreshold/socketWaitTime + `[CoroRpc]` 子配置）与 `globalMysqlConfig`。
-5. `AsioProactors::init(threadSize)` 启动 worker 线程池。
-6. 构造 `WebrtcSignalServer(ioContext, WebrtcSignalConfig)`（内部 `initialize()` 建 N 个 Manager，每个 Manager 建 LogicSystem+MysqlPool 并 `asyncEvent()`）。
-7. `WebrtcSignalServer->asyncEvent()`：开 accept 协程、全局任务队列排水协程、各 LogicSystem 的 `asyncTaskExecute()`。
-8. `signal_set(SIGINT/SIGTERM).async_wait(...)`。
-9. `ioContext.run()`。
+2. `mi_version()`（强制引用 mimalloc 符号，保证动态库装载）。
+3. `ConfigManager.Load("config.ini")`。
+4. 读 `[Mimalloc]` 段（`loadMimallocConfig`）→ `applyMimallocConfig` 逐项 `mi_option_set`（编译期注入，等价 Windows 侧 `MIMALLOC_*` 环境变量，编进产物，运行时无需再设）。
+5. 读 `[Logger]`：`setLoggerAsyncConfig(queueSize, threadCount)` 建 spdlog 异步线程池 → `initLogger()`（控制台 + rotating 文件 sink，`spdlog::flush_every(3s)` 实时落盘）→ `setConsoleOutputLevels(DEBUG/INFO/WARN/ERROR)` → `setFileLoggingConfig(logToFile/logDirectory/maxFileSizeMB/maxFiles)`。
+6. `initSslContext(certificateFile, privateKeyFile)`（主 WebSocket/HTTP 的 SSL 上下文）。
+7. 组装 `WebrtcSignalConfig`（port/httpPort/enableHttp/enablePublicPort/threadSize/overload/threshold/exitThreshold/asyncThreshold/socketWaitTime + `[CoroRpc]` 子配置）与 `globalMysqlConfig`。
+8. `AsioProactors::init(threadSize)` 启动 worker 线程池。
+9. 构造 `WebrtcSignalServer(ioContext, WebrtcSignalConfig)`（内部 `initialize()` 建 N 个 Manager，每个 Manager 建 LogicSystem+MysqlPool 并 `asyncEvent()`）。
+10. `WebrtcSignalServer->asyncEvent()`：开 accept 协程、全局任务队列排水协程、各 LogicSystem 的 `asyncTaskExecute()`。
+11. `signal_set(SIGINT/SIGTERM).async_wait(...)`。
+12. `ioContext.run()`。
 
 ### 关闭（收到 SIGINT/SIGTERM）
 
@@ -159,7 +178,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 ### 5.2 收发循环
 
 - `asyncEvent()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
-- **revice**：`async_read` → `struct_pack::deserialize_to` 解析到 `WebrtcRequest` → 取 `requestType` → 组装 `WebrtcSignalPacket`（内嵌 `webrtcRequest`）→ `logicSystem->postTask(packet)`。
+- **revice**：`async_read` 读整帧 → `struct_pack::deserialize_to` 只解析信封头到 `webrtcEnvelope`（`WebrtcEnvelopeView`，返回消耗字节数，信封后的 body 留在 `packet`）→ 取 `requestType` → 组装 `WebrtcSignalPacket`（内嵌 `webrtcEnvelope` + 整帧 `packet`）→ `logicSystem->postTask(packet)`。
 - **writer**：从 `AsioConcurrentQueue<std::string>`（moodycamel + sam 信号量）dequeue → `async_write`。`asyncWrite(packet)` 入队。
 - 异常/断开 → `onDisConnectHandle(accountId, sessionId)` → `removeConnection`。
 
@@ -785,7 +804,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 6. **TCP keepalive** 按平台精细调参，及时探活。
 7. **boost::json `monotonic_resource`** arena 分配 HTTP 响应，减少堆分配（信令包已改 struct_pack 二进制帧）。
 8. **过载两级调度 + 503 背压**，防止雪崩。
-9. **构建优化**：clang `-O3 -march=native -flto=thin`、`-ffunction-sections -Wl,--gc-sections -Wl,--icf=all`、tcmalloc、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）、`-MMD -MP` 头依赖。
+9. **构建优化**：clang `-O3 -march=native -mtune=native -flto=thin`、`-ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--icf=all`、mimalloc（`-lmimalloc` 置 LDLIBS 首位做 glibc malloc/free 全局替换 + `-fno-builtin-malloc/calloc/realloc/free`）、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）。
 10. **round-robin accept** 均衡连接到各通道；Linux 下 `SO_REUSEPORT` 多 acceptor 分流。
 
 ---
@@ -806,14 +825,22 @@ privateKeyFile = server.key
 maxTlsHandShakeTime = 3000    ; WebSocket 握手超时 ms
 maxTlsHttpHandShakeTime = 3000 ; HTTP TLS 握手超时 ms
 maxHttpKeepAliveTime = 300    ; HTTP keep-alive 超时 s
-DEBUG = 0                ; 控制台日志级别
-INFO = 1
-WARN = 1
-ERROR = 0
 overload = 256           ; 全局队列容量因子
 threshold = 256          ; 削峰阈值
 exitThreshold = 128
 asyncThreshold = 32
+
+[Logger]
+logToFile = 1            ; 是否写滚动文件日志
+logDirectory = logs      ; 文件日志目录(相对运行目录)
+maxFileSizeMB = 10       ; 单文件滚动上限 MB
+maxFiles = 5             ; 保留文件数
+queueSize = 8192         ; spdlog 异步线程池队列长度
+threadCount = 1          ; 异步消费线程数
+DEBUG = 0                ; 控制台日志级别
+INFO = 1
+WARN = 1
+ERROR = 1
 
 [Mysql]
 host = 127.0.0.1
@@ -842,6 +869,13 @@ enableDoubleSsl = 0      ; 0=单向 TLS,1=mTLS 双向认证
 clientCertFile = server.crt ; 仅 enableDoubleSsl=1 时生效
 clientKeyFile = server.key  ; 仅 enableDoubleSsl=1 时生效
 
+[Mimalloc]
+purgeDelayMs = 1000      ; MIMALLOC_PURGE_DELAY:空闲页 decommit 延迟 ms
+purgeDecommits = 1       ; MIMALLOC_PURGE_DECOMMITS:purge 时归还空闲页
+destroyOnExit = 0        ; MIMALLOC_DESTROY_ON_EXIT:退出期销毁堆(mimalloc 标注 unsafe,保持 0,OS 回收)
+showStats = 0            ; MIMALLOC_SHOW_STATS:退出期打印统计走 CRT printf,退出阶段会崩,保持 0
+verbose = 1              ; MIMALLOC_VERBOSE
+
 [Protect]
 process = WebrtcSignalServer.exe   ; 预留,当前无代码消费
 ```
@@ -853,7 +887,9 @@ make clean && make
 # 产物 release-x64/WebrtcSignalServer,附带拷贝 .so 与符号链接
 ```
 
-- 需要 `include/{openssl,absl,boost,coroRpc}` 与 `lib/{openssl,absl,boost,tcmalloc}`（构建环境准备）。
+- 需要 `include/{mimalloc,spdlog,openssl,abseil-cpp,boost,coroRpc}` 与 `lib/{mimalloc,openssl,abseil-cpp,boost}`（构建环境准备）。
+- mimalloc：`-lmimalloc` 置 LDLIBS 首位全局替换 glibc malloc/free；编译加 `-fno-builtin-malloc/calloc/realloc/free`；头文件走 `-Iinclude/mimalloc`。
+- 链接 `-fuse-ld=lld -flto=thin`，`-Wl,-rpath,'$ORIGIN/../lib/{mimalloc,openssl,abseil-cpp,boost}'`；openssl 与 `libmimalloc.so*` 一并拷入 `release-x64/`。
 - `-Iinclude/coroRpc` 提供 ylt 头。
 - ylt/coro_rpc 为头文件库，无需额外链接库。
 
@@ -861,19 +897,21 @@ make clean && make
 
 ```sh
 cd <含 config.ini + server.crt + server.key 的目录>
-./WebrtcSignalServer
+<WebrtcSignalServer>/release-x64/WebrtcSignalServer
 ```
+
+动态库（openssl/mimalloc）已拷入 `release-x64/` 且 `rpath '$ORIGIN'`，无需 `LD_LIBRARY_PATH`；`config.ini` 从当前工作目录读取。
 
 ### 12.4 客户端协议（信令）
 
 - 连接：`wss://host:8088`，请求头带 `Authorization: <accountId>`（或 `?authorization=<accountId>`）。
-- 握手后帧类型为 **binary**（`webSocket.binary(true)`），载荷为 **struct_pack**（ylt）序列化的二进制信封，非 JSON。
-- 客户端→服务端：`struct_pack::serialize(WebrtcRequest{requestType, accountId, targetId, payload})`。
-- 服务器转发给目标：`struct_pack::serialize(WebrtcResponse{requestType, state=200, message="webrtcSignalServer forward", accountId, targetId, payload})`。
-- 目标未注册：`WebrtcResponse{requestType, state=404, message="TargetId is not register"}`。
-- 过载：`WebrtcResponse{requestType, state=503, message="webrtcSignalServer busy, please retry later"}`。
-- `payload` 承载业务字段（SDP/ICE 等）的 JSON 文本，服务端原样转发、不解析。
-- requestType 4 = 主动断开。
+- 握手后帧类型为 **binary**（`webSocket.binary(true)`），整帧是 **struct_pack（ylt）二进制**，由两部分拼接：
+  - **信封头**：`struct_pack::serialize(WebrtcEnvelope)`。字段顺序固定 `requestType → state → message → accountId → targetId`，客户端 `net/Socket.h` 的 `WebrtcEnvelope` 与服务端 `WebrtcSignalPacket.h` 的 `WebrtcEnvelopeView` 一一对应。
+  - **业务载荷（body）**：信封之后**原样拼接**的字节（SDP/ICE、桌面配置等），对服务器不透明。接收端用 `deserialize_to` 返回的消耗字节数定位信封边界，之后即 body。
+- 客户端→服务端：把 `requestType/accountId/targetId` 填进信封（`state=200`，`message` 留空），业务字段作为 body `append` 在信封后，整体 `struct_pack::serialize(WebrtcEnvelope).append(payload)` 一帧发出；**不再有 JSON 信封**。
+- 服务器转发：路由只用信封的 `requestType/accountId/targetId`，命中目标后把**整帧原样** `asyncWrite` 给目标 socket（信封与 body 均不改写），body 不解析。
+- 目标未登记 / 请求非法 / 过载：服务器回一帧**只有信封头**（无 body）的消息，`state=404/400/503` + `message` 说明（如 `"TargetId is not register"`、`"webrtcSignalServer busy, please retry later"`）。
+- 对端 Native 收到后 `deserialize_to` 解出信封，按 `state` 判断结果、按 `requestType` 走业务；`requestType` 语义见 §5.7。
 
 ### 12.5 运维 HTTP
 
@@ -897,7 +935,8 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 | `WebrtcSignalChannelConfig` | `WebrtcSignalManager.h` | 透传到通道的标量配置 |
 | `CoroRpcServerConfig` | `CoroRpc.h` | RPC 配置 |
 | `MysqlConfig` / `globalMysqlConfig` | `mysql/MysqlConfig.h` | MySQL 全局配置 |
-| `WebrtcSignalPacket` | `WebrtcSignalPacket.h` | 信令包（socket+WebrtcRequest+requestType） |
+| `WebrtcSignalPacket` | `WebrtcSignalPacket.h` | 信令包（socket + 整帧 packet + `WebrtcEnvelopeView` 信封头） |
+| `WebrtcEnvelopeView` | `WebrtcSignalPacket.h` | struct_pack 信封头（`requestType/state/message/accountId/targetId`，string_view 零拷贝视图） |
 | `TaskChannel` | `AwaitableTask.h` | 全局任务队列 |
 | `AsioConcurrentQueue<T>` | `AsioConcurrentQueue.h` | socket 写队列 |
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
@@ -911,7 +950,8 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 
 - ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebrtcSignalConfig` / `WebrtcSignalChannelConfig`），MySQL 走全局 `globalMysqlConfig`。
 - 仓库自带的 moodycamel 副本改名为 `hopeMoodycamel`、宏前缀改为 `HOPE_MOODYCAMEL_*`，避免与 ylt 自带的 moodycamel 撞名并共享 `#ifndef MOODYCAMEL_ALIGNAS` 守卫。升级上游 moodycamel 时需重新套用这两处改名（见 `utils/concurrentqueue.h` 顶部注释）。
-- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；`-MMD -MP` 自动头依赖；`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。
+- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。
+- mimalloc 全局替换（`-lmimalloc` 首位 + ELF 符号抢占）：进程内 malloc/free 全走 mimalloc；`mimalloc-new-delete.h` 覆盖 C++ `new`/`delete`，Linux ELF 下对整进程（含第三方动态库）统一生效，无 Windows 侧跨模块堆错配问题——这正是它**不**放进 Windows Qt 客户端的原因（Windows 按 DLL 各自绑定，只覆盖 exe 会产生 Qt DLL ↔ exe 的 new/delete 错配崩溃）。
 - CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
 - HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
 - MySQL 连接池每通道建好，handler 暂无 SQL 调用；`AsyncTransactionGuard` 析构不自动回滚，需显式 `commit()` / `asyncRollback()`。
