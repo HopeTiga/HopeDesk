@@ -16,6 +16,8 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <atomic>
+#include <vector>
 #include <string>
 
 #ifdef _WIN32
@@ -74,9 +76,7 @@ protected:
         int idx = levelIndex(msg.level);
         if (idx < 0) return;
 
-        if (msg.level != spdlog::level::warn && msg.level != spdlog::level::err) {
-            if (consoleOutputLevels[idx] == 0) return;   // 该级别控制台被关闭
-        }
+        if (consoleOutputLevels[idx] == 0) return;   // 屏幕是否输出一律看配置（warn/error 同样受控）
 
         spdlog::memory_buf_t formatted;
         this->formatter_->format(msg, formatted);
@@ -95,10 +95,13 @@ protected:
 
 // ---------- 日志器状态 ----------
 static std::string logDir = "logs";
-static std::mutex loggerMutex;
-static std::shared_ptr<spdlog::logger> logger;
+static std::mutex loggerMutex;                       // 只保护 初始化/重建/关闭，热路径不碰
+static std::shared_ptr<spdlog::logger> logger;       // 最新 logger（重建时换出保活用）
 static std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> fileSink;
+static std::atomic<spdlog::logger*> activeLogger{ nullptr };          // 热路径裸指针，logMessage 只读它
+static std::vector<std::shared_ptr<spdlog::logger>> retiredLoggers;   // 保活换出的旧 logger：在途 logMessage 可能仍握着它的裸指针
 
+// 调用方必须已持有 loggerMutex
 static void buildLogger() {
     std::shared_ptr<LevelFilterConsoleSink> consoleSink = std::make_shared<LevelFilterConsoleSink>();
     consoleSink->set_level(spdlog::level::trace);   // 过滤交给开关数组
@@ -107,6 +110,11 @@ static void buildLogger() {
     fileSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, maxFileSizeBytes, maxFileCount);
     fileSink->set_level(logToFileEnabled != 0 ? spdlog::level::trace : spdlog::level::off);
 
+    if (logger) {
+        // 旧 logger 换出后只保活不析构：此刻可能有线程已加载它的裸指针、正要去 log()
+        retiredLoggers.push_back(std::move(logger));
+    }
+
     logger = std::make_shared<spdlog::async_logger>(
         "webrtc-signal",
         spdlog::sinks_init_list{ consoleSink, fileSink },
@@ -114,6 +122,8 @@ static void buildLogger() {
         spdlog::async_overflow_policy::overrun_oldest);
     logger->set_level(spdlog::level::trace);        // 级别过滤交给各 sink
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e][%l] %s:%# %v");
+
+    activeLogger.store(logger.get(), std::memory_order_release);   // 发布新 logger，热路径原子可见
 
     spdlog::flush_every(std::chrono::seconds(3));
 
@@ -133,7 +143,8 @@ void closeLogger() {
     if (!logger) return;
     logger->flush();                                // 等待待写消息落地
     spdlog::shutdown();                             // 冲刷并停掉异步线程池
-    logger.reset();
+    activeLogger.store(nullptr, std::memory_order_release);   // 置空热路径指针，之后的 logMessage 直接秒退
+    retiredLoggers.push_back(std::move(logger));    // 保活当前 logger：在途 logMessage 可能仍握着它的裸指针
 }
 
 void enableFileLogging(int enable) {
@@ -161,8 +172,7 @@ void setFileLoggingConfig(int enable, const char* directory, int maxFileSizeMB, 
     if (logger) {
         // 大小/目录变化需重建轮转 sink（旧 sink 持有已打开的文件句柄）
         logger->flush();
-        logger.reset();
-        spdlog::drop("webrtc-signal");
+        spdlog::drop("webrtc-signal");              // 从注册表移除旧名字；旧 logger 交给 buildLogger 退休保活
         buildLogger();
     }
 }
@@ -181,19 +191,15 @@ void setLogDirectory(const char* dir) {
     if (logger) {
         // 切换目录需重建文件 sink（旧 sink 持有已打开的文件句柄）
         logger->flush();
-        logger.reset();
-        spdlog::drop("webrtc-signal");
+        spdlog::drop("webrtc-signal");              // 从注册表移除旧名字；旧 logger 交给 buildLogger 退休保活
         buildLogger();
     }
 }
 
 // ---------- 日志入口（宏 → fmt 格式化后到此）----------
 void hope::log::logMessage(LogLevel level, const char* file, int line, const std::string& message) {
-    std::shared_ptr<spdlog::logger> currentLogger;
-    {
-        std::lock_guard<std::mutex> lock(loggerMutex);
-        currentLogger = logger;
-    }
+    // 热路径只做一次裸指针 acquire-load：不碰锁、不拷贝 shared_ptr
+    spdlog::logger* currentLogger = activeLogger.load(std::memory_order_acquire);
     if (!currentLogger) return;                     // closeLogger 之后安全丢弃
     currentLogger->log(spdlog::source_loc{ file, line, "" }, toSpdlogLevel(level), "{}", message);
 }

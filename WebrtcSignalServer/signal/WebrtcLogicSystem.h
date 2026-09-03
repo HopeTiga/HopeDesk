@@ -119,7 +119,7 @@ namespace hope {
 
 							if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
 
-								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket->shared_from_this();
+								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
 								bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
 
@@ -223,7 +223,7 @@ namespace hope {
 
 							if (localTaskQueueSize.load() >= threshold.load() && webrtcValueLogicHandlers[type]) {
 
-								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket->shared_from_this();
+								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
 								bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
 

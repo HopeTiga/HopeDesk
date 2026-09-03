@@ -38,17 +38,17 @@ int main() {
     setLoggerAsyncConfig(configManager.GetInt("Logger.queueSize", 8192)
         , configManager.GetInt("Logger.threadCount", 1));
 
+    setFileLoggingConfig(configManager.GetInt("Logger.logToFile", 1)
+        , configManager.GetString("Logger.logDirectory", "logs").c_str()
+        , configManager.GetInt("Logger.maxFileSizeMB", 10)
+        , configManager.GetInt("Logger.maxFiles", 5));
+
     initLogger();
 
     setConsoleOutputLevels(configManager.GetInt("Logger.DEBUG")
         , configManager.GetInt("Logger.INFO")
         , configManager.GetInt("Logger.WARN")
         , configManager.GetInt("Logger.ERROR"));
-
-    setFileLoggingConfig(configManager.GetInt("Logger.logToFile", 1)
-        , configManager.GetString("Logger.logDirectory", "logs").c_str()
-        , configManager.GetInt("Logger.maxFileSizeMB", 10)
-        , configManager.GetInt("Logger.maxFiles", 5));
 
     std::string certificateFile = configManager.GetString("WebrtcSignalServer.certificateFile");
 

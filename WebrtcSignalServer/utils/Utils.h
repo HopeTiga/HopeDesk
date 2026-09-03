@@ -69,9 +69,9 @@ inline void logMessage(LogLevel level, const char* file, int line,
 // 便捷宏定义（fmt 风格：{} 占位符，级别过滤前置：被关闭的级别连格式化都不做）
 #define LOG_DEBUG(...) do { if (consoleOutputLevels[LOG_LEVEL_DEBUG] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_DEBUG, __FILE__, __LINE__, __VA_ARGS__); } while(0)
 #define LOG_INFO(...)  do { if (consoleOutputLevels[LOG_LEVEL_INFO]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_INFO,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
-// 错误/警告无条件记录并打到控制台（关键日志，不受级别开关影响）
-#define LOG_WARN(...)  do { hope::log::logMessage(LOG_LEVEL_WARN,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
-#define LOG_ERROR(...) do { hope::log::logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, __VA_ARGS__); } while(0)
+// warn/error 与 debug/info 同级受控：屏幕是否输出看 consoleOutputLevels，文件是否输出看 logToFileEnabled
+#define LOG_WARN(...)  do { if (consoleOutputLevels[LOG_LEVEL_WARN]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_WARN,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
+#define LOG_ERROR(...) do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, __VA_ARGS__); } while(0)
 
 #define LOG_INFO_PLAIN(...)  LOG_INFO(__VA_ARGS__)
 #define LOG_WARN_PLAIN(...)  LOG_WARN(__VA_ARGS__)
