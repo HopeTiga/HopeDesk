@@ -17,7 +17,6 @@
 #include <memory>
 #include <mutex>
 #include <atomic>
-#include <vector>
 #include <string>
 
 #ifdef _WIN32
@@ -93,27 +92,18 @@ protected:
     }
 };
 
-// ---------- 日志器状态 ----------
 static std::string logDir = "logs";
-static std::mutex loggerMutex;                       // 只保护 初始化/重建/关闭，热路径不碰
-static std::shared_ptr<spdlog::logger> logger;       // 最新 logger（重建时换出保活用）
-static std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> fileSink;
-static std::atomic<spdlog::logger*> activeLogger{ nullptr };          // 热路径裸指针，logMessage 只读它
-static std::vector<std::shared_ptr<spdlog::logger>> retiredLoggers;   // 保活换出的旧 logger：在途 logMessage 可能仍握着它的裸指针
+static std::shared_ptr<spdlog::logger> logger;       // 进程期唯一 logger，保活到进程退出
+static std::atomic<spdlog::logger*> activeLogger{ nullptr };   // 热路径裸指针：initLogger 置一次，closeLogger 置空
 
-// 调用方必须已持有 loggerMutex
 static void buildLogger() {
     std::shared_ptr<LevelFilterConsoleSink> consoleSink = std::make_shared<LevelFilterConsoleSink>();
     consoleSink->set_level(spdlog::level::trace);   // 过滤交给开关数组
 
     std::string filePath = logDir + "/signal.log";
-    fileSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, maxFileSizeBytes, maxFileCount);
+    std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> fileSink =
+        std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, maxFileSizeBytes, maxFileCount);
     fileSink->set_level(logToFileEnabled != 0 ? spdlog::level::trace : spdlog::level::off);
-
-    if (logger) {
-        // 旧 logger 换出后只保活不析构：此刻可能有线程已加载它的裸指针、正要去 log()
-        retiredLoggers.push_back(std::move(logger));
-    }
 
     logger = std::make_shared<spdlog::async_logger>(
         "webrtc-signal",
@@ -123,36 +113,28 @@ static void buildLogger() {
     logger->set_level(spdlog::level::trace);        // 级别过滤交给各 sink
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e][%l] %s:%# %v");
 
-    activeLogger.store(logger.get(), std::memory_order_release);   // 发布新 logger，热路径原子可见
+    activeLogger.store(logger.get(), std::memory_order_release);   // 发布唯一 logger，热路径原子可见
 
     spdlog::flush_every(std::chrono::seconds(3));
 
     spdlog::set_default_logger(logger);
 }
 
-// ---------- 公开接口 ----------
 void initLogger() {
-    std::lock_guard<std::mutex> lock(loggerMutex);
-    if (logger) return;                             // 幂等
+    if (logger) return;                             // 幂等；启动期单线程调用，无需加锁
     spdlog::init_thread_pool(loggerQueueSize, loggerThreadCount);   // 队列长度与消费线程数来自 config.ini
     buildLogger();
 }
 
 void closeLogger() {
-    std::lock_guard<std::mutex> lock(loggerMutex);
     if (!logger) return;
     logger->flush();                                // 等待待写消息落地
+    activeLogger.store(nullptr, std::memory_order_release);         // 先摘热路径指针，之后的 logMessage 直接秒退
     spdlog::shutdown();                             // 冲刷并停掉异步线程池
-    activeLogger.store(nullptr, std::memory_order_release);   // 置空热路径指针，之后的 logMessage 直接秒退
-    retiredLoggers.push_back(std::move(logger));    // 保活当前 logger：在途 logMessage 可能仍握着它的裸指针
 }
 
 void enableFileLogging(int enable) {
     logToFileEnabled = enable;
-    std::lock_guard<std::mutex> lock(loggerMutex);
-    if (fileSink) {
-        fileSink->set_level(enable != 0 ? spdlog::level::trace : spdlog::level::off);
-    }
 }
 
 void setConsoleOutputLevels(int debug, int info, int warn, int error) {
@@ -162,44 +144,25 @@ void setConsoleOutputLevels(int debug, int info, int warn, int error) {
     consoleOutputLevels[LOG_LEVEL_ERROR] = error;
 }
 
-// 一次性应用 config.ini [Logger] 段：文件日志开关、目录、单文件大小(MB)、轮转个数
 void setFileLoggingConfig(int enable, const char* directory, int maxFileSizeMB, int fileCount) {
-    std::lock_guard<std::mutex> lock(loggerMutex);
     logToFileEnabled = enable;
     if (directory != nullptr && directory[0] != '\0') logDir = directory;
     if (maxFileSizeMB > 0) maxFileSizeBytes = static_cast<size_t>(maxFileSizeMB) * 1024 * 1024;
     if (fileCount > 0) maxFileCount = fileCount;
-    if (logger) {
-        // 大小/目录变化需重建轮转 sink（旧 sink 持有已打开的文件句柄）
-        logger->flush();
-        spdlog::drop("webrtc-signal");              // 从注册表移除旧名字；旧 logger 交给 buildLogger 退休保活
-        buildLogger();
-    }
 }
 
-// 应用 config.ini [Logger] 段的异步配置：队列长度、消费线程数
-// 线程池在 initLogger() 时创建，所以该函数必须在 initLogger() 之前调用
 void setLoggerAsyncConfig(int queueSize, int threadCount) {
-    std::lock_guard<std::mutex> lock(loggerMutex);
     if (queueSize > 0) loggerQueueSize = static_cast<size_t>(queueSize);
     if (threadCount > 0) loggerThreadCount = static_cast<size_t>(threadCount);
 }
 
 void setLogDirectory(const char* dir) {
-    std::lock_guard<std::mutex> lock(loggerMutex);
     logDir = dir ? dir : "logs";
-    if (logger) {
-        // 切换目录需重建文件 sink（旧 sink 持有已打开的文件句柄）
-        logger->flush();
-        spdlog::drop("webrtc-signal");              // 从注册表移除旧名字；旧 logger 交给 buildLogger 退休保活
-        buildLogger();
-    }
 }
 
-// ---------- 日志入口（宏 → fmt 格式化后到此）----------
+// ---------- 日志入口（宏 → fmt 格式化后到此；被关闭的级别在宏处短路，进不来）----------
 void hope::log::logMessage(LogLevel level, const char* file, int line, const std::string& message) {
-    // 热路径只做一次裸指针 acquire-load：不碰锁、不拷贝 shared_ptr
     spdlog::logger* currentLogger = activeLogger.load(std::memory_order_acquire);
-    if (!currentLogger) return;                     // closeLogger 之后安全丢弃
+    if (!currentLogger) return;            
     currentLogger->log(spdlog::source_loc{ file, line, "" }, toSpdlogLevel(level), "{}", message);
 }
