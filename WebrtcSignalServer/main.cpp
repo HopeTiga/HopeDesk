@@ -61,7 +61,7 @@ int main() {
     webrtcSignalConfig.enableHttp = configManager.GetInt("WebrtcSignalServer.enableHttp");
     webrtcSignalConfig.httpPort = configManager.GetInt("WebrtcSignalServer.httpPort");
     webrtcSignalConfig.enablePublicPort = configManager.GetInt("WebrtcSignalServer.enablePublicPort");
-    webrtcSignalConfig.threadSize = configManager.GetSize("WebrtcSignalServer.size");
+    webrtcSignalConfig.threadSize = configManager.GetSize("WebrtcSignalServer.threadSize");
     webrtcSignalConfig.overload = configManager.GetInt("WebrtcSignalServer.overload");
     webrtcSignalConfig.threshold = configManager.GetInt("WebrtcSignalServer.threshold");
     webrtcSignalConfig.exitThreshold = configManager.GetInt("WebrtcSignalServer.exitThreshold");

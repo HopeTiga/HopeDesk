@@ -62,6 +62,103 @@ namespace hope {
             return ioContext;
         }
 
+        void WebrtcLogicSystem::postTask(WebrtcSignalPacket webrtcSignalPacket)
+        {
+
+            int type = webrtcSignalPacket.webrtcEnvelope.requestType;
+
+            absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>>::iterator iterator = this->webrtcHandlers.find(type);
+
+            if (iterator != this->webrtcHandlers.end()) {
+
+                absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>& func = iterator->second;
+
+                if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
+
+                    std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
+
+                    bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]()mutable -> boost::asio::awaitable<void> {
+
+                        try {
+
+                            co_await func(std::move(webrtcSignalPacket));
+
+                        }
+                        catch (const std::exception& e) {
+
+                            LOG_ERROR("WebrtcLogicSystem postTask task exception: {}", e.what());
+
+                        }
+                        catch (...) {
+
+                            LOG_ERROR("WebrtcLogicSystem postTask task unknown exception");
+
+                        }
+
+                        co_return;
+
+                        });
+
+                    if (!success) {
+
+                        WebrtcEnvelopeView env;
+
+                        env.requestType = type;
+
+                        env.state = 503;
+
+                        env.message = "webrtcSignalServer busy, please retry later";
+
+                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
+
+                    }
+
+                }
+                else {
+
+                    localTaskQueueSize.fetch_add(1);
+
+                    boost::asio::co_spawn(ioContext, [type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
+
+                        co_await func(std::move(webrtcSignalPacket));
+
+                        },
+                        [this](std::exception_ptr exception) mutable {
+
+                            if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
+
+                                asyncTaskExecute();
+
+                            }
+
+                            if (exception) {
+
+                                try {
+
+                                    std::rethrow_exception(exception);
+
+                                }
+                                catch (const std::exception& e) {
+
+                                    LOG_ERROR("WebrtcLogicSystem postTask co_spawn Exception: {}", e.what());
+
+                                }
+
+                            }
+
+                        });
+
+                }
+
+            }
+            else {
+
+                LOG_ERROR("Unknown Webrtc Request Type: {}", type);
+
+            }
+
+        }
+
         WebrtcLogicSystem::~WebrtcLogicSystem() {
 
             closeEvent();

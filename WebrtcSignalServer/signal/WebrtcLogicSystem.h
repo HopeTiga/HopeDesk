@@ -97,8 +97,10 @@ namespace hope {
 
 			};
 
+			void postTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket);
+
 			template <typename CompletionToken = CompletionPostTask>
-			auto postTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token = CompletionToken{})
+			auto postTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token)
 				-> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::return_type
 			{
 
