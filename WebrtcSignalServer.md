@@ -188,21 +188,26 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 ### 5.4 业务派发与过载（`WebrtcLogicSystem`）
 
-`postTask(packet)`：
+消息派发原语，`revice` 每帧调用一次。两个重载，共用同一套派发/削峰逻辑：
+
+- `postTask(packet)`——**普通 fire-and-forget 版**，revice 热路径实际走它。没有 completion-token 全套机制（无 `make_shared<handler>`、无 `async_initiate`、无 `associated_executor` 搬运），handler 抛出的异常就地 LOG。
+- `postTask(packet, token)`——**completion-token 版**（模板）。token 无默认实参、必须显式传（传 `boost::asio::use_awaitable` 可 `co_await` 拿完成/异常），内部保留 `async_initiate` 等机制。当前无调用方，为将来需要协程语义的派发预留。
+
+派发逻辑（两版一致）：
 
 ```
 handler = WebrtcHandlers[requestType]
 若找不到 → LOG_ERROR "Unknown Request Type"
 找到:
-  taskQueueSize++
-  if taskQueueSize>=threshold && localTaskQueueSize>=threshold && WebrtcLogicHandlers[type]==true:
-      走全局队列: taskQueues.enqueue(lambda)  // 削峰
-      失败(队列满) → taskQueueSize--, 回 503 busy
+  if localTaskQueueSize>=threshold && WebrtcLogicHandlers[type]==true:
+      走全局队列: taskQueues.enqueue(lambda)  // 削峰,跨通道并行
+      失败(队列满) → 向源 socket 回 503 busy
   else:
       localTaskQueueSize++
-      co_spawn(本通道 io, func(packet))       // 快路径,本线程就地跑
-      完成回调: taskQueueSize--, localTaskQueueSize--,
-               若 localTaskQueueSize 回落到 asyncThreshold+1 → 重启 asyncTaskExecute()
+      co_spawn(本通道 io, func(packet))       // 快路径,贴连接所在线程跑
+      完成回调: localTaskQueueSize--
+               若回落到 asyncThreshold+1 → 重启 asyncTaskExecute()
+               有异常 → 普通版就地 LOG;token 版经 completion handler 传播
 ```
 
 - 值返回的兄弟原语 `coPostTask(packet)` 走 `webrtcValueHandlers[type]`，同队列/削峰逻辑，但 handler 返回 `awaitable<boost::json::value>`，最终以 `void(std::exception_ptr, json)` 回调值（或经默认 token `CompletionCoPostTask` 只记异常）。
@@ -804,7 +809,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 6. **TCP keepalive** 按平台精细调参，及时探活。
 7. **boost::json `monotonic_resource`** arena 分配 HTTP 响应，减少堆分配（信令包已改 struct_pack 二进制帧）。
 8. **过载两级调度 + 503 背压**，防止雪崩。
-9. **构建优化**：clang `-O3 -march=native -mtune=native -flto=thin`、`-ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--icf=all`、mimalloc（`-lmimalloc` 置 LDLIBS 首位做 glibc malloc/free 全局替换 + `-fno-builtin-malloc/calloc/realloc/free`）、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）。
+9. **构建优化**：clang `-O3 -march=x86-64-v3 -flto=thin`、`-ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--icf=all`、mimalloc（`-lmimalloc` 置 LDLIBS 首位做 glibc malloc/free 全局替换 + `-fno-builtin-malloc/calloc/realloc/free`）、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）。**不用 `-march=native`**：会把构建机专属指令（如 AVX-512）编进产物，换到无该指令的 CPU 上启动即 `Illegal instruction`（实测过）；`x86-64-v3`（AVX2）兼容 ~2015 年后全部 x86-64，纯可移植则改 `x86-64`。
 10. **round-robin accept** 均衡连接到各通道；Linux 下 `SO_REUSEPORT` 多 acceptor 分流。
 
 ---
@@ -889,7 +894,8 @@ make clean && make
 
 - 需要 `include/{mimalloc,spdlog,openssl,abseil-cpp,boost,coroRpc}` 与 `lib/{mimalloc,openssl,abseil-cpp,boost}`（构建环境准备）。
 - mimalloc：`-lmimalloc` 置 LDLIBS 首位全局替换 glibc malloc/free；编译加 `-fno-builtin-malloc/calloc/realloc/free`；头文件走 `-Iinclude/mimalloc`。
-- 链接 `-fuse-ld=lld -flto=thin`，`-Wl,-rpath,'$ORIGIN/../lib/{mimalloc,openssl,abseil-cpp,boost}'`；openssl 与 `libmimalloc.so*` 一并拷入 `release-x64/`。
+- 链接 `-fuse-ld=lld -flto=thin`，`-Wl,-rpath,'$ORIGIN/../lib/{mimalloc,openssl,abseil-cpp,boost}'`。
+- 产物自包含：openssl（`libcrypto.so.3`/`libssl.so.3`）单独拷入 `release-x64/`；mimalloc/boost/abseil 中**实际链接为共享库**的那些 `.so*`（目录里 `.a` 与 `.so` 都有时链接取 `.so`，仅有 `.a` 的不构成运行时依赖、不拷）由 makefile 从 `-l` 清单反推后一并拷入 `release-x64/`——新增链接库无需再改拷贝步骤。
 - `-Iinclude/coroRpc` 提供 ylt 头。
 - ylt/coro_rpc 为头文件库，无需额外链接库。
 
@@ -900,7 +906,7 @@ cd <含 config.ini + server.crt + server.key 的目录>
 <WebrtcSignalServer>/release-x64/WebrtcSignalServer
 ```
 
-动态库（openssl/mimalloc）已拷入 `release-x64/` 且 `rpath '$ORIGIN'`，无需 `LD_LIBRARY_PATH`；`config.ini` 从当前工作目录读取。
+所用动态库已全部拷入 `release-x64/`（openssl/mimalloc 直接拷；boost/abseil 拷 `-l` 清单反推出的 `.so*`），`rpath '$ORIGIN'` 即可加载，无需 `LD_LIBRARY_PATH`；只带 `release-x64/` 一个目录即可运行。`config.ini` 从当前工作目录读取。
 
 ### 12.4 客户端协议（信令）
 
@@ -950,7 +956,7 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 
 - ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebrtcSignalConfig` / `WebrtcSignalChannelConfig`），MySQL 走全局 `globalMysqlConfig`。
 - 仓库自带的 moodycamel 副本改名为 `hopeMoodycamel`、宏前缀改为 `HOPE_MOODYCAMEL_*`，避免与 ylt 自带的 moodycamel 撞名并共享 `#ifndef MOODYCAMEL_ALIGNAS` 守卫。升级上游 moodycamel 时需重新套用这两处改名（见 `utils/concurrentqueue.h` 顶部注释）。
-- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。
+- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。分发拷贝由 `MIMALLOC_SHARED/BOOST_SHARED/ABSL_SHARED` 按 `-l` 清单反推（`foreach`+`patsubst -l%,lib%.so*`+`wildcard`，仅有 `.a` 的库匹配不到即自动跳过），openssl 单独 `cp libcrypto.so.3 libssl.so.3`，链接规则里一条 `for` 循环统一拷入 `release-x64/`。
 - mimalloc 全局替换（`-lmimalloc` 首位 + ELF 符号抢占）：进程内 malloc/free 全走 mimalloc；`mimalloc-new-delete.h` 覆盖 C++ `new`/`delete`，Linux ELF 下对整进程（含第三方动态库）统一生效，无 Windows 侧跨模块堆错配问题——这正是它**不**放进 Windows Qt 客户端的原因（Windows 按 DLL 各自绑定，只覆盖 exe 会产生 Qt DLL ↔ exe 的 new/delete 错配崩溃）。
 - CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
 - HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
