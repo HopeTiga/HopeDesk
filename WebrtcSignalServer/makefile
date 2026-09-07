@@ -11,6 +11,7 @@ CXXFLAGS += -w
 # mimalloc 全局替换 malloc/free:防止编译器按 glibc builtin 语义内联/改写分配调用
 CXXFLAGS += -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
 CXXFLAGS += -DBOOST_ASIO_HAS_IO_URING
+CXXFLAGS += -DBOOST_ASIO_DISABLE_EPOLL
 CXXFLAGS += -DBOOST_SAM_HEADER_ONLY
 # spdlog header-only + 内置 fmt(与 Windows 侧 props 一致)
 CXXFLAGS += -DSPDLOG_HEADER_ONLY
