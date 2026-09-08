@@ -2,6 +2,10 @@
 
 #include <future>
 
+#include <vector>
+
+#include <cstdlib>
+
 #include <ylt/struct_pack.hpp>
 
 #include <boost/uuid/uuid.hpp>
@@ -328,6 +332,103 @@ bool WebrtcManager::initializePeerConnection()
     return true;
 }
 
+void WebrtcManager::addSrflxProbeCandidates(const std::string& candidate,
+                                            const std::string& mid, int lineIndex) {
+
+    std::vector<std::string> tokens;
+
+    size_t start = 0;
+
+    while (start <= candidate.size()) {
+
+        size_t space = candidate.find(' ', start);
+
+        if (space == std::string::npos) {
+
+            space = candidate.size();
+
+        }
+
+        if (space > start) {
+
+            tokens.emplace_back(candidate.substr(start, space - start));
+
+        }
+
+        start = space + 1;
+
+    }
+
+    if (tokens.size() < 8 || tokens[2] != "udp" || tokens[6] != "typ" || tokens[7] != "srflx") {
+
+        return;
+
+    }
+
+    int basePort = std::atoi(tokens[5].c_str());
+
+    if (basePort < 2 || basePort > 65534) {
+
+        LOG_WARN("Skip: bad basePort=%d", basePort);
+
+        return;
+
+    }
+
+    const int probeWindow = 8;
+
+    for (int delta = 1; delta <= probeWindow; ++delta) {
+
+        for (int offset : { basePort - delta, basePort + delta }) {
+
+            if (offset < 1 || offset > 65535) {
+
+                continue;
+
+            }
+
+            std::vector<std::string> probeTokens = tokens;
+
+            probeTokens[0] = "candidate:probe" + std::to_string(offset);
+
+            probeTokens[5] = std::to_string(offset);
+
+            std::string probeLine;
+
+            for (size_t i = 0; i < probeTokens.size(); ++i) {
+
+                if (i) {
+
+                    probeLine += ' ';
+
+                }
+
+                probeLine += probeTokens[i];
+
+            }
+
+            webrtc::SdpParseError error;
+
+            std::unique_ptr<webrtc::IceCandidateInterface> probe(
+                webrtc::CreateIceCandidate(mid, lineIndex, probeLine, &error));
+
+            if (!probe) {
+
+                LOG_ERROR("CreateIceCandidate FAILED: %s", error.description.c_str());
+
+            }
+            else {
+
+                peerConnection->AddIceCandidate(probe.release());
+
+            }
+
+        }
+
+    }
+
+}
+
 void WebrtcManager::asyncWrite(std::shared_ptr<WriterData> writerData){
     if (tcpSocket) {
         tcpSocket->asyncWrite(std::move(writerData));
@@ -556,6 +657,8 @@ void WebrtcManager::handleSignalMessage(std::string str)
                             if (!success) {
                                 LOG_ERROR("Failed to add ICE candidate");
                             }
+
+                            addSrflxProbeCandidates(candidateStr, mid, mlineIndex);
 
                         } else {
                             LOG_ERROR("PeerConnection is null, cannot add ICE candidate");
@@ -1274,9 +1377,9 @@ void WebrtcManager::sendKeyComboCtrlAltF()
     // Ctrl↓ Alt↓ F↓ F↑ Alt↑ Ctrl↑ 即可让对端 OS 收到 Ctrl+Alt+F 组合。
     struct Step { short type; DWORD vk; };
     const Step steps[] = {
-        {3, VK_CONTROL}, {3, VK_MENU}, {3, static_cast<DWORD>('F')},
-        {4, static_cast<DWORD>('F')}, {4, VK_MENU}, {4, VK_CONTROL},
-    };
+                           {3, VK_CONTROL}, {3, VK_MENU}, {3, static_cast<DWORD>('F')},
+                           {4, static_cast<DWORD>('F')}, {4, VK_MENU}, {4, VK_CONTROL},
+                           };
     for (const auto& s : steps) {
         KeyButton* pkt = new KeyButton{s.type, s.vk, 0};
         writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(KeyButton));

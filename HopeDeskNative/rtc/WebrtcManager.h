@@ -291,6 +291,8 @@ private:
 
     void handleSystemDisconnect();
 
+    void addSrflxProbeCandidates(const std::string& candidate, const std::string& mid, int lineIndex);
+
 public:
 
     std::atomic<bool> relativeMouseMode{false};
