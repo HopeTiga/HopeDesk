@@ -459,14 +459,14 @@ void WebrtcManager::disConnectRemote()
     if(onResetCursorHandle) onResetCursorHandle();
 
     boost::asio::post(ioContext, [self = shared_from_this()]() {
-        self->cancelRequestTimeout();     // 主动断开:取消挂起的看门狗,防止连接结束后幽灵 teardown
+        self->cancelRequestTimeout();
         self->closeTcpSocket();
-        self->releaseSource();            // 含 closeTcpSocket(此时已 null)+ 停服务
+        self->releaseSource();
         self->initializePeerConnection();
         if (self->webSocket && self->webSocket->isOpen()) {
             WebrtcEnvelope webrtcEnvelope;
             webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::STOPREMOTE);
-            webrtcEnvelope.state = 200;   // 接收端按 state==200 处理;body 为空:STOPREMOTE 无业务载荷
+            webrtcEnvelope.state = 200;
             webrtcEnvelope.accountId = self->accountId;
             webrtcEnvelope.targetId = self->targetId;
             self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope));
@@ -495,6 +495,7 @@ void WebrtcManager::disConnectRemoteHandler()
         self->releaseSource();
         self->initializePeerConnection();
         if (self->isRemote.load()) {
+            self->setOnVideoFrameHanlder(nullptr);
             if (self->onDisConnectRemoteHandle) self->onDisConnectRemoteHandle();
         } else {
             if (self->onRemoteFailedHandle) self->onRemoteFailedHandle();
@@ -740,6 +741,8 @@ void WebrtcManager::handleSignalServerDisconnect()
     }
 
     isRemote = false;
+
+    setOnVideoFrameHanlder(nullptr);
 
     if (onDisConnectRemoteHandle) {
 
@@ -1098,6 +1101,8 @@ void WebrtcManager::handleSystemDisconnect()
 
     if (wasRemote) {
 
+        setOnVideoFrameHanlder(nullptr);
+
         if (onDisConnectRemoteHandle) onDisConnectRemoteHandle();
 
     } else {
@@ -1435,6 +1440,8 @@ void WebrtcManager::disConnect()
         }
 
         self->closeTcpSocket();
+
+        self->setOnVideoFrameHanlder(nullptr);
 
         if(self->onDisConnectRemoteHandle){
 

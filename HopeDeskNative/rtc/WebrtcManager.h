@@ -196,10 +196,8 @@ public:
 
     void asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig);
 
-    // 注入启动期配置(服务/可执行路径/配置路径/STUN/TURN),由 MainWindow 读取后注入
     void setWebrtcManagerConfig(const WebrtcManagerConfig& webrtcManagerConfig);
 
-    // 运行期改 WebRTC 调试日志开关:更新配置并立即重发 REGISTER 推给本地 System(若 TCP 已连)
     void applyWebrtcDebugLog(bool enabled);
 
     void sendKeyComboCtrlAltF();

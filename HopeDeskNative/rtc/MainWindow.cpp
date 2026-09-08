@@ -114,9 +114,29 @@ MainWindow::MainWindow(QWidget* parent)
                     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
                     if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
                     stopFpsDisplay();
-                    if(videoWidget) { videoWidget->hide(); disconnect(videoWidget, nullptr, this, nullptr); delete videoWidget; videoWidget = nullptr; }
 
-                    if(webrtcManager) webrtcManager->disConnectRemote();
+                    if(webrtcManager && videoWidget){
+
+                        webrtcManager->setOnVideoFrameHanlder(nullptr);
+
+                        if(videoWidget) {
+
+                            videoWidget->hide();
+
+                            disconnect(videoWidget, nullptr, this, nullptr);
+
+                            delete  videoWidget;
+
+                            videoWidget = nullptr;
+
+                        }
+
+                        if(webrtcManager){
+
+                            webrtcManager->disConnectRemote();
+
+                        }
+                    }
 
                 });
                 connect(videoWidget, &QWidget::destroyed, this, [this](){ videoWidget = nullptr; });

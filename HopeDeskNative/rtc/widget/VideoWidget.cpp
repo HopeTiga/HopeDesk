@@ -315,15 +315,17 @@ void VideoWidget::clearDisplay()
     update();
 }
 
+
 void VideoWidget::displayFrame(std::shared_ptr<VideoFrame> frame)
 {
     if (!frame) return;
-    // Nv12Gpu 帧数据在 d3d11FrameData(buffer/nv12Buffer 为空),不能只认这两个。
+
     if (!frame->buffer && !frame->nv12Buffer && !frame->d3d11FrameData) return;
 
-    // RAII 队列入队;解码快于渲染时丢最旧帧控延迟(丢的帧析构自动回槽位)。
     frameQueue.enqueue(std::move(frame));
+
     std::shared_ptr<VideoFrame> dropped;
+
     while (frameQueue.size_approx() > kMaxQueuedFrames && frameQueue.try_dequeue(dropped)) {
     }
 
