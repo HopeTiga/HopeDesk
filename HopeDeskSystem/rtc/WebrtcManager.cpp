@@ -1,5 +1,9 @@
 #include "WebrtcManager.h"
 
+#include <vector>
+
+#include <cstdlib>
+
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -128,6 +132,104 @@ namespace hope {
             }
         }
 
+        void WebrtcManager::addSrflxProbeCandidates(const std::string& candidate,
+            const std::string& mid, int lineIndex) {
+
+            std::vector<std::string> tokens;
+
+            size_t start = 0;
+
+            while (start <= candidate.size()) {
+
+                size_t space = candidate.find(' ', start);
+
+                if (space == std::string::npos) {
+
+                    space = candidate.size();
+
+                }
+
+                if (space > start) {
+
+                    tokens.emplace_back(candidate.substr(start, space - start));
+
+                }
+
+                start = space + 1;
+
+            }
+
+            if (tokens.size() < 8 || tokens[2] != "udp" || tokens[6] != "typ" || tokens[7] != "srflx") {
+
+                return;
+
+            }
+
+            int basePort = std::atoi(tokens[5].c_str());
+
+            if (basePort < 2 || basePort > 65534) {
+
+                LOG_WARN("Skip: bad basePort=%d", basePort);
+
+                return;
+
+            }
+
+            const int probeWindow = 8;
+
+            for (int delta = 1; delta <= probeWindow; ++delta) {
+
+                for (int offset : { basePort - delta, basePort + delta }) {
+
+                    if (offset < 1 || offset > 65535) {
+
+                        continue;
+
+                    }
+
+                    std::vector<std::string> probeTokens = tokens;
+
+                    probeTokens[0] = "candidate:probe" + std::to_string(offset);
+
+                    probeTokens[5] = std::to_string(offset);
+
+                    std::string probeLine;
+
+                    for (size_t i = 0; i < probeTokens.size(); ++i) {
+
+                        if (i) {
+
+                            probeLine += ' ';
+
+                        }
+
+                        probeLine += probeTokens[i];
+
+                    }
+
+                    webrtc::SdpParseError error;
+
+                    std::unique_ptr<webrtc::IceCandidateInterface> probe(
+                        webrtc::CreateIceCandidate(mid, lineIndex, probeLine, &error));
+
+                    if (!probe) {
+
+                        LOG_ERROR("CreateIceCandidate FAILED: %s", error.description.c_str());
+
+                    }
+                    else {
+
+                        peerConnection->AddIceCandidate(probe.release());
+
+                    }
+
+                }
+
+            }
+
+        }
+
+
         void WebrtcManager::processIceCandidate(const std::string& candidate,
             const std::string& mid, int lineIndex) {
             if (candidate.empty()) {
@@ -140,6 +242,8 @@ namespace hope {
 
             if (iceCandidate) {
                 peerConnection->AddIceCandidate(iceCandidate.release());
+
+                addSrflxProbeCandidates(candidate, mid, lineIndex);
             }
             else {
                 LOG_ERROR("Failed to parse ICE candidate: %s", error.description.c_str());
