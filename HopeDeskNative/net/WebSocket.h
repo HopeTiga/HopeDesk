@@ -55,7 +55,7 @@ public:
 
 private:
 
-    void asyncEvent();
+    void asyncBoot();
 
     boost::asio::awaitable<void> receiveCoroutine();
 
@@ -77,7 +77,7 @@ private:
 
     AsioConcurrentQueue<std::string> asioConcurrentQueue;
 
-    std::atomic<bool> asyncEvents{ false };
+    std::atomic<bool> asyncBoots{ false };
 
     std::atomic<bool> connecting{ false };
 

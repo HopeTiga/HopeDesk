@@ -57,7 +57,7 @@ boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
 
         setTcpKeepAlive(tcpSocket);
 
-        asyncEvents.store(true);
+        asyncBoots.store(true);
 
         connecting.store(false);
 
@@ -94,19 +94,19 @@ void TcpSocket::startCoroutines() {
 }
 
 void TcpSocket::closeEvent() {
-    asyncEvents.store(false);
+    asyncBoots.store(false);
     asioConcurrentQueue.close();
     closeSocket();
 }
 
 bool TcpSocket::asyncWrite(std::shared_ptr<WriterData> writerData) {
     if (writerData == nullptr) return false;
-    if (!asyncEvents.load()) return false;
+    if (!asyncBoots.load()) return false;
     return asioConcurrentQueue.enqueue(std::move(writerData));
 }
 
 bool TcpSocket::isOpen() const {
-    return asyncEvents.load() && tcpSocket.is_open();
+    return asyncBoots.load() && tcpSocket.is_open();
 }
 
 void TcpSocket::setOnMessageHandle(std::function<void(std::string)> handle) {
@@ -122,7 +122,7 @@ boost::asio::awaitable<void> TcpSocket::receiveCoroutine() {
     const size_t headerSize = sizeof(int64_t);
 
     try {
-        while (asyncEvents.load()) {
+        while (asyncBoots.load()) {
 
             std::memset(headerBuffer, 0, headerSize);
 
@@ -187,7 +187,7 @@ boost::asio::awaitable<void> TcpSocket::receiveCoroutine() {
 
 boost::asio::awaitable<void> TcpSocket::writerCoroutine() {
     try {
-        while (asyncEvents.load()) {
+        while (asyncBoots.load()) {
 
             std::optional<std::shared_ptr<WriterData>> optional = co_await asioConcurrentQueue.dequeue();
 
@@ -201,7 +201,7 @@ boost::asio::awaitable<void> TcpSocket::writerCoroutine() {
             }
             else break;
 
-            if (!asyncEvents.load()) break;
+            if (!asyncBoots.load()) break;
         }
     }
     catch (const std::exception& e) {
@@ -217,7 +217,7 @@ boost::asio::awaitable<void> TcpSocket::writerCoroutine() {
 }
 
 void TcpSocket::disconnectEvent() {
-    if (!asyncEvents.exchange(false)) return;
+    if (!asyncBoots.exchange(false)) return;
 
     asioConcurrentQueue.close();
 

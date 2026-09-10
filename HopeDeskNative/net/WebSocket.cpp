@@ -109,11 +109,11 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
 
         setTcpKeepAlive(webSocket.next_layer().next_layer());
 
-        asyncEvents.store(true);
+        asyncBoots.store(true);
 
         connecting.store(false);
 
-        asyncEvent();
+        asyncBoot();
 
         if (onConnectHandle) {
 
@@ -164,7 +164,7 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
 
 void WebSocket::closeEvent() {
 
-    if (!asyncEvents.exchange(false)) {
+    if (!asyncBoots.exchange(false)) {
 
         asioConcurrentQueue.close();
 
@@ -178,7 +178,7 @@ void WebSocket::closeEvent() {
     closeWebSocket();
 }
 
-void WebSocket::asyncEvent() {
+void WebSocket::asyncBoot() {
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->receiveCoroutine();
@@ -195,7 +195,7 @@ boost::asio::awaitable<void> WebSocket::receiveCoroutine() {
 
     try {
 
-        while (asyncEvents.load()) {
+        while (asyncBoots.load()) {
 
             boost::beast::flat_buffer buffer;
 
@@ -231,7 +231,7 @@ boost::asio::awaitable<void> WebSocket::writerCoroutine() {
 
     try {
 
-        while (asyncEvents.load()) {
+        while (asyncBoots.load()) {
 
             std::optional<std::string> optional = co_await asioConcurrentQueue.dequeue();
 
@@ -243,7 +243,7 @@ boost::asio::awaitable<void> WebSocket::writerCoroutine() {
             }
             else break;
 
-            if (!asyncEvents.load()) break;
+            if (!asyncBoots.load()) break;
 
         }
     }
@@ -265,7 +265,7 @@ boost::asio::awaitable<void> WebSocket::writerCoroutine() {
 
 void WebSocket::disConnectEvent() {
 
-    if (!asyncEvents.exchange(false)) return;
+    if (!asyncBoots.exchange(false)) return;
 
     asioConcurrentQueue.close();
 
@@ -312,7 +312,7 @@ void WebSocket::closeWebSocket() {
 
 bool WebSocket::asyncWrite(std::string packet) {
 
-    if (!asyncEvents.load()) {
+    if (!asyncBoots.load()) {
 
         return false;
 

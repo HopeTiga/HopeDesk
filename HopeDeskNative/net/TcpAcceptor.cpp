@@ -65,7 +65,7 @@ boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
 
         tcpSocket->asioConcurrentQueue.reset();
         tcpSocket->setTcpKeepAlive(tcpSocket->tcpSocket);
-        tcpSocket->asyncEvents.store(true);
+        tcpSocket->asyncBoots.store(true);
         tcpSocket->startCoroutines();
 
         if (currentTcpSocket) {

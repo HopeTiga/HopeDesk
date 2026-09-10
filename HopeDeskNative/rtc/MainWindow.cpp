@@ -48,7 +48,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     webrtcManager = std::make_shared<WebrtcManager>();
 
-    webrtcManager->asyncEvent();
+    webrtcManager->asyncBoot();
 
     // 操控端:解码状态 -> label(只显示解码;编码状态在被控端 Native 显示)
     webrtcManager->onCodecStatusHandle = [this](const std::string& codec, bool hardDecode) {

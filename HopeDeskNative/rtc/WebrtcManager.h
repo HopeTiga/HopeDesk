@@ -190,7 +190,7 @@ public:
 
 public:
 
-    void asyncEvent();
+    void asyncBoot();
 
     void closeEvent();
 

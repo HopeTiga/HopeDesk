@@ -54,7 +54,7 @@ WebrtcManager::WebrtcManager()
     }));
 }
 
-void WebrtcManager::asyncEvent(){
+void WebrtcManager::asyncBoot(){
 
     if (tcpAcceptor) return;
 
