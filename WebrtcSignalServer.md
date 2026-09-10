@@ -153,7 +153,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 ### 关闭（收到 SIGINT/SIGTERM）
 
-1. `WebrtcSignalServer->closeEvent()`：`taskQueues.close()`、清空 managers（触发各 Manager/LogicSystem/MysqlPool 析构 → `pool->cancel()`）。
+1. `WebrtcSignalServer->closeBoot()`：`taskQueues.close()`、清空 managers（触发各 Manager/LogicSystem/MysqlPool 析构 → `pool->cancel()`）。
 2. `work.reset()` + `ioContext.stop()`。
 3. `closeLogger()`。
 4. `AsioProactors` 析构：各 worker `work.reset()`→`io_context.stop()`→`join`。
@@ -171,7 +171,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 5. `webSocket.async_accept(req)` 完成 WebSocket 升级。
 6. `setTcpKeepAlive`（按平台调 SO_KEEPALIVE / TCP_KEEPIDLE/INTVL/CNT）。
 7. `manager->registerSocket(accountId, this)`：
-   - 若同 `accountId` 已有旧连接 → 旧连接 `closeEvent()`（踢旧）。
+   - 若同 `accountId` 已有旧连接 → 旧连接 `closeBoot()`（踢旧）。
    - 写入 `WebrtcSocketMap[accountId]`。
    - `postTask(mapChannelIndex, ...)` 在 home channel 的 `actorSocketMappingIndex[accountId] = {sessionId, channelIndex}` 登记归属。
 
@@ -596,7 +596,7 @@ void WebrtcSignalServer::registerRpcHandleImpl(std::unique_ptr<hope::rpc::CoroRp
 - `coroRpcHandleInterfaces` 是 `WebrtcSignalServer` 的 `std::vector<std::unique_ptr<CoroRpcHandleInterface>>` 数组成员，`asyncBoot` 里逐个 `registerRpcHandle()` 自注册。
 - 对外接口 `registerRpcHandleImpl(std::unique_ptr<CoroRpcHandleInterface>)` 把 handler **move 进**数组，允许外部注册更多 RPC handler。
 - 默认 handler 由自由函数 `initCoroRpcHandleInterface(std::shared_ptr<WebrtcSignalServer>)`（声明在 `rpc/Rpc.h`，定义在 `rpc/Rpc.cpp`）创建并注册：`std::make_unique<CoroRpcHandleImpl>(*server)` 后 `server->registerRpcHandleImpl(std::move(...))`；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
-- `closeEvent()` 中 `CoroRpc::getInstance()->closeEvent();` 停止 RPC 服务。
+- `closeBoot()` 中 `CoroRpc::getInstance()->closeBoot();` 停止 RPC 服务。
 
 **默认 RPC handler：`CoroRpcHandleImpl::requestForward`**  
 `CoroRpcHandleImpl` 继承抽象基类 `CoroRpcHandleInterface`（纯虚 `registerRpcHandle()`，基类持有 `WebrtcSignalServer&`）。`registerRpcHandle()` 通过 `CoroRpc::getInstance()->registerHandler<&CoroRpcHandleImpl::requestForward>(this)` 注册。  
