@@ -56,7 +56,7 @@ private:
 
     AsioConcurrentQueue<std::shared_ptr<WriterData>> asioConcurrentQueue;
 
-    std::atomic<bool> asyncEvents{ false };
+    std::atomic<bool> asyncBoots{ false };
 
     std::atomic<bool> connecting{ false };
 
