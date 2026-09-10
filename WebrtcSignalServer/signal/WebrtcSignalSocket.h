@@ -70,7 +70,7 @@ namespace hope {
 
 			void asyncBoot();
 
-			void closeEvent();
+			void closeBoot();
 
 			void asyncWrite(std::string packet);
 

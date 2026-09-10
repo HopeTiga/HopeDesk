@@ -98,7 +98,7 @@ namespace hope {
 
             bool asyncBoot();
 
-            void closeEvent();
+            void closeBoot();
 
             struct CompletionPostTask {
                 template <typename... Args>

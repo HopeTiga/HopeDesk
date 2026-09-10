@@ -70,7 +70,7 @@ namespace hope {
 
 			bool asyncBoot();
 
-			void closeEvent();
+			void closeBoot();
 
 			bool isOpen();
 

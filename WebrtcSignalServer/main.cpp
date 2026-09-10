@@ -122,7 +122,7 @@ int main() {
 
     signals.async_wait([&ioContext, webrtcSignalServer = webrtcSignalServer->shared_from_this(), &work](const boost::system::error_code& error, int signal) {
 
-        webrtcSignalServer->closeEvent();
+        webrtcSignalServer->closeBoot();
 
         work.reset();
 

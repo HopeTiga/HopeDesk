@@ -339,23 +339,23 @@ namespace hope {
 
         WebrtcSignalServer::~WebrtcSignalServer() {
 
-            closeEvent();
+            closeBoot();
 
         }
 
-        void WebrtcSignalServer::closeEvent() {
+        void WebrtcSignalServer::closeBoot() {
 
             if (!asyncBoots.exchange(false)) return;
 
-            LOG_INFO("WebrtcSignalServer CloseEvent...");
+            LOG_INFO("WebrtcSignalServer closeBoot...");
 
-            hope::rpc::CoroRpc::getInstance()->closeEvent();
+            hope::rpc::CoroRpc::getInstance()->closeBoot();
 
             taskQueues.close();
       
             webrtcSignalManagers.clear();
 
-            LOG_INFO("WebrtcSignalServer Already CloseEvent");
+            LOG_INFO("WebrtcSignalServer Already closeBoot");
 
         }
 

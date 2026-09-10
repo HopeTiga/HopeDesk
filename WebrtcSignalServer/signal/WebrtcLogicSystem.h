@@ -313,7 +313,7 @@ namespace hope {
 
 			void asyncBoot();
 
-			void closeEvent();
+			void closeBoot();
 
 			void asyncTaskExecute();
 

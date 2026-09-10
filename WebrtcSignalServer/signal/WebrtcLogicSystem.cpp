@@ -161,7 +161,7 @@ namespace hope {
 
         WebrtcLogicSystem::~WebrtcLogicSystem() {
 
-            closeEvent();
+            closeBoot();
 
         }
 
@@ -177,7 +177,7 @@ namespace hope {
 
         }
 
-        void WebrtcLogicSystem::closeEvent() {
+        void WebrtcLogicSystem::closeBoot() {
 
             if (!asyncBoots.exchange(false)) return;
 

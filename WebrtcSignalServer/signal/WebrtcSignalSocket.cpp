@@ -41,7 +41,7 @@ namespace hope {
 
         WebrtcSignalSocket::~WebrtcSignalSocket() {
 
-            closeEvent();
+            closeBoot();
 
             LOG_INFO("~WebrtcSignalSocket");
 
@@ -236,7 +236,7 @@ namespace hope {
 
         }
 
-        void WebrtcSignalSocket::closeEvent() {
+        void WebrtcSignalSocket::closeBoot() {
 
             if (!asyncBoots.exchange(false)) {
 

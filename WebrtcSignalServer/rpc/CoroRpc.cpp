@@ -95,12 +95,12 @@ namespace hope {
 
 		}
 
-		void CoroRpc::closeEvent()
+		void CoroRpc::closeBoot()
 		{
 
 			if (!asyncBoots.exchange(false)) return;
 
-			LOG_INFO("CoroRpc closeEvent: coroRpcServer stop");
+			LOG_INFO("CoroRpc closeBoot: coroRpcServer stop");
 
 			coroRpcServer->stop();
 
