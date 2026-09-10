@@ -110,9 +110,9 @@ int main() {
 
     initCoroRpcHandleInterface(webrtcSignalServer);
 
-    if (!webrtcSignalServer->asyncEvent()) {
+    if (!webrtcSignalServer->asyncBoot()) {
 
-        LOG_INFO("WebrtcSignalServer AsyncEvent Failed");
+        LOG_INFO("WebrtcSignalServer asyncBoot Failed");
 
         return -1;
 

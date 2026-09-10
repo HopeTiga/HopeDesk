@@ -165,9 +165,9 @@ namespace hope {
 
         }
 
-        void WebrtcLogicSystem::asyncEvent() {
+        void WebrtcLogicSystem::asyncBoot() {
 
-            if (asyncEvents.exchange(true)) return;
+            if (asyncBoots.exchange(true)) return;
 
             initHandlers();
 
@@ -179,7 +179,7 @@ namespace hope {
 
         void WebrtcLogicSystem::closeEvent() {
 
-            if (!asyncEvents.exchange(false)) return;
+            if (!asyncBoots.exchange(false)) return;
 
             webrtcMysqlManagerPools.reset();
 
@@ -197,7 +197,7 @@ namespace hope {
 
             boost::asio::co_spawn(ioContext, [webrtcLogicSystem = shared_from_this()]()mutable->boost::asio::awaitable<void> {
 
-                while (webrtcLogicSystem->asyncEvents.load()) {
+                while (webrtcLogicSystem->asyncBoots.load()) {
 
                     std::optional<AwaitableTask> optional = co_await webrtcLogicSystem->taskQueues.dequeue();
 
@@ -232,7 +232,7 @@ namespace hope {
                         break;
                     }
 
-                    if (!webrtcLogicSystem->asyncEvents.load()) {
+                    if (!webrtcLogicSystem->asyncBoots.load()) {
 
                         webrtcLogicSystem->asyncTaskExecutes.store(false);
 
@@ -242,7 +242,7 @@ namespace hope {
 
                 }
 
-                LOG_INFO("WebrtcLogicSystem AsyncTaskExecute CloseAsyncEvent");
+                LOG_INFO("WebrtcLogicSystem AsyncTaskExecute CloseasyncBoot");
 
                 co_return;
 

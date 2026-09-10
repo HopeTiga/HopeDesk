@@ -80,14 +80,14 @@ namespace hope {
 			return true;
 		}
 
-		bool CoroRpc::asyncEvent()
+		bool CoroRpc::asyncBoot()
 		{
 
 			if (!initCoroRpcAtomic.load()) return false;
 
-			if (asyncEvents.exchange(true)) return false;
+			if (asyncBoots.exchange(true)) return false;
 
-			LOG_INFO("CoroRpc asyncEvent: coroRpcServer asyncStart");
+			LOG_INFO("CoroRpc asyncBoot: coroRpcServer asyncStart");
 
 			coroRpcServer->async_start();
 
@@ -98,7 +98,7 @@ namespace hope {
 		void CoroRpc::closeEvent()
 		{
 
-			if (!asyncEvents.exchange(false)) return;
+			if (!asyncBoots.exchange(false)) return;
 
 			LOG_INFO("CoroRpc closeEvent: coroRpcServer stop");
 
@@ -108,7 +108,7 @@ namespace hope {
 
 		bool CoroRpc::isOpen() {
 		
-			return asyncEvents.load();
+			return asyncBoots.load();
 
 		}
 

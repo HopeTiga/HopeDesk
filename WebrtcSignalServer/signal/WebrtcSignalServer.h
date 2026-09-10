@@ -96,7 +96,7 @@ namespace hope {
 
             WebrtcSignalServer& operator=(const WebrtcSignalServer&) = delete;
 
-            bool asyncEvent();
+            bool asyncBoot();
 
             void closeEvent();
 
@@ -190,7 +190,7 @@ namespace hope {
 
             std::atomic<size_t> managerIndex{ 0 };
 
-            std::atomic<bool> asyncEvents{ false };
+            std::atomic<bool> asyncBoots{ false };
 
             boost::asio::io_context& ioContext;
 

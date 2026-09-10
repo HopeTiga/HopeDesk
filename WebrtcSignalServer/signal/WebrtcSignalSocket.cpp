@@ -181,9 +181,9 @@ namespace hope {
             co_return true;
         }
 
-        void WebrtcSignalSocket::asyncEvent() {
+        void WebrtcSignalSocket::asyncBoot() {
 
-            if (asyncEvents.exchange(true)) return;
+            if (asyncBoots.exchange(true)) return;
 
             boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
 
@@ -238,7 +238,7 @@ namespace hope {
 
         void WebrtcSignalSocket::closeEvent() {
 
-            if (!asyncEvents.exchange(false)) {
+            if (!asyncBoots.exchange(false)) {
 
                 return;
 
@@ -289,7 +289,7 @@ namespace hope {
 
         boost::asio::awaitable<void> WebrtcSignalSocket::reviceCoroutine() {
 
-            while (asyncEvents.load()) {
+            while (asyncBoots.load()) {
 
                 WebrtcSignalPacket webrtcSignalPakcet(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
@@ -330,7 +330,7 @@ namespace hope {
 
             try {
 
-                while (asyncEvents.load()) {
+                while (asyncBoots.load()) {
 
                     std::string packet;
 
@@ -343,7 +343,7 @@ namespace hope {
 
                     co_await webSocket.async_write(boost::asio::buffer(packet), boost::asio::use_awaitable);
 
-                    if (!asyncEvents.load()) break;
+                    if (!asyncBoots.load()) break;
 
                 }
             }
@@ -351,7 +351,7 @@ namespace hope {
 
                 LOG_ERROR("writerCoroutine unhandled exception: {}", e.what());
 
-                asyncEvents.store(false);
+                asyncBoots.store(false);
 
                 closeSocket();
 
@@ -365,7 +365,7 @@ namespace hope {
 
                 LOG_ERROR("writerCoroutine unknown exception");
 
-                asyncEvents.store(false);
+                asyncBoots.store(false);
 
                 closeSocket();
 

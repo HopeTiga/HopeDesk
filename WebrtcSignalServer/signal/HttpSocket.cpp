@@ -56,7 +56,7 @@ namespace hope {
 
 		}
 
-		boost::asio::awaitable<void> HttpSocket::asyncEvent()
+		boost::asio::awaitable<void> HttpSocket::asyncBoot()
 		{
 			if (!co_await asyncHandShake()) {
 

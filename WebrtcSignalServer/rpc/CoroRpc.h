@@ -68,20 +68,20 @@ namespace hope {
 
 			bool initCoroRpc(CoroRpcServerConfig coroRpcServerConfig);
 
-			bool asyncEvent();
+			bool asyncBoot();
 
 			void closeEvent();
 
 			bool isOpen();
 
-			// 注册自由/静态协程 RPC 函数。必须在 asyncEvent() 之前调用。
+			// 注册自由/静态协程 RPC 函数。必须在 asyncBoot() 之前调用。
 			// 用法: rpc->registerHandler<echo, add>();
 			template <auto... functions>
 			void registerHandler() {
 				coroRpcServer->register_handler<functions...>();
 			}
 
-			// 注册成员协程 RPC 函数。必须在 asyncEvent() 之前调用。
+			// 注册成员协程 RPC 函数。必须在 asyncBoot() 之前调用。
 			// 用法: rpc->registerHandler<&Foo::bar, &Foo::baz>(&foo);
 			template <auto first, auto... functions, typename Self>
 			void registerHandler(Self* self) {
@@ -145,7 +145,7 @@ namespace hope {
 					coro_io::client_pools<coro_rpc::coro_rpc_client>&>()
 					.send_request(host, std::move(op)))::ValueType;
 
-				if (!asyncEvents.load() || !clientPools) {
+				if (!asyncBoots.load() || !clientPools) {
 					co_return result_t{ ylt::unexpect, std::errc::not_connected };
 				}
 
@@ -167,7 +167,7 @@ namespace hope {
 					coro_io::load_balancer<coro_rpc::coro_rpc_client>&>()
 					.send_request(std::move(op)))::ValueType;
 
-				if (!asyncEvents.load() || !loadBalancer) {
+				if (!asyncBoots.load() || !loadBalancer) {
 					co_return result_t{ ylt::unexpect, std::errc::not_connected };
 				}
 
@@ -192,7 +192,7 @@ namespace hope {
 					if (!r) co_return coro_rpc::rpc_result<std::string_view>{ylt::unexpect, std::move(r).error()};
 					co_return coro_rpc::rpc_result<std::string_view>{cli.get_resp_attachment()};
 					};
-				if (!asyncEvents.load() || !clientPools) {
+				if (!asyncBoots.load() || !clientPools) {
 					co_return ylt::expected<coro_rpc::rpc_result<std::string_view>, std::errc>{
 						ylt::unexpect, std::errc::not_connected};
 				}
@@ -225,7 +225,7 @@ namespace hope {
 
 			coro_rpc::coro_rpc_client::config clientConfig;
 
-			std::atomic<bool> asyncEvents{ false };
+			std::atomic<bool> asyncBoots{ false };
 
 			std::atomic<bool> initCoroRpcAtomic{ false };
 

@@ -23,7 +23,7 @@ namespace hope {
 
 			boost::asio::ip::tcp::socket& getSocket();
 
-			boost::asio::awaitable<void> asyncEvent();
+			boost::asio::awaitable<void> asyncBoot();
 
 			boost::asio::awaitable<bool> asyncHandShake();
 
