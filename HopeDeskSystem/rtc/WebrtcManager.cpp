@@ -1298,7 +1298,7 @@ namespace hope {
             releaseSource();
 
             if (tcpSocket) {
-                tcpSocket->closeEvent();
+                tcpSocket->closeBoot();
             }
 
             if (ioContextWorkPtr) {
