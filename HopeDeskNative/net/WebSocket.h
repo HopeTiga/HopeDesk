@@ -39,7 +39,7 @@ public:
                                          const std::string& path = "/",
                                          const utils::Options& httpHeaders = {});
 
-    void closeEvent();
+    void closeBoot();
 
     bool asyncWrite(std::string packet);
 

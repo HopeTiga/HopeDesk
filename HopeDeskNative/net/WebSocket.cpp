@@ -44,7 +44,7 @@ WebSocket::WebSocket(boost::asio::io_context& ioContext)
 
 WebSocket::~WebSocket() {
 
-    closeEvent();
+    closeBoot();
 
 }
 
@@ -162,7 +162,7 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
     }
 }
 
-void WebSocket::closeEvent() {
+void WebSocket::closeBoot() {
 
     if (!asyncBoots.exchange(false)) {
 

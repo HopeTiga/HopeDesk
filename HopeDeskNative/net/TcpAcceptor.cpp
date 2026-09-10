@@ -69,7 +69,7 @@ boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
         tcpSocket->startCoroutines();
 
         if (currentTcpSocket) {
-            currentTcpSocket->closeEvent();
+            currentTcpSocket->closeBoot();
         }
 
         currentTcpSocket = tcpSocket;

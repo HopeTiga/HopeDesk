@@ -36,7 +36,7 @@ TcpSocket::TcpSocket(boost::asio::io_context& ioContext)
 }
 
 TcpSocket::~TcpSocket() {
-    closeEvent();
+    closeBoot();
 }
 
 boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
@@ -93,7 +93,7 @@ void TcpSocket::startCoroutines() {
     }, boost::asio::detached);
 }
 
-void TcpSocket::closeEvent() {
+void TcpSocket::closeBoot() {
     asyncBoots.store(false);
     asioConcurrentQueue.close();
     closeSocket();
