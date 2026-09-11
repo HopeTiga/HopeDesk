@@ -63,8 +63,6 @@ namespace hope {
 			size_t size;
 
 			std::atomic<size_t> loadBalancing = 0;
-
-			std::atomic<bool> isStop;
 		};
 	}
 }

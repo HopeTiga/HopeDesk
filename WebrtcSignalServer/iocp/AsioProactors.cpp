@@ -19,8 +19,7 @@ namespace hope {
 			, ioContexts(size)
 			, works(size)
 			, threads(size)
-			, ioPressures(size)
-			, isStop(false) {
+			, ioPressures(size) {
 
 			for (int i = 0; i < size; i++) {
 
@@ -46,9 +45,6 @@ namespace hope {
 		// 温和关闭:仅释放 work guard,让各 io_context 线程跑完已提交的 handler 后
 		// run() 自然返回。不调 io_context::stop(),不丢弃 pending 操作。
 		void AsioProactors::releaseWork() {
-
-			isStop = true;
-
 			for (auto& work : works) {
 
 				if (work) {
