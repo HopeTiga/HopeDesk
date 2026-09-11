@@ -153,10 +153,15 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 ### 关闭（收到 SIGINT/SIGTERM）
 
-1. `WebrtcSignalServer->closeBoot()`：`taskQueues.close()`、清空 managers（触发各 Manager/LogicSystem/MysqlPool 析构 → `pool->cancel()`）。
-2. `work.reset()` + `ioContext.stop()`。
+1. `WebrtcSignalServer->closeBoot()`（幂等，`asyncBoots.exchange(false)` 挡住重复进入）：
+   - `CoroRpc::getInstance()->closeBoot()` 停 RPC 服务。
+   - `taskQueues.close()` 关全局任务队列（排水协程自然退出）。
+   - **逐连接温和关闭**：每个 Manager 的 socket 关闭任务 `post` 到**它自己的连接池 ioContext**，与 `registerSocket`/`removeConnection` 串行（避免跨线程竞态访问 `webrtcSocketMap`）——逐个 `socket->closeBoot()` 后 `webrtcSocketMap.clear()`；N 个通道**并行**关闭，用 `std::latch`（C++20 barrier）`count_down()`/`wait()` 等全部完成。
+   - `webrtcSignalManagers.clear()`（触发各 Manager/LogicSystem/MysqlPool 析构 → `pool->cancel()`）。
+   - `AsioProactors::releaseWork()`：仅释放各 worker 的 work guard，让 io_context 线程跑完已提交 handler 后 `run()` 自然返回（**不**调 `io_context::stop()`，不丢弃 pending）。
+2. 回到 `main`：`work.reset()` + `ioContext.stop()`（main io_context）。
 3. `closeLogger()`。
-4. `AsioProactors` 析构：各 worker `work.reset()`→`io_context.stop()`→`join`。
+4. `AsioProactors` 析构 → `stop()` 核爆兜底：`releaseWork()` → `io_context::stop()` 丢弃未执行 handler → `join()` 回收线程。
 
 ---
 
