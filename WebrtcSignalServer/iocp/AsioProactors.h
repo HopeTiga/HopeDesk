@@ -32,6 +32,8 @@ namespace hope {
 
 			void stop();
 
+			void releaseWork();
+
 			AsioProactors(const AsioProactors& asioProactors) = delete;
 
 			AsioProactors& operator=(const AsioProactors& asioProactors) = delete;

@@ -2,6 +2,7 @@
 #include "WebrtcSignalServer.h"
 
 #include <chrono>
+#include <latch>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -347,15 +348,45 @@ namespace hope {
 
             if (!asyncBoots.exchange(false)) return;
 
-            LOG_INFO("WebrtcSignalServer closeBoot...");
+            LOG_INFO("WebrtcSignalServer Start CloseBoot");
 
             hope::rpc::CoroRpc::getInstance()->closeBoot();
 
             taskQueues.close();
-      
+
+            std::latch closeLatch(webrtcSignalManagers.size());
+
+            for (std::shared_ptr<WebrtcSignalManager>& webrtcSignalManager : webrtcSignalManagers) {
+
+                if (!webrtcSignalManager) {
+                    closeLatch.count_down();
+                    continue;
+                }
+
+                boost::asio::post(webrtcSignalManager->getIoCompletionPorts(),
+                    [webrtcSignalManager, &closeLatch]() {
+
+                        for (absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator =
+                                 webrtcSignalManager->webrtcSocketMap.begin();
+                             iterator != webrtcSignalManager->webrtcSocketMap.end(); ++iterator) {
+
+                            iterator->second->closeBoot();
+
+                        }
+
+                        webrtcSignalManager->webrtcSocketMap.clear();
+
+                        closeLatch.count_down();
+                    });
+            }
+
+            closeLatch.wait();
+
             webrtcSignalManagers.clear();
 
-            LOG_INFO("WebrtcSignalServer Already closeBoot");
+            hope::iocp::AsioProactors::getInstance()->releaseWork();
+
+            LOG_INFO("WebrtcSignalServer Already CloseBoot");
 
         }
 
