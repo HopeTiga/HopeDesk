@@ -39,11 +39,11 @@ namespace hope {
 						co_await pool->async_run(boost::asio::use_awaitable);
 					}
 					catch (const std::exception& e) {
-						LOG_ERROR("MySQL connection_pool async_run exited: {}", e.what());
+						LOG_ERROR("MySQL ConnectionPool AsyncRun Exited: {}", e.what());
 					}
 				}, boost::asio::detached);
 
-			LOG_DEBUG("MySQL connection_pool created (initial={}, max={}) on io_context {}",
+			LOG_DEBUG("MySQL ConnectionPool Created (Initial={}, Max={}) On IoContext {}",
 				params.initial_size, params.max_size, static_cast<void*>(&ioContext));
 		}
 
@@ -55,7 +55,7 @@ namespace hope {
 					});
 			}
 
-			LOG_INFO("MySQL connection_pool cancel posted");
+			LOG_INFO("MySQL ConnectionPool Cancel Posted");
 		}
 
 		boost::asio::awaitable<WebrtcMysqlManagerPools::ScopedMysqlConnection> WebrtcMysqlManagerPools::getTransactionMysqlManager()
@@ -66,7 +66,7 @@ namespace hope {
 				pooledConn = co_await pool->async_get_connection(boost::asio::use_awaitable);
 			}
 			catch (const std::exception& e) {
-				LOG_ERROR("WebrtcMysqlManagerPools::getTransactionMysqlManager failed: {}", e.what());
+				LOG_ERROR("Failed: {}", e.what());
 			}
 
 			co_return ScopedMysqlConnection(std::move(pooledConn));

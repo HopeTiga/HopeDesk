@@ -42,8 +42,6 @@ namespace hope {
 			stop();
 		}
 
-		// 温和关闭:仅释放 work guard,让各 io_context 线程跑完已提交的 handler 后
-		// run() 自然返回。不调 io_context::stop(),不丢弃 pending 操作。
 		void AsioProactors::releaseWork() {
 			for (auto& work : works) {
 
@@ -53,7 +51,6 @@ namespace hope {
 			}
 		}
 
-		// 核爆兜底:立即 stop,丢弃未执行 handler,并 join 线程
 		void AsioProactors::stop() {
 
 			releaseWork();

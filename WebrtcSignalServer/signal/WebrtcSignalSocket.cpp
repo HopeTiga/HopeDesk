@@ -165,12 +165,12 @@ namespace hope {
 
                 webrtcSignalManager->registerSocket(accountId, shared_from_this());
 
-                LOG_INFO("User Register Successful (HandShake): {} (channelIndex: {})", accountId.c_str(), webrtcSignalManager->getChannelIndex());
+                LOG_INFO("User Register Successful (HandShake): {} (ChannelIndex: {})", accountId.c_str(), webrtcSignalManager->getChannelIndex());
 
             }
             catch (const boost::system::system_error& se) {
 
-                LOG_ERROR("WebrtcSignalSocket handshake failed! ERROR: {}", se.what());
+                LOG_ERROR("WebrtcSignalSocket Handshake Ffailed! ERROR: {}", se.what());
 
                 closeSocket();
 
@@ -185,9 +185,9 @@ namespace hope {
 
             if (asyncBoots.exchange(true)) return;
 
-            boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
+            boost::asio::co_spawn(ioContext, [this]()->boost::asio::awaitable<void> {
 
-                co_await self->reviceCoroutine();
+                co_await reviceCoroutine();
 
                 co_return;
 
@@ -206,7 +206,7 @@ namespace hope {
 
                             }
 
-                            LOG_ERROR("WebrtcSignalSocket Error: {}", e.what());
+                            LOG_ERROR("ReviceCoroutine Error: {}", e.what());
 
                         }
                         catch (...) {
@@ -217,19 +217,49 @@ namespace hope {
 
                             }
 
-                            LOG_ERROR("WebrtcSignalSocket Error: Unknown");
+                            LOG_ERROR("ReviceCoroutine Error: Unknown");
 
                         }
                     }
                     });
 
-                boost::asio::co_spawn(ioContext, [self = shared_from_this()]()->boost::asio::awaitable<void> {
+                boost::asio::co_spawn(ioContext, [this]()->boost::asio::awaitable<void> {
 
-                    co_await self->writerCoroutine();
+                    co_await writerCoroutine();
 
                     co_return;
 
-                    }, boost::asio::detached);
+                    }, [self = shared_from_this()](std::exception_ptr p) {
+                        if (p) {
+                            try {
+
+                                std::rethrow_exception(p);
+
+                            }
+                            catch (std::exception& e) {
+
+                                if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
+
+                                    self->onDisConnectHandle(self->accountId, self->sessionId);
+
+                                }
+
+                                LOG_ERROR("WriterCoroutine Error: {}", e.what());
+
+                            }
+                            catch (...) {
+
+                                if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
+
+                                    self->onDisConnectHandle(self->accountId, self->sessionId);
+
+                                }
+
+                                LOG_ERROR("WriterCoroutine Error: Unknown");
+
+                            }
+                        }
+                        });
 
                 webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
                     boost::beast::role_type::server));
@@ -261,7 +291,7 @@ namespace hope {
                 tcpSocket.cancel(ec);
 
                 if (ec) {
-                    LOG_ERROR("WebrtcSignalSocket::closeSocket() cancel failed: {}", ec.message().c_str());
+                    LOG_ERROR("Cancel Failed: {}", ec.message().c_str());
                 }
 
                 // Force RST close: skip graceful TCP FIN handshake, send RST immediately
@@ -270,18 +300,18 @@ namespace hope {
                 tcpSocket.set_option(lingerOption, ec);
 
                 if (ec) {
-                    LOG_ERROR("WebrtcSignalSocket::closeSocket() set SO_LINGER failed: {}", ec.message().c_str());
+                    LOG_ERROR("Set SO_LINGER Failed: {}", ec.message().c_str());
                 }
 
                 tcpSocket.close(ec);
 
                 if (ec && ec != boost::asio::error::not_connected) {
 
-                    LOG_ERROR("WebrtcSignalSocket::closeSocket() force close failed: {}", ec.message().c_str());
+                    LOG_ERROR("Force Close Failed: {}", ec.message().c_str());
 
                 }
 
-                LOG_INFO("WebrtcSignalSocket is immediately force closed (RST) and resources are freed");
+                LOG_INFO("WebrtcSignalSocket Is Immediately Force Closed (RST) and Resources Are Freed");
 
             }
 
@@ -319,8 +349,6 @@ namespace hope {
 
                 }
 
-                webrtcSignalPakcet.webrtcEnvelope.requestType;
-
                 webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPakcet));
 
             }
@@ -328,53 +356,20 @@ namespace hope {
 
         boost::asio::awaitable<void> WebrtcSignalSocket::writerCoroutine() {
 
-            try {
+            while (asyncBoots.load()) {
 
-                while (asyncBoots.load()) {
+                std::string packet;
 
-                    std::string packet;
+                if (!asioConcurrentQueue.tryDequeue(packet) && !co_await asioConcurrentQueue.awaitDequeue(packet)) {
 
-                    if (!asioConcurrentQueue.tryDequeue(packet)
-                        && !co_await asioConcurrentQueue.awaitDequeue(packet)) {
-
-                        break;
-
-                    }
-
-                    co_await webSocket.async_write(boost::asio::buffer(packet), boost::asio::use_awaitable);
-
-                    if (!asyncBoots.load()) break;
+                    break;
 
                 }
+
+                co_await webSocket.async_write(boost::asio::buffer(packet), boost::asio::use_awaitable);
+
             }
-            catch (const std::exception& e) {
 
-                LOG_ERROR("writerCoroutine unhandled exception: {}", e.what());
-
-                asyncBoots.store(false);
-
-                closeSocket();
-
-                if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
-
-                    onDisConnectHandle(accountId, sessionId);
-
-                }
-            }
-            catch (...) {
-
-                LOG_ERROR("writerCoroutine unknown exception");
-
-                asyncBoots.store(false);
-
-                closeSocket();
-
-                if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
-
-                    onDisConnectHandle(accountId, sessionId);
-
-                }
-            }
             co_return;
         }
 

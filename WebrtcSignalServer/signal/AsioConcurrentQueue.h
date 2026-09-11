@@ -57,7 +57,7 @@ namespace hope {
 
                 }
 
-                throw std::logic_error("Queue is empty but semaphore was acquired without close!");
+                throw std::logic_error("Queue Is Empty But Semaphore Was Acquired Without Close!");
 
             }
 

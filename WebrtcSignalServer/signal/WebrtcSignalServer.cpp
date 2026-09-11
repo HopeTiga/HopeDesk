@@ -49,7 +49,7 @@ namespace hope {
 
             }
             catch (const std::exception& e) {
-                LOG_ERROR("Acceptor setup failed: {}", e.what());
+                LOG_ERROR("Acceptor Setup Failed: {}", e.what());
                 throw;
             }
 
@@ -69,11 +69,11 @@ namespace hope {
 
             if (asyncBoots.exchange(true)) return true;
 
-            LOG_INFO("WebrtcSginalServer Protocol: WebSocket , Listen Accept Port: {}", webrtcSignalConfig.signalPort);
+            LOG_INFO("Protocol: WebSocket , Listen Accept Port: {}", webrtcSignalConfig.signalPort);
 
             if (webrtcSignalConfig.enableHttp == 1) {
 
-                LOG_INFO("WebrtcSginalServer Protocol: Https , Listen Accept Port: {}", webrtcSignalConfig.httpPort);
+                LOG_INFO("Protocol: Https , Listen Accept Port: {}", webrtcSignalConfig.httpPort);
 
             }
 
@@ -83,7 +83,7 @@ namespace hope {
 
                 if (!coroRpc->initCoroRpc(webrtcSignalConfig.coroRpcServerConfig)) {
                 
-                    LOG_ERROR("CoroRpc::initCoroRpc Failed");
+                    LOG_ERROR("CoroRpc::InitCoroRpc Failed");
 
                     asyncBoots.store(false);
 
@@ -105,7 +105,7 @@ namespace hope {
 
                 coroRpc->asyncBoot();
 
-                LOG_INFO("WebrtcSginalServer Protocol: CoroRpc , Listen Accept Port: {}", webrtcSignalConfig.coroRpcServerConfig.port);
+                LOG_INFO("Protocol: CoroRpc , Listen Accept Port: {}", webrtcSignalConfig.coroRpcServerConfig.port);
 
             }
 
@@ -130,20 +130,20 @@ namespace hope {
 
                         if (e.code() == boost::asio::error::operation_aborted || !asyncBoots.load() || !acceptor.is_open()) {
 
-                            LOG_INFO("WebrtcSignalServer accept loop exits: {}", e.code().message().c_str());
+                            LOG_INFO("Accept Loop Exits: {}", e.code().message().c_str());
 
                             break;
 
                         }
 
-                        LOG_WARN("WebrtcSignalServer accept failed, backoff and retry: {}", e.code().message().c_str());
+                        LOG_WARN("Accept Failed, Backoff And Retry: {}", e.code().message().c_str());
 
                         shouldBackoff = true;
 
                     }
                     catch (const std::exception& e) {
 
-                        LOG_ERROR("WebrtcSignalServer accept loop fatal exception: {}", e.what());
+                        LOG_ERROR("Accept Loop Fatal Exception: {}", e.what());
 
                         break;
 
@@ -199,7 +199,7 @@ namespace hope {
 
                         catch (const std::exception& e) {
 
-                            LOG_ERROR("WebrtcSignalServer accept loop unhandled exception: {}", e.what());
+                            LOG_ERROR("Accept Loop Unhandled Exception: {}", e.what());
 
                         }
 
@@ -228,20 +228,20 @@ namespace hope {
 
                             if (e.code() == boost::asio::error::operation_aborted || !asyncBoots.load() || !httpAcceptor.is_open()) {
 
-                                LOG_INFO("WebrtcSignalServer http accept loop exits: {}", e.code().message().c_str());
+                                LOG_INFO("Http Accept Loop Exits: {}", e.code().message().c_str());
 
                                 break;
 
                             }
 
-                            LOG_WARN("WebrtcSignalServer http accept failed, backoff and retry: {}", e.code().message().c_str());
+                            LOG_WARN("Http Accept Failed, Backoff And Retry: {}", e.code().message().c_str());
 
                             shouldBackoff = true;
 
                         }
                         catch (const std::exception& e) {
 
-                            LOG_ERROR("WebrtcSignalServer http accept loop fatal exception: {}", e.what());
+                            LOG_ERROR("Http Accept Loop Fatal Exception: {}", e.what());
 
                             break;
 
@@ -279,7 +279,7 @@ namespace hope {
 
                             catch (const std::exception& e) {
 
-                                LOG_ERROR("WebrtcSignalServer http accept loop unhandled exception: {}", e.what());
+                                LOG_ERROR("Http Accept Loop Unhandled Exception: {}", e.what());
 
                             }
 
@@ -321,7 +321,7 @@ namespace hope {
 
                 }
 
-                LOG_INFO("WebrtcSignalServer asyncTaskExecute closeasyncBoot");
+                LOG_INFO("AsyncTaskExecute Close AsyncBoot");
 
                 co_return;
 
@@ -348,7 +348,7 @@ namespace hope {
 
             if (!asyncBoots.exchange(false)) return;
 
-            LOG_INFO("WebrtcSignalServer Start CloseBoot");
+            LOG_INFO("Start CloseBoot");
 
             hope::rpc::CoroRpc::getInstance()->closeBoot();
 
@@ -386,20 +386,20 @@ namespace hope {
 
             hope::iocp::AsioProactors::getInstance()->releaseWork();
 
-            LOG_INFO("WebrtcSignalServer Already CloseBoot");
+            LOG_INFO("Already CloseBoot");
 
         }
 
         bool WebrtcSignalServer::postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle)
         {
             if (channelIndex >= webrtcSignalManagers.size()) {
-                LOG_ERROR("Invalid channelIndex: {}, size: {}", channelIndex, webrtcSignalManagers.size());
+                LOG_ERROR("Invalid ChannelIndex: {}, Size: {}", channelIndex, webrtcSignalManagers.size());
                 return false;
             }
 
             std::shared_ptr<WebrtcSignalManager> & webrtcSignalManager = webrtcSignalManagers[channelIndex];
             if (!webrtcSignalManager) {
-                LOG_ERROR("WebRTCSignalManager at index {} is null", channelIndex);
+                LOG_ERROR("WebrtcSignalManager At Index {} Is Null", channelIndex);
                 return false;
             }
 

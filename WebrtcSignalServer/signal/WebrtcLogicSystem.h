@@ -63,7 +63,7 @@ namespace hope {
 						}
 						catch (const std::exception& e) {
 
-							LOG_ERROR("WebrtcLogicSystem postTask co_spawn Exception: {}", e.what());
+							LOG_ERROR("PostTask CoSpawn Exception: {}", e.what());
 
 						}
 
@@ -87,7 +87,7 @@ namespace hope {
 						}
 						catch (const std::exception& e) {
 
-							LOG_ERROR("WebrtcLogicSystem coPostTask co_spawn Exception: {}", e.what());
+							LOG_ERROR("CoPostTask CoSpawn Exception: {}", e.what());
 
 						}
 
@@ -150,7 +150,7 @@ namespace hope {
 
 									env.state = 503;
 
-									env.message = "webrtcSignalServer busy, please retry later";
+									env.message = "WebrtcSignalServer Busy, Please Retry Later";
 
 									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
 
@@ -254,13 +254,13 @@ namespace hope {
 
 									env.state = 503;
 
-									env.message = "webrtcSignalServer busy, please retry later";
+									env.message = "WebrtcSignalServer Busy, Please Retry Later";
 
 									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
 
 									boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
 
-										(*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("webrtcSignalServer busy, please retry later")), boost::json::value{});
+										(*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("WebrtcSignalServer Busy, Please Retry Later")), boost::json::value{});
 
 										});
 

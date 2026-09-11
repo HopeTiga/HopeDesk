@@ -24,7 +24,7 @@ namespace hope {
 			coroRpcServer = std::make_shared<coro_rpc::coro_rpc_server>(
 				coroRpcServerConfig.threadSize, coroRpcServerConfig.port);
 
-			LOG_INFO("CoroRpc constructed: port={}, threadSize={}, enableSsl={}",
+			LOG_INFO("CoroRpc Constructed: Port={}, ThreadSize={}, EnableSsl={}",
 				coroRpcServerConfig.port, coroRpcServerConfig.threadSize,
 				coroRpcServerConfig.enableSsl ? 1 : 0);
 
@@ -55,13 +55,13 @@ namespace hope {
 				if (coroRpcServerConfig.enableDoubleSsl) {
 					if (hasClientCert != hasClientKey) {
 						throw std::runtime_error(
-							"[CoroRpc] mTLS 需同时提供 clientCertFile 和 clientKeyFile,"
-							"现只填了一个,按单向 TLS 处理。\n");
+							"MTLS Requires Both ClientCertFile And ClientKeyFile, "
+							"Only One Is Provided, Fallback To Single TLS.\n");
 					}
 					if (coroRpcServerConfig.enableClientVerify && !mtls) {
 						throw std::runtime_error(
-							"[CoroRpc] 服务端 enableClientVerify=true 要求客户端出示证书,"
-							"但未同时提供 clientCertFile/clientKeyFile,mTLS 握手会失败。\n");
+							"Server EnableClientVerify=True Requires Client To Present Certificate, "
+							"But ClientCertFile/ClientKeyFile Are Not Both Provided, MTLS Handshake Will Fail.\n");
 					}
 				}
 
@@ -87,7 +87,7 @@ namespace hope {
 
 			if (asyncBoots.exchange(true)) return false;
 
-			LOG_INFO("CoroRpc asyncBoot: coroRpcServer asyncStart");
+			LOG_INFO("CoroRpcServer AsyncStart");
 
 			coroRpcServer->async_start();
 
@@ -100,7 +100,7 @@ namespace hope {
 
 			if (!asyncBoots.exchange(false)) return;
 
-			LOG_INFO("CoroRpc closeBoot: coroRpcServer stop");
+			LOG_INFO("CoroRpcServer Stop");
 
 			coroRpcServer->stop();
 
@@ -117,7 +117,7 @@ namespace hope {
 
 			if (this->clientPools) this->clientPools = nullptr;
 
-			LOG_INFO("CoroRpc createClientPools: recreating clientPools");
+			LOG_INFO("CreateClientPools: Recreating ClientPools");
 
 			coro_io::io_context_pool& ioContextPools = coroRpcServer->get_io_context_pool();
 
@@ -137,7 +137,7 @@ namespace hope {
 
 			if (!clientPools) return;
 
-			LOG_INFO("CoroRpc createLoadBalancer: hostCount={}, lba={}", hosts.size(), static_cast<int>(lba));
+			LOG_INFO("CreateLoadBalancer: HostCount={}, Lba={}", hosts.size(), static_cast<int>(lba));
 
 			std::vector<std::string_view> hostViews(hosts.begin(), hosts.end());
 
@@ -159,20 +159,20 @@ namespace hope {
 		void CoroRpc::removeHost(std::string_view host) {
 			if (clientPools) {
 				clientPools->erase(host);
-				LOG_DEBUG("CoroRpc removeHost: host removed from client_pools");
+				LOG_DEBUG("RemoveHost: Host Removed From ClientPools");
 			}
 		}
 
 		void CoroRpc::removeHosts(const std::vector<std::string>& hosts) {
 			if (!clientPools) return;
 			for (auto& h : hosts) clientPools->erase(h);
-			LOG_DEBUG("CoroRpc removeHosts: count={}", hosts.size());
+			LOG_DEBUG("RemoveHosts: Count={}", hosts.size());
 		}
 
 		void CoroRpc::removeHostsNotIn(const std::vector<std::string>& existingHosts) {
 			if (clientPools) {
 				clientPools->erase_not_in(existingHosts);
-				LOG_DEBUG("CoroRpc removeHostsNotIn: existingCount={}", existingHosts.size());
+				LOG_DEBUG("RemoveHostsNotIn: ExistingCount={}", existingHosts.size());
 			}
 		}
 

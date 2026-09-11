@@ -106,7 +106,7 @@ namespace hope {
                     if (exception) {
                         try { std::rethrow_exception(exception); }
                         catch (const std::exception& e) {
-                            LOG_ERROR("WebrtcSignalServer postTask co_spawn Exception: {}", e.what());
+                            LOG_ERROR("PostTask CoSpawn Exception: {}", e.what());
                         }
                     }
                 }
@@ -130,14 +130,14 @@ namespace hope {
                         std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
 
                         if (channelIndex >= webrtcSignalManagers.size() || !webrtcSignalManagers[channelIndex]) {
-                            LOG_ERROR("WebrtcSignalServer postTask invalid channelIndex: {}, size: {}", channelIndex, webrtcSignalManagers.size());
+                            LOG_ERROR("PostTask Invalid ChannelIndex: {}, Size: {}", channelIndex, webrtcSignalManagers.size());
                             boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext),
                                 [completionHandlerPtr]() mutable {
                                     if constexpr (std::is_void_v<ValueType>) {
-                                        (*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("postTask: invalid channelIndex")));
+                                        (*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("PostTask: Invalid ChannelIndex")));
                                     }
                                     else {
-                                        (*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("postTask: invalid channelIndex")), ValueType{});
+                                        (*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("PostTask: Invalid ChannelIndex")), ValueType{});
                                     }
                                 });
                             return;

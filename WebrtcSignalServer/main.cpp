@@ -112,7 +112,7 @@ int main() {
 
     if (!webrtcSignalServer->asyncBoot()) {
 
-        LOG_INFO("WebrtcSignalServer asyncBoot Failed");
+        LOG_INFO("WebrtcSignalServer AsyncBoot Failed");
 
         return -1;
 
