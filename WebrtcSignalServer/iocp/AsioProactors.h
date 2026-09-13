@@ -10,7 +10,7 @@ namespace hope {
 
 		public:
 
-			static void init(size_t size);
+			static void init(size_t size, bool enableCpuAffinity = false, size_t cpuAffinityOffset = 0);
 
 			static AsioProactors* getInstance() {
 				static AsioProactors instance(sIoSize);
@@ -47,8 +47,12 @@ namespace hope {
 			AsioProactors(size_t size);
 
 			static size_t sIoSize;
-			
+
 			static size_t sLogicSize;
+
+			static bool sEnableCpuAffinity;
+
+			static size_t sCpuAffinityOffset;
 
 			std::vector<std::unique_ptr<boost::asio::io_context>> ioContexts;
 

@@ -100,7 +100,10 @@ int main() {
     hope::mysql::globalMysqlConfig.pingIntervalSeconds = configManager.GetInt("Mysql.pingIntervalSeconds", 3600);
     hope::mysql::globalMysqlConfig.pingTimeoutSeconds = configManager.GetInt("Mysql.pingTimeoutSeconds", 10);
 
-    hope::iocp::AsioProactors::init(webrtcSignalConfig.threadSize);
+    const bool enableCpuAffinity = configManager.GetBool("WebrtcSignalServer.enableCpuAffinity", false);
+    const int cpuAffinityOffsetValue = configManager.GetInt("WebrtcSignalServer.cpuAffinityOffset", 0);
+    const size_t cpuAffinityOffset = cpuAffinityOffsetValue > 0 ? static_cast<size_t>(cpuAffinityOffsetValue) : 0;
+    hope::iocp::AsioProactors::init(webrtcSignalConfig.threadSize, enableCpuAffinity, cpuAffinityOffset);
 
     boost::asio::io_context ioContext{ 1 };
 
