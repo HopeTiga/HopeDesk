@@ -816,6 +816,71 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 8. **过载两级调度 + 503 背压**，防止雪崩。
 9. **构建优化**：clang `-O3 -march=x86-64-v3 -flto=thin`、`-ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--icf=all`、mimalloc（`-lmimalloc` 置 LDLIBS 首位做 glibc malloc/free 全局替换 + `-fno-builtin-malloc/calloc/realloc/free`）、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）。**不用 `-march=native`**：会把构建机专属指令（如 AVX-512）编进产物，换到无该指令的 CPU 上启动即 `Illegal instruction`（实测过）；`x86-64-v3`（AVX2）兼容 ~2015 年后全部 x86-64，纯可移植则改 `x86-64`。
 10. **round-robin accept** 均衡连接到各通道；Linux 下 `SO_REUSEPORT` 多 acceptor 分流。
+11. **CPU 亲和绑核**（可选，`enableCpuAffinity`）：每个通道的反应堆线程钉在一个固定物理核上，一个反应堆独占一个物理核；详见 §11.1。
+
+### 11.1 CPU 亲和绑核（`enableCpuAffinity`）
+
+每个通道的反应堆（`io_context` + 线程）默认由 OS 调度器随意放置和迁移。开启绑核后，第 `i` 个反应堆线程被钉在 `cores[(cpuAffinityOffset + i) % cores.size()].cpuIndex` 上，其中 `cores` 是启动时枚举出来的**物理核**列表。
+
+#### 开关（`config.ini`）
+
+| 键 | 默认 | 含义 |
+|----|------|------|
+| `enableCpuAffinity` | `0` | `0`=完全不绑核（`cpuAffinityOffset` 一并失效）；`1`=按下面规则绑 |
+| `cpuAffinityOffset` | `0` | 起始物理核下标；≤0 一律按 `0` 处理 |
+
+`main.cpp` 读这两个键后一次性注入：`AsioProactors::init(threadSize, enableCpuAffinity, cpuAffinityOffset)`（`iocp/AsioProactors.cpp`）。
+
+关掉开关时 `cores` 保持为空，绑定判据 `bindCpuAffinity = sEnableCpuAffinity && !cores.empty()` 为假 —— **整段枚举与绑定都不执行**，线程完全交给 OS 调度，这就是"不绑核"的对照跑法。开机时也不会打印任何 CPU affinity 日志。
+
+#### 枚举规则（`getPhysicalCores`）
+
+| 平台 | 做法 |
+|------|------|
+| Windows | `GetLogicalProcessorInformationEx(RelationProcessorCore)`；每个 entry 取其组内**编号最小**的逻辑 CPU 当代表，`Flags & LTP_PC_SMT` 判断该核有无超线程兄弟 |
+| Linux | 遍历 `sched_getaffinity` 允许的逻辑 CPU，读 `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list`；解析兄弟列表（支持 `0,1` / `0-1` / `0-3,8-11` 三种写法），取**允许集合内编号最小**的兄弟当代表，同一物理核只登记一次 |
+
+两边都得到 `{cpuIndex, hasSmt}` 列表，随后 `std::stable_sort` 把 `hasSmt` 的排到前面 —— 也就是 **P 核在前、E 核在后**。绑定本身：Windows 用 `SetThreadAffinityMask`，Linux 用 `pthread_setaffinity_np`。
+
+#### 关键点：一个反应堆独占一个物理核
+
+枚举出的每一项代表一个**物理核**，绑定只取它的**一个**逻辑 CPU。所以同一个物理核的**另一个超线程是空着的**，不会被另一个反应堆占用。
+
+- 好处：一个反应堆拿到整个物理核的执行资源，不被兄弟超线程分走。
+- 代价：逻辑 CPU 只用了一半 —— 16 个逻辑 CPU 里只用 10 个物理核对应的那 10 个。这是有意为之，不是漏了。
+
+#### 启动时会打印什么
+
+| 情况 | 日志 |
+|------|------|
+| 枚举不到物理核 | `LOG_WARN` CPU affinity requested but no physical core found, threads stay unbound（此时 `cores` 为空，等同不绑核） |
+| 正常 | `LOG_INFO` CPU affinity enabled: N threads over M physical cores (K with smt), one logical cpu per core |
+| `threadSize > 物理核数` | `LOG_WARN` ... cores are reused round-robin and some will carry two reactors —— 有核要扛两个反应堆 |
+| 有反应堆落在 E 核 | `LOG_WARN` ... of N reactors land on e-cores, which have much lower single-core throughput; set threadSize to K to keep every reactor on a p-core |
+| 绑定失败 | `LOG_WARN` failed to bind thread i to cpu j |
+
+#### 12600KF 上的具体表现（举例）
+
+该 CPU 是 6 P 核（带超线程，12 逻辑）+ 4 E 核（无超线程，4 逻辑）= **16 逻辑 / 10 物理**。逻辑编号惯例上是 P 核先占 `0..11`（兄弟成对 `(0,1) (2,3) (4,5) (6,7) (8,9) (10,11)`），E 核是 `12,13,14,15`；枚举取每个核编号最小的那个，排序后即 `0,2,4,6,8,10,12,13,14,15`。
+
+| `threadSize` | 超线程 | 结果 |
+|---|---|---|
+| `6` | 无所谓 | 6 个反应堆全落在 P 核，**各自独占一整个物理核**（推荐） |
+| `10` | 关 | 1:1 对满 10 个物理核，无重复；但仍是 6 P + 4 E |
+| `0`(auto) | 开 | auto 取到 16 > 10 物理核 → 6 个核各扛 2 个反应堆，且 4 个落在 E 核 |
+| `0`(auto) | 关 | auto 取到 10 = 物理核数，1:1 对齐绑核规则 |
+
+#### 为什么建议关掉超线程
+
+`threadSize = 0` 的含义是"取 `std::thread::hardware_concurrency()`"，而它返回的是**逻辑** CPU 数。开着超线程时 12600KF 返回 **16**，但物理核只有 **10** —— 16 个反应堆铺在 10 个核上，`(offset + i) % cores.size()` 会让其中 6 个核各扛两个反应堆（正是上面那条 "some will carry two reactors" 警告的来源）。
+
+这时"一个反应堆独占一个物理核"的设计就落空了：这 6 个核上的两个反应堆互相抢执行单元（ALU / ROB / L1 / L2 全共享）。更要命的是**哪条通道落在被抢占的核上是不变的** —— 一致性哈希把 `accountId` 钉死在通道上，通道又钉死在线程上，于是同一批账号**永远**跑在抢核的通道上。CPU 拓扑的差异因此直接暴露成**尾延迟**：p50 不受影响，p99 被那几条抢核的通道抬起来。事件循环最怕这种非均匀的、固定的慢路径。
+
+关掉超线程后 `hardware_concurrency()` 就等于物理核数 10，`threadSize = 0` 自动取到 10，与绑核规则天然 1:1 对齐，不再有"谁和谁共用一核"的抽签，也不必为此手调 `threadSize`。
+
+> 不想动 BIOS 的话，**显式写死 `threadSize = 6`** 拿到的是同样的确定性，而且比关超线程更好：6 个反应堆全在 P 核上、每个独占一整个物理核，把 E 核和 P 核的单核吞吐差异也一并绕开了。代价是只用 6 个核，剩下的 **4 个 E 核整核 + 6 个 P 核的超线程兄弟（6 个逻辑 CPU）** 全空着，留给 spdlog 异步线程、CoroRpc 线程池、MySQL 连接池这些**没有绑核**的线程（它们仍会被 OS 调度到反应堆所在的物理核上，只是不会固定占用某个逻辑 CPU）。
+
+> **实测口径**：本机（12600KF，压测客户端与服务端同机）10 线程服务端下，**绑核与不绑核都能跑到 ~143k msgs/s**（p50 0.96 / p95 4.76 / p99 10.34 ms，丢失 0）。也就是说在当前核数下**绑核不是吞吐瓶颈** —— 它要解决的是尾延迟的**确定性**，不是把 QPS 顶上去。
 
 ---
 
@@ -829,7 +894,9 @@ port = 8088              ; WebSocket 信令端口
 httpPort = 9099          ; HTTP 运维端口
 enableHttp = 1           ; 是否开 HTTP
 enablePublicPort = 1     ; 1=监听 0.0.0.0,0=仅 127.0.0.1
-size = 0                 ; 通道数,0=硬件并发数
+threadSize = 0           ; 通道数,0=硬件并发数(取 hardware_concurrency)
+enableCpuAffinity = 0    ; 1=把每个通道的反应堆线程钉到固定物理核(见 §11.1)
+cpuAffinityOffset = 0    ; 绑核起始物理核下标;P 核在前、E 核在后
 certificateFile = server.crt
 privateKeyFile = server.key
 maxTlsHandShakeTime = 3000    ; WebSocket 握手超时 ms
@@ -900,7 +967,11 @@ make clean && make
 - 需要 `include/{mimalloc,spdlog,openssl,abseil-cpp,boost,coroRpc}` 与 `lib/{mimalloc,openssl,abseil-cpp,boost}`（构建环境准备）。
 - mimalloc：`-lmimalloc` 置 LDLIBS 首位全局替换 glibc malloc/free；编译加 `-fno-builtin-malloc/calloc/realloc/free`；头文件走 `-Iinclude/mimalloc`。
 - 链接 `-fuse-ld=lld -flto=thin`，`-Wl,-rpath,'$ORIGIN/../lib/{mimalloc,openssl,abseil-cpp,boost}'`。
-- 产物自包含：openssl（`libcrypto.so.3`/`libssl.so.3`）单独拷入 `release-x64/`；mimalloc/boost/abseil 中**实际链接为共享库**的那些 `.so*`（目录里 `.a` 与 `.so` 都有时链接取 `.so`，仅有 `.a` 的不构成运行时依赖、不拷）由 makefile 从 `-l` 清单反推后一并拷入 `release-x64/`——新增链接库无需再改拷贝步骤。
+- 产物自包含：openssl（`libcrypto.so.3`/`libssl.so.3`）单独拷入 `release-x64/`；mimalloc/boost 中**实际链接为共享库**的那些 `.so*`（目录里 `.a` 与 `.so` 都有时链接取 `.so`，仅有 `.a` 的不构成运行时依赖、不拷）由 makefile 从 `-l` 清单反推后一并拷入 `release-x64/`——新增链接库无需再改拷贝步骤。
+- **abseil 静态链接**：`lib/abseil-cpp/` 下只放 `libabsl_*.a`（不放 `.so`），因此 abseil **不构成运行时依赖**、不需要拷贝，`DT_NEEDED` 里 `libabsl_*` 个数应为 0。这样做的收益不只是少拷库：abseil 与主程序在同一个 LTO 单元里，`-flto=thin` / `-fwhole-program-vtables` / `-Wl,--icf=all` / `-Wl,--gc-sections` 才真正生效（跨 `.so` 边界这些全部失效），死代码与重复符号能被真正消除。顺带绕开了 §14 里记的那个 `DT_RUNPATH` 不传递的坑。
+  - 编译 `.a` 时必须用**项目自带那份** `include/abseil-cpp/absl/base/options.h`：其中 `ABSL_OPTION_USE_STD_SOURCE_LOCATION` 与 `ABSL_OPTION_USE_STD_ORDERING` 被钉成 `1`（强制别名到 std 类型），而上游默认是 `2`（按编译 flag 自动探测）。头/库 ABI 不一致会出难查的链接或运行期错乱。
+  - 编译 flag 也要与主程序一致：`-O3 -DNDEBUG -march=x86-64-v3 -ffunction-sections -fdata-sections`，以及 `-fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free`——最后这组少了的话，编译器会把 malloc builtin 内联进去，**绕过 mimalloc 的全局替换**。
+  - `ABSL_LIBS` 里有 5 个只被**间接**依赖的库必须显式列出，否则静态链接会 `undefined reference`：`absl_base_cpu_detect`、`absl_clock_interface`、`absl_die_if_null`、`absl_log_internal_fnmatch`、`absl_status_builder`。整个清单用 `-Wl,--start-group ... -Wl,--end-group` 包住（该组**只搜索组内列出的库**，没列出来的间接库搜不到）。
 - `-Iinclude/coroRpc` 提供 ylt 头。
 - ylt/coro_rpc 为头文件库，无需额外链接库。
 
@@ -911,7 +982,23 @@ cd <含 config.ini + server.crt + server.key 的目录>
 <WebrtcSignalServer>/release-x64/WebrtcSignalServer
 ```
 
-所用动态库已全部拷入 `release-x64/`（openssl/mimalloc 直接拷；boost/abseil 拷 `-l` 清单反推出的 `.so*`），`rpath '$ORIGIN'` 即可加载，无需 `LD_LIBRARY_PATH`；只带 `release-x64/` 一个目录即可运行。`config.ini` 从当前工作目录读取。
+所用动态库已全部拷入 `release-x64/`（openssl/mimalloc 直接拷；boost 拷 `-l` 清单反推出的 `.so*`；abseil 已静态链接，无运行时依赖），`rpath '$ORIGIN'` 即可加载，无需 `LD_LIBRARY_PATH`；只带 `release-x64/` 一个目录即可运行。`config.ini` 从当前工作目录读取。
+
+**但 `release-x64/` 里缺 `liburing`**：makefile 链接时用了 `-luring`，而系统里的 `liburing.so.2` 不会被拷进产物目录。**目标机没装 liburing 时会在加载阶段直接失败**（`error while loading shared libraries: liburing.so.2`）。解决方案是把 `liburing.so.2`（及其版本化实体，如 `liburing.so.2.14`）一并放进部署目录，形如：
+
+```
+部署目录/
+├── WebrtcSignalServer
+├── liburing.so.2.14           # 实体
+├── liburing.so.2              # 同一份内容的副本
+├── ...(boost/mimalloc/openssl 的 .so)
+├── config.ini
+└── start.sh                   # 内部用 LD_LIBRARY_PATH=. 启动
+```
+
+> 注意 `liburing.so` 这一族**不要用符号链接**：从 Windows 侧拷 WSL 符号链接会得到 0 字节的坏重解析点（文件既读不了也盖不掉）。在 WSL 里用 `cp -L`（解引用）或直接落成实体副本。
+
+> 另外，超线程/io_uring 相关的**内核**前提是 `BOOST_ASIO_DISABLE_EPOLL`：这个宏把 epoll reactor 编译掉了，运行时只走 io_uring（内核需 ≥ 5.1）。**拷 `.so` 只解决"库没装"，解决不了"内核太老"** —— 后者不是靠打包能救的。
 
 ### 12.4 客户端协议（信令）
 
@@ -961,7 +1048,8 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 
 - ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebrtcSignalConfig` / `WebrtcSignalChannelConfig`），MySQL 走全局 `globalMysqlConfig`。
 - 仓库自带的 moodycamel 副本改名为 `hopeMoodycamel`、宏前缀改为 `HOPE_MOODYCAMEL_*`，避免与 ylt 自带的 moodycamel 撞名并共享 `#ifndef MOODYCAMEL_ALIGNAS` 守卫。升级上游 moodycamel 时需重新套用这两处改名（见 `utils/concurrentqueue.h` 顶部注释）。
-- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。分发拷贝由 `MIMALLOC_SHARED/BOOST_SHARED/ABSL_SHARED` 按 `-l` 清单反推（`foreach`+`patsubst -l%,lib%.so*`+`wildcard`，仅有 `.a` 的库匹配不到即自动跳过），openssl 单独 `cp libcrypto.so.3 libssl.so.3`，链接规则里一条 `for` 循环统一拷入 `release-x64/`。
+- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。分发拷贝由 `MIMALLOC_SHARED/BOOST_SHARED` 按 `-l` 清单反推（`foreach`+`patsubst -l%,lib%.so*`+`wildcard`，仅有 `.a` 的库匹配不到即自动跳过），openssl 单独 `cp libcrypto.so.3 libssl.so.3`，链接规则里一条 `for` 循环统一拷入 `release-x64/`。**abseil 已静态化，原 `ABSL_SHARED` 那一行已删除**（见 §12.2）。
+- **`DT_RUNPATH` 不传递（记录在案的老坑）**：`-Wl,-rpath,'$ORIGIN/../lib/xxx'` 只对主程序的**直接**依赖生效；`.so` 之间的**间接**依赖要用加载者自己的 RUNPATH。当初 abseil 走动态链接时，`libabsl_base_cpu_detect.so.0`、`libabsl_log_internal_fnmatch.so.0` 这类不被任何 `-l` 项直接引用的库正是靠这一条漏掉的（makefile 从 `-l` 清单反推拷贝列表，它们不在清单里）→ 运行时 `cannot open shared object file`。**abseil 改静态后这个坑不复存在**；但如果将来又给某个第三方库改回动态链接，这条会立刻还魂。
 - mimalloc 全局替换（`-lmimalloc` 首位 + ELF 符号抢占）：进程内 malloc/free 全走 mimalloc；`mimalloc-new-delete.h` 覆盖 C++ `new`/`delete`，Linux ELF 下对整进程（含第三方动态库）统一生效，无 Windows 侧跨模块堆错配问题——这正是它**不**放进 Windows Qt 客户端的原因（Windows 按 DLL 各自绑定，只覆盖 exe 会产生 Qt DLL ↔ exe 的 new/delete 错配崩溃）。
 - CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncBoot()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
 - HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
