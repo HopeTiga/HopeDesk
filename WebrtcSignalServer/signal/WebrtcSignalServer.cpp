@@ -366,7 +366,7 @@ namespace hope {
                 boost::asio::post(webrtcSignalManager->getIoCompletionPorts(),
                     [webrtcSignalManager, &closeLatch]() {
 
-                        for (absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator =
+                        for (StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator =
                                  webrtcSignalManager->webrtcSocketMap.begin();
                              iterator != webrtcSignalManager->webrtcSocketMap.end(); ++iterator) {
 
@@ -382,9 +382,9 @@ namespace hope {
 
             closeLatch.wait();
 
-            webrtcSignalManagers.clear();
+            hope::iocp::AsioProactors::getInstance()->stop();
 
-            hope::iocp::AsioProactors::getInstance()->releaseWork();
+            webrtcSignalManagers.clear();
 
             LOG_INFO("Already CloseBoot");
 

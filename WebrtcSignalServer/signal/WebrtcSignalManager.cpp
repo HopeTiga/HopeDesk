@@ -81,7 +81,7 @@ namespace hope {
 
             std::string sessionId = webrtcSignalSocket->getSessionId();
 
-            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
+            StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
 
             if (iterator != webrtcSocketMap.end()) {
 
@@ -97,7 +97,7 @@ namespace hope {
 
             absl::AnyInvocable<void(WebrtcSignalManager*)> updateGlobalIndexAndKick = [accountId, sessionId = std::move(sessionId), newChannelIndex](WebrtcSignalManager* targetManager) mutable {
 
-                absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = targetManager->actorSocketMappingIndex.find(accountId);
+                StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator indexIterator = targetManager->actorSocketMappingIndex.find(accountId);
 
                 int oldChannelIndex = -1;
 
@@ -152,7 +152,7 @@ namespace hope {
         {
             LOG_INFO("Remove WebrtcSignalSocket Request: Account={}, SessionId={}", accountId.c_str(), sessionId.c_str());
 
-            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
+            StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
 
             if (iterator == webrtcSocketMap.end()) {
                 LOG_WARN("Connection Already Removed Or Not Found: {}", accountId.c_str());
@@ -176,7 +176,7 @@ namespace hope {
 
             webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
 
-                absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
+                StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
 
                 if (iteratorIndex != manager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
 
@@ -197,7 +197,7 @@ namespace hope {
         {
             LOG_INFO("Remove WebrtcSignalSocket Request: Account={}, SessionId={}", accountId.c_str(), sessionId.c_str());
 
-            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
+            StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
 
             if (iterator == webrtcSocketMap.end()) {
                 LOG_WARN("Connection Already Removed Or Not Found: {}", accountId.c_str());
@@ -219,7 +219,7 @@ namespace hope {
 
             webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
 
-                absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
+                StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
 
                 if (iteratorIndex != manager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
 

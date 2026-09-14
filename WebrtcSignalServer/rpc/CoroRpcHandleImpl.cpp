@@ -57,7 +57,7 @@ namespace hope {
 
 			webrtcSignalServer.postTask(mapChannelIndex, [promise = std::move(promise), forwardPacketJson = std::move(forwardPacketJson),accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<hope::signal::WebrtcSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
-				absl::node_hash_map<std::string, hope::signal::WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId);
+				StringKeyedNodeMap<hope::signal::WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId);
 
 				if (indexIterator == webrtcSignalManager->actorSocketMappingIndex.end()) {
 
@@ -75,7 +75,7 @@ namespace hope {
 
 				if (channelIndex == webrtcSignalManager->getChannelIndex()) {
 
-					absl::node_hash_map<std::string, std::shared_ptr<hope::signal::WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId);
+					StringKeyedNodeMap<std::shared_ptr<hope::signal::WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId);
 
 					if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -132,7 +132,7 @@ namespace hope {
 
 				webrtcSignalManager->getWebrtcSignalServer()->postTask(channelIndex, [promise = std::move(promise), forwardPacketJson = std::move(forwardPacketJson), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<hope::signal::WebrtcSignalManager> webrtcSignalManager)mutable->boost::asio::awaitable<void> {
 
-					absl::node_hash_map<std::string, std::shared_ptr<hope::signal::WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId);
+					StringKeyedNodeMap<std::shared_ptr<hope::signal::WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId);
 
 					if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 

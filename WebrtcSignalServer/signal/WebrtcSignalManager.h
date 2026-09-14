@@ -4,7 +4,7 @@
 
 #include <boost/asio.hpp>
 
-#include <absl/container/node_hash_map.h>
+#include "../utils/StringHasher.h"
 
 #include "WebrtcLogicSystem.h"
 #include "WebrtcSignalSocket.h"
@@ -80,13 +80,13 @@ namespace hope {
 
 			};
 
-			absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>> webrtcSocketMap;
+			StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>> webrtcSocketMap;
 
 			size_t hashSize;
 
-			absl::node_hash_map<std::string, ActorMapping> actorSocketMappingIndex;
+			StringKeyedNodeMap<ActorMapping> actorSocketMappingIndex;
 
-			std::hash<std::string> hasher;
+			StringHasher hasher;
 
 		private:
 

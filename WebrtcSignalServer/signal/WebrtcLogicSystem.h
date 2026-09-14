@@ -13,7 +13,7 @@
 
 #include <ylt/struct_pack.hpp>
 
-#include <absl/container/flat_hash_map.h>
+#include "../utils/StringHasher.h"
 #include <absl/functional/any_invocable.h>
 #include <absl/strings/str_format.h>
 
@@ -36,6 +36,18 @@ namespace hope {
 		class WebrtcSignalServer;
 
 		class HttpSocket;
+
+		// Handler 的具体签名。注册点（WebrtcLogicSystem.cpp 的 initHandlers / initHttpHandlers）
+		// 和派发点（下面的 postTask / coPostTask）共用，要改签名只需改这里一处。
+		using WebrtcHandler = absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>;
+
+		using WebrtcValueHandler = absl::AnyInvocable<boost::asio::awaitable<boost::json::value>(hope::signal::WebrtcSignalPacket)>;
+
+		using HttpHandler = absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>;
+
+		// 注册表存的是 unique_ptr：handler 在启动时分配、之后只读，
+		// 派发时取裸指针捕获进异步执行体（见 postTask），既没有引用计数的开销，
+		// 也不会有"引用逃逸到延迟执行体"的隐患——handler 的生命周期就是进程的生命周期。
 
 		class WebrtcLogicSystem : public std::enable_shared_from_this<WebrtcLogicSystem>
 		{
@@ -113,21 +125,21 @@ namespace hope {
 
 						std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
 
-						absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>>::iterator iterator = this->webrtcHandlers.find(type);
+						boost::unordered_flat_map<int, std::unique_ptr<WebrtcHandler>>::iterator iterator = this->webrtcHandlers.find(type);
 
 						if (iterator != this->webrtcHandlers.end()) {
 
-							absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>& func = iterator->second;
+							WebrtcHandler* func = iterator->second.get();
 
 							if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
 
 								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
-								bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
+								bool success = taskQueues.enqueue([type, func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
 
 									try {
 
-										co_await func(std::move(webrtcSignalPacket));
+										co_await (*func)(std::move(webrtcSignalPacket));
 
 										(*completionHandlerPtr)(std::exception_ptr{});
 
@@ -167,9 +179,9 @@ namespace hope {
 
 								localTaskQueueSize.fetch_add(1);
 
-								boost::asio::co_spawn(ioContext, [type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
+								boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
 
-									co_await func(std::move(webrtcSignalPacket));
+									co_await (*func)(std::move(webrtcSignalPacket));
 
 									},
 									[this, completionHandlerPtr](std::exception_ptr exception) mutable {
@@ -217,21 +229,21 @@ namespace hope {
 
 						std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
 
-						absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<boost::json::value>(hope::signal::WebrtcSignalPacket)>>::iterator iterator = this->webrtcValueHandlers.find(type);
+						boost::unordered_flat_map<int, std::unique_ptr<WebrtcValueHandler>>::iterator iterator = this->webrtcValueHandlers.find(type);
 
 						if (iterator != this->webrtcValueHandlers.end()) {
 
-							absl::AnyInvocable<boost::asio::awaitable<boost::json::value>(hope::signal::WebrtcSignalPacket)>& func = iterator->second;
+							WebrtcValueHandler* func = iterator->second.get();
 
 							if (localTaskQueueSize.load() >= threshold.load() && webrtcValueLogicHandlers[type]) {
 
 								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
-								bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
+								bool success = taskQueues.enqueue([type, func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
 
 									try {
 
-										boost::json::value value = co_await func(std::move(webrtcSignalPacket));
+										boost::json::value value = co_await (*func)(std::move(webrtcSignalPacket));
 
 										(*completionHandlerPtr)(std::exception_ptr{}, std::move(value));
 
@@ -271,9 +283,9 @@ namespace hope {
 
 								localTaskQueueSize.fetch_add(1);
 
-								boost::asio::co_spawn(ioContext, [type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<boost::json::value> {
+								boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<boost::json::value> {
 
-									co_return co_await func(std::move(webrtcSignalPacket));
+									co_return co_await (*func)(std::move(webrtcSignalPacket));
 
 									},
 									[this, completionHandlerPtr](std::exception_ptr exception, boost::json::value value = {}) mutable {
@@ -331,17 +343,17 @@ namespace hope {
 
 			int channelIndex;
 
-			absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>> webrtcHandlers;
+			boost::unordered_flat_map<int, std::unique_ptr<WebrtcHandler>> webrtcHandlers;
 
-			absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<boost::json::value>(hope::signal::WebrtcSignalPacket)>> webrtcValueHandlers;
+			boost::unordered_flat_map<int, std::unique_ptr<WebrtcValueHandler>> webrtcValueHandlers;
 
-			absl::flat_hash_map<std::string, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>> httpHandlers;
+			StringKeyedFlatMap<std::unique_ptr<HttpHandler>> httpHandlers;
 
-			absl::flat_hash_map<int, bool> webrtcLogicHandlers;
+			boost::unordered_flat_map<int, bool> webrtcLogicHandlers;
 
-			absl::flat_hash_map<int, bool> webrtcValueLogicHandlers;
+			boost::unordered_flat_map<int, bool> webrtcValueLogicHandlers;
 
-			absl::flat_hash_map<std::string, bool> httpLogicHandlers;
+			StringKeyedFlatMap<bool> httpLogicHandlers;
 
 			HttpFilters httpFilters;
 

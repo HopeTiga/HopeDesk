@@ -67,21 +67,21 @@ namespace hope {
 
             int type = webrtcSignalPacket.webrtcEnvelope.requestType;
 
-            absl::flat_hash_map<int, absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>>::iterator iterator = this->webrtcHandlers.find(type);
+            boost::unordered_flat_map<int, std::unique_ptr<WebrtcHandler>>::iterator iterator = this->webrtcHandlers.find(type);
 
             if (iterator != this->webrtcHandlers.end()) {
 
-                absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>& func = iterator->second;
+                WebrtcHandler* func = iterator->second.get();
 
                 if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
 
                     std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
-                    bool success = taskQueues.enqueue([type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]()mutable -> boost::asio::awaitable<void> {
+                    bool success = taskQueues.enqueue([type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]()mutable -> boost::asio::awaitable<void> {
 
                         try {
 
-                            co_await func(std::move(webrtcSignalPacket));
+                            co_await (*func)(std::move(webrtcSignalPacket));
 
                         }
                         catch (const std::exception& e) {
@@ -118,9 +118,9 @@ namespace hope {
 
                     localTaskQueueSize.fetch_add(1);
 
-                    boost::asio::co_spawn(ioContext, [type, &func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
 
-                        co_await func(std::move(webrtcSignalPacket));
+                        co_await (*func)(std::move(webrtcSignalPacket));
 
                         },
                         [this](std::exception_ptr exception) mutable {
@@ -257,13 +257,13 @@ namespace hope {
 
             std::string targetUrl = httpRequest.target();
 
-            absl::flat_hash_map<std::string, absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>>::iterator iterator = this->httpHandlers.find(targetUrl);
+            StringKeyedFlatMap<std::unique_ptr<HttpHandler>>::iterator iterator = this->httpHandlers.find(targetUrl);
 
             if (iterator != this->httpHandlers.end()) {
 
                 LOG_INFO("Http Request: {}", targetUrl.data());
 
-                absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>& func = iterator->second;
+                HttpHandler* func = iterator->second.get();
 
                 if (localTaskQueueSize.load() >= threshold.load() && httpLogicHandlers[targetUrl]) {
 
@@ -271,7 +271,7 @@ namespace hope {
 
                     std::shared_ptr<HttpSocket> httpSocketShared = httpSocket->shared_from_this();
 
-                    bool success = taskQueues.enqueue([httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest), &func, this]()mutable -> boost::asio::awaitable<void> {
+                    bool success = taskQueues.enqueue([httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest), func, this]()mutable -> boost::asio::awaitable<void> {
 
                         try {
 
@@ -295,7 +295,7 @@ namespace hope {
 
                             }
 
-                            co_await func(httpSocket, httpRequest);
+                            co_await (*func)(httpSocket, httpRequest);
 
                         }
                         catch (...) {
@@ -347,7 +347,7 @@ namespace hope {
 
                 localTaskQueueSize.fetch_add(1);
 
-                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest), &func, this]()mutable->boost::asio::awaitable<void> {
+                boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest), func, this]()mutable->boost::asio::awaitable<void> {
 
                     if (!httpFilters.authorization(httpSocket, httpRequest)) {
 
@@ -369,7 +369,7 @@ namespace hope {
 
                     }
 
-                    co_await func(httpSocket, httpRequest);
+                    co_await (*func)(httpSocket, httpRequest);
 
                     }, [this, targetUrl](std::exception_ptr ptr) {
 
@@ -471,7 +471,7 @@ namespace hope {
                 std::shared_ptr<WebrtcSignalSocket> targetSocket = nullptr;
 
                 {
-                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalPacket.webrtcSignalManager->webrtcSocketMap.find(targetId);
+                    StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalPacket.webrtcSignalManager->webrtcSocketMap.find(targetId);
 
                     if (iterator != webrtcSignalPacket.webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -483,7 +483,7 @@ namespace hope {
 
                 if (!targetSocket) {
 
-                    absl::node_hash_map<std::string, int>::iterator iterator = webrtcSignalPacket.webrtcSignalSocket->actorMappingIndex.find(targetId);
+                    StringKeyedNodeMap<int>::iterator iterator = webrtcSignalPacket.webrtcSignalSocket->actorMappingIndex.find(targetId);
 
                     int index = 0;
 
@@ -506,7 +506,7 @@ namespace hope {
 
                         if (mapChannelIndex == channelIndex) {
 
-                            absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalPacket.webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
+                            StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalPacket.webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                             if (indexIterator != webrtcSignalPacket.webrtcSignalManager->actorSocketMappingIndex.end()) {
 
@@ -514,7 +514,7 @@ namespace hope {
 
                                 webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalPacket = std::move(webrtcSignalPacket),channelIndex, requestTypeValue, requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
+                                    StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -580,7 +580,7 @@ namespace hope {
 
                         webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(mapChannelIndex, [webrtcSignalPacket = std::move(webrtcSignalPacket), channelIndex = std::move(channelIndex), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                            absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
+                            StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                             if (indexIterator != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
@@ -588,7 +588,7 @@ namespace hope {
 
                                 if (targetChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
+                                    StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -631,7 +631,7 @@ namespace hope {
 
                                 webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalPacket = std::move(webrtcSignalPacket), channelIndex = std::move(channelIndex), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                    absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
+                                    StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                     if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -696,7 +696,7 @@ namespace hope {
 
                         webrtcSignalPacket.webrtcSignalManager->webrtcSignalServer->postTask(index, [webrtcSignalPacket = std::move(webrtcSignalPacket), channelIndex = std::move(channelIndex), mapChannelIndex = std::move(mapChannelIndex), requestTypeStr = std::move(requestTypeStr), requestTypeValue = std::move(requestTypeValue), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
+                            StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -713,7 +713,7 @@ namespace hope {
 
                                 if (mapChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                    absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
+                                    StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                                     if (indexIterator != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
@@ -721,7 +721,7 @@ namespace hope {
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalPacket = std::move(webrtcSignalPacket), channelIndex = std::move(channelIndex), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
+                                            StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -760,7 +760,7 @@ namespace hope {
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalPacket.webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                                    absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
+                                                    StringKeyedNodeMap<int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
                                                     if (routeIterator != webrtcSignalSocket->actorMappingIndex.end() && routeIterator->second == index) {
 
@@ -797,7 +797,7 @@ namespace hope {
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalPacket.webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                            absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
+                                            StringKeyedNodeMap<int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
                                             if (routeIterator != webrtcSignalSocket->actorMappingIndex.end() && routeIterator->second == index) {
 
@@ -819,7 +819,7 @@ namespace hope {
 
                                 webrtcSignalManager->webrtcSignalServer->postTask(mapChannelIndex, [webrtcSignalPacket = std::move(webrtcSignalPacket), channelIndex = std::move(channelIndex), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                    absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
+                                    StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator indexIterator = webrtcSignalManager->actorSocketMappingIndex.find(targetId.data());
 
                                     if (indexIterator != webrtcSignalManager->actorSocketMappingIndex.end()) {
 
@@ -827,7 +827,7 @@ namespace hope {
 
                                         if (targetChannelIndex == webrtcSignalManager->getChannelIndex()) {
 
-                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
+                                            StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -864,7 +864,7 @@ namespace hope {
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalPacket.webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                                    absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
+                                                    StringKeyedNodeMap<int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
                                                     if (routeIterator != webrtcSignalSocket->actorMappingIndex.end() && routeIterator->second == index) {
 
@@ -886,7 +886,7 @@ namespace hope {
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(targetChannelIndex, [webrtcSignalPacket = std::move(webrtcSignalPacket), channelIndex = std::move(channelIndex), requestTypeValue = std::move(requestTypeValue), requestTypeStr = std::move(requestTypeStr), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
+                                            StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSignalManager->webrtcSocketMap.find(targetId.data());
 
                                             if (iterator != webrtcSignalManager->webrtcSocketMap.end()) {
 
@@ -925,7 +925,7 @@ namespace hope {
 
                                                 webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalPacket.webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                                    absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
+                                                    StringKeyedNodeMap<int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
                                                     if (routeIterator != webrtcSignalSocket->actorMappingIndex.end() && routeIterator->second == index) {
 
@@ -960,7 +960,7 @@ namespace hope {
 
                                         webrtcSignalManager->webrtcSignalServer->postTask(channelIndex, [webrtcSignalSocket = std::move(webrtcSignalPacket.webrtcSignalSocket), accountId = std::move(accountId), targetId = std::move(targetId), index](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager) mutable {
 
-                                            absl::node_hash_map<std::string, int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
+                                            StringKeyedNodeMap<int>::iterator routeIterator = webrtcSignalSocket->actorMappingIndex.find(targetId);
 
                                             if (routeIterator != webrtcSignalSocket->actorMappingIndex.end() && routeIterator->second == index) {
 
@@ -999,19 +999,19 @@ namespace hope {
                 };
 
             // ==================== Handlers 1-4 ====================
-            webrtcHandlers[1] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "REQUEST"); };
+            webrtcHandlers[1] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "REQUEST"); });
 
-            webrtcHandlers[3] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "STOP_REMOTE"); };
+            webrtcHandlers[3] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "STOP_REMOTE"); });
 
-            webrtcHandlers[6] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
+            webrtcHandlers[6] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(webrtcSignalPacket), "CLOSE_SYSTEM");
-                };
+                });
 
-            webrtcHandlers[7] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
+            webrtcHandlers[7] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
                 co_await forwardHandler(std::move(webrtcSignalPacket), "SYSTEM_READLY");
-                };
+                });
 
-            webrtcHandlers[9] = [this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
+            webrtcHandlers[9] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
 
                 hope::rpc::CoroRpc* coroRpc = hope::rpc::CoroRpc::getInstance();
 
@@ -1104,7 +1104,7 @@ namespace hope {
 
                 co_return;
 
-                };
+                });
 
             webrtcLogicHandlers[1] = false;
 
@@ -1116,9 +1116,9 @@ namespace hope {
 
             webrtcLogicHandlers[9] = false;
 
-            webrtcValueHandlers[10] = [this](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<boost::json::value> {
+            webrtcValueHandlers[10] = std::make_unique<WebrtcValueHandler>([this](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<boost::json::value> {
 				co_return 10;
-				};
+				});
 
             webrtcValueLogicHandlers[10] = false;
 
@@ -1211,7 +1211,7 @@ namespace hope {
                 };
 
             // -------- 路由 /api/v1/managers/overview --------
-            httpHandlers["/api/v1/managers/overview"] =
+            httpHandlers["/api/v1/managers/overview"] = std::make_unique<HttpHandler>(
                 [this, httpSocketAsyncWrite,serializeHttpResp, awaitableHttpSocketAsyncWrite](
                     std::shared_ptr<HttpSocket> httpSocket,
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
@@ -1236,10 +1236,10 @@ namespace hope {
                         }
 
                         co_return;
-                };
+                });
 
             // -------- 路由 /api/v1/managers/stat --------
-            httpHandlers["/api/v1/managers/stat"] =
+            httpHandlers["/api/v1/managers/stat"] = std::make_unique<HttpHandler>(
                 [this, httpSocketAsyncWrite, serializeHttpResp,awaitableHttpSocketAsyncWrite](
                     std::shared_ptr<HttpSocket> httpSocket,
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
@@ -1377,7 +1377,7 @@ namespace hope {
                                 });
                             co_return;
                         }
-                };
+                });
 
             httpLogicHandlers["/api/v1/managers/overview"] = true;
 
