@@ -55,6 +55,7 @@ WebrtcSignalServer/
     ├── MimallocConfig.h          # mimalloc 配置:默认值 + 读 [Mimalloc] 段 + mi_option_set 注入
     ├── Utils.h/.cpp              # spdlog 日志:异步线程池 + 控制台/滚动文件 sink + flush_every
     ├── concurrentqueue.h         # moodycamel::ConcurrentQueue(改名 hopeMoodycamel 隔离)
+    ├── StringHasher.h            # 透明 string hasher(进程级种子) + StringKeyedNodeMap/FlatMap 别名
     └── SpinLock.h
 ```
 
@@ -154,14 +155,19 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 ### 关闭（收到 SIGINT/SIGTERM）
 
 1. `WebrtcSignalServer->closeBoot()`（幂等，`asyncBoots.exchange(false)` 挡住重复进入）：
-   - `CoroRpc::getInstance()->closeBoot()` 停 RPC 服务。
-   - `taskQueues.close()` 关全局任务队列（排水协程自然退出）。
+   - `CoroRpc::getInstance()->closeBoot()` 停 RPC 服务：`coro_rpc_server::stop()` → `io_context_pool::stop()`，**join 掉 RPC 自己的全部线程**。此后不会再有人经 RPC 路径访问通道内的表（`CoroRpcHandleImpl` 会 `find` manager 的 `actorSocketMappingIndex` 与 `webrtcSocketMap`）。
+   - `taskQueues.close()` 关全局任务队列（排水协程收到 `channel_closed`，排空队列后自然退出）。
    - **逐连接温和关闭**：每个 Manager 的 socket 关闭任务 `post` 到**它自己的连接池 ioContext**，与 `registerSocket`/`removeConnection` 串行（避免跨线程竞态访问 `webrtcSocketMap`）——逐个 `socket->closeBoot()` 后 `webrtcSocketMap.clear()`；N 个通道**并行**关闭，用 `std::latch`（C++20 barrier）`count_down()`/`wait()` 等全部完成。
-   - `webrtcSignalManagers.clear()`（触发各 Manager/LogicSystem/MysqlPool 析构 → `pool->cancel()`）。
-   - `AsioProactors::releaseWork()`：仅释放各 worker 的 work guard，让 io_context 线程跑完已提交 handler 后 `run()` 自然返回（**不**调 `io_context::stop()`，不丢弃 pending）。
-2. 回到 `main`：`work.reset()` + `ioContext.stop()`（main io_context）。
-3. `closeLogger()`。
-4. `AsioProactors` 析构 → `stop()` 核爆兜底：`releaseWork()` → `io_context::stop()` 丢弃未执行 handler → `join()` 回收线程。
+     - **这一步必须留在下一句 `stop()` 之前**：它靠 worker 线程仍在 `run()` 才有机会执行，反序会死锁在 `closeLatch.wait()`。
+   - `AsioProactors::getInstance()->stop()`：`releaseWork()` → 全部 io_context `stop()`（停止派发、丢弃未执行 handler）→ **`join()` 全部 worker 线程**。
+     - 这一句同时是**清表安全性的来源**。`webrtcHandlers` 等注册表里存的是 `awaitable` 协程对象，派发时取裸指针捕获进异步执行体；一个**已挂起**的 handler 协程帧并不安全——协程帧是透过闭包对象读捕获变量的，不是自己拷一份，所以注册表一 `clear()`，任何一次唤醒都是 use-after-free（`co_await` 带超时 RPC 的 handler 会挂数秒，窗口就是秒级）。
+     - `stop()` 返回后这个窗口被彻底关掉：**协程的每一次恢复都必须由某个 io_context 派发一个完成回调，而线程已经 join 完、context 已停**，所以挂起的协程永远不会被唤醒，也就永远不会走到读捕获变量那行。改变的不是协程的生命周期，是它再也执行不到那行代码。
+     - 由此 `webrtcSignalManagers.clear()` 从"赌没有协程在飞"变成"确定没有协程能跑"。
+   - `webrtcSignalManagers.clear()`（触发各 Manager/LogicSystem/MysqlPool 析构，即 `webrtcHandlers.clear()` 等）。
+     - 注意 `~WebrtcMysqlManagerPools` 只是把 `pool->cancel()` `post` 到**已经停掉的** io_context，**这句不会被执行**；连接改由连接池析构时关闭（被遗弃的 handler 连同它捕获的 `shared_ptr<pool>` 在 `~AsioProactors` 销毁 io_context 时释放）。这是本次唯一的语义差异，进程即将退出，无实际影响。
+2. 回到 `main`：`work.reset()` + `ioContext.stop()`（main **自己的** io_context，与 worker 池彼此独立）。
+3. `closeLogger()`。此时 worker 线程已 join，不会再有人往已拆掉的 logger 里写。
+4. `AsioProactors` 析构 → 再调一次 `stop()`（幂等，`joinable()` 为假直接跳过）→ 销毁 io_context，被遗弃的协程帧此刻析构，只跑自身局部变量的析构，不会回头读已释放的 handler 闭包。
 
 ---
 
@@ -248,7 +254,8 @@ handler = WebrtcHandlers[requestType]
 | 缓存失效重路由 | 最多 3（源→缓存→home→T），第一跳是"信缓存"的代价 |
 
 要点：
-- **一致性哈希 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射稳定。`actorSocketMappingIndex`（targetId→{sessionId,channel}）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
+- **一致性哈希 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射**在一个进程内**稳定（全仓库只有 `WebrtcSignalManager` 里那一个 `StringHasher` 成员被 5 处路由决策共用，所以各通道必然算出同一个桶）。`actorSocketMappingIndex`（targetId→{sessionId,channel}）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
+  - hasher 的值**从不跨进程**：跨节点转发时接收端用自己的 hasher 重算桶，所以哈希值里那个进程级随机种子（见 §11）不影响跨节点路由；它只让**同一账号在重启后可能落到不同通道**。
 - **两级缓存**：源 socket 的 `actorMappingIndex`（targetId→channel）就近缓存，home 的 `actorSocketMappingIndex` 全局索引。命中缓存省一跳；缓存命中这条是 1 跳的常见好路径。
 - **过期自愈**：缓存指向的通道查不到 socket（缓存过期）就重路由到 home 重新寻址；404 时清掉源 socket 上指向错误通道的缓存项，下次重新寻址。缓存失效多出的那一跳是缓存换来的代价——要消只能放弃缓存（每条都先跳 home）或给缓存加版本号，得不偿失。
 - **线程安全**：`webrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 各自只在所属通道的 io_context 线程上访问，跨通道读写一律经 `postTask`（普通/协程两个重载）跳到该线程，无锁。
@@ -817,6 +824,12 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 9. **构建优化**：clang `-O3 -march=x86-64-v3 -flto=thin`、`-ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--icf=all`、mimalloc（`-lmimalloc` 置 LDLIBS 首位做 glibc malloc/free 全局替换 + `-fno-builtin-malloc/calloc/realloc/free`）、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）。**不用 `-march=native`**：会把构建机专属指令（如 AVX-512）编进产物，换到无该指令的 CPU 上启动即 `Illegal instruction`（实测过）；`x86-64-v3`（AVX2）兼容 ~2015 年后全部 x86-64，纯可移植则改 `x86-64`。
 10. **round-robin accept** 均衡连接到各通道；Linux 下 `SO_REUSEPORT` 多 acceptor 分流。
 11. **CPU 亲和绑核**（可选，`enableCpuAffinity`）：每个通道的反应堆线程钉在一个固定物理核上，一个反应堆独占一个物理核；详见 §11.1。
+12. **路由表容器与哈希**（`utils/StringHasher.h`）：以 `std::string` 为键的表（`webrtcSocketMap` / `actorSocketMappingIndex` / `actorMappingIndex` / `httpHandlers` / `httpLogicHandlers`）统一走 `hope::StringKeyedNodeMap<V>` / `StringKeyedFlatMap<V>` 别名，即 `boost::unordered_node_map` / `unordered_flat_map` + `hope::StringHasher` + `std::equal_to<>`。
+    - **为什么 hasher 必须透明**（收 `string_view` 并 `using is_transparent = void`）：仓库里有 11 处 `map.find(targetId.data())` 传的是 `const char*`。`boost::hash<std::string>` 不透明，用它会让这 11 处**每次查找多构造一个临时 `std::string`**；透明 hasher 下按字符内容命中，零分配，`const char*` 只多一次 `strlen`。
+    - **为什么哈希值要异或一个进程级随机种子**（`getProcessWideHashSeed()`，`std::random_device`）：`accountId` 来自客户端 `Authorization` 头，**攻击者可控**，而 `hasher(accountId) % hashSize` 决定 actor 落哪个通道。种子固定（如 `std::hash<std::string>` 的 MSVC 实现）就能离线预挖一批同桶 id，把流量定向压到单一通道。这是**分片抗打偏**，不是密码学强度——攻击者只能看到 `(h ^ seed) % N`，看不到 `h`，也推不出 `seed`，代价为零。
+    - **种子绝不能做成每 Manager 一份**：同一个 `accountId` 必须算出同一个桶（跨通道转发、全局索引都依赖它），所以全仓库只有一个 `StringHasher` 成员，5 处路由决策共用。
+    - **代价（已知并接受）**：同一账号重启后可能落到不同通道，排查"某通道集中过载"时要意识到这点；要复现只能临时把种子固定成常量，别提交。
+    - 注：本次从 absl 容器换成 boost，**absl 的 `.lib` 一个都删不掉**——`absl::AnyInvocable`（15 处）和 `absl::StrFormat` 还在。收益是更快 + 容器风格统一，不是甩掉 abseil。
 
 ### 11.1 CPU 亲和绑核（`enableCpuAffinity`）
 
@@ -1039,6 +1052,8 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 | `AsioConcurrentQueue<T>` | `AsioConcurrentQueue.h` | socket 写队列 |
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
 | `ActorMapping` | `WebrtcSignalManager.h` | `{sessionId, channelIndex}` |
+| `StringHasher` | `utils/StringHasher.h` | 透明 string hasher（收 `string_view`，异或进程级随机种子） |
+| `StringKeyedNodeMap<T>` / `StringKeyedFlatMap<T>` | `utils/StringHasher.h` | string 键路由表的统一别名（boost node/flat + 透明 hasher） |
 | `AsyncTransactionGuard` | `mysql/AsyncTransactionGuard.h` | 事务 RAII |
 | `HttpFilters` | `signal/HttpFilters.h` | HTTP 鉴权(放行规则 + 全局过滤器) |
 
@@ -1055,4 +1070,5 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 - HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
 - MySQL 连接池每通道建好，handler 暂无 SQL 调用；`AsyncTransactionGuard` 析构不自动回滚，需显式 `commit()` / `asyncRollback()`。
 - `[Protect]` 段当前无代码消费。
+- `WebrtcLogicSystem` 的三个 handler 注册表（`webrtcHandlers` / `webrtcValueHandlers` / `httpHandlers`）是 **write-once**：只在 `initHandlers()` / `initHttpHandlers()`（`asyncBoot()` 期间）写。表内存 `std::unique_ptr<WebrtcHandler>`，派发时取 `.get()` 拿**裸指针**捕获进异步执行体——不要退回 `AnyInvocable& func = iterator->second;` 再捕获 `&func`：那个引用指向 **map 槽位内部**，一旦运行期注册触发扩容就立刻悬空。**同理不要在运行期注册 handler**：裸指针不怕扩容，但会引入新的生命周期问题（见 §4 关闭流程为什么必须先 `stop()` 再清表）。
 - HTTP 鉴权 token `913140924@qq.com` 为示例硬编码，生产环境需替换为真实鉴权。
