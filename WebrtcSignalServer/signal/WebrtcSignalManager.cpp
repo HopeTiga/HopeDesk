@@ -120,7 +120,7 @@ namespace hope {
                     targetManager->webrtcSignalServer->postTask(oldChannelIndex,
                         [accountId, oldSessionId](std::shared_ptr<WebrtcSignalManager> oldManager) mutable {
 
-                            oldManager->removeConnection(std::move(accountId), std::move(oldSessionId));
+                            oldManager->removeConnection(std::move(accountId), std::move(oldSessionId), nullptr);
 
                         });
 
@@ -148,39 +148,82 @@ namespace hope {
 
         }
 
-        void WebrtcSignalManager::removeConnection(std::string accountId, std::string sessionId)
+        void WebrtcSignalManager::removeConnection(std::string accountId, std::string sessionId, void* nullPoint)
         {
             LOG_INFO("Remove WebrtcSignalSocket Request: Account={}, SessionId={}", accountId.c_str(), sessionId.c_str());
 
-            auto it = webrtcSocketMap.find(accountId);
+            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
 
-            if (it == webrtcSocketMap.end()) {
-                LOG_WARN("Connection Already Removed or Not Found: {}", accountId.c_str());
+            if (iterator == webrtcSocketMap.end()) {
+                LOG_WARN("Connection Already Removed Or Not Found: {}", accountId.c_str());
                 return;
             }
 
-            std::shared_ptr<WebrtcSignalSocket> currentSocket = it->second;
+            std::shared_ptr<WebrtcSignalSocket> currentSocket = iterator->second;
 
             if (currentSocket->getSessionId() != sessionId) {
-                LOG_WARN("Race Condition Detected! Ignore remove request. "
+                LOG_WARN("Race Condition Detected! Ignore Remove Request. "
                     "Account: {}, RequestSessionId: {}, CurrentMapSessionId: {}",
                     accountId.c_str(), sessionId.c_str(), currentSocket->getSessionId().c_str());
                 return;
             }
 
-            webrtcSocketMap.erase(it);
-
             currentSocket->closeBoot();
+
+            webrtcSocketMap.erase(iterator);
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
             webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
 
-                auto itIndex = manager->actorSocketMappingIndex.find(accountId);
+                absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
 
-                if (itIndex != manager->actorSocketMappingIndex.end() && itIndex->second.sessionId == sessionId) {
+                if (iteratorIndex != manager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
 
-                    manager->actorSocketMappingIndex.erase(itIndex);
+                    manager->actorSocketMappingIndex.erase(iteratorIndex);
+
+                    LOG_INFO("Global Index Removed: {}", accountId.c_str());
+
+                }
+
+                co_return;
+
+                });
+
+
+        }
+
+        void WebrtcSignalManager::removeConnection(std::string accountId, std::string sessionId)
+        {
+            LOG_INFO("Remove WebrtcSignalSocket Request: Account={}, SessionId={}", accountId.c_str(), sessionId.c_str());
+
+            absl::node_hash_map<std::string, std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
+
+            if (iterator == webrtcSocketMap.end()) {
+                LOG_WARN("Connection Already Removed Or Not Found: {}", accountId.c_str());
+                return;
+            }
+
+            std::shared_ptr<WebrtcSignalSocket> currentSocket = iterator->second;
+
+            if (currentSocket->getSessionId() != sessionId) {
+                LOG_WARN("Race Condition Detected! Ignore Remove Request. "
+                    "Account: {}, RequestSessionId: {}, CurrentMapSessionId: {}",
+                    accountId.c_str(), sessionId.c_str(), currentSocket->getSessionId().c_str());
+                return;
+            }
+
+            webrtcSocketMap.erase(iterator);
+
+            int mapChannelIndex = hasher(accountId) % hashSize;
+
+            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
+
+                absl::node_hash_map<std::string, WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
+
+                if (iteratorIndex != manager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
+
+                    manager->actorSocketMappingIndex.erase(iteratorIndex);
 
                     LOG_INFO("Global Index Removed: {}", accountId.c_str());
 
@@ -345,7 +388,7 @@ namespace hope {
 
                                 }
 
-                                LOG_WARN("Accept Failed, Backoff and Retry: {}", e.code().message().c_str());
+                                LOG_WARN("Accept Failed, Backoff And Retry: {}", e.code().message().c_str());
 
                                 shouldBackoff = true;
 

@@ -47,6 +47,8 @@ namespace hope {
 
 			std::shared_ptr<hope::signal::WebrtcLogicSystem> getLogicSystem();
 
+			void removeConnection(std::string accountId, std::string sessionId, void * nullPoint);
+
 			void removeConnection(std::string accountId, std::string sessionId);
 
 			int getChannelIndex();

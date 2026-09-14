@@ -193,6 +193,9 @@ namespace hope {
 
                 }, [self = shared_from_this()](std::exception_ptr p) {
                     if (p) {
+
+                        self->closeBoot();
+
                         try {
 
                             std::rethrow_exception(p);
@@ -238,22 +241,10 @@ namespace hope {
                             }
                             catch (std::exception& e) {
 
-                                if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
-
-                                    self->onDisConnectHandle(self->accountId, self->sessionId);
-
-                                }
-
                                 LOG_ERROR("WriterCoroutine Error: {}", e.what());
 
                             }
                             catch (...) {
-
-                                if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
-
-                                    self->onDisConnectHandle(self->accountId, self->sessionId);
-
-                                }
 
                                 LOG_ERROR("WriterCoroutine Error: Unknown");
 
