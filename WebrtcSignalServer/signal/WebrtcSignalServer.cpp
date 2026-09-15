@@ -161,11 +161,11 @@ namespace hope {
 
                     }
 
-                    webrtcSignalSocket->setOnDisConnectHandle([sharedManager = webrtcSignalManager->shared_from_this()](std::string accountId, std::string sessionId) {
+                    webrtcSignalSocket->setOnDisConnectHandle([&webrtcSignalManager](std::string accountId, std::string sessionId) {
 
 #ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-                        sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
+                        webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
 
 #else
                         boost::asio::io_context& ioContext = sharedManager->getIoCompletionPorts();
@@ -390,7 +390,7 @@ namespace hope {
 
         }
 
-        bool WebrtcSignalServer::postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle)
+        bool WebrtcSignalServer::postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager> &)>&& asyncHandle)
         {
             if (channelIndex >= webrtcSignalManagers.size()) {
                 LOG_ERROR("Invalid ChannelIndex: {}, Size: {}", channelIndex, webrtcSignalManagers.size());
@@ -404,8 +404,8 @@ namespace hope {
             }
 
             boost::asio::post(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
-                [webrtcSignalManager = webrtcSignalManager->shared_from_this(), asyncHandle = std::move(asyncHandle)]()mutable -> void {
-                    asyncHandle(std::move(webrtcSignalManager));
+                [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]()mutable -> void {
+                    asyncHandle(webrtcSignalManager);
                 });
 
                 return true;

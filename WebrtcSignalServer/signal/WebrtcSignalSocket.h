@@ -103,7 +103,7 @@ namespace hope {
 
 		private:
 
-			WebrtcSignalManager* webrtcSignalManager;
+			WebrtcSignalManager * webrtcSignalManager;
 
 			boost::asio::io_context& ioContext;
 

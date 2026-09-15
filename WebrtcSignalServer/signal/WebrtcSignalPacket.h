@@ -29,7 +29,7 @@ namespace hope {
 
 		public:
 
-			WebrtcSignalPacket(std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket, WebrtcSignalManager* webrtcSignalManager, int channelIndex);
+			WebrtcSignalPacket(std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket, WebrtcSignalManager * webrtcSignalManager, int channelIndex);
 
 			WebrtcSignalPacket(const WebrtcSignalPacket& webrtcSignalPacket) = delete;
 
@@ -45,7 +45,7 @@ namespace hope {
 
 			WebrtcEnvelopeView webrtcEnvelope;
 
-			WebrtcSignalManager* webrtcSignalManager;
+			WebrtcSignalManager * webrtcSignalManager;
 
 			int channelIndex;
 

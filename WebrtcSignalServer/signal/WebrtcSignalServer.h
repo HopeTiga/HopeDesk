@@ -63,7 +63,7 @@ namespace hope {
 
         template <typename AsyncHandle>
         using AwaitableReturnValueType = typename AwaitableReturnValue<std::decay_t<
-            std::invoke_result_t<AsyncHandle, std::shared_ptr<WebrtcSignalManager>>>>::type;
+            std::invoke_result_t<AsyncHandle, std::shared_ptr<WebrtcSignalManager>&>>>::type;
 
         template <typename T>
         struct PostTaskCompletionSignature {
@@ -147,9 +147,9 @@ namespace hope {
 
                         if constexpr (std::is_void_v<ValueType>) {
                             boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
-                                [webrtcSignalManager = webrtcSignalManager->shared_from_this(), asyncHandle = std::move(asyncHandle)]() mutable
+                                [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
                                 -> boost::asio::awaitable<void> {
-                                    co_await asyncHandle(std::move(webrtcSignalManager));
+                                    co_await asyncHandle(webrtcSignalManager);
                                     co_return;
                                 },
                                 [completionHandlerPtr](std::exception_ptr exception) mutable {
@@ -158,9 +158,9 @@ namespace hope {
                         }
                         else {
                             boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
-                                [webrtcSignalManager = webrtcSignalManager->shared_from_this(), asyncHandle = std::move(asyncHandle)]() mutable
+                                [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
                                 -> boost::asio::awaitable<ValueType> {
-                                    co_return co_await asyncHandle(std::move(webrtcSignalManager));
+                                    co_return co_await asyncHandle(webrtcSignalManager);
                                 },
                                 [completionHandlerPtr](std::exception_ptr exception, ValueType value = {}) mutable {
                                     (*completionHandlerPtr)(std::move(exception), std::move(value));
@@ -170,7 +170,7 @@ namespace hope {
                     token);
             }
 
-            bool postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>)>&& asyncHandle);
+            bool postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager> &)>&& asyncHandle);
 
             size_t getChannelNumbers();
 

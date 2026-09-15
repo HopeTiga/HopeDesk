@@ -21,7 +21,7 @@ namespace hope {
 
     namespace signal {
 
-        WebrtcSignalSocket::WebrtcSignalSocket(boost::asio::io_context& ioContext, WebrtcSignalManager* webrtcSignalManager, int maxTlsHandShakeTime)
+        WebrtcSignalSocket::WebrtcSignalSocket(boost::asio::io_context& ioContext, WebrtcSignalManager * webrtcSignalManager, int maxTlsHandShakeTime)
             : ioContext(ioContext)
             , resolver(ioContext)
 #if defined(WEBRTC_SIGNAL_SOCKET_DISABLE_SSL)
