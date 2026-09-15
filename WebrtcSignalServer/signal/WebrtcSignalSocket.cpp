@@ -3,6 +3,7 @@
 
 #include <boost/url.hpp>
 #include <string_view>
+#include <cstring>
 #include <array>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -36,6 +37,14 @@ namespace hope {
             boost::uuids::random_generator gen;
 
             sessionId = boost::uuids::to_string(gen());
+
+            receiveBuffer.resize(receiveBufferInitialSize);
+
+            // 一条消息对应一个 FrameRange。128 字节消息下 8KB 缓冲区最多切出 60 条，
+            // 留出余量；真涨到上限时 vector 自己会长。
+            receiveFrameRanges.reserve(256);
+
+            frameHeaderScratch.resize(maximumFramesPerWrite * maximumFrameHeaderSize);
 
         }
 
@@ -308,56 +317,331 @@ namespace hope {
 
         }
 
+        FrameBatch WebrtcSignalSocket::takeFrames(const char* data, std::size_t size, std::vector<FrameRange>& frames) {
+
+            FrameBatch frameBatch;
+
+            frames.clear();
+
+            std::size_t offset = 0;
+
+            while (size - offset >= 2) {
+
+                const unsigned char firstByte = static_cast<unsigned char>(data[offset]);
+
+                const unsigned char secondByte = static_cast<unsigned char>(data[offset + 1]);
+
+                const bool masked = (secondByte & 0x80) != 0;
+
+                std::uint64_t payloadLength = secondByte & 0x7F;
+
+                std::size_t headerSize = 2;
+
+                if (payloadLength == 126) {
+
+                    if (size - offset < 4) { break; }
+
+                    payloadLength = (static_cast<std::uint64_t>(static_cast<unsigned char>(data[offset + 2])) << 8)
+                        | static_cast<std::uint64_t>(static_cast<unsigned char>(data[offset + 3]));
+
+                    headerSize = 4;
+
+                }
+                else if (payloadLength == 127) {
+
+                    if (size - offset < 10) { break; }
+
+                    payloadLength = 0;
+
+                    for (std::size_t index = 0; index < 8; ++index) {
+
+                        payloadLength = (payloadLength << 8)
+                            | static_cast<std::uint64_t>(static_cast<unsigned char>(data[offset + 2 + index]));
+
+                    }
+
+                    headerSize = 10;
+
+                }
+
+                const std::size_t maskSize = masked ? 4 : 0;
+
+                const std::size_t wholeFrameSize = headerSize + maskSize + static_cast<std::size_t>(payloadLength);
+
+                if (size - offset < wholeFrameSize) { break; }
+
+                const unsigned char opcode = firstByte & 0x0F;
+
+                if (opcode == 0x0 || opcode == 0x1 || opcode == 0x2) {
+
+                    FrameRange frameRange;
+
+                    frameRange.offset = offset + headerSize + maskSize;
+
+                    frameRange.length = static_cast<std::size_t>(payloadLength);
+
+                    frameRange.masked = masked;
+
+                    frameRange.maskOffset = offset + headerSize;
+
+                    frameRange.final = (firstByte & 0x80) != 0;
+
+                    frames.push_back(frameRange);
+
+                }
+                else if (opcode == 0x8) {
+
+                    frameBatch.consumed = offset + wholeFrameSize;
+
+                    frameBatch.closed = true;
+
+                    break;
+
+                }
+
+                offset += wholeFrameSize;
+
+                frameBatch.consumed = offset;
+
+            }
+
+            return frameBatch;
+
+        }
+
+        std::size_t WebrtcSignalSocket::encodeFrameHeader(char* out, std::size_t length, bool binary) {
+
+            std::size_t written = 0;
+
+            out[written++] = static_cast<char>(binary ? 0x82 : 0x81);
+
+            if (length < 126) {
+
+                out[written++] = static_cast<char>(length);
+
+            }
+            else if (length <= 0xFFFF) {
+
+                out[written++] = static_cast<char>(126);
+
+                out[written++] = static_cast<char>((length >> 8) & 0xFF);
+
+                out[written++] = static_cast<char>(length & 0xFF);
+
+            }
+            else {
+
+                out[written++] = static_cast<char>(127);
+
+                for (int shift = 56; shift >= 0; shift -= 8) {
+
+                    out[written++] = static_cast<char>((static_cast<std::uint64_t>(length) >> shift) & 0xFF);
+
+                }
+
+            }
+
+            return written;
+
+        }
+
+        void WebrtcSignalSocket::unmaskPayload(char* payload, std::size_t length, const char* maskKey) {
+
+            for (std::size_t index = 0; index < length; ++index) {
+
+                payload[index] = static_cast<char>(payload[index] ^ maskKey[index % 4]);
+
+            }
+
+        }
+
         boost::asio::awaitable<void> WebrtcSignalSocket::reviceCoroutine() {
+
+            std::string fragmentedPayload;
+
+            bool assemblingFragment = false;
 
             while (asyncBoots.load()) {
 
-                WebrtcSignalPacket webrtcSignalPakcet(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+                if (receiveHeldBytes == receiveBuffer.size()) {
 
-                boost::asio::dynamic_string_buffer dynamicBuffer = boost::asio::dynamic_buffer(webrtcSignalPakcet.packet);
+                    if (receiveBuffer.size() >= receiveBufferMaximumSize) {
 
-                co_await webSocket.async_read(dynamicBuffer, boost::asio::use_awaitable);
+                        LOG_ERROR("WebrtcSignalSocket Frame Larger Than The Maximum Receive Buffer: {} bytes", receiveBufferMaximumSize);
 
-                std::string_view stringView(webrtcSignalPakcet.packet.data(), webrtcSignalPakcet.packet.size());
+                        throw std::runtime_error("Frame Larger Than The Maximum Receive Buffer");
 
-                size_t envelopeSize = 0;
+                    }
 
-                struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcSignalPakcet.webrtcEnvelope, stringView, envelopeSize);
+                    std::size_t grownSize = receiveBuffer.size() * 2;
 
-                if (deserializeError) {
+                    if (grownSize > receiveBufferMaximumSize) {
 
-                    LOG_ERROR("StructPack Parse Error: {}", deserializeError.message().data());
+                        grownSize = receiveBufferMaximumSize;
 
-                    throw std::runtime_error("StructPack Parse Error");
+                    }
 
-                }
-
-                if (webrtcSignalPakcet.webrtcEnvelope.requestType == 0) {
-
-                    LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
-
-                    throw std::runtime_error("Invalid Request: Missing RequestType");
+                    receiveBuffer.resize(grownSize);
 
                 }
 
-                webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPakcet));
+                const std::size_t receivedBytes = co_await webSocket.next_layer().async_read_some(
+                    boost::asio::buffer(receiveBuffer.data() + receiveHeldBytes, receiveBuffer.size() - receiveHeldBytes),
+                    boost::asio::use_awaitable);
+
+                const std::size_t totalBytes = receiveHeldBytes + receivedBytes;
+
+                const FrameBatch frameBatch = takeFrames(receiveBuffer.data(), totalBytes, receiveFrameRanges);
+
+                for (const FrameRange & frameRange : receiveFrameRanges) {
+
+                    if (frameRange.masked) {
+
+                        unmaskPayload(receiveBuffer.data() + frameRange.offset, frameRange.length,
+                            receiveBuffer.data() + frameRange.maskOffset);
+
+                    }
+
+                    // 分片重组不受接收缓冲区上限约束：RFC 6455 允许一条消息拆成任意多帧，
+                    // 而每一帧都是独立过完整性检查和缓冲区上限的 —— N 个 FIN=0 的帧依次发来，
+                    // 缓冲区每轮都刚好装得下、每轮都放行，累加出来的这条消息却能一直涨下去。
+                    // 所以上面那个 receiveBufferMaximumSize 对分片路径完全无效，得在这儿单独堵。
+                    const bool accumulating = !frameRange.final || assemblingFragment;
+
+                    if (accumulating && fragmentedPayload.size() + frameRange.length > maximumMessageSize) {
+
+                        LOG_ERROR("WebrtcSignalSocket Message Larger Than The Maximum Message Size: {} bytes", maximumMessageSize);
+
+                        throw std::runtime_error("Message Larger Than The Maximum Message Size");
+
+                    }
+
+                    if (!frameRange.final) {
+
+                        fragmentedPayload.append(receiveBuffer.data() + frameRange.offset, frameRange.length);
+
+                        assemblingFragment = true;
+
+                        continue;
+
+                    }
+
+                    WebrtcSignalPacket webrtcSignalPakcet(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+
+                    if (assemblingFragment) {
+
+                        fragmentedPayload.append(receiveBuffer.data() + frameRange.offset, frameRange.length);
+
+                        webrtcSignalPakcet.packet = std::move(fragmentedPayload);
+
+                        fragmentedPayload.clear();
+
+                        assemblingFragment = false;
+
+                    }
+                    else {
+
+                        webrtcSignalPakcet.packet.assign(receiveBuffer.data() + frameRange.offset, frameRange.length);
+
+                    }
+
+                    std::string_view stringView(webrtcSignalPakcet.packet.data(), webrtcSignalPakcet.packet.size());
+
+                    size_t envelopeSize = 0;
+
+                    struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcSignalPakcet.webrtcEnvelope, stringView, envelopeSize);
+
+                    if (deserializeError) {
+
+                        LOG_ERROR("StructPack Parse Error: {}", deserializeError.message().data());
+
+                        throw std::runtime_error("StructPack Parse Error");
+
+                    }
+
+                    if (webrtcSignalPakcet.webrtcEnvelope.requestType == 0) {
+
+                        LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
+
+                        throw std::runtime_error("Invalid Request: Missing RequestType");
+
+                    }
+
+                    webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPakcet));
+
+                }
+
+                receiveHeldBytes = totalBytes - frameBatch.consumed;
+
+                if (receiveHeldBytes > 0 && frameBatch.consumed > 0) {
+
+                    std::memmove(receiveBuffer.data(), receiveBuffer.data() + frameBatch.consumed, receiveHeldBytes);
+
+                }
+
+                if (frameBatch.closed) {
+
+                    co_return;
+
+                }
 
             }
         }
 
         boost::asio::awaitable<void> WebrtcSignalSocket::writerCoroutine() {
 
+            std::vector<std::string> packets;
+
+            std::vector<boost::asio::const_buffer> segments;
+
+            packets.reserve(maximumFramesPerWrite);
+
+            segments.reserve(maximumFramesPerWrite * 2);
+
             while (asyncBoots.load()) {
+
+                packets.clear();
 
                 std::string packet;
 
-                if (!asioConcurrentQueue.tryDequeue(packet) && !co_await asioConcurrentQueue.awaitDequeue(packet)) {
+                if (asioConcurrentQueue.tryDequeue(packet)) {
 
-                    break;
+                    packets.push_back(std::move(packet));
+
+                    while (packets.size() < maximumFramesPerWrite && asioConcurrentQueue.tryDequeue(packet)) {
+
+                        packets.push_back(std::move(packet));
+
+                    }
+
+                }
+                else {
+
+                    if (!co_await asioConcurrentQueue.awaitDequeue(packet)) {
+
+                        break;
+
+                    }
+
+                    packets.push_back(std::move(packet));
 
                 }
 
-                co_await webSocket.async_write(boost::asio::buffer(packet), boost::asio::use_awaitable);
+                segments.clear();
+
+                for (std::size_t index = 0; index < packets.size(); ++index) {
+
+                    char* frameHeader = frameHeaderScratch.data() + index * maximumFrameHeaderSize;
+
+                    const std::size_t frameHeaderSize = encodeFrameHeader(frameHeader, packets[index].size(), true);
+
+                    segments.emplace_back(frameHeader, frameHeaderSize);
+
+                    segments.emplace_back(boost::asio::buffer(packets[index]));
+
+                }
+
+                co_await boost::asio::async_write(webSocket.next_layer(), segments, boost::asio::use_awaitable);
 
             }
 

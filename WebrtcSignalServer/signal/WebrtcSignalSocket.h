@@ -1,6 +1,8 @@
 ﻿#pragma once
 
 #include <string>
+#include <vector>
+#include <cstdint>
 #include <memory>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -38,6 +40,28 @@ namespace hope {
 		class WebrtcSignalServer;
 
 		class WebrtcSignalManager;
+
+		struct FrameRange {
+
+			std::size_t offset = 0;
+
+			std::size_t length = 0;
+
+			bool masked = false;
+
+			std::size_t maskOffset = 0;
+
+			bool final = true;
+
+		};
+
+		struct FrameBatch {
+
+			std::size_t consumed = 0;
+
+			bool closed = false;
+
+		};
 
 		class WebrtcSignalSocket : public std::enable_shared_from_this<WebrtcSignalSocket>
 		{
@@ -101,6 +125,22 @@ namespace hope {
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
 				int idle = 0, int intvl = 10, int probes = 10);
 
+			static constexpr std::size_t receiveBufferInitialSize = 8192;
+
+			static constexpr std::size_t receiveBufferMaximumSize = 16384;
+
+			static constexpr std::size_t maximumMessageSize = 16384;
+
+			static constexpr std::size_t maximumFramesPerWrite = 32;
+
+			static constexpr std::size_t maximumFrameHeaderSize = 10;
+
+			static FrameBatch takeFrames(const char* data, std::size_t size, std::vector<FrameRange>& frames);
+
+			static std::size_t encodeFrameHeader(char* out, std::size_t length, bool binary);
+
+			static void unmaskPayload(char* payload, std::size_t length, const char* maskKey);
+
 		private:
 
 			WebrtcSignalManager * webrtcSignalManager;
@@ -122,6 +162,14 @@ namespace hope {
 			std::atomic<bool> isHandleDisConnect{ false };
 
 			std::chrono::milliseconds handshakeTimeout{ 10000 };
+
+			std::vector<char> receiveBuffer;
+
+			std::vector<FrameRange> receiveFrameRanges;
+
+			std::size_t receiveHeldBytes{ 0 };
+
+			std::vector<char> frameHeaderScratch;
 
 		private:
 
