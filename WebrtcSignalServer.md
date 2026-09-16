@@ -191,10 +191,21 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 - `asyncBoot()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
 - **握手之后不再用 Beast 的 `async_read`/`async_write`**，两侧都直接走 `webSocket.next_layer()`（SSL 开着时是 `ssl::stream`，关掉时是 `tcp::socket`，同一份代码）。原因见下方「为什么换掉 Beast」。
-- **revice**：`async_read_some` 读进 `receiveBuffer`（起始 8KB，装不下一条未收完的帧就翻倍，**上限 16KB**）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头到 `webrtcEnvelope`（`WebrtcEnvelopeView`，返回消耗字节数，信封后的 body 留在 `packet`）→ 取 `requestType` → 组装 `WebrtcSignalPacket`（内嵌 `webrtcEnvelope` + 整帧 `packet`）→ `logicSystem->postTask(packet)`。
+- **revice**：`async_read_some` 读进 `receiveBuffer`（缓冲区两档，见下方「接收缓冲区」）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头到 `webrtcEnvelope`（`WebrtcEnvelopeView`，返回消耗字节数，信封后的 body 留在 `packet`）→ 取 `requestType` → 组装 `WebrtcSignalPacket`（内嵌 `webrtcEnvelope` + 整帧 `packet`）→ `logicSystem->postTask(packet)`。
   - 一次读完成产出 K 条消息，K 通常 > 1（128B 消息实测 ~17–42），这是写侧批量能成立的前提。
-  - RFC 6455 的分片消息（FIN=0 + 延续帧）在这里自己拼回来，不依赖 Beast；拼回来的整条消息另卡一道 `maximumMessageSize`（16KB）。**缓冲区上限对分片路径无效** —— 每帧独立过完整性检查，N 个 FIN=0 的帧累加就能把内存吃干，所以这道口子必须单独堵。
-  - **能收下的最大净荷 16376 字节**（16KB − 帧头 4 − 掩码键 4），超过即断连。这是一条会挡住正常连接的硬线，不是只防攻击者的护栏；16KB 的依据是线上 SDP（webrtc-native）实测最大 5KB 出头，留约 3× 余量。
+  - RFC 6455 的分片消息（FIN=0 + 延续帧）在这里自己拼回来，不依赖 Beast；拼回来的整条消息另卡一道 `maximumMessageSize`（与缓冲区同档，见下）。**缓冲区上限对分片路径无效** —— 每帧独立过完整性检查，N 个 FIN=0 的帧累加就能把内存吃干，所以这道口子必须单独堵。
+  - **接收缓冲区**（`WebrtcSignalSocket.h:128-132`，编译期宏 `WEBSOCKET_BIG_BUFFER` 切两档；三档常量必须同进同退，只改一个会让"缓冲区多大、单帧上限就多大"的关系错位）：
+
+    | | 不定义 `WEBSOCKET_BIG_BUFFER` | 定义 `WEBSOCKET_BIG_BUFFER`（当前构建） |
+    |---|---|---|
+    | `receiveBufferInitialSize` | 8192 | 65536 |
+    | `receiveBufferMaximumSize` | 16384 | 65536 |
+    | `maximumMessageSize` | 16384 | 65536 |
+    | 缓冲行为 | 起始 8KB，装不下一条未收完的帧就**翻倍**，封顶 16KB | 构造时一次 `resize` 到 64KB；`初始 == 上限`，**永不扩容** |
+    | 每连接常驻 | 8KB | **64KB**（1000 连接 = 64MB 常驻内存，这是两档的取舍点） |
+    | 能收下的最大净荷 | 16376 字节 | 65528 字节 |
+
+    最大净荷 = 缓冲区上限 − 帧头 4 − 掩码键 4。超过即断连（`Frame Larger Than The Maximum Receive Buffer` / `Message Larger Than The Maximum Message Size` → `throw` → RST）。这是**会挡住正常连接的硬线，不是只防攻击者的护栏**；64KB 那一档的依据是线上 SDP（webrtc-native）实测最大 5KB 出头，留约 12× 余量。
 - **writer**：从 `AsioConcurrentQueue<std::string>`（moodycamel + sam 信号量）**批量** dequeue（取到空或取到 32 条为止）→ `encodeFrameHeader` 给每条拼一个帧头 → 以「帧头 + 净荷」两段做 scatter/gather，**一批一次 `async_write`**，无逐条 memcpy。`asyncWrite(packet)` 入队。
   - 上限 32 条来自 asio 在 Windows 上 64 段的 writev 上限（每消息两段）。
   - 取空即 `co_await` 挂起、不等配额，所以严格一问一答（window=1）时自动退化成一条一条，不会死锁。
@@ -1137,5 +1148,5 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 - `[Protect]` 段当前无代码消费。
 - `WebrtcLogicSystem` 的三个 handler 注册表（`webrtcHandlers` / `webrtcValueHandlers` / `httpHandlers`）是 **write-once**：只在 `initHandlers()` / `initHttpHandlers()`（`asyncBoot()` 期间）写。表内存 `std::unique_ptr<WebrtcHandler>`，派发时取 `.get()` 拿**裸指针**捕获进异步执行体——不要退回 `AnyInvocable& func = iterator->second;` 再捕获 `&func`：那个引用指向 **map 槽位内部**，一旦运行期注册触发扩容就立刻悬空。**同理不要在运行期注册 handler**：裸指针不怕扩容，但会引入新的生命周期问题（见 §4 关闭流程为什么必须先 `stop()` 再清表）。
 - HTTP 鉴权 token `913140924@qq.com` 为示例硬编码，生产环境需替换为真实鉴权。
-- **接收上限是行为变化，不是新增护栏**：旧 Beast 走 `dynamic_buffer` 无上限，多大的消息都收得下；现在单条净荷 > 16376 字节直接断连（RST）。压测客户端 `--sdp-size` **不能 ≥ 16**，否则每条连接都被 RST，症状伪装成「大量丢失」。分片累加那道 `maximumMessageSize` 检查目前**无测试覆盖** —— 项目里没有任何会发 FIN=0 分片帧的客户端。
+- **接收上限是行为变化，不是新增护栏**：旧 Beast 走 `dynamic_buffer` 无上限，多大的消息都收得下；现在单条净荷超过「接收缓冲区」那一档的上限（不定义 `WEBSOCKET_BIG_BUFFER` 时 16376 字节，定义时 65528 字节）直接断连（RST）。压测客户端 `--sdp-size` 要留在当前档之内，否则每条连接都被 RST，症状伪装成「大量丢失」。分片累加那道 `maximumMessageSize` 检查目前**无测试覆盖** —— 项目里没有任何会发 FIN=0 分片帧的客户端。
 - `writerCoroutine` 在「取空挂起后被唤醒」那条分支上只取 1 条就写、不继续排空（批量只在队列里已积了多条时才发生）；超限是直接 `throw`，没回 1009 关闭帧，对端只看到 RST。另：`maximumFrameHeaderSize = 10` 是**写侧** `frameHeaderScratch` 的槽位步长，读侧 `takeFrames` 本地另写了一遍 `2/4/10`，两处手工绑死、编译器不保证，改帧格式要同时动。
