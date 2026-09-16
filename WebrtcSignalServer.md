@@ -99,7 +99,8 @@ flowchart TB
 | 线程 | io_context | 职责 |
 |------|-----------|------|
 | main loop(1 个) | `ioContext{1}` | accept(WebSocket+HTTP)、全局 TaskChannel 排水、`signal_set` |
-| worker × `threadSize` | `AsioProactors` 池中各自一个 | 本通道连接的握手/读写协程、handler 执行、MySQL pool |
+| TPC reactor × `threadSize` | `AsioProactors` 池中各自一个 | 本通道连接的握手/读写协程 |
+| logic 池 × `threadSize`（仅 `HOPE_RTC_SIGNAL_SERVER_LOGIC`） | 第二个 `AsioProactors` 单例 | 本通道的 handler 执行、转发、MySQL pool |
 
 - **连接绑定通道**：accept 后 `loadBalanceWebrtcManger()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
 - **跨通道通信**：两个原语（`WebrtcSignalServer::postTask` 按 `handler` 返回类型重载），都把活儿派到 `channelIndex` 通道的 io_context 上跑、lambda 收到 `shared_ptr<WebrtcSignalManager>`，区别在协程/非协程与完成令牌：
@@ -110,7 +111,7 @@ flowchart TB
 - **条件编译**：
   - `__linux__`：accept 走每通道 `SO_REUSEPORT` 多 acceptor（`WebrtcSignalManager::asyncAccept`），Linux 专用路径。
   - 非 Linux（含 Windows）：单 acceptor 在 main loop，accept 后分发。
-  - `HOPE_RTC_SIGNAL_SERVER_LOGIC`：LogicSystem 用独立 logic io 池（`AsioProactors::getLogicInstance`）而非本通道 io。
+  - `HOPE_RTC_SIGNAL_SERVER_LOGIC`：LogicSystem 用独立 logic io 池（`AsioProactors::getLogicInstance`）而非本通道 io，即**收发与派发分池**；实测吞吐/延迟见 §11.2。
   - `Webrtc_SIGNAL_SOCKET_DISABLE_SSL` / `Webrtc_SIGNAL_HTTP_SOCKET_DISABLE_SSL`：关闭对应连接的 SSL。
 
 ### 3.3 配置解耦（重点）
@@ -201,7 +202,11 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 **为什么换掉 Beast**：Beast 的 `webSocket.async_read(dynamicBuffer)` 一次完成只产出一个消息（K=1）。读协程与写协程在同一条单线程 io_context 上严格交替，于是每个连接的写队列深度恒为 **1** —— 写者取走那一条、写出去、再看队列已空、挂起，然后才轮到下一个读完成。**写侧怎么改写都取不到第二条**。隔离台架实测：只改写侧 0.98×（无收益，window=1 时还慢 7%），只改读侧 1.33×，两侧都改 **6.16–6.73×**，两个修复是乘性的不是相加的。
 
-**真机 1000 连接**（sdp 1KB）：143k → 198k msgs/s（**1.38×**），带宽 140 → 193 MB/s，丢失 0。代价是**尾延迟变差**：p99 3.28 → 9.55/10.71ms、max 18 → 77ms（p50 基本不动，0.64 → 0.65ms）。这是批量的固有代价 —— 服务端一次最多推 32 条，某一条得在批量队列里多等，拆分指标「发出后在管道内」0.09 → 0.37ms 量的正是这一段。
+**真机 1000 连接**（sdp 1KB）：143k → 198k msgs/s（**1.38×**），带宽 140 → 193 MB/s。代价是**尾延迟变差**：p99 3.28 → 9.55/10.71ms、max 18 → 77ms（p50 基本不动，0.64 → 0.65ms）。这是批量的固有代价 —— 服务端一次最多推 32 条，某一条得在批量队列里多等，拆分指标「发出后在管道内」0.09 → 0.37ms 量的正是这一段。
+
+> **⚠️ 上面的 198k 是「无逻辑池」构建的上限，不是批量的真实潜力**（2026-09-16 更正）：这一轮的 1.38× 全部测于**未开 `HOPE_RTC_SIGNAL_SERVER_LOGIC`** 的构建，其特征状态（197,790 msgs/s / 193.15 MB/s / p99 9.55 / max 77.15 / 管道内 0.37ms）后来被逐项复现。同一个批量构建**加上逻辑池**（§11.2）后是 **839,470 msgs/s**（4.24×）。
+>
+> **所以批量与逻辑线程不是两条独立收益，是同一条杠杆的两半**：写侧批量成立的前提是"一次读完成产出 K>1 条"，而这要求收发线程能**一直**攒批、凑批；只要派发/转发还压在同一个线程上，攒批就被打断。1.38× 是被压制后的数 —— 逻辑池把收发线程还给收发，批量的收益才兑现。算账时**不要把两者相乘**。
 
 **行为变化**：`webSocket.set_option(stream_base::timeout::suggested(server))` 设的空闲超时与 keep-alive ping 由 Beast 的读写操作驱动，绕过之后**不再触发** —— 死连接不再由超时清理（TCP keepalive 仍在，但它只能发现对端主机消失，发现不了"连接活着但不说话"），客户端也不再收到周期性 ping。
 
@@ -906,6 +911,54 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 > 不想动 BIOS 的话，**显式写死 `threadSize = 6`** 拿到的是同样的确定性，而且比关超线程更好：6 个反应堆全在 P 核上、每个独占一整个物理核，把 E 核和 P 核的单核吞吐差异也一并绕开了。代价是只用 6 个核，剩下的 **4 个 E 核整核 + 6 个 P 核的超线程兄弟（6 个逻辑 CPU）** 全空着，留给 spdlog 异步线程、CoroRpc 线程池、MySQL 连接池这些**没有绑核**的线程（它们仍会被 OS 调度到反应堆所在的物理核上，只是不会固定占用某个逻辑 CPU）。
 
 > **实测口径**：本机（12600KF，压测客户端与服务端同机）10 线程服务端下，**绑核与不绑核都能跑到 ~143k msgs/s**（p50 0.96 / p95 4.76 / p99 10.34 ms，丢失 0）。也就是说在当前核数下**绑核不是吞吐瓶颈** —— 它要解决的是尾延迟的**确定性**，不是把 QPS 顶上去。
+
+### 11.2 逻辑线程分池（`HOPE_RTC_SIGNAL_SERVER_LOGIC`）
+
+**这是编译期开关，不是 ini 项**：Windows 由 `webrtc-signal-server.props:39` 定义（无条件，所有配置都带）。不开这个开关时，派发/转发在本通道 reactor 线程上就地执行（下表的对照列）。
+
+#### 机制：谁跑在哪个线程上
+
+| | 未定义（关） | 定义（开，当前 Windows 构建） |
+|---|---|---|
+| 连接握手 / 读写协程 | 本通道 TPC 线程 | 本通道 TPC 线程（不变） |
+| 业务派发 / 转发 / MySQL 池 | **同一个 TPC 线程**，就地执行 | **独立 logic 池的第 `channelIndex` 个线程** |
+
+- `AsioProactors::getLogicInstance()`（`iocp/AsioProactors.h:23`）是**第二个 `AsioProactors` 单例**：自己的 `ioContexts` / `threads` / `work_guard`，池大小 `sLogicSize`——由 `AsioProactors::init(size,...)` 与 `sIoSize` 一起设成同一个 `threadSize`（`iocp/AsioProactors.cpp:188-189`）。12600KF 上 `threadSize=0` 解析为 16（`main.cpp:89`）→ **16 个收发线程 + 16 个 logic 线程**。
+- 配对方式是**按通道号对齐**，不是搬进同一个线程：manager `i` 的 LogicSystem 拿 logic 池的 `getIoCompletePort(i)`（`signal/WebrtcSignalManager.cpp:38`）。同一条连接的收发与派发在两个线程上，靠 `post` 交接——这也是为什么断开回写、跨通道转发在开启后要显式 `post` 到 logic 池（`signal/WebrtcSignalServer.cpp:166-176`、`:369-374` 同一开关）。
+- 于是 `WebrtcLogicSystem::getIoCompletionPorts()`（`signal/WebrtcLogicSystem.cpp:60`）返回的就是 logic 池的 context。
+
+#### 实测：同一台机器、同一客户端命令，只换服务端构建
+
+1000 客户端限速跑法，压测客户端与服务端同机（12600KF，10 物理/16 逻辑）：
+
+| | **开** | 关 | 比 |
+|---|---|---|---|
+| 吞吐 | **839,470 msgs/s** | 197,790 msgs/s | **4.24×** |
+| 平均负载带宽 | 819.80 MB/s | 193.15 MB/s | 4.24× |
+| 延迟 p50 / p95 / p99 | 1.51 / 6.63 / **11.79** ms | 0.65 / 3.85 / 9.55 ms | 同量级（毫秒带） |
+| 拆分 avg 发出后在管道内 | 1.35 ms | 0.37 ms | — |
+| 拆分 avg 发送端等TCP窗口 | 0.98 ms | 0.93 ms | — |
+| 丢失 | **0** | **0** | — |
+
+这节要记的结论就一句：**把派发/转发从 reactor 上摘出去，吞吐上 4 倍，而延迟没被拿去换**——尾延迟仍在十毫秒量级。
+
+关掉那组的 197,790 msgs/s 就是 §5.2 量到的那一档：**批量在没有逻辑池的构建上只能到 198k**，加了逻辑池才兑现 —— 这两个改动是**同一条杠杆的两半**（收发线程专职收发，攒批才不被打断），不是两条独立收益。
+
+关掉那组 p50 反而更低（0.65 ms）**不代表它更快**：它自己的上限就在 20 万，压根没进入排队区。延迟只在**同一吞吐**下比较才有意义。
+
+#### 运行上限（开关开启时实测）
+
+`--rate 0`（不限制）跑法下，客户端把总发送速率钉在 **~1.22M msgs/s**，且 **500 / 700 / 1000 客户端都是这个数**——是客户端 10 条 io 线程自己的天花板，与服务端连接数无关。此时服务端峰值 **12.1 ~ 12.4 / 16 逻辑核、机器 100%**，`管道内` 从毫秒量级直接跳到 **17.7 ~ 21.5 s**：超出的部分不是被拒，是**排队**——消息全到，只是晚到，所以任何排队跑法上打印的 `msgs/s` 是排空速率，不是服务速率。
+
+按 `管道内` 那一行读，工作区边界：
+
+| 收到的负载 | `管道内` | 状态 |
+|---|---|---|
+| 839k msgs/s | 1.35 ms | 稳（p50 1.5 ms） |
+| 1.00M msgs/s | 22.70 ms | 稳（p50 49 ms） |
+| 1.22M msgs/s | 17.7 ~ 21.5 s | 已转排队 |
+
+即**稳定上限在 1.00M ~ 1.22M msgs/s 之间**，且**不要按 `msgs/s` 判断有没有过载，要看 `管道内`**。
 
 ---
 
