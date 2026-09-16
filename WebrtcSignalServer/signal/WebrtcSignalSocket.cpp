@@ -40,8 +40,6 @@ namespace hope {
 
             receiveBuffer.resize(receiveBufferInitialSize);
 
-            // 一条消息对应一个 FrameRange。128 字节消息下 8KB 缓冲区最多切出 60 条，
-            // 留出余量；真涨到上限时 vector 自己会长。
             receiveFrameRanges.reserve(256);
 
             frameHeaderScratch.resize(maximumFramesPerWrite * maximumFrameHeaderSize);
@@ -502,13 +500,12 @@ namespace hope {
 
                     }
 
-                    // 分片重组不受接收缓冲区上限约束：RFC 6455 允许一条消息拆成任意多帧，
-                    // 而每一帧都是独立过完整性检查和缓冲区上限的 —— N 个 FIN=0 的帧依次发来，
-                    // 缓冲区每轮都刚好装得下、每轮都放行，累加出来的这条消息却能一直涨下去。
-                    // 所以上面那个 receiveBufferMaximumSize 对分片路径完全无效，得在这儿单独堵。
-                    const bool accumulating = !frameRange.final || assemblingFragment;
-
-                    if (accumulating && fragmentedPayload.size() + frameRange.length > maximumMessageSize) {
+                    // 单条消息的上限，这里必须卡，而且必须**所有帧都卡**：
+                    //   - 分片路径不受接收缓冲区上限约束（RFC 6455 允许一条消息拆成任意多帧，
+                    //     每帧独立过完整性检查，N 个 FIN=0 的帧累加就能把内存吃干）；
+                    //   - 不分片的单帧更不受约束 —— 缓冲区开多大，单帧上限就自动变成多大。
+                    // 不分片时 fragmentedPayload 恒为空，所以这一句同时管住两条路。
+                    if (fragmentedPayload.size() + frameRange.length > maximumMessageSize) {
 
                         LOG_ERROR("WebrtcSignalSocket Message Larger Than The Maximum Message Size: {} bytes", maximumMessageSize);
 

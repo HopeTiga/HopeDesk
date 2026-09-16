@@ -36,7 +36,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
-      <PreprocessorDefinitions>SPDLOG_HEADER_ONLY;SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE;BOOST_SAM_HEADER_ONLY;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>SPDLOG_HEADER_ONLY;SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE;BOOST_SAM_HEADER_ONLY;HOPE_RTC_SIGNAL_SERVER_LOGIC;WEBSOCKET_BIG_BUFFER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>

@@ -125,11 +125,23 @@ namespace hope {
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
 				int idle = 0, int intvl = 10, int probes = 10);
 
+#ifdef WEBSOCKET_BIG_BUFFER
+
+			static constexpr std::size_t receiveBufferInitialSize = 65536;
+
+			static constexpr std::size_t receiveBufferMaximumSize = 65536;
+
+			static constexpr std::size_t maximumMessageSize = 65536;
+
+#else
+
 			static constexpr std::size_t receiveBufferInitialSize = 8192;
 
 			static constexpr std::size_t receiveBufferMaximumSize = 16384;
 
 			static constexpr std::size_t maximumMessageSize = 16384;
+
+#endif
 
 			static constexpr std::size_t maximumFramesPerWrite = 32;
 

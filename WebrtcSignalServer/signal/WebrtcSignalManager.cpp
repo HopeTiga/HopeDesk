@@ -304,25 +304,28 @@ namespace hope {
 
                     }
 
-                    webrtcSignalSocket->setOnDisConnectHandle([sharedManager = self->shared_from_this()](std::string accountId, std::string sessionId) {
+#ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-#ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
+                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = self->shared_from_this()](std::string accountId, std::string sessionId) {
 
-                        sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
+                        boost::asio::io_context& ioContext = webrtcSignalManager->getIoCompletionPorts();
 
-#else
+                        boost::asio::post(ioContext, [webrtcSignalManager = std::move(webrtcSignalManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
 
-                        boost::asio::io_context& ioContext = logicSystem->getIoCompletePort();
-
-                        boost::asio::post(ioContext, [sharedManager = std::move(sharedManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
-
-                            sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
+                            webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
 
                             });
 
-#endif
+                        });
+#else
+
+                    webrtcSignalSocket->setOnDisConnectHandle([this](std::string accountId, std::string sessionId) {
+
+                        this->removeConnection(std::move(accountId), std::move(sessionId));
 
                         });
+#endif
+
 
                     boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 

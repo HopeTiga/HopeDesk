@@ -161,23 +161,27 @@ namespace hope {
 
                     }
 
-                    webrtcSignalSocket->setOnDisConnectHandle([&webrtcSignalManager](std::string accountId, std::string sessionId) {
+#ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-#ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
+                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = std::move(webrtcSignalManager)](std::string accountId, std::string sessionId) {
+
+                        boost::asio::io_context& ioContext = webrtcSignalManager->getIoCompletionPorts();
+
+                        boost::asio::post(ioContext, [webrtcSignalManager = std::move(webrtcSignalManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
+
+                            webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
+
+                            });
+
+                        });
+#else
+
+                    webrtcSignalSocket->setOnDisConnectHandle([&webrtcSignalManager](std::string accountId, std::string sessionId) {
 
                         webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
 
-#else
-                        boost::asio::io_context& ioContext = sharedManager->getIoCompletionPorts();
-
-                        boost::asio::post(ioContext, [sharedManager = std::move(sharedManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
-
-                            sharedManager->removeConnection(std::move(accountId), std::move(sessionId));
-
-                            });
-#endif
-
                         });
+#endif
 
                     boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
@@ -213,9 +217,9 @@ namespace hope {
 
                     while (asyncBoots.load()) {
 
-                        std::shared_ptr<WebrtcSignalManager> manager = loadBalanceWebrtcManger();
+                        std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = loadBalanceWebrtcManger();
 
-                        std::shared_ptr<HttpSocket> httpSocket = manager->generateHttpSocket();
+                        std::shared_ptr<HttpSocket> httpSocket = webrtcSignalManager->generateHttpSocket();
 
                         bool shouldBackoff = false;
 
@@ -363,7 +367,13 @@ namespace hope {
                     continue;
                 }
 
-                boost::asio::post(webrtcSignalManager->getIoCompletionPorts(),
+#ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
+                boost::asio::io_context & ioContext = webrtcSignalManager->getLogicSystem()->getIoCompletionPorts();
+#else
+                boost::asio::io_context & ioContext = webrtcSignalManager->getIoCompletionPorts();
+#endif
+
+                boost::asio::post(ioContext,
                     [webrtcSignalManager, &closeLatch]() {
 
                         for (StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator =
