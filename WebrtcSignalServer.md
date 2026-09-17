@@ -67,7 +67,7 @@ WebrtcSignalServer/
 - **异步**：`spdlog::async_logger`（名 `webrtc-signal`），线程池在 `initLogger()` 用 `spdlog::init_thread_pool(queueSize, threadCount)` 创建（两值来自 `[Logger]` 段，须先经 `setLoggerAsyncConfig` 设定）；队列满策略 `overrun_oldest`——丢最旧不阻塞业务线程。
 - **双 sink**：
   - 控制台 `LevelFilterConsoleSink`（自实现 `base_sink`）：按 `[Logger]` 的 `DEBUG/INFO/WARN/ERROR` 开关 + ANSI 着色。`DEBUG/INFO` 可被开关关掉；`WARN/ERROR` **无条件**打印（关键日志不受开关影响）。
-  - 文件 `rotating_file_sink_mt`：`logs/signal.log`，单文件 `maxFileSizeMB`、保留 `maxFiles` 个（默认 10MB × 5）。
+  - 文件 `rotating_file_sink_mt`：`logs/webrtc-signal-server.log`，单文件 `maxFileSizeMB`、保留 `maxFiles` 个（默认 10MB × 5）。
 - **实时落盘**：`spdlog::flush_every(3s)` 周期 flush；`closeLogger()` 里 `logger->flush()` + `spdlog::shutdown()` 冲刷并停掉异步线程池。
 - **宏短路**：`LOG_DEBUG/LOG_INFO` 在调用点先查 `consoleOutputLevels[]` 与 `logToFileEnabled`——控制台与文件都不需要时**连 fmt 格式化都不做**；`LOG_WARN/LOG_ERROR` 无条件执行。
 - **格式**：`[%Y-%m-%d %H:%M:%S.%e][%l] %s:%# %v`（时间毫秒 / 级别 / 文件:行 / 消息）。
