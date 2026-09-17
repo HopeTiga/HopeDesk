@@ -63,7 +63,7 @@ namespace hope {
             interceptionKeyboard = INTERCEPTION_KEYBOARD(0);
             interceptionMouse = INTERCEPTION_MOUSE(0);
 
-            LOG_INFO("Device ID - Keyboard: %d, Mouse: %d", interceptionKeyboard, interceptionMouse);
+            LOG_INFO("Device ID - Keyboard: {}, Mouse: {}", interceptionKeyboard, interceptionMouse);
 
             isInitialized = true;
             LOG_INFO("Initialization completed successfully");
@@ -92,7 +92,7 @@ namespace hope {
                     reinterpret_cast<InterceptionStroke*>(&keystroke), 1);
 
                 if (result != 1) {
-                    LOG_ERROR("Failed to send keyboard event, return value: %d", result);
+                    LOG_ERROR("Failed to send keyboard event, return value: {}", result);
                     return false;
                 }
 
@@ -144,7 +144,7 @@ namespace hope {
                     reinterpret_cast<InterceptionStroke*>(&mousestroke), 1);
 
                 if (result != 1) {
-                    LOG_ERROR("Failed to send mouse movement, return value: %d", result);
+                    LOG_ERROR("Failed to send mouse movement, return value: {}", result);
                     return false;
                 }
 
@@ -235,7 +235,7 @@ namespace hope {
 
         bool KeyMouseSimulator::KeyDown(DWORD vkCode, BYTE modifiers) {
             if (vkCode > 0xFE) {
-                LOG_ERROR("无效的VK码: %d", vkCode);
+                LOG_ERROR("无效的VK码: {}", vkCode);
                 return false;
             }
 
@@ -248,7 +248,7 @@ namespace hope {
             // 统一处理所有按键
             WORD scanCode = GetCachedScanCode(vkCode);
             if (scanCode == 0) {
-                LOG_ERROR("MapVirtualKey失败，VK: %d", vkCode);
+                LOG_ERROR("MapVirtualKey失败，VK: {}", vkCode);
                 return false;
             }
 
@@ -258,7 +258,7 @@ namespace hope {
 
         bool KeyMouseSimulator::KeyUp(DWORD vkCode, BYTE modifiers) {
             if (vkCode > 0xFE) {
-                LOG_ERROR("无效的VK码: %d", vkCode);
+                LOG_ERROR("无效的VK码: {}", vkCode);
                 return false;
             }
 
@@ -271,7 +271,7 @@ namespace hope {
             // 统一处理所有按键
             WORD scanCode = GetCachedScanCode(vkCode);
             if (scanCode == 0) {
-                LOG_ERROR("MapVirtualKey失败，VK: %d", vkCode);
+                LOG_ERROR("MapVirtualKey失败，VK: {}", vkCode);
                 return false;
             }
 

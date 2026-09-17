@@ -29,21 +29,21 @@ namespace hope {
             if (initlized.load()) return true;
 
             HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-            if (FAILED(hr)) { LOG_ERROR("CoInitializeEx failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("CoInitializeEx failed: 0x{:08X}", hr); return false; }
 
             hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                 __uuidof(IMMDeviceEnumerator), (void**)&immEnum);
-            if (FAILED(hr)) { LOG_ERROR("Create MMDeviceEnumerator failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("Create MMDeviceEnumerator failed: 0x{:08X}", hr); return false; }
 
             hr = immEnum->GetDefaultAudioEndpoint(eRender, eConsole, &immDevice);
-            if (FAILED(hr)) { LOG_ERROR("GetDefaultAudioEndpoint failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("GetDefaultAudioEndpoint failed: 0x{:08X}", hr); return false; }
 
             hr = immDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&iAudioClient);
-            if (FAILED(hr)) { LOG_ERROR("Activate IAudioClient failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("Activate IAudioClient failed: 0x{:08X}", hr); return false; }
 
             WAVEFORMATEX* sysFmt = nullptr;
             hr = iAudioClient->GetMixFormat(&sysFmt);
-            if (FAILED(hr)) { LOG_ERROR("GetMixFormat failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("GetMixFormat failed: 0x{:08X}", hr); return false; }
 
             bool useUser = userFmt.wFormatTag == sysFmt->wFormatTag &&
                 userFmt.nChannels == sysFmt->nChannels &&
@@ -59,21 +59,21 @@ namespace hope {
                     LOG_INFO("Dummy render stream started");
                 }
                 else {
-                    LOG_WARN("Dummy render Initialize failed: 0x%08X", hr);
+                    LOG_WARN("Dummy render Initialize failed: 0x{:08X}", hr);
                 }
             }
 
             hr = iAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
                 10000000, 0, pwfx, nullptr);
-            if (FAILED(hr)) { LOG_ERROR("Loopback Initialize failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("Loopback Initialize failed: 0x{:08X}", hr); return false; }
 
             hr = iAudioClient->GetService(__uuidof(IAudioCaptureClient), (void**)&iAudioCaptureClient);
-            if (FAILED(hr)) { LOG_ERROR("Get IAudioCaptureClient failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("Get IAudioCaptureClient failed: 0x{:08X}", hr); return false; }
 
             hr = iAudioClient->Start();
-            if (FAILED(hr)) { LOG_ERROR("Start loopback failed: 0x%08X", hr); return false; }
+            if (FAILED(hr)) { LOG_ERROR("Start loopback failed: 0x{:08X}", hr); return false; }
 
-            LOG_INFO("Loopback capture started: %d ch, %d Hz, %d bit",
+            LOG_INFO("Loopback capture started: {} ch, {} Hz, {} bit",
                 pwfx->nChannels, pwfx->nSamplesPerSec, pwfx->wBitsPerSample);
 
             initlized.store(true);

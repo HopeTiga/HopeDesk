@@ -119,8 +119,6 @@ namespace hope {
 
             void processIceCandidate(const std::string& candidate, const std::string& mid, int lineIndex);
 
-            void addSrflxProbeCandidates(const std::string& candidate, const std::string& mid, int lineIndex);
-
             void asyncWrite(std::shared_ptr<WriterData> data);
 
             void post(std::function<void()> task);

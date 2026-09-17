@@ -50,12 +50,11 @@ namespace hope {
 
                 LOG_INFO("Active Connection Info:");
 
-                // 注意：printf 风格需要使用 %s，并且 string 必须调用 .c_str()
-                LOG_INFO("  Local Type: %s | IP: %s",
+                LOG_INFO("  Local Type: {} | IP: {}",
                      localType.c_str(),
                      localCand.ip->c_str());
 
-                LOG_INFO("  Remote Type: %s | IP: %s",
+                LOG_INFO("  Remote Type: {} | IP: {}",
                      remoteType.c_str(),
                      remoteCand.ip->c_str());
 

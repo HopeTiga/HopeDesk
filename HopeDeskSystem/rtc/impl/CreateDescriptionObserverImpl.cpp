@@ -48,7 +48,7 @@ namespace hope {
                     modifiedDesc.release());
             }
             else {
-                LOG_ERROR("Failed to parse modified SDP: %s", error.description.c_str());
+                LOG_ERROR("Failed to parse modified SDP: {}", error.description.c_str());
                 // 如果修改失败，使用原始描述
                 peerConnection->SetLocalDescription(SetLocalDescriptionObserver::Create().get(), desc);
             }
@@ -61,7 +61,7 @@ namespace hope {
         }
 
         void CreateOfferObserverImpl::OnFailure(webrtc::RTCError error) {
-            LOG_ERROR("CreateOffer failed: %s", error.message());
+            LOG_ERROR("CreateOffer failed: {}", error.message());
         }
 
         // CreateAnswerObserverImpl实现
@@ -87,7 +87,7 @@ namespace hope {
         }
 
         void CreateAnswerObserverImpl::OnFailure(webrtc::RTCError error) {
-            LOG_ERROR("CreateAnswer failed: %s", error.message());
+            LOG_ERROR("CreateAnswer failed: {}", error.message());
         }
 
     }

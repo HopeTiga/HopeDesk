@@ -109,7 +109,7 @@ namespace hope {
                 peerConnection->CreateAnswer(createAnswerObserver.get(), options);
             }
             else {
-                LOG_ERROR("Failed to parse offer: %s", error.description);
+                LOG_ERROR("Failed to parse offer: {}", error.description);
             }
         }
 
@@ -128,105 +128,8 @@ namespace hope {
                     SetRemoteDescriptionObserver::Create().get(), desc.release());
             }
             else {
-                LOG_ERROR("Failed to parse answer: %s", error.description.c_str());
+                LOG_ERROR("Failed to parse answer: {}", error.description.c_str());
             }
-        }
-
-        void WebrtcManager::addSrflxProbeCandidates(const std::string& candidate,
-            const std::string& mid, int lineIndex) {
-
-            std::vector<std::string> tokens;
-
-            size_t start = 0;
-
-            while (start <= candidate.size()) {
-
-                size_t space = candidate.find(' ', start);
-
-                if (space == std::string::npos) {
-
-                    space = candidate.size();
-
-                }
-
-                if (space > start) {
-
-                    tokens.emplace_back(candidate.substr(start, space - start));
-
-                }
-
-                start = space + 1;
-
-            }
-
-            if (tokens.size() < 8 || tokens[2] != "udp" || tokens[6] != "typ" || tokens[7] != "srflx") {
-
-                return;
-
-            }
-
-            int basePort = std::atoi(tokens[5].c_str());
-
-            if (basePort < 2 || basePort > 65534) {
-
-                LOG_WARN("Skip: bad basePort=%d", basePort);
-
-                return;
-
-            }
-
-            const int probeWindow = 8;
-
-            for (int delta = 1; delta <= probeWindow; ++delta) {
-
-                for (int offset : { basePort - delta, basePort + delta }) {
-
-                    if (offset < 1 || offset > 65535) {
-
-                        continue;
-
-                    }
-
-                    std::vector<std::string> probeTokens = tokens;
-
-                    probeTokens[0] = "candidate:probe" + std::to_string(offset);
-
-                    probeTokens[5] = std::to_string(offset);
-
-                    std::string probeLine;
-
-                    for (size_t i = 0; i < probeTokens.size(); ++i) {
-
-                        if (i) {
-
-                            probeLine += ' ';
-
-                        }
-
-                        probeLine += probeTokens[i];
-
-                    }
-
-                    webrtc::SdpParseError error;
-
-                    std::unique_ptr<webrtc::IceCandidateInterface> probe(
-                        webrtc::CreateIceCandidate(mid, lineIndex, probeLine, &error));
-
-                    if (!probe) {
-
-                        LOG_ERROR("CreateIceCandidate FAILED: %s", error.description.c_str());
-
-                    }
-                    else {
-
-                        peerConnection->AddIceCandidate(probe.release());
-
-                    }
-
-                }
-
-            }
-
         }
 
 
@@ -242,11 +145,9 @@ namespace hope {
 
             if (iceCandidate) {
                 peerConnection->AddIceCandidate(iceCandidate.release());
-
-                addSrflxProbeCandidates(candidate, mid, lineIndex);
             }
             else {
-                LOG_ERROR("Failed to parse ICE candidate: %s", error.description.c_str());
+                LOG_ERROR("Failed to parse ICE candidate: {}", error.description.c_str());
             }
         }
 
@@ -420,7 +321,7 @@ namespace hope {
 
             if (!pcResult.ok()) {
 
-                LOG_ERROR("Failed to create PeerConnection: %s", pcResult.error().message());
+                LOG_ERROR("Failed to create PeerConnection: {}", pcResult.error().message());
 
                 return false;
 
@@ -490,7 +391,7 @@ namespace hope {
 
             if (!videoTrackResult.ok()) {
 
-                LOG_ERROR("Failed to add video track: %s", videoTrackResult.error().message());
+                LOG_ERROR("Failed to add video track: {}", videoTrackResult.error().message());
 
                 return false;
 
@@ -535,7 +436,7 @@ namespace hope {
 
                     }
 
-                    LOG_INFO("Attempting to prioritize codec: %s", priorityCodec.c_str());
+                    LOG_INFO("Attempting to prioritize codec: {}", priorityCodec.c_str());
 
                     // 首先添加优先编解码器
                     bool foundPriorityCodec = false;
@@ -548,7 +449,7 @@ namespace hope {
 
                             foundPriorityCodec = true;
 
-                            LOG_INFO("Found and prioritized codec: %s", codec.name.c_str());
+                            LOG_INFO("Found and prioritized codec: {}", codec.name.c_str());
 
                             break;
                         }
@@ -556,7 +457,7 @@ namespace hope {
 
                     if (!foundPriorityCodec) {
 
-                        LOG_WARN("Priority codec %s not found in available codecs", priorityCodec.c_str());
+                        LOG_WARN("Priority codec {} not found in available codecs", priorityCodec.c_str());
 
                     }
 
@@ -567,7 +468,7 @@ namespace hope {
 
                             preferredCodecs.push_back(codec);
 
-                            LOG_INFO("Added additional codec: %s", codec.name.c_str());
+                            LOG_INFO("Added additional codec: {}", codec.name.c_str());
 
                         }
                     }
@@ -586,12 +487,12 @@ namespace hope {
 
                     if (result.ok()) {
 
-                        LOG_INFO("Successfully set codec preferences with %d codecs", preferredCodecs.size());
+                        LOG_INFO("Successfully set codec preferences with {} codecs", preferredCodecs.size());
 
                     }
                     else {
 
-                        LOG_ERROR("Failed to set codec preferences: %s", result.message());
+                        LOG_ERROR("Failed to set codec preferences: {}", result.message());
 
                     }
                 }
@@ -613,7 +514,7 @@ namespace hope {
             auto setParamsResult = videoSender->SetParameters(parameters);
 
             if (!setParamsResult.ok()) {
-                LOG_ERROR("Failed to set RTP parameters: %s", setParamsResult.message());
+                LOG_ERROR("Failed to set RTP parameters: {}", setParamsResult.message());
                 return false;
             }
 
@@ -627,7 +528,7 @@ namespace hope {
 
                 if (!audioTrackResult.ok()) {
 
-                    LOG_ERROR("Failed to add video track: %s", audioTrackResult.error().message());
+                    LOG_ERROR("Failed to add video track: {}", audioTrackResult.error().message());
 
                     return false;
 
@@ -645,7 +546,7 @@ namespace hope {
 
             if (!dataChannelResult.ok()) {
             
-                LOG_ERROR("Failed to add dataChannel: %s", dataChannelResult.error().message());
+                LOG_ERROR("Failed to add dataChannel: {}", dataChannelResult.error().message());
 
                 return false;
 
@@ -1035,7 +936,7 @@ namespace hope {
                 json = boost::json::parse(message).as_object();
             }
             catch (const std::exception& e) {
-                LOG_ERROR("Json parse error: %s", e.what());
+                LOG_ERROR("Json parse error: {}", e.what());
                 return;
             }
 

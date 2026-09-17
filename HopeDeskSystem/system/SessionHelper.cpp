@@ -113,7 +113,7 @@ namespace hope {
                 return hProcess;
             }
             catch (const std::exception& e) {
-                LOG_ERROR("CreateSystemProcessInUserSession: Caught exception - %s", e.what());
+                LOG_ERROR("CreateSystemProcessInUserSession: Caught exception - {}", e.what());
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (duplicatedToken) CloseHandle(duplicatedToken);
                 if (systemToken) CloseHandle(systemToken);
@@ -171,7 +171,7 @@ namespace hope {
                 return tokenHandle;
             }
             catch (const std::exception& e) {
-                LOG_ERROR("GetSystemToken: Exception - %s", e.what());
+                LOG_ERROR("GetSystemToken: Exception - {}", e.what());
                 if (processHandle) CloseHandle(processHandle);
                 if (tokenHandle) CloseHandle(tokenHandle);
                 throw;
@@ -371,7 +371,7 @@ namespace hope {
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
             }
             catch (const std::exception& e) {
-                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught exception - %s", e.what());
+                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught exception - {}", e.what());
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (token) CloseHandle(token);
                 if (newToken && newToken != token) CloseHandle(newToken);
@@ -432,7 +432,7 @@ namespace hope {
                 CloseHandle(processInformation.hThread);
             }
             catch (const std::exception& e) {
-                LOG_ERROR("RespawnInActiveTerminalSession: Caught exception - %s", e.what());
+                LOG_ERROR("RespawnInActiveTerminalSession: Caught exception - {}", e.what());
                 if (token) CloseHandle(token);
                 if (newToken) CloseHandle(newToken);
                 throw;

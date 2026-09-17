@@ -7,6 +7,20 @@
 
 #pragma comment(lib, "d3dcompiler.lib")
 
+// DXGI 的适配器名/输出名是 WCHAR,fmt 不直接吃宽字符,日志前先转成 UTF-8 窄串
+namespace {
+
+    std::string deviceNameToNarrow(const wchar_t* wide) {
+        if (!wide) return std::string();
+        int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+        if (sizeNeeded <= 1) return std::string();
+        std::string narrow(static_cast<size_t>(sizeNeeded - 1), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wide, -1, narrow.data(), sizeNeeded, nullptr, nullptr);
+        return narrow;
+    }
+
+}
+
 namespace hope {
 	namespace rtc {
 
@@ -80,7 +94,7 @@ namespace hope {
 			default: levels = "unknown"; break;
 			}
 
-			LOG_INFO("CaptureLevels: %s", levels.c_str());
+			LOG_INFO("CaptureLevels: {}", levels.c_str());
 			return true;
 		}
 
@@ -118,7 +132,7 @@ namespace hope {
 			Microsoft::WRL::ComPtr<IDXGIFactory1> dxgiFactory;
 			hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] CreateDXGIFactory1 失败, hr=0x%08X", hr);
+				LOG_ERROR("[ScreenCapture] CreateDXGIFactory1 失败, hr=0x{:08X}", hr);
 				return false;
 			}
 
@@ -133,8 +147,8 @@ namespace hope {
 					DXGI_ADAPTER_DESC1 desc;
 					adapter->GetDesc1(&desc);
 
-					LOG_INFO("[ScreenCapture] 发现适配器 [%u]: %ls (VendorId: 0x%04X, DeviceId: 0x%04X)",
-						i, desc.Description, desc.VendorId, desc.DeviceId);
+					LOG_INFO("[ScreenCapture] 发现适配器 [{}]: {} (VendorId: 0x{:04X}, DeviceId: 0x{:04X})",
+						i, deviceNameToNarrow(desc.Description), desc.VendorId, desc.DeviceId);
 
 					if (desc.VendorId == 0x10DE) {
 
@@ -143,18 +157,18 @@ namespace hope {
 						for (UINT j = 0; adapter->EnumOutputs(j, &out) != DXGI_ERROR_NOT_FOUND; ++j) {
 							DXGI_OUTPUT_DESC outDesc;
 							out->GetDesc(&outDesc);
-							LOG_INFO("[ScreenCapture]   输出 [%u]: %ls", j, outDesc.DeviceName);
+							LOG_INFO("[ScreenCapture]   输出 [{}]: {}", j, deviceNameToNarrow(outDesc.DeviceName));
 							hasOutput = true;
 						}
 
 						if (hasOutput) {
 							targetAdapter = adapter;
 							canZeroCopy = true;
-							LOG_INFO("[ScreenCapture] ✓ 选中 NVIDIA 显卡 [%u] 带有显示输出，启用硬件零拷贝通道！", i);
+							LOG_INFO("[ScreenCapture] ✓ 选中 NVIDIA 显卡 [{}] 带有显示输出，启用硬件零拷贝通道！", i);
 							break;
 						}
 						else {
-							LOG_WARN("[ScreenCapture] NVIDIA 显卡 [%u] 没有显示输出，可能是 Optimus 笔记本或显示器未连接", i);
+							LOG_WARN("[ScreenCapture] NVIDIA 显卡 [{}] 没有显示输出，可能是 Optimus 笔记本或显示器未连接", i);
 						}
 					}
 				}
@@ -176,7 +190,7 @@ namespace hope {
 			}
 
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] D3D11Device 创建失败, hr=0x%08X", hr);
+				LOG_ERROR("[ScreenCapture] D3D11Device 创建失败, hr=0x{:08X}", hr);
 				return false;
 			}
 
@@ -190,14 +204,14 @@ namespace hope {
 			Microsoft::WRL::ComPtr<IDXGIAdapter> tempAdapter;
 			hr = dxgiDevice->GetAdapter(&tempAdapter);
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] GetAdapter 失败, hr=0x%08X", hr);
+				LOG_ERROR("[ScreenCapture] GetAdapter 失败, hr=0x{:08X}", hr);
 				return false;
 			}
 
 			DXGI_ADAPTER_DESC actualDesc;
 			tempAdapter->GetDesc(&actualDesc);
-			LOG_INFO("[ScreenCapture] D3D 设备创建成功，实际使用适配器: %ls (VendorId: 0x%04X)",
-				actualDesc.Description, actualDesc.VendorId);
+			LOG_INFO("[ScreenCapture] D3D 设备创建成功，实际使用适配器: {} (VendorId: 0x{:04X})",
+				deviceNameToNarrow(actualDesc.Description), actualDesc.VendorId);
 
 			if (targetAdapter && actualDesc.VendorId != 0x10DE) {
 				LOG_WARN("[ScreenCapture] 警告：期望使用 NVIDIA 显卡，但实际创建的是其他显卡！");
@@ -205,7 +219,7 @@ namespace hope {
 
 			hr = tempAdapter->EnumOutputs(0, &dxgiOutput);
 			if (FAILED(hr) || !dxgiOutput) {
-				LOG_ERROR("[ScreenCapture] 当前显卡没有挂载显示器 (WinLogon可能会接管), hr=0x%08X", hr);
+				LOG_ERROR("[ScreenCapture] 当前显卡没有挂载显示器 (WinLogon可能会接管), hr=0x{:08X}", hr);
 				return false;
 			}
 			dxgiAdapter = tempAdapter;
@@ -214,7 +228,7 @@ namespace hope {
 
 			hr = dxgiOutput1->DuplicateOutput(d3dDevice.Get(), &dxgiDuplication);
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] DuplicateOutput 失败, hr=0x%08X", hr);
+				LOG_ERROR("[ScreenCapture] DuplicateOutput 失败, hr=0x{:08X}", hr);
 				handleCaptureError(hr);
 				return false;
 			}
@@ -410,7 +424,7 @@ namespace hope {
 			HRESULT hr = D3DCompile(sharedSource.c_str(), strlen(sharedSource.c_str()), nullptr, nullptr, nullptr, "main", "cs_5_0", 0, 0, &shaderBlob, &errorBlob);
 			if (FAILED(hr)) {
 				if (errorBlob) {
-					LOG_ERROR("Shader compile error: %s", (char*)errorBlob->GetBufferPointer());
+					LOG_ERROR("Shader compile error: {}", (char*)errorBlob->GetBufferPointer());
 				}
 				return false;
 			}
@@ -646,7 +660,7 @@ namespace hope {
 						);
 					}
 					else {
-						LOG_ERROR("[ScreenCapture] AcquireSync 失败，槽位 %d 锁定异常", hwIdx);
+						LOG_ERROR("[ScreenCapture] AcquireSync 失败，槽位 {} 锁定异常", hwIdx);
 					}
 				}
 				return true;

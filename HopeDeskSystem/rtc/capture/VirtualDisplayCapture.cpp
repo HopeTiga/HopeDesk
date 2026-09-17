@@ -757,7 +757,7 @@ namespace hope {
                 if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
                 nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
                 if (++downLogCounter == 1 || downLogCounter % 30 == 0) {
-                    LOG_WARN("VirtualDisplayCapture frame channel down, retry in %d ms", openBackoffMs);
+                    LOG_WARN("VirtualDisplayCapture frame channel down, retry in {} ms", openBackoffMs);
                 }
                 openBackoffMs *= 2;
                 if (openBackoffMs > kVddBackoffMaxMs) openBackoffMs = kVddBackoffMaxMs;

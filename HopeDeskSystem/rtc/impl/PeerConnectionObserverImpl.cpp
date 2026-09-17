@@ -79,7 +79,7 @@ namespace hope {
                                         size_t slashPos = codecInfo.find('/');
                                         if (slashPos != std::string::npos) {
                                             std::string codecName = codecInfo.substr(0, slashPos);
-                                            LOG_INFO("=== Video codec actually being used: %s ===", codecName.c_str());
+                                            LOG_INFO("=== Video codec actually being used: {} ===", codecName.c_str());
                                             break;
                                         }
                                     }
@@ -142,7 +142,7 @@ namespace hope {
 
         void PeerConnectionObserverImpl::OnIceCandidateError(const std::string& address, int port, const std::string& url,
             int errorCode, const std::string& errorText) {
-            LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address=%s, port=%d, url=%s, errorCode=%d, errorText=%s\n",
+            LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address={}, port={}, url={}, errorCode={}, errorText={}\n",
                 address.c_str(), port, url.c_str(), errorCode, errorText.c_str());
         }
 

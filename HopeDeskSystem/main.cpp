@@ -102,7 +102,7 @@ bool IsRunningAsSystem() {
 
         DWORD sessionId = GetCurrentSessionId();
 
-        LOG_INFO("Current user: %s | SessionID: %d | Process Type: %s",
+        LOG_INFO("Current user: {} | SessionID: {} | Process Type: {}",
             WstringToString(username).c_str(), sessionId, GetProcessTypeString().c_str());
 
         return wcscmp(username, L"SYSTEM") == 0;
@@ -166,13 +166,13 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     std::string serviceName = (argc > 0 && argv && argv[0]) ? WstringToString(argv[0]) : "";
 
-    LOG_INFO("[MAINPROCESS] Service starting | SessionID: %d | Service: %s", sessionId, serviceName.c_str());
+    LOG_INFO("[MAINPROCESS] Service starting | SessionID: {} | Service: {}", sessionId, serviceName.c_str());
 
     statusHandle = RegisterServiceCtrlHandlerA(serviceName.c_str(), ServiceCtrlHandler);
 
     if (!statusHandle) {
 
-        LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to register service control handler", sessionId);
+        LOG_ERROR("[MAINPROCESS] SessionID: {} - Failed to register service control handler", sessionId);
 
         return;
 
@@ -188,7 +188,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     if (!stopEvent) {
 
-        LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to create stop event", sessionId);
+        LOG_ERROR("[MAINPROCESS] SessionID: {} - Failed to create stop event", sessionId);
 
         return;
 
@@ -200,11 +200,11 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     SetServiceStatus(statusHandle, &serviceStatus);
 
-    LOG_INFO("[MAINPROCESS] SessionID: %d - Service started successfully", sessionId);
+    LOG_INFO("[MAINPROCESS] SessionID: {} - Service started successfully", sessionId);
 
     if (!IsRunningAsSystem()) {
 
-        LOG_ERROR("[MAINPROCESS] SessionID: %d - This service must be run as 'NT AUTHORITY\\SYSTEM'", sessionId);
+        LOG_ERROR("[MAINPROCESS] SessionID: {} - This service must be run as 'NT AUTHORITY\\SYSTEM'", sessionId);
 
         serviceStatus.dwCurrentState = SERVICE_STOPPED;
 
@@ -218,13 +218,13 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
     if (!hope::system::SessionHelper::CheckActiveTerminalSession()) {
 
-        LOG_INFO("[MAINPROCESS] SessionID: %d - Service running in Session 0, respawning in active session...", sessionId);
+        LOG_INFO("[MAINPROCESS] SessionID: {} - Service running in Session 0, respawning in active session...", sessionId);
 
         try {
 
             process = hope::system::SessionHelper::CreateSystemProcessInUserSession(L"--respawned");
 
-            LOG_INFO("[MAINPROCESS] SessionID: %d - Respawned process in active session", sessionId);
+            LOG_INFO("[MAINPROCESS] SessionID: {} - Respawned process in active session", sessionId);
 
             CloseHandle(process);
 
@@ -233,13 +233,13 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
         }
         catch (const std::exception& e) {
 
-            LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to respawn: %s", sessionId, e.what());
+            LOG_ERROR("[MAINPROCESS] SessionID: {} - Failed to respawn: {}", sessionId, e.what());
 
         }
     }
     else {
 
-        LOG_WARN("[MAINPROCESS] SessionID: %d - Service unexpectedly in active session", sessionId);
+        LOG_WARN("[MAINPROCESS] SessionID: {} - Service unexpectedly in active session", sessionId);
 
     }
 
@@ -250,7 +250,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
     SetServiceStatus(statusHandle, &serviceStatus);
 
     // The worker is intentionally left running; this process exits on purpose.
-    LOG_INFO("[MAINPROCESS] SessionID: %d - Service exiting after spawning worker", sessionId);
+    LOG_INFO("[MAINPROCESS] SessionID: {} - Service exiting after spawning worker", sessionId);
 }
 
 int main(int argc, char* argv[]) {
@@ -263,11 +263,11 @@ int main(int argc, char* argv[]) {
 
         isRespawnedProcess = true;
 
-        LOG_INFO("[SUBPROCESS] Running as respawned process with DXGI | SessionID: %d", sessionId);
+        LOG_INFO("[SUBPROCESS] Running as respawned process with DXGI | SessionID: {}", sessionId);
 
         if (!IsRunningAsSystem()) {
 
-            LOG_ERROR("[SUBPROCESS] SessionID: %d - Respawned process must run as SYSTEM", sessionId);
+            LOG_ERROR("[SUBPROCESS] SessionID: {} - Respawned process must run as SYSTEM", sessionId);
 
             return 1;
 
@@ -278,7 +278,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    LOG_INFO("[MAINPROCESS] Starting service dispatcher with DXGI support | SessionID: %d", sessionId);
+    LOG_INFO("[MAINPROCESS] Starting service dispatcher with DXGI support | SessionID: {}", sessionId);
 
     std::string serviceName = (argc > 1) ? argv[1] : "";
     std::wstring serviceNameWide = StringToWstring(serviceName);
@@ -294,11 +294,11 @@ int main(int argc, char* argv[]) {
 
         if (error == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
 
-            LOG_INFO("[MAINPROCESS] SessionID: %d - Running in interactive mode with DXGI (not as service)", sessionId);
+            LOG_INFO("[MAINPROCESS] SessionID: {} - Running in interactive mode with DXGI (not as service)", sessionId);
 
             if (!IsRunningAsSystem()) {
 
-                LOG_ERROR("[MAINPROCESS] SessionID: %d - Must run as SYSTEM user", sessionId);
+                LOG_ERROR("[MAINPROCESS] SessionID: {} - Must run as SYSTEM user", sessionId);
 
                 return 1;
 
@@ -306,7 +306,7 @@ int main(int argc, char* argv[]) {
         }
         else {
 
-            LOG_ERROR("[MAINPROCESS] SessionID: %d - Failed to start service dispatcher: %d", sessionId, error);
+            LOG_ERROR("[MAINPROCESS] SessionID: {} - Failed to start service dispatcher: {}", sessionId, error);
 
             return 1;
 

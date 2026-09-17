@@ -11,11 +11,21 @@
 #endif
 
 #include "Utils.h"
+
+// 完整 spdlog（header-only）只在本 TU 编译；Utils.h 里只有 fmt，供 LOG_* 宏做编译期格式校验
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/base_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+
 #include <chrono>
 #include <mutex>
 #include <fstream>
 #include <vector>
 #include <string>
+#include <thread>
+#include <atomic>
+#include <memory>
+#include <cstdio>
 #include <rtc_base/logging.h>   // webrtc 内部 RTC_LOG:排查 ICE/DTLS 用
 
 static const char* COLOR_RESET = "\033[0m";
@@ -24,68 +34,75 @@ static const char* COLOR_GREEN = "\033[92m";
 static const char* COLOR_YELLOW = "\033[93m";
 static const char* COLOR_BLUE = "\033[94m";
 
-static const char* logFileNames[4] = {
-    "debug.log",
-    "info.log",
-    "warn.log",
-    "error.log"
+static std::string logDir = "logs";
+// 下面两个在 Utils.h 里是 extern（供 LOG_* 宏在调用点短路级别），必须外部链接，不能加 static
+int logToFileEnabled = 1;
+int consoleOutputLevels[4] = { 1, 1, 1, 1 };
+
+static size_t maxFileSizeBytes = 10 * 1024 * 1024;   // 单文件 10MB，超过即轮转
+static int maxFileCount = 5;                         // 保留最近 5 个轮转文件
+
+static std::mutex loggerMutex;                       // 只保护建/换 logger，不在写路径上
+static std::shared_ptr<spdlog::logger> logger;                  // 进程期唯一 logger
+static std::shared_ptr<spdlog::logger> fileOnlyLogger;          // logToFileOnly 用的"只写文件"logger
+static std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> fileSink;
+static std::atomic<spdlog::logger*> activeLogger{ nullptr };         // 写路径取它，不每次加锁
+static std::atomic<spdlog::logger*> activeFileOnlyLogger{ nullptr };
+
+static spdlog::level::level_enum toSpdlogLevel(LogLevel level) {
+    switch (level) {
+    case LOG_LEVEL_DEBUG: return spdlog::level::debug;
+    case LOG_LEVEL_INFO:  return spdlog::level::info;
+    case LOG_LEVEL_WARN:  return spdlog::level::warn;
+    case LOG_LEVEL_ERROR: return spdlog::level::err;
+    default:              return spdlog::level::info;
+    }
+}
+
+static int levelIndex(spdlog::level::level_enum level) {
+    switch (level) {
+    case spdlog::level::debug: return LOG_LEVEL_DEBUG;
+    case spdlog::level::info:  return LOG_LEVEL_INFO;
+    case spdlog::level::warn:  return LOG_LEVEL_WARN;
+    case spdlog::level::err:   return LOG_LEVEL_ERROR;
+    default:                   return -1;
+    }
+}
+
+static const char* levelColor(spdlog::level::level_enum level) {
+    switch (level) {
+    case spdlog::level::debug: return COLOR_BLUE;
+    case spdlog::level::info:  return COLOR_GREEN;
+    case spdlog::level::warn:  return COLOR_YELLOW;
+    case spdlog::level::err:   return COLOR_RED;
+    default:                   return COLOR_RESET;
+    }
+}
+
+// 控制台 sink：逐级别开关(consoleOutputLevels)与着色都在这里，不借 spdlog 自己的 level 过滤
+class LevelFilterConsoleSink : public spdlog::sinks::base_sink<std::mutex> {
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        int idx = levelIndex(msg.level);
+        if (idx < 0) return;
+        if (consoleOutputLevels[idx] == 0) return;
+
+        spdlog::memory_buf_t formatted;
+        this->formatter_->format(msg, formatted);
+
+        const char* color = levelColor(msg.level);
+        std::fwrite(color, 1, std::strlen(color), stdout);
+        std::fwrite(formatted.data(), 1, formatted.size(), stdout);
+        std::fwrite(COLOR_RESET, 1, std::strlen(COLOR_RESET), stdout);
+        std::fputc('\n', stdout);
+        std::fflush(stdout);
+    }
+    void flush_() override {
+        std::fflush(stdout);
+    }
 };
 
-static std::string logDir = "logs";
-static int logToFileEnabled = 1;
-static int loggerInitialized = 0;
-static int consoleOutputLevels[4] = { 1, 1, 1, 1 };
-
-#ifdef _WIN32
-static HANDLE logHandles[4] = { INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE };
-#else
-static FILE* logFiles[4] = { nullptr, nullptr, nullptr, nullptr };
-#endif
-
-static void openLogFiles() {
-    for (int i = 0; i < 4; i++) {
-#ifdef _WIN32
-        if (logHandles[i] != INVALID_HANDLE_VALUE) continue;
-        std::string filePath = logDir + "\\" + logFileNames[i];
-        HANDLE h = CreateFileA(
-            filePath.c_str(),
-            FILE_APPEND_DATA,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr,
-            OPEN_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr
-        );
-        if (h != INVALID_HANDLE_VALUE) {
-            logHandles[i] = h;
-        }
-#else
-        if (logFiles[i]) continue;
-        std::string filePath = logDir + "/" + logFileNames[i];
-        logFiles[i] = fopen(filePath.c_str(), "a");
-#endif
-    }
-}
-
-static void closeLogFiles() {
-    for (int i = 0; i < 4; i++) {
-#ifdef _WIN32
-        if (logHandles[i] != INVALID_HANDLE_VALUE) {
-            CloseHandle(logHandles[i]);
-            logHandles[i] = INVALID_HANDLE_VALUE;
-        }
-#else
-        if (logFiles[i]) {
-            fclose(logFiles[i]);
-            logFiles[i] = nullptr;
-        }
-#endif
-    }
-}
-
 static void ensureLogDirectory() {
-    if (loggerInitialized) return;
-
 #ifdef _WIN32
     if (!CreateDirectoryA(logDir.c_str(), NULL)) {
         DWORD err = GetLastError();
@@ -96,17 +113,64 @@ static void ensureLogDirectory() {
 #else
     mkdir(logDir.c_str(), 0755);
 #endif
-    openLogFiles();
-    loggerInitialized = 1;
+}
+
+static void buildLogger() {
+    std::shared_ptr<LevelFilterConsoleSink> consoleSink = std::make_shared<LevelFilterConsoleSink>();
+    consoleSink->set_level(spdlog::level::trace);   // 屏幕过滤交给 consoleOutputLevels
+
+    std::vector<std::shared_ptr<spdlog::sinks::sink>> sinks{ consoleSink };
+
+    fileSink.reset();
+    try {
+        fileSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            logDir + "/HopeDeskSystem.log", maxFileSizeBytes, maxFileCount);
+        fileSink->set_level(logToFileEnabled != 0 ? spdlog::level::trace : spdlog::level::off);
+        sinks.push_back(fileSink);
+    }
+    catch (const spdlog::spdlog_ex& e) {
+        // 打不开就退化成只有控制台：写日志不能抛出去（旧实现是静默丢，不抛）
+        fprintf(stderr, "ERROR: Failed to open log file under %s: %s\n", logDir.c_str(), e.what());
+    }
+
+    logger = std::make_shared<spdlog::logger>("HopeDeskSystem", sinks.begin(), sinks.end());
+    logger->set_level(spdlog::level::trace);        // 级别过滤交给各 sink
+    logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e][%l] %s:%# %v");
+    logger->flush_on(spdlog::level::trace);         // 每条都 flush：保持"写出去就落盘"
+
+    activeLogger.store(logger.get(), std::memory_order_release);
+
+    if (fileSink) {
+        fileOnlyLogger = std::make_shared<spdlog::logger>("HopeDeskSystem.file", fileSink);
+        fileOnlyLogger->set_pattern("[%Y-%m-%d %H:%M:%S.%e][%l] %s:%# %v");
+        fileOnlyLogger->flush_on(spdlog::level::trace);
+        activeFileOnlyLogger.store(fileOnlyLogger.get(), std::memory_order_release);
+    }
+}
+
+// 首次写日志时惰性建好（不依赖调用方先调 initLogger）
+static void ensureLoggerInitialized() {
+    if (activeLogger.load(std::memory_order_acquire) != nullptr) return;
+    std::lock_guard<std::mutex> lock(loggerMutex);
+    if (logger) return;
+    ensureLogDirectory();
+    buildLogger();
 }
 
 void initLogger() {
-    ensureLogDirectory();
+    ensureLoggerInitialized();
 }
 
 void closeLogger() {
-    closeLogFiles();
-    loggerInitialized = 0;
+    std::lock_guard<std::mutex> lock(loggerMutex);
+    activeLogger.store(nullptr, std::memory_order_release);
+    activeFileOnlyLogger.store(nullptr, std::memory_order_release);
+    if (logger) {
+        logger->flush();
+        logger.reset();
+    }
+    fileOnlyLogger.reset();
+    fileSink.reset();
 }
 
 // ===== WebRTC 内部日志(RTC_LOG)=====
@@ -170,13 +234,20 @@ void closeWebrtcLogging() {
 
 void enableFileLogging(int enable) {
     logToFileEnabled = enable;
+    if (fileSink) fileSink->set_level(enable != 0 ? spdlog::level::trace : spdlog::level::off);
 }
 
 void setLogDirectory(const char* dir) {
-    closeLogFiles();
-    logDir = dir;
-    loggerInitialized = 0;
+    std::lock_guard<std::mutex> lock(loggerMutex);
+    logDir = dir ? dir : "logs";
+    activeLogger.store(nullptr, std::memory_order_release);
+    activeFileOnlyLogger.store(nullptr, std::memory_order_release);
+    if (logger) logger->flush();
+    logger.reset();
+    fileOnlyLogger.reset();
+    fileSink.reset();
     ensureLogDirectory();
+    buildLogger();      // 按新目录立刻建好，和旧实现"立刻重开文件"一致
 }
 
 void setConsoleOutputLevels(int debug, int info, int warn, int error) {
@@ -215,122 +286,19 @@ void getLevelInfo(LogLevel level, const char** levelStr, const char** color) {
     }
 }
 
-static std::string formatFileAndLine(const char* file, int line) {
-    const char* slash = strrchr(file, '/');
-    const char* backslash = strrchr(file, '\\');
-    const char* shortFile = slash > backslash ? slash : backslash;
-    shortFile = shortFile ? shortFile + 1 : file;
-
-    char buffer[128];
-    snprintf(buffer, sizeof(buffer), "%s:%d", shortFile, line);
-
-    char aligned[128];
-    snprintf(aligned, sizeof(aligned), "%-30s", buffer);
-    return std::string(aligned);
-}
-
-static std::string formatString(const char* format, va_list args) {
-    va_list args_copy;
-    va_copy(args_copy, args);
-
-    int len = vsnprintf(nullptr, 0, format, args_copy);
-    va_end(args_copy);
-
-    if (len <= 0) return "";
-
-    std::vector<char> buffer(len + 1);
-    vsnprintf(buffer.data(), len + 1, format, args);
-
-    return std::string(buffer.data(), len);
-}
-
-static void writeConsole(const char* data, size_t len) {
-#ifdef _WIN32
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), data, (DWORD)len, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-#else
-    fwrite(data, 1, len, stdout);
-    fwrite("\n", 1, 1, stdout);
-    fflush(stdout);
-#endif
-}
-
-static void writeFileRaw(HANDLE hFile, const char* data, size_t len) {
-    if (hFile == INVALID_HANDLE_VALUE) return;
-    DWORD written = 0;
-    WriteFile(hFile, data, (DWORD)len, &written, nullptr);
-    WriteFile(hFile, "\r\n", 2, &written, nullptr);
-    FlushFileBuffers(hFile);
-}
-
-static void doLog(LogLevel level, const char* file, int line, const char* format, va_list args, bool plain, bool fileOnly) {
-    char timestamp[32];
-    const char* levelStr;
-    const char* color;
-
-    getTimestamp(timestamp, sizeof(timestamp));
-    getLevelInfo(level, &levelStr, &color);
-
-    std::string msg = formatString(format, args);
-    std::string alignedFileLine = formatFileAndLine(file, line);
-
-    int levelIdx = static_cast<int>(level);
-
-    if (!fileOnly && levelIdx >= 0 && levelIdx <= 3 && consoleOutputLevels[levelIdx]) {
-        char consoleBuf[65536];
-        int n = 0;
-        if (plain) {
-            n = snprintf(consoleBuf, sizeof(consoleBuf), "[%s][%-5s] %s %s",
-                timestamp, levelStr, alignedFileLine.c_str(), msg.c_str());
-        }
-        else {
-            n = snprintf(consoleBuf, sizeof(consoleBuf), "%s[%s][%-5s] %s %s%s",
-                color, timestamp, levelStr, alignedFileLine.c_str(), msg.c_str(), COLOR_RESET);
-        }
-        if (n > 0 && n < (int)sizeof(consoleBuf)) {
-            writeConsole(consoleBuf, n);
-        }
+// 日志入口：LOG_* 宏已在调用点用 fmt 完成校验与格式化，这里只负责落到 sink
+void hope::log::logMessage(LogLevel level, const char* file, int line, const std::string& message, bool fileOnly) {
+    if (fileOnly) {
+        spdlog::logger* target = activeFileOnlyLogger.load(std::memory_order_acquire);
+        if (target) target->log(spdlog::source_loc{ file, line, "" }, toSpdlogLevel(level), "{}", message);
+        return;
     }
 
-    if (logToFileEnabled && levelIdx >= 0 && levelIdx <= 3) {
-        ensureLogDirectory();
-
-        char fileBuf[65536];
-        int n = snprintf(fileBuf, sizeof(fileBuf), "[%s][%-5s] %s %s",
-            timestamp, levelStr, alignedFileLine.c_str(), msg.c_str());
-
-        if (n > 0 && n < (int)sizeof(fileBuf)) {
-#ifdef _WIN32
-            writeFileRaw(logHandles[levelIdx], fileBuf, n);
-#else
-            if (logFiles[levelIdx]) {
-                fwrite(fileBuf, 1, n, logFiles[levelIdx]);
-                fwrite("\n", 1, 1, logFiles[levelIdx]);
-                fflush(logFiles[levelIdx]);
-            }
-#endif
-        }
+    spdlog::logger* currentLogger = activeLogger.load(std::memory_order_acquire);
+    if (currentLogger == nullptr) {
+        ensureLoggerInitialized();
+        currentLogger = activeLogger.load(std::memory_order_acquire);
+        if (currentLogger == nullptr) return;
     }
-}
-
-void logMessage(LogLevel level, const char* file, int line, const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    doLog(level, file, line, format, args, false, false);
-    va_end(args);
-}
-
-void logMessagePlain(LogLevel level, const char* file, int line, const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    doLog(level, file, line, format, args, true, false);
-    va_end(args);
-}
-
-void logToFileOnly(LogLevel level, const char* file, int line, const char* format, ...) {
-    va_list args;
-    va_start(args, format);
-    doLog(level, file, line, format, args, false, true);
-    va_end(args);
+    currentLogger->log(spdlog::source_loc{ file, line, "" }, toSpdlogLevel(level), "{}", message);
 }
