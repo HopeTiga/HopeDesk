@@ -100,13 +100,13 @@ static void buildLogger() {
     std::shared_ptr<LevelFilterConsoleSink> consoleSink = std::make_shared<LevelFilterConsoleSink>();
     consoleSink->set_level(spdlog::level::trace);   // 过滤交给开关数组
 
-    std::string filePath = logDir + "/signal.log";
+    std::string filePath = logDir + "/webrtc-signal-server.log";
     std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> fileSink =
         std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, maxFileSizeBytes, maxFileCount);
     fileSink->set_level(logToFileEnabled != 0 ? spdlog::level::trace : spdlog::level::off);
 
     logger = std::make_shared<spdlog::async_logger>(
-        "webrtc-signal",
+        "webrtc-signal-server",
         spdlog::sinks_init_list{ consoleSink, fileSink },
         spdlog::thread_pool(),
         spdlog::async_overflow_policy::overrun_oldest);

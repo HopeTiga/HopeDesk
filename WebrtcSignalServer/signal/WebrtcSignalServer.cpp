@@ -165,7 +165,7 @@ namespace hope {
 
                     webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = std::move(webrtcSignalManager)](std::string accountId, std::string sessionId) {
 
-                        boost::asio::io_context& ioContext = webrtcSignalManager->getIoCompletionPorts();
+                        boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getIoCompletionPorts();
 
                         boost::asio::post(ioContext, [webrtcSignalManager = std::move(webrtcSignalManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
 
