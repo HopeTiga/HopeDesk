@@ -269,7 +269,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
     if (!currentFrameHeader) {
       libgav1::StatusCode status_code = parser->ParseOneFrame(&currentFrame);
       if (status_code != libgav1::kStatusOk) {
-        LOG_ERROR("[AV1Decoder] Failed to parse OBU: %s",
+        LOG_ERROR("[AV1Decoder] Failed to parse OBU: {}",
                   libgav1::GetErrorString(status_code));
         return kDecodeError;
       }
@@ -297,7 +297,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
 
         if (chromaSampling != VideoChromaSampling::k420 &&
             chromaSampling != VideoChromaSampling::k444) {
-          LOG_ERROR("[AV1Decoder] Only YUV 4:2:0 and YUV 4:4:4 are supported (chroma=%d)",
+          LOG_ERROR("[AV1Decoder] Only YUV 4:2:0 and YUV 4:4:4 are supported (chroma={})",
                     static_cast<int>(chromaSampling));
           return kDecodeError;
         }
@@ -307,7 +307,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
         const uint8_t newBitDepth = base::checked_cast<uint8_t>(
             currentSequenceHeader->color_config.bitdepth);
         if (!IsValidBitDepth(newBitDepth, newProfile)) {
-          LOG_ERROR("[AV1Decoder] Invalid bit depth=%d, profile=%s",
+          LOG_ERROR("[AV1Decoder] Invalid bit depth={}, profile={}",
                     base::strict_cast<int>(newBitDepth),
                     GetProfileName(newProfile));
           return kDecodeError;
@@ -320,7 +320,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
             base::strict_cast<int>(currentFrameHeader->width),
             base::strict_cast<int>(currentFrameHeader->height));
         if (!gfx::Rect(newFrameSize).Contains(newVisibleRect)) {
-          LOG_DEBUG("Render size exceeds picture size. render size: %s, picture size: %s",
+          LOG_DEBUG("Render size exceeds picture size. render size: {}, picture size: {}",
                     newVisibleRect.ToString().c_str(), newFrameSize.ToString().c_str());
           newVisibleRect = gfx::Rect(newFrameSize);
         }
@@ -353,7 +353,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
         if (frameSize != newFrameSize ||
             visibleRect != newVisibleRect || profile != newProfile ||
             bitDepth != newBitDepth || isColorSpaceChange) {
-          LOG_DEBUG("New profile: %s, new resolution: %s, new visible rect: %s, new bit depth: %d, new color space: %s",
+          LOG_DEBUG("New profile: {}, new resolution: {}, new visible rect: {}, new bit depth: {}, new color space: {}",
                     GetProfileName(newProfile), newFrameSize.ToString().c_str(),
                     newVisibleRect.ToString().c_str(), base::strict_cast<int>(newBitDepth),
                     newColorSpace.ToString().c_str());

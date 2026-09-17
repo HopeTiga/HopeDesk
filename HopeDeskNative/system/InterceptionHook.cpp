@@ -41,7 +41,7 @@ void InterceptionHook::setTargetWidget(VideoWidget* widget)
     targetWidget = widget;
     if (widget) {
         targetHwnd = reinterpret_cast<HWND>(widget->winId());
-        LOG_INFO("Target widget set, HWND: %p", targetHwnd);
+        LOG_INFO("Target widget set, HWND: {}", fmt::ptr(targetHwnd));
     }
 }
 
@@ -159,7 +159,7 @@ void InterceptionHook::captureThreadFunc()
             bool isPress = !(keystroke->state & INTERCEPTION_KEY_UP);
             if (keystroke->code == 0x45 && isPress) {
                 numLockState = !numLockState.load();
-                LOG_INFO("NumLock toggled to: %s", numLockState ? "ON" : "OFF");
+                LOG_INFO("NumLock toggled to: {}", numLockState ? "ON" : "OFF");
             }
 
             HWND foregroundWnd = GetForegroundWindow();

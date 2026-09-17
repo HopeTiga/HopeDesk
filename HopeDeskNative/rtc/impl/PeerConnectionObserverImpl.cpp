@@ -35,7 +35,7 @@ void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterfa
 
 void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
     const std::string label = dataChannel->label();
-    LOG_INFO("Data channel received: %s", label.c_str());
+    LOG_INFO("Data channel received: {}", label.c_str());
 
     if (label == "dataChannel") {
         std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
@@ -221,7 +221,7 @@ void PeerConnectionObserverImpl::OnRemoveTrack(webrtc::scoped_refptr<webrtc::Rtp
 void PeerConnectionObserverImpl::OnIceCandidateError(const std::string& address, int port,
                                                      const std::string& url, int errorCode,
                                                      const std::string& errorText) {
-    LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address=%s, port=%d, url=%s, errorCode=%d, errorText=%s",
+    LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address={}, port={}, url={}, errorCode={}, errorText={}",
               address.c_str(), port, url.c_str(), errorCode, errorText.c_str());
 }
 

@@ -36,10 +36,10 @@ int main(int argc, char *argv[])
     QIcon appIcon(":/logo/res/hope.jpg");
     if (!appIcon.isNull()) {
         app.setWindowIcon(appIcon);
-        qDebug() << "全局应用程序图标设置成功";
+        LOG_INFO("全局应用程序图标设置成功");
     } else {
-        qDebug() << "警告：无法加载全局应用程序图标：:/logo/res/hope.jpg";
-        qDebug() << "请检查资源文件是否正确添加到项目中";
+        LOG_WARN("无法加载全局应用程序图标：:/logo/res/hope.jpg");
+        LOG_WARN("请检查资源文件是否正确添加到项目中");
     }
     setbuf(stdout, NULL);
     hope::rtc::MainWindow w;

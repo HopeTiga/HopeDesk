@@ -71,7 +71,7 @@ namespace hope {
                 );
 
                 if (result != 0) {
-                    LOG_ERROR("AudioHandle failed with result: %d", result);
+                    LOG_ERROR("AudioHandle failed with result: {}", result);
                 }
             }
         }

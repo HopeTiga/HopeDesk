@@ -64,14 +64,14 @@ bool NvdecDecoder::RecreateParser() {
 
     CUresult result = nvdecApi.cuvidCreateVideoParser(&videoParser, &parserParams);
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuvidCreateVideoParser failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuvidCreateVideoParser failed: {}", result);
         videoParser = nullptr;
         return false;
     }
 
     const char* codecName = (codecType == Codec::H264) ? "H264" :
                                 (codecType == Codec::H265) ? "H265" : "AV1";
-    LOG_INFO("[NvdecDecoder] 硬件解码已配置成功 codec=%s", codecName);
+    LOG_INFO("[NvdecDecoder] 硬件解码已配置成功 codec={}", codecName);
     return true;
 }
 
@@ -88,7 +88,7 @@ bool NvdecDecoder::EnsureContext() {
 
     CUresult result = nvdecApi.cuInit(0);
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuInit failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuInit failed: {}", result);
         return false;
     }
 
@@ -106,16 +106,16 @@ bool NvdecDecoder::EnsureContext() {
 
     char gpuName[256] = {};
     nvdecApi.cuDeviceGetName(gpuName, sizeof(gpuName), this->nvDevice);
-    LOG_INFO("[NvdecDecoder] CUDA device: %s", found ? gpuName : "(first device)");
+    LOG_INFO("[NvdecDecoder] CUDA device: {}", found ? gpuName : "(first device)");
 
     result = nvdecApi.cuCtxCreate(&cudaContext, 0, this->nvDevice);
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuCtxCreate failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuCtxCreate failed: {}", result);
         return false;
     }
     result = nvdecApi.cuvidCtxLockCreate(&contextLock, cudaContext);
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuvidCtxLockCreate failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuvidCtxLockCreate failed: {}", result);
         return false;
     }
 
@@ -164,7 +164,7 @@ bool NvdecDecoder::ReinitDecoder(const CUVIDEOFORMAT* format) {
 
     CUresult result = nvdecApi.cuvidCreateDecoder(&videoDecoder, &createInfo);
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuvidCreateDecoder failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuvidCreateDecoder failed: {}", result);
         videoDecoder = nullptr;
         return false;
     }
@@ -172,7 +172,7 @@ bool NvdecDecoder::ReinitDecoder(const CUVIDEOFORMAT* format) {
     this->codedHeight = (int)codedHeight;
     this->displayWidth = (int)displayWidth;
     this->displayHeight = (int)displayHeight;
-    LOG_INFO("[NvdecDecoder] decoder created %lux%lu (display %lux%lu)", codedWidth, codedHeight, displayWidth, displayHeight);
+    LOG_INFO("[NvdecDecoder] decoder created {}x{} (display {}x{})", codedWidth, codedHeight, displayWidth, displayHeight);
     return true;
 }
 
@@ -211,7 +211,7 @@ int32_t NvdecDecoder::Decode(const webrtc::EncodedImage& inputImage,
 
     CUresult pushResult = nvdecApi.cuCtxPushCurrent(cudaContext);
     if (pushResult != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuCtxPushCurrent failed: %d", pushResult);
+        LOG_ERROR("[NvdecDecoder] cuCtxPushCurrent failed: {}", pushResult);
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
 
@@ -221,7 +221,7 @@ int32_t NvdecDecoder::Decode(const webrtc::EncodedImage& inputImage,
     nvdecApi.cuCtxPopCurrent(&popped);
 
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuvidParseVideoData failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuvidParseVideoData failed: {}", result);
         Flush();
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
@@ -251,7 +251,7 @@ int CUDAAPI NvdecDecoder::OnPictureDecode(void* userData, CUVIDPICPARAMS* pictur
 
     CUresult result = self->nvdecApi.cuvidDecodePicture(self->videoDecoder, pictureParams);
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuvidDecodePicture failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuvidDecodePicture failed: {}", result);
         return 0;
     }
     return 1;
@@ -294,7 +294,7 @@ void NvdecDecoder::EmitFrame(int pictureIndex, int64_t /*timestamp*/) {
     unsigned int pitch = 0;
     CUresult result = nvdecApi.cuvidMapVideoFrame64(videoDecoder, pictureIndex, &devicePtr, &pitch, &procParams);
     if (result != CUDA_SUCCESS || devicePtr == 0 || pitch == 0) {
-        LOG_ERROR("[NvdecDecoder] cuvidMapVideoFrame64 failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuvidMapVideoFrame64 failed: {}", result);
         return;
     }
 
@@ -306,7 +306,7 @@ void NvdecDecoder::EmitFrame(int pictureIndex, int64_t /*timestamp*/) {
     result = nvdecApi.cuMemcpyDtoH(hostNv12.data(), (CUdeviceptr)devicePtr, totalSize);
     nvdecApi.cuvidUnmapVideoFrame64(videoDecoder, devicePtr);
     if (result != CUDA_SUCCESS) {
-        LOG_ERROR("[NvdecDecoder] cuMemcpyDtoH failed: %d", result);
+        LOG_ERROR("[NvdecDecoder] cuMemcpyDtoH failed: {}", result);
         return;
     }
     nvdecApi.cuStreamSynchronize((CUstream)0);

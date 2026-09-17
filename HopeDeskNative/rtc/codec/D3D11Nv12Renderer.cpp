@@ -61,14 +61,14 @@ bool D3D11Nv12Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
                     "main", "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3,
                     0, &vsBlob, &errBlob);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Nv12Renderer] VS compile failed hr=0x%08X", (unsigned)hr);
+        LOG_ERROR("[D3D11Nv12Renderer] VS compile failed hr=0x{:08X}", (unsigned)hr);
         return false;
     }
     hr = D3DCompile(kPixelShaderSrc, strlen(kPixelShaderSrc), nullptr, nullptr, nullptr,
                     "main", "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3,
                     0, &psBlob, &errBlob);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Nv12Renderer] PS compile failed hr=0x%08X", (unsigned)hr);
+        LOG_ERROR("[D3D11Nv12Renderer] PS compile failed hr=0x{:08X}", (unsigned)hr);
         return false;
     }
 

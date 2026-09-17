@@ -323,110 +323,13 @@ bool WebrtcManager::initializePeerConnection()
 
     auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
     if (!pcResult.ok()) {
-        LOG_ERROR("Failed to create PeerConnection: %s" ,pcResult.error().message());
+        LOG_ERROR("Failed to create PeerConnection: {}" ,pcResult.error().message());
         return false;
     }
 
     peerConnection = pcResult.MoveValue();
 
     return true;
-}
-
-void WebrtcManager::addSrflxProbeCandidates(const std::string& candidate,
-                                            const std::string& mid, int lineIndex) {
-
-    std::vector<std::string> tokens;
-
-    size_t start = 0;
-
-    while (start <= candidate.size()) {
-
-        size_t space = candidate.find(' ', start);
-
-        if (space == std::string::npos) {
-
-            space = candidate.size();
-
-        }
-
-        if (space > start) {
-
-            tokens.emplace_back(candidate.substr(start, space - start));
-
-        }
-
-        start = space + 1;
-
-    }
-
-    if (tokens.size() < 8 || tokens[2] != "udp" || tokens[6] != "typ" || tokens[7] != "srflx") {
-
-        return;
-
-    }
-
-    int basePort = std::atoi(tokens[5].c_str());
-
-    if (basePort < 2 || basePort > 65534) {
-
-        LOG_WARN("Skip: bad basePort=%d", basePort);
-
-        return;
-
-    }
-
-    const int probeWindow = 8;
-
-    for (int delta = 1; delta <= probeWindow; ++delta) {
-
-        for (int offset : { basePort - delta, basePort + delta }) {
-
-            if (offset < 1 || offset > 65535) {
-
-                continue;
-
-            }
-
-            std::vector<std::string> probeTokens = tokens;
-
-            probeTokens[0] = "candidate:probe" + std::to_string(offset);
-
-            probeTokens[5] = std::to_string(offset);
-
-            std::string probeLine;
-
-            for (size_t i = 0; i < probeTokens.size(); ++i) {
-
-                if (i) {
-
-                    probeLine += ' ';
-
-                }
-
-                probeLine += probeTokens[i];
-
-            }
-
-            webrtc::SdpParseError error;
-
-            std::unique_ptr<webrtc::IceCandidateInterface> probe(
-                webrtc::CreateIceCandidate(mid, lineIndex, probeLine, &error));
-
-            if (!probe) {
-
-                LOG_ERROR("CreateIceCandidate FAILED: %s", error.description.c_str());
-
-            }
-            else {
-
-                peerConnection->AddIceCandidate(probe.release());
-
-            }
-
-        }
-
-    }
-
 }
 
 void WebrtcManager::asyncWrite(std::shared_ptr<WriterData> writerData){
@@ -512,7 +415,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
     struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcEnvelope, str, envelopeSize);
     if (deserializeError) {
-        LOG_ERROR("WebSocket received invalid struct_pack: %s", deserializeError.message().data());
+        LOG_ERROR("WebSocket received invalid struct_pack: {}", deserializeError.message().data());
         return;
     }
 
@@ -527,7 +430,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
             json = boost::json::parse(payload).as_object();
         }
         catch (const std::exception& e) {
-            LOG_ERROR("WebSocket received invalid payload JSON: %s", e.what());
+            LOG_ERROR("WebSocket received invalid payload JSON: {}", e.what());
             return;
         }
     }
@@ -621,7 +524,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
                             webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
 
                         if (!remoteDesc) {
-                            LOG_ERROR("Failed to parse offer SDP: %s", error.description.c_str());
+                            LOG_ERROR("Failed to parse offer SDP: {}", error.description.c_str());
                             return;
                         }
 
@@ -650,7 +553,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
                                 webrtc::CreateIceCandidate(mid, mlineIndex, candidateStr, &error));
 
                             if (!candidate) {
-                                LOG_ERROR("Failed to parse ICE candidate: %s", error.description.c_str());
+                                LOG_ERROR("Failed to parse ICE candidate: {}", error.description.c_str());
                                 return;
                             }
 
@@ -658,8 +561,6 @@ void WebrtcManager::handleSignalMessage(std::string str)
                             if (!success) {
                                 LOG_ERROR("Failed to add ICE candidate");
                             }
-
-                            addSrflxProbeCandidates(candidateStr, mid, mlineIndex);
 
                         } else {
                             LOG_ERROR("PeerConnection is null, cannot add ICE candidate");
@@ -793,7 +694,7 @@ void WebrtcManager::applyWebrtcDebugLog(bool enabled)
         std::string registerStr = boost::json::serialize(registerJson);
         auto registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
         self->asyncWrite(registerData);
-        LOG_INFO("applyWebrtcDebugLog: pushed debugLog=%d to System", enabled ? 1 : 0);
+        LOG_INFO("applyWebrtcDebugLog: pushed debugLog={} to System", enabled ? 1 : 0);
     });
 }
 
@@ -862,7 +763,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 
         // CRITICAL: Validate index bounds
         if (msg->index < 0 || msg->index >= this->cursorArray.size()) {
-            LOG_ERROR("Invalid cursor index: %d (array size: %zu)", msg->index, this->cursorArray.size());
+            LOG_ERROR("Invalid cursor index: {} (array size: {})", msg->index, this->cursorArray.size());
             // 本地缓存与对端索引错位:请求双方清空、从 0 重新全量同步
             requestCursorResync();
             break;
@@ -871,7 +772,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Validate dimensions
         if (msg->width <= 0 || msg->width > 256 ||
             msg->height <= 0 || msg->height > 256) {
-            LOG_ERROR("Invalid cursor dimensions: %dx%d", msg->width, msg->height);
+            LOG_ERROR("Invalid cursor dimensions: {}x{}", msg->width, msg->height);
             break;
         }
 
@@ -881,7 +782,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Verify stored data size matches expected size
         size_t expectedSize = msg->width * msg->height * 4; // RGBA
         if (cursorData.size() != expectedSize) {
-            LOG_ERROR("Stored cursor data size mismatch. Expected: %zu, Got: %zu", expectedSize, cursorData.size());
+            LOG_ERROR("Stored cursor data size mismatch. Expected: {}, Got: {}", expectedSize, cursorData.size());
             break;
         }
 
@@ -913,13 +814,13 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Validate dimensions
         if (msg->width <= 0 || msg->width > 256 ||
             msg->height <= 0 || msg->height > 256) {
-            LOG_ERROR("Invalid cursor dimensions: %dx%d", msg->width, msg->height);
+            LOG_ERROR("Invalid cursor dimensions: {}x{}", msg->width, msg->height);
             break;
         }
 
         // Validate index
         if (msg->index < 0 || msg->index > this->cursorArray.size()) {
-            LOG_ERROR("Invalid cursor index for storage: %d", msg->index);
+            LOG_ERROR("Invalid cursor index for storage: {}", msg->index);
             // 索引跳号/乱序:本地无法按 vector 顺序存储,请求双方清空、从 0 重新全量同步
             requestCursorResync();
             break;
@@ -939,7 +840,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Verify image data size
         size_t expectedSize = msg->width * msg->height * 4; // RGBA
         if (imageSize != expectedSize) {
-            LOG_ERROR("Image data size mismatch. Expected: %zu, Got: %zu", expectedSize, imageSize);
+            LOG_ERROR("Image data size mismatch. Expected: {}, Got: {}", expectedSize, imageSize);
             break;
         }
 
@@ -991,7 +892,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
     }
 
     default:
-        LOG_WARN("Unknown message type: %d", type);
+        LOG_WARN("Unknown message type: {}", type);
         break;
     }
 }
@@ -1003,7 +904,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
         json = boost::json::parse(str).as_object();
     }
     catch (const std::exception& e) {
-        LOG_ERROR("handleSystemMessage: invalid JSON from System: %s", e.what());
+        LOG_ERROR("handleSystemMessage: invalid JSON from System: {}", e.what());
         handleSystemDisconnect();
         return;
     }
@@ -1037,7 +938,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
         std::string codec = json.contains("codec") ? json["codec"].as_string().c_str() : "";
         bool hard = json.contains("hard") ? json["hard"].as_bool() : false;
         std::string capture = json.contains("capture") ? json["capture"].as_string().c_str() : "Hope Virtual Display";
-        LOG_INFO("Encode status from System: codec=%s hard=%d capture=%s", codec.c_str(), hard ? 1 : 0, capture.c_str());
+        LOG_INFO("Encode status from System: codec={} hard={} capture={}", codec.c_str(), hard ? 1 : 0, capture.c_str());
         if (onEncodeStatusHandle) onEncodeStatusHandle(codec, hard, capture);
 
         return;  // 状态消息不再转发给信号服务器
@@ -1137,7 +1038,7 @@ void WebrtcManager::sendSignalingMessage(boost::json::object& msg) {
     try {
         webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(webrtcPayload));
     } catch (const std::exception& e) {
-        LOG_ERROR("Failed to send signaling message: %s",e.what());
+        LOG_ERROR("Failed to send signaling message: {}",e.what());
     }
 }
 
@@ -1246,7 +1147,7 @@ void WebrtcManager::armRequestTimeout(WebrtcRole role)
 
             if (caller && self->onRemoteFailedHandle) self->onRemoteFailedHandle();
 
-            LOG_INFO("WebrtcManager Request Timeout ReInit (caller=%d)", caller ? 1 : 0);
+            LOG_INFO("WebrtcManager Request Timeout ReInit (caller={})", caller ? 1 : 0);
 
         }
 
@@ -1287,7 +1188,7 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
                 };
             // 硬解直投:帧回调同步给工厂(下发给存活/新建的硬解解码器)。
             self->webrtcVideoDecoderFactory->setOnDisplayHandle(self->onVideoFrameHandler);
-            LOG_INFO("AsyncRemoteDesk: set decoder factory webrtcEnableD3D11=%d", self->webrtcDeskConfig.webrtcEnableD3D11);
+            LOG_INFO("AsyncRemoteDesk: set decoder factory webrtcEnableD3D11={}", self->webrtcDeskConfig.webrtcEnableD3D11);
         } else {
             LOG_WARN("AsyncRemoteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
         }
@@ -1327,7 +1228,7 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
             bool enqueued = self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(webrtcPayload));
 
             if (enqueued) {
-                LOG_INFO("AsyncRemoteDesk to Target: %s", self->targetId.c_str());
+                LOG_INFO("AsyncRemoteDesk to Target: {}", self->targetId.c_str());
             } else {
                 LOG_ERROR("AsyncRemoteDesk: request NOT enqueued, websocket send queue is closed");
             }

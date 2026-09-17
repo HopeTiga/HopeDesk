@@ -31,7 +31,7 @@ namespace hope {
             const webrtc::SdpVideoFormat& format,
             std::optional<std::string> scalability_mode) const {
 
-            LOG_INFO("format Support:%s",format.name.c_str());
+            LOG_INFO("format Support:{}",format.name.c_str());
 
             if (format.name == "H265" || format.name == "HEVC") {
 

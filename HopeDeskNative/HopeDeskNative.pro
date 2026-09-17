@@ -127,6 +127,7 @@ win32 {
     INCLUDEPATH += $$PWD/include/libgav1
     INCLUDEPATH += $$PWD/include/ylt
     INCLUDEPATH += $$PWD/include/mimalloc
+    INCLUDEPATH += $$PWD/include/spdlog
     INCLUDEPATH += $$PWD/thirdParty
 
     # 包目录(目录名与命名空间一致,include 文件名保持原样靠 INCLUDEPATH 解析)

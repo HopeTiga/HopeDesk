@@ -31,12 +31,12 @@ void TcpAcceptor::stopAccept() {
 
     acceptor.cancel(errorCode);
     if (errorCode) {
-        LOG_WARN("TcpAcceptor::stopAccept cancel failed: %s", errorCode.message().c_str());
+        LOG_WARN("TcpAcceptor::stopAccept cancel failed: {}", errorCode.message().c_str());
     }
 
     acceptor.close(errorCode);
     if (errorCode) {
-        LOG_WARN("TcpAcceptor::stopAccept close failed: %s", errorCode.message().c_str());
+        LOG_WARN("TcpAcceptor::stopAccept close failed: {}", errorCode.message().c_str());
     }
 }
 
@@ -54,7 +54,7 @@ boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
         }
         catch (const std::exception& e) {
             acceptRunning.store(false);
-            LOG_WARN("TcpAcceptor accept loop stopped: %s", e.what());
+            LOG_WARN("TcpAcceptor accept loop stopped: {}", e.what());
             co_return;
         }
         catch (...) {

@@ -135,8 +135,8 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
                       errorCode == boost::asio::error::connection_aborted ||
                       errorCode == boost::asio::error::connection_reset;
         }
-        if (aborted) LOG_WARN("WebSocket::connect aborted: %s", e.what());
-        else LOG_ERROR("WebSocket::connect error: %s", e.what());
+        if (aborted) LOG_WARN("WebSocket::connect aborted: {}", e.what());
+        else LOG_ERROR("WebSocket::connect error: {}", e.what());
 
         if (onDisConnectHandle) {
 
@@ -213,7 +213,7 @@ boost::asio::awaitable<void> WebSocket::receiveCoroutine() {
     }
     catch (const std::exception& e) {
 
-        LOG_ERROR("WebSocket receiveCoroutine error: %s", e.what());
+        LOG_ERROR("WebSocket receiveCoroutine error: {}", e.what());
 
         disConnectEvent();
     }
@@ -249,7 +249,7 @@ boost::asio::awaitable<void> WebSocket::writerCoroutine() {
     }
     catch (const std::exception& e) {
 
-        LOG_ERROR("WebSocket writerCoroutine error: %s", e.what());
+        LOG_ERROR("WebSocket writerCoroutine error: {}", e.what());
 
         disConnectEvent();
     }
@@ -286,7 +286,7 @@ void WebSocket::closeWebSocket() {
 
     tcpSocket.cancel(errorCode);
     if (errorCode) {
-        LOG_WARN("WebSocket::closeSocket cancel failed: %s", errorCode.message().c_str());
+        LOG_WARN("WebSocket::closeSocket cancel failed: {}", errorCode.message().c_str());
     }
 
     if (webSocket.is_open()) {
@@ -294,7 +294,7 @@ void WebSocket::closeWebSocket() {
             webSocket.close(boost::beast::websocket::close_code::normal, errorCode);
         }
         catch (const std::exception& e) {
-            LOG_ERROR("WebSocket::closeSocket close websocket failed: %s", e.what());
+            LOG_ERROR("WebSocket::closeSocket close websocket failed: {}", e.what());
         }
     }
 
@@ -303,7 +303,7 @@ void WebSocket::closeWebSocket() {
         tcpSocket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, errorCode);
         tcpSocket.close(errorCode);
         if (errorCode && errorCode != boost::asio::error::not_connected) {
-            LOG_ERROR("WebSocket::closeSocket close tcp failed: %s", errorCode.message().c_str());
+            LOG_ERROR("WebSocket::closeSocket close tcp failed: {}", errorCode.message().c_str());
         }
     }
 

@@ -162,7 +162,7 @@ void VideoWidget::createTextures(int width, int height)
 {
     if (!rhi) return;
 
-    LOG_INFO("Creating YUV textures: %dx%d", width, height);
+    LOG_INFO("Creating YUV textures: {}x{}", width, height);
 
     videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height), 1));
     videoTextureY->create();
@@ -173,19 +173,19 @@ void VideoWidget::createTextures(int width, int height)
     // NV12 交错 UV 平面(RG8),与 I420 的 U/V 同尺寸
     videoTextureUV.reset(rhi->newTexture(QRhiTexture::RG8, QSize(chromaWidth, chromaHeight), 1));
     if (!videoTextureUV || !videoTextureUV->create()) {
-        LOG_ERROR("NV12: videoTextureUV(RG8 %dx%d) create failed", chromaWidth, chromaHeight);
+        LOG_ERROR("NV12: videoTextureUV(RG8 {}x{}) create failed", chromaWidth, chromaHeight);
         videoTextureUV.reset();
     }
 
     // I420 拆三平面:Y 用上面的 videoTextureY,这里建 U、V 两个 R8 色度纹理。
     videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
     if (!videoTextureU || !videoTextureU->create()) {
-        LOG_ERROR("I420: videoTextureU(R8 %dx%d) create failed", chromaWidth, chromaHeight);
+        LOG_ERROR("I420: videoTextureU(R8 {}x{}) create failed", chromaWidth, chromaHeight);
         videoTextureU.reset();
     }
     videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
     if (!videoTextureV || !videoTextureV->create()) {
-        LOG_ERROR("I420: videoTextureV(R8 %dx%d) create failed", chromaWidth, chromaHeight);
+        LOG_ERROR("I420: videoTextureV(R8 {}x{}) create failed", chromaWidth, chromaHeight);
         videoTextureV.reset();
     }
 
@@ -590,7 +590,7 @@ void VideoWidget::loadPipelineCache()
         QByteArray cacheData = cacheFile.readAll();
         if (!cacheData.isEmpty()) {
             rhi->setPipelineCacheData(cacheData);
-            LOG_INFO("Pipeline cache loaded: %lld bytes", cacheData.size());
+            LOG_INFO("Pipeline cache loaded: {} bytes", cacheData.size());
         }
     }
 }

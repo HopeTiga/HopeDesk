@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <string>
 #include <mutex>
+#include <utility>
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
@@ -27,6 +28,17 @@ typedef void* HCURSOR;
 #else
 #include <cpuid.h>
 #endif
+
+// ---- spdlog（header-only，内置 fmt）----
+// 完整 spdlog 只在 Utils.cpp 编译；其余 TU 只用到 fmt，供 LOG_* 宏做编译期格式校验。
+#ifndef SPDLOG_ACTIVE_LEVEL
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+#ifndef SPDLOG_HEADER_ONLY
+#define SPDLOG_HEADER_ONLY
+#endif
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/fmt/ostr.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,26 +59,46 @@ void enableFileLogging(int enable);
 void setLogDirectory(const char* dir);
 void setConsoleOutputLevels(int debug, int info, int warn, int error);
 
-void logMessage(LogLevel level, const char* file, int line, const char* format, ...);
-void logMessagePlain(LogLevel level, const char* file, int line, const char* format, ...);
-void logToFileOnly(LogLevel level, const char* file, int line, const char* format, ...);
+// 级别开关（供宏在调用点短路：被关掉的级别连格式化都不做）
+extern int consoleOutputLevels[4];
+extern int logToFileEnabled;
 
 void getTimestamp(char* buffer, size_t size);
 void getLevelInfo(LogLevel level, const char** levelStr, const char** color);
 
-#define LOG_INFO(fmt, ...)    logMessage(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)    logMessage(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...)   logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG(fmt, ...)   logMessage(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-
-#define LOG_INFO_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_WARN_PLAIN(fmt, ...)    logMessagePlain(LOG_LEVEL_WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_ERROR_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-#define LOG_DEBUG_PLAIN(fmt, ...)   logMessagePlain(LOG_LEVEL_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
-
 #ifdef __cplusplus
 }
 #endif
+
+namespace hope::log {
+
+// 已格式化消息入口，实现于 Utils.cpp（只有该 TU 编译完整 spdlog）
+void logMessage(LogLevel level, const char* file, int line, const std::string& message, bool fileOnly);
+
+// fmt 入口：在调用线程完成编译期校验与格式化
+template <typename... Args>
+inline void logMessage(LogLevel level, const char* file, int line, fmt::format_string<Args...> format, Args&&... args) {
+    logMessage(level, file, line, fmt::format(format, std::forward<Args>(args)...), false);
+}
+
+// 只写文件、不上控制台
+template <typename... Args>
+inline void logToFileOnly(LogLevel level, const char* file, int line, fmt::format_string<Args...> format, Args&&... args) {
+    logMessage(level, file, line, fmt::format(format, std::forward<Args>(args)...), true);
+}
+
+} // namespace hope::log
+
+// 便捷宏（fmt 风格 {} 占位符；级别过滤前置，被关掉的级别连格式化都不做）
+#define LOG_DEBUG(...) do { if (consoleOutputLevels[LOG_LEVEL_DEBUG] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_DEBUG, __FILE__, __LINE__, __VA_ARGS__); } while(0)
+#define LOG_INFO(...)  do { if (consoleOutputLevels[LOG_LEVEL_INFO]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_INFO,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
+#define LOG_WARN(...)  do { if (consoleOutputLevels[LOG_LEVEL_WARN]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_WARN,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
+#define LOG_ERROR(...) do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, __VA_ARGS__); } while(0)
+
+#define LOG_DEBUG_PLAIN(...) LOG_DEBUG(__VA_ARGS__)
+#define LOG_INFO_PLAIN(...)  LOG_INFO(__VA_ARGS__)
+#define LOG_WARN_PLAIN(...)  LOG_WARN(__VA_ARGS__)
+#define LOG_ERROR_PLAIN(...) LOG_ERROR(__VA_ARGS__)
 
 HCURSOR CreateCursorFromRGBA(unsigned char* rgbaData, int width, int height, int hotX = 0, int hotY = 0);
 

@@ -1,5 +1,5 @@
 #include "De265Decoder.h"
-#include "../../utils/Utils.h" // 确保你的宏用法类似于 printf
+#include "../../utils/Utils.h"
 
 namespace hope {
 namespace rtc {
@@ -27,11 +27,11 @@ bool De265Decoder::Configure(const Settings& settings) {
     }
 
     int numberOfThreads = std::clamp(settings.number_of_cores(), 2, kMaxDe265Threads);
-    LOG_INFO("De265Decoder::Configure - Starting worker threads: %d", numberOfThreads);
+    LOG_INFO("De265Decoder::Configure - Starting worker threads: {}", numberOfThreads);
     de265_error err = de265_start_worker_threads(decoderContext, numberOfThreads); //
 
     if (!de265_isOK(err)) { //
-        LOG_WARN("De265Decoder::Configure - Failed to start threads: %s", de265_get_error_text(err));
+        LOG_WARN("De265Decoder::Configure - Failed to start threads: {}", de265_get_error_text(err));
     }
 
     return true;
@@ -67,8 +67,8 @@ const char* De265Decoder::ImplementationName() const {
 int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
                              int64_t /*renderTimeMs*/) {
     if (!decoderContext || decodeCompleteCallback == nullptr) {
-        LOG_ERROR("De265Decoder::Decode - UNINITIALIZED! Context: %p, Callback: %p",
-                  decoderContext, decodeCompleteCallback);
+        LOG_ERROR("De265Decoder::Decode - UNINITIALIZED! Context: {}, Callback: {}",
+                  fmt::ptr(decoderContext), fmt::ptr(decodeCompleteCallback));
         return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
     }
 
@@ -78,7 +78,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
         encodedImage.RtpTimestamp(), nullptr); //
 
     if (!de265_isOK(pushResult)) { //
-        LOG_ERROR("De265Decoder::Decode - push_data failed: %s", de265_get_error_text(pushResult));
+        LOG_ERROR("De265Decoder::Decode - push_data failed: {}", de265_get_error_text(pushResult));
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
 
@@ -144,7 +144,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
         // 5. 错误处理
         // 只要不是 OK 也不是 WAITING_FOR_INPUT_DATA，往往是致命错误或者严重警告
         if (!de265_isOK(decodeResult) && decodeResult != DE265_ERROR_WAITING_FOR_INPUT_DATA) { //
-            LOG_WARN("De265Decoder::Decode - Abnormal decode state: %s. Aborting this frame.",
+            LOG_WARN("De265Decoder::Decode - Abnormal decode state: {}. Aborting this frame.",
                         de265_get_error_text(decodeResult));
             // 重点看你的控制台有没有打印这行。如果是警告（如某些参数不受支持），可以尝试 return WEBRTC_VIDEO_CODEC_OK 强行跳过。
             return WEBRTC_VIDEO_CODEC_ERROR;
