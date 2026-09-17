@@ -209,6 +209,7 @@ WebrtcSignalServer/
 - **干净的采集画面**：System 每次会话自动开启虚拟显示器的**硬件光标**（`HARDWARECURSOR=1`），光标经 IddCx 带外通道渲染，不合成进帧缓冲，捕获帧不含系统光标。
 - **编解码与采集状态可见**：**控制端 Native** 实时显示当前解码器（`解码: AV1 硬解`——codec + 硬解/软解）；**被控端 Native** 实时显示当前编码器（`编码: AV1 硬编`——codec + 硬编/软编）与实际使用的采集技术（`采集: Hope Virtual Display` / `Desktop Duplication API`），由远端/System 上报获得；断开控制后两端状态均自动清空，不残留上一会话。
 - **WebRTC 调试日志**：**控制端 Native**「设置 → 系统设置」提供「WebRTC 调试日志」开关（写入 `Webrtc.DebugLog`）。开启后 Native 与 System 均把 libwebrtc 的 `RTC_LOG`（`LS_VERBOSE` 级别，含 ICE 连通性检查、candidate pair 状态、DTLS 握手）写入 `logs/webrtc.log`，开关经注册消息下发给 System（System 以服务方式运行时日志落在 `C:\Windows\System32\logs\webrtc.log`）。日志量大，建议仅排查连接问题时开启。
+- **应用日志**：Native 与 System 各自的 `LOG_*` 写**单文件** `logs/HopeDeskNative.log` / `logs/HopeDeskSystem.log`（相对运行目录；单文件 10MB、保留最近 5 个轮转），**每条同步落盘**，崩溃前的日志不会丢。控制台按级别 ANSI 着色，四个级别均可在调用点短路——被关掉的级别连 fmt 格式化都不做。
 
 ### 🔀 稳健的信令架构
 - **高兼容性与穿透力**：采用广泛支持的**WebSocket协议**作为核心信令通道，确保在企业网络、公共Wi-Fi等各种复杂网络环境下都能可靠建立连接，具备出色的防火墙穿透能力。
