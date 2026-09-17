@@ -393,16 +393,22 @@ void WebrtcManager::disConnectRemoteHandler()
     if(onResetCursorHandle) onResetCursorHandle();
 
     boost::asio::post(ioContext, [self = shared_from_this()]() {
-        self->cancelRequestTimeout();
-        self->closeTcpSocket();
-        self->releaseSource();
-        self->initializePeerConnection();
+
         if (self->isRemote.load()) {
             self->setOnVideoFrameHanlder(nullptr);
-            if (self->onDisConnectRemoteHandle) self->onDisConnectRemoteHandle();
+            if (self->onDisConnectRemoteHandle) {
+                self->onDisConnectRemoteHandle();
+            }
         } else {
-            if (self->onRemoteFailedHandle) self->onRemoteFailedHandle();
+            if (self->onRemoteFailedHandle){
+                self->onRemoteFailedHandle();
+            }
+            self->cancelRequestTimeout();
+            self->closeTcpSocket();
+            self->releaseSource();
+            self->initializePeerConnection();
         }
+
     });
 }
 

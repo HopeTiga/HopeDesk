@@ -1350,9 +1350,23 @@ void MainWindow::onRemoteDisconnectedByPeer()
     if (videoWidget) {
         videoWidget->clearDisplay();
         videoWidget->hide();
+        disconnect(videoWidget, nullptr, this, nullptr);
+        delete videoWidget;
+        videoWidget = nullptr;
     }
-    // 清空本地光标缓存(下次新连接会重新从 index 0 同步)
-    if (webrtcManager) webrtcManager->resetCursorCache();
+
+    if(webrtcManager){
+
+        webrtcManager->resetCursorCache();
+
+        webrtcManager->post([webrtcManager = webrtcManager]()mutable{
+
+             webrtcManager->disConnectHandle();
+
+        });
+
+    }
+
 }
 
 void MainWindow::onRemoteConnectionTimeout()
