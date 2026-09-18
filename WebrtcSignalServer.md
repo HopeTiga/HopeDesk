@@ -16,7 +16,7 @@ WebrtcSignalServer 是 Webrtc 信令面的中转服务：
 - **过载保护**：本地协程派发 + 全局任务队列两级调度，超阈值走全局队列削峰，满则回 503。
 - **配置解耦**：`ConfigManager` 只在 `main.cpp` 出现，业务类全部构造注入 / 全局配置，不在类内读 ini。
 
-平台：Linux 为主（makefile 用 clang++ + io_uring + ThinLTO），Windows 仅作开发/调试编译路径。SSL 默认开启，可用宏关闭。
+平台：Linux 为主（makefile 用 clang++ + io_uring + ThinLTO），Windows 仅作开发/调试编译路径。SSL 默认开启，**编译期宏**可关：信令 `WEBRTC_SIGNAL_SOCKET_DISABLE_SSL`（Windows 侧由 `webrtc-signal-server.props:39` 提供，压测时才加）、HTTP `WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL`。压测客户端 `Boost-Beast-Test` 是明文（`tls` 默认 false，没有开 TLS 的开关），所以压测必须关 SSL，否则两边握不上手。
 
 ---
 
@@ -148,17 +148,17 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 6. `initSslContext(certificateFile, privateKeyFile)`（主 WebSocket/HTTP 的 SSL 上下文）。
 7. 组装 `WebrtcSignalConfig`（port/httpPort/enableHttp/enablePublicPort/threadSize/overload/threshold/exitThreshold/asyncThreshold/socketWaitTime + `[CoroRpc]` 子配置）与 `globalMysqlConfig`。
 8. `AsioProactors::init(threadSize)` 启动 worker 线程池。
-9. 构造 `WebrtcSignalServer(ioContext, WebrtcSignalConfig)`（内部 `initialize()` 建 N 个 Manager，每个 Manager 建 LogicSystem+MysqlPool 并 `asyncBoot()`）。
-10. `WebrtcSignalServer->asyncBoot()`：开 accept 协程、全局任务队列排水协程、各 LogicSystem 的 `asyncTaskExecute()`。
+9. 构造 `WebrtcSignalServer(ioContext, WebrtcSignalConfig)`（内部 `initialize()` 建 N 个 Manager，每个 Manager 建 LogicSystem+MysqlPool 并 `asyncEvent()`）。
+10. `WebrtcSignalServer->asyncEvent()`：开 accept 协程、全局任务队列排水协程、各 LogicSystem 的 `asyncTaskExecute()`。
 11. `signal_set(SIGINT/SIGTERM).async_wait(...)`。
 12. `ioContext.run()`。
 
 ### 关闭（收到 SIGINT/SIGTERM）
 
-1. `WebrtcSignalServer->closeBoot()`（幂等，`asyncBoots.exchange(false)` 挡住重复进入）：
-   - `CoroRpc::getInstance()->closeBoot()` 停 RPC 服务：`coro_rpc_server::stop()` → `io_context_pool::stop()`，**join 掉 RPC 自己的全部线程**。此后不会再有人经 RPC 路径访问通道内的表（`CoroRpcHandleImpl` 会 `find` manager 的 `actorSocketMappingIndex` 与 `webrtcSocketMap`）。
+1. `WebrtcSignalServer->closeEvent()`（幂等，`asyncEvents.exchange(false)` 挡住重复进入）：
+   - `CoroRpc::getInstance()->closeEvent()` 停 RPC 服务：`coro_rpc_server::stop()` → `io_context_pool::stop()`，**join 掉 RPC 自己的全部线程**。此后不会再有人经 RPC 路径访问通道内的表（`CoroRpcHandleImpl` 会 `find` manager 的 `actorSocketMappingIndex` 与 `webrtcSocketMap`）。
    - `taskQueues.close()` 关全局任务队列（排水协程收到 `channel_closed`，排空队列后自然退出）。
-   - **逐连接温和关闭**：每个 Manager 的 socket 关闭任务 `post` 到**它自己的连接池 ioContext**，与 `registerSocket`/`removeConnection` 串行（避免跨线程竞态访问 `webrtcSocketMap`）——逐个 `socket->closeBoot()` 后 `webrtcSocketMap.clear()`；N 个通道**并行**关闭，用 `std::latch`（C++20 barrier）`count_down()`/`wait()` 等全部完成。
+   - **逐连接温和关闭**：每个 Manager 的 socket 关闭任务 `post` 到**它自己的连接池 ioContext**，与 `registerSocket`/`removeConnection` 串行（避免跨线程竞态访问 `webrtcSocketMap`）——逐个 `socket->closeEvent()` 后 `webrtcSocketMap.clear()`；N 个通道**并行**关闭，用 `std::latch`（C++20 barrier）`count_down()`/`wait()` 等全部完成。
      - **这一步必须留在下一句 `stop()` 之前**：它靠 worker 线程仍在 `run()` 才有机会执行，反序会死锁在 `closeLatch.wait()`。
    - `AsioProactors::getInstance()->stop()`：`releaseWork()` → 全部 io_context `stop()`（停止派发、丢弃未执行 handler）→ **`join()` 全部 worker 线程**。
      - 这一句同时是**清表安全性的来源**。`webrtcHandlers` 等注册表里存的是 `awaitable` 协程对象，派发时取裸指针捕获进异步执行体；一个**已挂起**的 handler 协程帧并不安全——协程帧是透过闭包对象读捕获变量的，不是自己拷一份，所以注册表一 `clear()`，任何一次唤醒都是 use-after-free（`co_await` 带超时 RPC 的 handler 会挂数秒，窗口就是秒级）。
@@ -183,13 +183,13 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 5. `webSocket.async_accept(req)` 完成 WebSocket 升级。
 6. `setTcpKeepAlive`（按平台调 SO_KEEPALIVE / TCP_KEEPIDLE/INTVL/CNT）。
 7. `manager->registerSocket(accountId, this)`：
-   - 若同 `accountId` 已有旧连接 → 旧连接 `closeBoot()`（踢旧）。
+   - 若同 `accountId` 已有旧连接 → 旧连接 `closeEvent()`（踢旧）。
    - 写入 `WebrtcSocketMap[accountId]`。
    - `postTask(mapChannelIndex, ...)` 在 home channel 的 `actorSocketMappingIndex[accountId] = {sessionId, channelIndex}` 登记归属。
 
 ### 5.2 收发循环
 
-- `asyncBoot()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
+- `asyncEvent()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
 - **握手之后不再用 Beast 的 `async_read`/`async_write`**，两侧都直接走 `webSocket.next_layer()`（SSL 开着时是 `ssl::stream`，关掉时是 `tcp::socket`，同一份代码）。原因见下方「为什么换掉 Beast」。
 - **revice**：`async_read_some` 读进 `receiveBuffer`（缓冲区两档，见下方「接收缓冲区」）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头到 `webrtcEnvelope`（`WebrtcEnvelopeView`，返回消耗字节数，信封后的 body 留在 `packet`）→ 取 `requestType` → 组装 `WebrtcSignalPacket`（内嵌 `webrtcEnvelope` + 整帧 `packet`）→ `logicSystem->postTask(packet)`。
   - 一次读完成产出 K 条消息，K 通常 > 1（128B 消息实测 ~17–42），这是写侧批量能成立的前提。
@@ -255,7 +255,7 @@ handler = WebrtcHandlers[requestType]
 
 ### 5.5 forward 路由（核心）
 
-转发 handler（requestType 1/2/3/6/7）把消息送到 `targetId`。三级寻址：
+转发 handler（requestType 1/3/6/7）把消息送到 `targetId`。三级寻址：
 
 ```
 1) 本通道直查: manager.webrtcSocketMap[targetId] 命中 → 直接 asyncWrite 转发（0 跳）
@@ -343,8 +343,11 @@ flowchart TD
 | 6 | CLOSESYSTEM | forwardHandler |
 | 7 | SYSTEMREADLY | forwardHandler |
 | 9 | RPC 跨节点转发 | CoroRpc::asyncRpcRequest → requestForward（见 §8.7） |
+| 5 | **压测 echo（非业务）** | 无捕获 lambda：原帧回写给来源连接 |
 
-5 未使用。1/3/6/7 复用同一个 `forwardHandler`，仅 `requestTypeStr` 不同（日志区分）；9 走 CoroRpc 跨节点 RPC。
+2 未被任何 handler 注册（真实客户端的 `WebrtcRequestState` 里也没有 2 和 5，所以这两个值不会被业务流量命中）。1/3/6/7 复用同一个 `forwardHandler`，仅 `requestTypeStr` 不同（日志区分）；9 走 CoroRpc 跨节点 RPC。
+
+5 号 echo 是**压测专用**，只做一件事：`webrtcSignalPacket.webrtcSignalSocket->asyncWrite(std::move(packet))`，不查表、不跨通道、不解析 body，写路径与转发完全同一条（`asyncWrite` → `asioConcurrentQueue` → `writerCoroutine` 批量出帧）。它量的是信令通道自己的回环上限——去掉的只有三级寻址和 `postTask` 那一次跨通道投递。压测客户端用 `--request-type 5` 打它。
 
 ---
 
@@ -372,7 +375,7 @@ flowchart TD
 | `/api/v1/managers/login` | 放行规则(免 token,见下)；当前无对应 handler,未命中路由回 404 |
 | 其他 | 未命中路由回 404 JSON |
 
-**鉴权由每通道的 `HttpFilters` 承担**（`WebrtcLogicSystem` 的成员 `httpFilters`，每实例一份，不走 thread_local / 单例，便于规则内协程查库）。配置在 `initFilters()`（`asyncBoot` 依次调 `initHandlers → initFilters → initHttpHandlers`）：
+**鉴权由每通道的 `HttpFilters` 承担**（`WebrtcLogicSystem` 的成员 `httpFilters`，每实例一份，不走 thread_local / 单例，便于规则内协程查库）。配置在 `initFilters()`（`asyncEvent` 依次调 `initHandlers → initFilters → initHttpHandlers`）：
 
 - `addRule(pathPattern)`：**放行规则**，纯路径、无回调。请求路径命中即**直接放行**，不再走过滤器。`matchPath` 规则：空或 `*` 全中；尾部 `*` 前缀匹配；否则精确相等。
 - `addFilter(check)`：**全局过滤器**，真正的校验回调 `bool(shared_ptr<HttpSocket>, const request&)`。**未命中任何规则**的请求才落到这里，任一返回 `false` 即拒绝。
@@ -475,7 +478,7 @@ boost::asio::co_spawn(ioc, [client, token]() mutable -> boost::asio::awaitable<v
 ## 8. CoroRpc（节点间 RPC）
 
 `rpc/CoroRpc.*` 是对 ylt/coro_rpc 的封装，提供 **RPC 服务端 + 客户端连接池 + 负载均衡器**。  
-`enableRpc=1` 时由 `WebrtcSignalServer::asyncBoot()` 拉起（见 §8.5）。  
+`enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）。  
 本节统一描述 RPC 的配置、服务端 handler 注册、客户端调用模式以及在本服务器中的集成。
 
 ### 8.1 配置（`CoroRpcServerConfig`，对应 `[CoroRpc]` ini）
@@ -590,16 +593,16 @@ auto r = co_await rpc->asyncLbRpcRequest(
 
 ### 8.5 在信令服务器中的集成
 
-`CoroRpc` 是**全局单例**（`CoroRpc::getInstance()`），不再由 `WebrtcSignalServer` 持有。服务器只维护一个 RPC handler 数组：`std::vector<std::unique_ptr<CoroRpcHandleInterface>> coroRpcHandleInterfaces`，每个元素是自包含的 handler 对象（默认是 `CoroRpcHandleImpl`），在 `asyncBoot` 中逐个自注册。
+`CoroRpc` 是**全局单例**（`CoroRpc::getInstance()`），不再由 `WebrtcSignalServer` 持有。服务器只维护一个 RPC handler 数组：`std::vector<std::unique_ptr<CoroRpcHandleInterface>> coroRpcHandleInterfaces`，每个元素是自包含的 handler 对象（默认是 `CoroRpcHandleImpl`），在 `asyncEvent` 中逐个自注册。
 
-当 `enableRpc=1` 时，`WebrtcSignalServer::asyncBoot()` 按以下顺序拉起 RPC：
+当 `enableRpc=1` 时，`WebrtcSignalServer::asyncEvent()` 按以下顺序拉起 RPC：
 
 ```cpp
 hope::rpc::CoroRpc* coroRpc = hope::rpc::CoroRpc::getInstance();
 
 if (!coroRpc->initCoroRpc(webrtcSignalConfig.coroRpcServerConfig)) {          // 用 [CoroRpc] 配置初始化服务端,失败则中止启动
     LOG_ERROR("CoroRpc::initCoroRpc Failed");
-    asyncBoots.store(false);
+    asyncEvents.store(false);
     return false;
 }
 
@@ -613,7 +616,7 @@ for (std::unique_ptr<hope::rpc::CoroRpcHandleInterface>& coroRpcHandleInterface 
     coroRpcHandleInterface->registerRpcHandle();                             // 数组里每个 handler 自注册 requestForward
 }
 
-coroRpc->asyncBoot();                                                       // 启动 coro_rpc_server
+coroRpc->asyncEvent();                                                       // 启动 coro_rpc_server
 
 LOG_INFO("WebrtcSginalServer Protocol: CoroRpc , Listen Accept Port: %zu", webrtcSignalConfig.coroRpcServerConfig.port);
 ```
@@ -628,15 +631,15 @@ void initCoroRpcHandleInterface(std::shared_ptr<hope::signal::WebrtcSignalServer
 }
 
 void WebrtcSignalServer::registerRpcHandleImpl(std::unique_ptr<hope::rpc::CoroRpcHandleInterface> coroRpcHandleInterface) {
-    coroRpcHandleInterfaces.push_back(std::move(coroRpcHandleInterface));           // move 进数组,asyncBoot 里逐个 registerRpcHandle()
+    coroRpcHandleInterfaces.push_back(std::move(coroRpcHandleInterface));           // move 进数组,asyncEvent 里逐个 registerRpcHandle()
 }
 ```
 
-- `coroRpc` 是**单例** `CoroRpc::getInstance()`，`initCoroRpc(config)` 初始化服务端、`asyncBoot()` 开始监听。
-- `coroRpcHandleInterfaces` 是 `WebrtcSignalServer` 的 `std::vector<std::unique_ptr<CoroRpcHandleInterface>>` 数组成员，`asyncBoot` 里逐个 `registerRpcHandle()` 自注册。
+- `coroRpc` 是**单例** `CoroRpc::getInstance()`，`initCoroRpc(config)` 初始化服务端、`asyncEvent()` 开始监听。
+- `coroRpcHandleInterfaces` 是 `WebrtcSignalServer` 的 `std::vector<std::unique_ptr<CoroRpcHandleInterface>>` 数组成员，`asyncEvent` 里逐个 `registerRpcHandle()` 自注册。
 - 对外接口 `registerRpcHandleImpl(std::unique_ptr<CoroRpcHandleInterface>)` 把 handler **move 进**数组，允许外部注册更多 RPC handler。
 - 默认 handler 由自由函数 `initCoroRpcHandleInterface(std::shared_ptr<WebrtcSignalServer>)`（声明在 `rpc/Rpc.h`，定义在 `rpc/Rpc.cpp`）创建并注册：`std::make_unique<CoroRpcHandleImpl>(*server)` 后 `server->registerRpcHandleImpl(std::move(...))`；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
-- `closeBoot()` 中 `CoroRpc::getInstance()->closeBoot();` 停止 RPC 服务。
+- `closeEvent()` 中 `CoroRpc::getInstance()->closeEvent();` 停止 RPC 服务。
 
 **默认 RPC handler：`CoroRpcHandleImpl::requestForward`**  
 `CoroRpcHandleImpl` 继承抽象基类 `CoroRpcHandleInterface`（纯虚 `registerRpcHandle()`，基类持有 `WebrtcSignalServer&`）。`registerRpcHandle()` 通过 `CoroRpc::getInstance()->registerHandler<&CoroRpcHandleImpl::requestForward>(this)` 注册。  
@@ -662,13 +665,13 @@ sequenceDiagram
   participant B as 客户端 B
   Note over Srv,Impl: main.cpp 组合期
   Srv->>Impl: initCoroRpcHandleInterface(server) 建 CoroRpcHandleImpl,registerRpcHandleImpl() 入数组
-  Note over Srv,Impl: asyncBoot, enableRpc=1
+  Note over Srv,Impl: asyncEvent, enableRpc=1
   Srv->>Rpc: CoroRpc::getInstance() + initCoroRpc(config)
   Srv->>Rpc: createClientPools()
   Srv->>Rpc: createLoadBalancer(hosts 空)
   Srv->>Impl: 遍历数组 registerRpcHandle()
   Impl->>Rpc: registerHandler<&CoroRpcHandleImpl::requestForward>(this)
-  Srv->>Rpc: asyncBoot() → async_start,监听 [CoroRpc].port
+  Srv->>Rpc: asyncEvent() → async_start,监听 [CoroRpc].port
   Note over Cli,B: 运行期:另一节点要把信令送到 B,而 B 连在本节点
   Cli->>Rpc: call<&CoroRpcHandleImpl::requestForward>(RpcForward) over TLS
   Rpc->>Fn: this->requestForward(反序列化 RpcForward)
@@ -1141,11 +1144,11 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 - makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。分发拷贝由 `MIMALLOC_SHARED/BOOST_SHARED` 按 `-l` 清单反推（`foreach`+`patsubst -l%,lib%.so*`+`wildcard`，仅有 `.a` 的库匹配不到即自动跳过），openssl 单独 `cp libcrypto.so.3 libssl.so.3`，链接规则里一条 `for` 循环统一拷入 `release-x64/`。**abseil 已静态化，原 `ABSL_SHARED` 那一行已删除**（见 §12.2）。
 - **`DT_RUNPATH` 不传递（记录在案的老坑）**：`-Wl,-rpath,'$ORIGIN/../lib/xxx'` 只对主程序的**直接**依赖生效；`.so` 之间的**间接**依赖要用加载者自己的 RUNPATH。当初 abseil 走动态链接时，`libabsl_base_cpu_detect.so.0`、`libabsl_log_internal_fnmatch.so.0` 这类不被任何 `-l` 项直接引用的库正是靠这一条漏掉的（makefile 从 `-l` 清单反推拷贝列表，它们不在清单里）→ 运行时 `cannot open shared object file`。**abseil 改静态后这个坑不复存在**；但如果将来又给某个第三方库改回动态链接，这条会立刻还魂。
 - mimalloc 全局替换（`-lmimalloc` 首位 + ELF 符号抢占）：进程内 malloc/free 全走 mimalloc；`mimalloc-new-delete.h` 覆盖 C++ `new`/`delete`，Linux ELF 下对整进程（含第三方动态库）统一生效，无 Windows 侧跨模块堆错配问题——这正是它**不**放进 Windows Qt 客户端的原因（Windows 按 DLL 各自绑定，只覆盖 exe 会产生 Qt DLL ↔ exe 的 new/delete 错配崩溃）。
-- CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncBoot()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
+- CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
 - HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
 - MySQL 连接池每通道建好，handler 暂无 SQL 调用；`AsyncTransactionGuard` 析构不自动回滚，需显式 `commit()` / `asyncRollback()`。
 - `[Protect]` 段当前无代码消费。
-- `WebrtcLogicSystem` 的三个 handler 注册表（`webrtcHandlers` / `webrtcValueHandlers` / `httpHandlers`）是 **write-once**：只在 `initHandlers()` / `initHttpHandlers()`（`asyncBoot()` 期间）写。表内存 `std::unique_ptr<WebrtcHandler>`，派发时取 `.get()` 拿**裸指针**捕获进异步执行体——不要退回 `AnyInvocable& func = iterator->second;` 再捕获 `&func`：那个引用指向 **map 槽位内部**，一旦运行期注册触发扩容就立刻悬空。**同理不要在运行期注册 handler**：裸指针不怕扩容，但会引入新的生命周期问题（见 §4 关闭流程为什么必须先 `stop()` 再清表）。
+- `WebrtcLogicSystem` 的三个 handler 注册表（`webrtcHandlers` / `webrtcValueHandlers` / `httpHandlers`）是 **write-once**：只在 `initHandlers()` / `initHttpHandlers()`（`asyncEvent()` 期间）写。表内存 `std::unique_ptr<WebrtcHandler>`，派发时取 `.get()` 拿**裸指针**捕获进异步执行体——不要退回 `AnyInvocable& func = iterator->second;` 再捕获 `&func`：那个引用指向 **map 槽位内部**，一旦运行期注册触发扩容就立刻悬空。**同理不要在运行期注册 handler**：裸指针不怕扩容，但会引入新的生命周期问题（见 §4 关闭流程为什么必须先 `stop()` 再清表）。
 - HTTP 鉴权 token `913140924@qq.com` 为示例硬编码，生产环境需替换为真实鉴权。
 - **接收上限是行为变化，不是新增护栏**：旧 Beast 走 `dynamic_buffer` 无上限，多大的消息都收得下；现在单条净荷超过「接收缓冲区」那一档的上限（不定义 `WEBSOCKET_BIG_BUFFER` 时 16376 字节，定义时 65528 字节）直接断连（RST）。压测客户端 `--sdp-size` 要留在当前档之内，否则每条连接都被 RST，症状伪装成「大量丢失」。分片累加那道 `maximumMessageSize` 检查目前**无测试覆盖** —— 项目里没有任何会发 FIN=0 分片帧的客户端。
 - `writerCoroutine` 在「取空挂起后被唤醒」那条分支上只取 1 条就写、不继续排空（批量只在队列里已积了多条时才发生）；超限是直接 `throw`，没回 1009 关闭帧，对端只看到 RST。另：`maximumFrameHeaderSize = 10` 是**写侧** `frameHeaderScratch` 的槽位步长，读侧 `takeFrames` 本地另写了一遍 `2/4/10`，两处手工绑死、编译器不保证，改帧格式要同时动。
