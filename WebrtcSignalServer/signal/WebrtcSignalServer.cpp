@@ -65,9 +65,9 @@ namespace hope {
 
         }
 
-        bool WebrtcSignalServer::asyncBoot() {
+        bool WebrtcSignalServer::asyncEvent() {
 
-            if (asyncBoots.exchange(true)) return true;
+            if (asyncEvents.exchange(true)) return true;
 
             LOG_INFO("Protocol: WebSocket , Listen Accept Port: {}", webrtcSignalConfig.signalPort);
 
@@ -85,7 +85,7 @@ namespace hope {
                 
                     LOG_ERROR("CoroRpc::InitCoroRpc Failed");
 
-                    asyncBoots.store(false);
+                    asyncEvents.store(false);
 
                     return false;
 
@@ -103,7 +103,7 @@ namespace hope {
 
                 }
 
-                coroRpc->asyncBoot();
+                coroRpc->asyncEvent();
 
                 LOG_INFO("Protocol: CoroRpc , Listen Accept Port: {}", webrtcSignalConfig.coroRpcServerConfig.port);
 
@@ -113,7 +113,7 @@ namespace hope {
 
             boost::asio::co_spawn(ioContext, [this]() ->boost::asio::awaitable<void> {
 
-                while (asyncBoots.load()) {
+                while (asyncEvents.load()) {
 
                     std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = loadBalanceWebrtcManger();
 
@@ -128,7 +128,7 @@ namespace hope {
                     }
                     catch (const boost::system::system_error& e) {
 
-                        if (e.code() == boost::asio::error::operation_aborted || !asyncBoots.load() || !acceptor.is_open()) {
+                        if (e.code() == boost::asio::error::operation_aborted || !asyncEvents.load() || !acceptor.is_open()) {
 
                             LOG_INFO("Accept Loop Exits: {}", e.code().message().c_str());
 
@@ -187,7 +187,7 @@ namespace hope {
 
                         if (co_await webrtcSignalSocket->handShake()) {
 
-                            webrtcSignalSocket->asyncBoot();
+                            webrtcSignalSocket->asyncEvent();
 
                         }
 
@@ -215,7 +215,7 @@ namespace hope {
 
                 boost::asio::co_spawn(ioContext, [this]() ->boost::asio::awaitable<void> {
 
-                    while (asyncBoots.load()) {
+                    while (asyncEvents.load()) {
 
                         std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = loadBalanceWebrtcManger();
 
@@ -230,7 +230,7 @@ namespace hope {
                         }
                         catch (const boost::system::system_error& e) {
 
-                            if (e.code() == boost::asio::error::operation_aborted || !asyncBoots.load() || !httpAcceptor.is_open()) {
+                            if (e.code() == boost::asio::error::operation_aborted || !asyncEvents.load() || !httpAcceptor.is_open()) {
 
                                 LOG_INFO("Http Accept Loop Exits: {}", e.code().message().c_str());
 
@@ -265,7 +265,7 @@ namespace hope {
 
                         boost::asio::co_spawn(httpSocket->getIoContext(), [this, httpSocket = httpSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
-                            co_await httpSocket->asyncBoot();
+                            co_await httpSocket->asyncEvent();
 
                             co_return;
 
@@ -299,7 +299,7 @@ namespace hope {
 
             for (int i = 0; i < webrtcSignalConfig.threadSize; i++) {
 
-                webrtcSignalManagers[i]->asyncAccept(asyncBoots, boost::asio::ip::tcp::endpoint(address, webrtcSignalConfig.signalPort), boost::asio::ip::tcp::endpoint(address, webrtcSignalConfig.httpPort), static_cast<int>(webrtcSignalConfig.enableHttp));
+                webrtcSignalManagers[i]->asyncAccept(asyncEvents, boost::asio::ip::tcp::endpoint(address, webrtcSignalConfig.signalPort), boost::asio::ip::tcp::endpoint(address, webrtcSignalConfig.httpPort), static_cast<int>(webrtcSignalConfig.enableHttp));
 
             }
 
@@ -307,7 +307,7 @@ namespace hope {
 
             boost::asio::co_spawn(ioContext, [this]()mutable->boost::asio::awaitable<void> {
 
-                while (asyncBoots.load()) {
+                while (asyncEvents.load()) {
 
                     std::optional<AwaitableTask> optional = co_await taskQueues.dequeue();
 
@@ -321,11 +321,11 @@ namespace hope {
 
                     }
 
-                    if (!asyncBoots.load()) break;
+                    if (!asyncEvents.load()) break;
 
                 }
 
-                LOG_INFO("AsyncTaskExecute Close AsyncBoot");
+                LOG_INFO("AsyncTaskExecute Close AsyncEvent");
 
                 co_return;
 
@@ -344,17 +344,17 @@ namespace hope {
 
         WebrtcSignalServer::~WebrtcSignalServer() {
 
-            closeBoot();
+            closeEvent();
 
         }
 
-        void WebrtcSignalServer::closeBoot() {
+        void WebrtcSignalServer::closeEvent() {
 
-            if (!asyncBoots.exchange(false)) return;
+            if (!asyncEvents.exchange(false)) return;
 
-            LOG_INFO("Start CloseBoot");
+            LOG_INFO("Start CloseEvent");
 
-            hope::rpc::CoroRpc::getInstance()->closeBoot();
+            hope::rpc::CoroRpc::getInstance()->closeEvent();
 
             taskQueues.close();
 
@@ -380,7 +380,7 @@ namespace hope {
                                  webrtcSignalManager->webrtcSocketMap.begin();
                              iterator != webrtcSignalManager->webrtcSocketMap.end(); ++iterator) {
 
-                            iterator->second->closeBoot();
+                            iterator->second->closeEvent();
 
                         }
 
@@ -396,7 +396,7 @@ namespace hope {
 
             webrtcSignalManagers.clear();
 
-            LOG_INFO("Already CloseBoot");
+            LOG_INFO("Already CloseEvent");
 
         }
 

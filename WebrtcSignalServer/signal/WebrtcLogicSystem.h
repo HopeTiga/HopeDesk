@@ -323,9 +323,9 @@ namespace hope {
 
 			boost::asio::io_context& getIoCompletionPorts();
 
-			void asyncBoot();
+			void asyncEvent();
 
-			void closeBoot();
+			void closeEvent();
 
 			void asyncTaskExecute();
 
@@ -361,7 +361,7 @@ namespace hope {
 
 			std::atomic<size_t> localTaskQueueSize{ 0 };
 
-			std::atomic<bool> asyncBoots{ false };
+			std::atomic<bool> asyncEvents{ false };
 
 			TaskChannel& taskQueues;
 

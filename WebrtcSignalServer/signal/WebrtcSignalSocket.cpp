@@ -48,7 +48,7 @@ namespace hope {
 
         WebrtcSignalSocket::~WebrtcSignalSocket() {
 
-            closeBoot();
+            closeEvent();
 
             LOG_INFO("~WebrtcSignalSocket");
 
@@ -203,9 +203,9 @@ namespace hope {
             co_return true;
         }
 
-        void WebrtcSignalSocket::asyncBoot() {
+        void WebrtcSignalSocket::asyncEvent() {
 
-            if (asyncBoots.exchange(true)) return;
+            if (asyncEvents.exchange(true)) return;
 
             boost::asio::co_spawn(ioContext, [this]()->boost::asio::awaitable<void> {
 
@@ -216,7 +216,7 @@ namespace hope {
                 }, [self = shared_from_this()](std::exception_ptr p) {
                     if (p) {
 
-                        self->closeBoot();
+                        self->closeEvent();
 
                         try {
 
@@ -279,9 +279,9 @@ namespace hope {
 
         }
 
-        void WebrtcSignalSocket::closeBoot() {
+        void WebrtcSignalSocket::closeEvent() {
 
-            if (!asyncBoots.exchange(false)) {
+            if (!asyncEvents.exchange(false)) {
 
                 return;
 
@@ -474,7 +474,7 @@ namespace hope {
 
             bool assemblingFragment = false;
 
-            while (asyncBoots.load()) {
+            while (asyncEvents.load()) {
 
                 if (receiveHeldBytes == receiveBuffer.size()) {
 
@@ -605,7 +605,7 @@ namespace hope {
 
             segments.reserve(maximumFramesPerWrite * 2);
 
-            while (asyncBoots.load()) {
+            while (asyncEvents.load()) {
 
                 packets.clear();
 

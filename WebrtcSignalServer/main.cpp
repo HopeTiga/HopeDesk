@@ -113,9 +113,9 @@ int main() {
 
     initCoroRpcHandleInterface(webrtcSignalServer);
 
-    if (!webrtcSignalServer->asyncBoot()) {
+    if (!webrtcSignalServer->asyncEvent()) {
 
-        LOG_INFO("WebrtcSignalServer AsyncBoot Failed");
+        LOG_INFO("WebrtcSignalServer AsyncEvent Failed");
 
         return -1;
 
@@ -125,7 +125,7 @@ int main() {
 
     signals.async_wait([&ioContext, webrtcSignalServer = webrtcSignalServer->shared_from_this(), &work](const boost::system::error_code& error, int signal) {
 
-        webrtcSignalServer->closeBoot();
+        webrtcSignalServer->closeEvent();
 
         work.reset();
 

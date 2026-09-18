@@ -96,9 +96,9 @@ namespace hope {
 
             WebrtcSignalServer& operator=(const WebrtcSignalServer&) = delete;
 
-            bool asyncBoot();
+            bool asyncEvent();
 
-            void closeBoot();
+            void closeEvent();
 
             struct CompletionPostTask {
                 template <typename... Args>
@@ -190,7 +190,7 @@ namespace hope {
 
             std::atomic<size_t> managerIndex{ 0 };
 
-            std::atomic<bool> asyncBoots{ false };
+            std::atomic<bool> asyncEvents{ false };
 
             boost::asio::io_context& ioContext;
 

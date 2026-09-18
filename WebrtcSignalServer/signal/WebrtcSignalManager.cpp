@@ -39,7 +39,7 @@ namespace hope {
 
 #endif
 
-            webrtcLogicSystem->asyncBoot();
+            webrtcLogicSystem->asyncEvent();
 
         }
 
@@ -85,7 +85,7 @@ namespace hope {
 
             if (iterator != webrtcSocketMap.end()) {
 
-                iterator->second->closeBoot();
+                iterator->second->closeEvent();
 
             }
 
@@ -168,7 +168,7 @@ namespace hope {
                 return;
             }
 
-            currentSocket->closeBoot();
+            currentSocket->closeEvent();
 
             webrtcSocketMap.erase(iterator);
 
@@ -331,7 +331,7 @@ namespace hope {
 
                         if (co_await webrtcSignalSocket->handShake()) {
 
-                            webrtcSignalSocket->asyncBoot();
+                            webrtcSignalSocket->asyncEvent();
 
                         }
 
@@ -418,7 +418,7 @@ namespace hope {
 
                             boost::asio::co_spawn(httpSocket->getIoContext(), [httpSocket = httpSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
-                                co_await httpSocket->asyncBoot();
+                                co_await httpSocket->asyncEvent();
 
                                 co_return;
 

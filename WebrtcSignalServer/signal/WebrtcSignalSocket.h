@@ -92,9 +92,9 @@ namespace hope {
 
 			boost::asio::io_context& getIoCompletionPorts();
 
-			void asyncBoot();
+			void asyncEvent();
 
-			void closeBoot();
+			void closeEvent();
 
 			void asyncWrite(std::string packet);
 
@@ -165,7 +165,7 @@ namespace hope {
 
 			AsioConcurrentQueue<std::string> asioConcurrentQueue;
 
-			std::atomic<bool> asyncBoots{ false };
+			std::atomic<bool> asyncEvents{ false };
 
 			std::string sessionId;
 
