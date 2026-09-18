@@ -130,7 +130,7 @@ bool IsRespawnedProcess(int argc, char* argv[]) {
     return false;
 }
 
-void AsyncBoot() {
+void AsyncEvent() {
 
     DWORD sessionId = GetCurrentSessionId();
 
@@ -149,7 +149,7 @@ void AsyncBoot() {
 
         });
 
-    LOG_INFO("AsyncBoot start");
+    LOG_INFO("AsyncEvent Start");
 
     initLogger();
 
@@ -273,7 +273,7 @@ int main(int argc, char* argv[]) {
 
         }
 
-        AsyncBoot();
+        AsyncEvent();
 
         return 0;
     }
