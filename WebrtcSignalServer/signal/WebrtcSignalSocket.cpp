@@ -515,11 +515,6 @@ namespace hope {
 
                     }
 
-                    // 单条消息的上限，这里必须卡，而且必须**所有帧都卡**：
-                    //   - 分片路径不受接收缓冲区上限约束（RFC 6455 允许一条消息拆成任意多帧，
-                    //     每帧独立过完整性检查，N 个 FIN=0 的帧累加就能把内存吃干）；
-                    //   - 不分片的单帧更不受约束 —— 缓冲区开多大，单帧上限就自动变成多大。
-                    // 不分片时 fragmentedPayload 恒为空，所以这一句同时管住两条路。
                     if (fragmentedPayload.size() + frameRange.length > maximumMessageSize) {
 
                         LOG_ERROR("WebrtcSignalSocket Message Larger Than The Maximum Message Size: {} bytes", maximumMessageSize);
