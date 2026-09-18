@@ -76,7 +76,7 @@ void WebrtcManager::asyncBoot(){
     LOG_INFO("WebrtcManager local TCP accept started on 127.0.0.1:19998");
 }
 
-void WebrtcManager::closeBoot(){
+void WebrtcManager::closeEvent(){
 
     if (tcpAcceptor) {
         tcpAcceptor->stopAccept();
@@ -98,7 +98,7 @@ void WebrtcManager::connect(std::string ip)
     boost::asio::co_spawn(ioContext, [self = shared_from_this(), host, port, this]()mutable->boost::asio::awaitable<void> {
 
         if (self->webSocket) {
-            self->webSocket->closeBoot();
+            self->webSocket->closeEvent();
             self->webSocket.reset();
         }
 
@@ -145,7 +145,7 @@ WebrtcManager::~WebrtcManager()
 
     std::future<void> future = promise.get_future();
 
-    closeBoot();
+    closeEvent();
 
     boost::asio::post(ioContext,[this,&promise](){
 
@@ -159,7 +159,7 @@ WebrtcManager::~WebrtcManager()
         onRTCStatsCollectorHandle = nullptr;
 
         if (webSocket) {
-            webSocket->closeBoot();
+            webSocket->closeEvent();
             webSocket.reset();
         }
 
@@ -1052,7 +1052,7 @@ void WebrtcManager::closeTcpSocket()
 {
 
     if (tcpSocket) {
-        tcpSocket->closeBoot();
+        tcpSocket->closeEvent();
     }
 }
 
@@ -1341,7 +1341,7 @@ void WebrtcManager::disConnect()
 
         if (self->webSocket) {
 
-            self->webSocket->closeBoot();
+            self->webSocket->closeEvent();
 
             self->webSocket.reset();
         }

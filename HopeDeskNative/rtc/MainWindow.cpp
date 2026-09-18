@@ -210,7 +210,7 @@ MainWindow::~MainWindow()
     }
     if (webrtcManager) {
         webrtcManager->disConnect();
-        webrtcManager->closeBoot();
+        webrtcManager->closeEvent();
     }
     if (videoWidget) delete videoWidget;
     delete ui;
@@ -1447,7 +1447,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
         // 先停 acceptor(置 asyncAccpets=false + accept.cancel/close),让 acceptor 协程
         // 在 ~MainWindow 释放 shared_ptr 之前退出并释放强引用,析构即在 GUI 线程触发,不进 ioContext 死锁。
-        if (webrtcManager) webrtcManager->closeBoot();
+        if (webrtcManager) webrtcManager->closeEvent();
 
         event->accept();
 

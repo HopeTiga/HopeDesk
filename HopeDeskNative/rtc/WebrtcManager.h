@@ -192,7 +192,7 @@ public:
 
     void asyncBoot();
 
-    void closeBoot();
+    void closeEvent();
 
     void asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig);
 
