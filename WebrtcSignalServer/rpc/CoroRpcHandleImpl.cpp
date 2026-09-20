@@ -99,8 +99,6 @@ namespace hope {
 
 			forwardMessage.append(boost::json::serialize(forwardPacketJson));
 
-			// 第一跳：在分桶决定的那条通道上查表。目标就在这条通道上就地投递，否则把目标
-			// 所在通道号带回去交给第二跳。
 			struct ForwardLookup {
 
 				RpcForwardResponse response;
@@ -119,7 +117,7 @@ namespace hope {
 
 			int awaitorInt = co_await callbackAwaitor.await_resume([&mapChannelIoContext,&callbackAwaitor](auto handler)mutable {
 				
-				boost::asio::co_spawn(mapChannelIoContext, [&handler]()mutable -> boost::asio::awaitable<void> {
+				boost::asio::co_spawn(mapChannelIoContext, [handler = std::move(handler)]()mutable -> boost::asio::awaitable<void> {
 
 					LOG_INFO("callbackAwaitor");
 
