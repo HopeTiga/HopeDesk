@@ -3,6 +3,15 @@
 #include <iostream>
 #include "../utils/Utils.h"
 
+namespace {
+
+	std::filesystem::path joinBasePath(const std::string& basePath, const std::string& fileName) {
+		return fileName.empty() ? std::filesystem::path{}
+		: std::filesystem::path(basePath).append(fileName);
+	}
+
+}
+
 namespace hope {
 
 	namespace rpc {
@@ -39,10 +48,7 @@ namespace hope {
 				coroRpcServer->init_ssl(sslConf);
 
 				// ---------- 客户端 SSL（单向/双向都要走 TLS）----------
-				auto join = [&](const std::string& f) -> std::filesystem::path {
-					return f.empty() ? std::filesystem::path{}
-					: std::filesystem::path(coroRpcServerConfig.basePath).append(f);
-					};
+				const std::string& basePath = coroRpcServerConfig.basePath;
 
 				bool hasClientCert = !coroRpcServerConfig.clientCertFile.empty();
 				bool hasClientKey = !coroRpcServerConfig.clientKeyFile.empty();
@@ -68,11 +74,11 @@ namespace hope {
 				clientConfig.socket_config =
 					coro_rpc::coro_rpc_client::tcp_with_ssl_config{
 					/*enableTcpNoDelay*/ true,
-					/*sslCertPath(CA 验服务端)*/ join(coroRpcServerConfig.caCertFile),
+					/*sslCertPath(CA 验服务端)*/ joinBasePath(basePath, coroRpcServerConfig.caCertFile),
 					/*sslDomain*/ std::string{},  // 空 -> 127.0.0.1/localhost 跳过主机名校验
-					/*clientCertFile(mTLS)*/ mtls ? join(coroRpcServerConfig.clientCertFile)
+					/*clientCertFile(mTLS)*/ mtls ? joinBasePath(basePath, coroRpcServerConfig.clientCertFile)
 												  : std::filesystem::path{},
-					/*clientKeyFile(mTLS)*/  mtls ? join(coroRpcServerConfig.clientKeyFile)
+					/*clientKeyFile(mTLS)*/  mtls ? joinBasePath(basePath, coroRpcServerConfig.clientKeyFile)
 												  : std::filesystem::path{},
 				};
 			}
@@ -145,8 +151,8 @@ namespace hope {
 			lbCfg.lba = lba;
 			lbCfg.pool_config.client_config = clientConfig;
 
-			auto lb = coro_io::load_balancer<coro_rpc::coro_rpc_client>::create(
-				hostViews, lbCfg, weights, *clientPools);
+			coro_io::load_balancer<coro_rpc::coro_rpc_client> lb =
+				coro_io::load_balancer<coro_rpc::coro_rpc_client>::create(hostViews, lbCfg, weights, *clientPools);
 
 			loadBalancer = std::make_shared<coro_io::load_balancer<coro_rpc::coro_rpc_client>>(std::move(lb));
 
@@ -165,7 +171,7 @@ namespace hope {
 
 		void CoroRpc::removeHosts(const std::vector<std::string>& hosts) {
 			if (!clientPools) return;
-			for (auto& h : hosts) clientPools->erase(h);
+			for (const std::string& host : hosts) clientPools->erase(host);
 			LOG_DEBUG("RemoveHosts: Count={}", hosts.size());
 		}
 

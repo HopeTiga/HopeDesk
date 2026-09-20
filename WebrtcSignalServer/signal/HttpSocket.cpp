@@ -222,7 +222,7 @@ namespace hope {
 				return;
 			}
 
-			auto it = httpRequest.find("Keep-Alive");
+			boost::beast::http::request<boost::beast::http::string_body>::iterator it = httpRequest.find("Keep-Alive");
 			if (it != httpRequest.end()) {
 				std::string value = it->value().data();
 				size_t pos = value.find("timeout=");
@@ -242,7 +242,7 @@ namespace hope {
 				}
 			}
 
-			auto newExpireTime = std::chrono::steady_clock::now() + timeoutSec;
+			std::chrono::steady_clock::time_point newExpireTime = std::chrono::steady_clock::now() + timeoutSec;
 
 			lastKeepAliveTime = newExpireTime;
 
@@ -250,7 +250,7 @@ namespace hope {
 
 				boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
 
-					auto lastTime = self->lastKeepAliveTime;
+					std::chrono::steady_clock::time_point lastTime = self->lastKeepAliveTime;
 
 					while (self->isKeepAlive) {
 						self->keepTimer.expires_at(lastTime);  // 锟饺达拷锟斤拷锟斤拷锟斤拷时锟斤拷锟?
@@ -322,7 +322,7 @@ namespace hope {
 
 			if (isKeepAlive) {
 
-				auto newExpireTime = std::chrono::steady_clock::now() + timeoutSec;
+				std::chrono::steady_clock::time_point newExpireTime = std::chrono::steady_clock::now() + timeoutSec;
 
 				lastKeepAliveTime = newExpireTime;
 
@@ -368,7 +368,7 @@ namespace hope {
 
 #ifdef WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL
 
-			auto& socket = tcpStream.socket();
+			boost::asio::ip::tcp::socket& socket = tcpStream.socket();
 
 			if (socket.is_open()) {
 
@@ -380,7 +380,7 @@ namespace hope {
 
 #else
 
-			auto& socket = sslStream.lowest_layer();
+			boost::asio::ip::tcp::socket& socket = sslStream.next_layer();
 
 			if (socket.is_open()) {
 

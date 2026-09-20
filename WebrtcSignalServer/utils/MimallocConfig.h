@@ -9,8 +9,6 @@
 namespace hope {
 namespace utils {
 
-// mimalloc 运行时配置(编译期注入,等价 Windows 侧 MIMALLOC_* 环境变量,编进产物无需运行时设置)
-// 默认值在此(默认配置);config.ini 的 [Mimalloc] 段可覆盖(可变配置),未写则用默认值
 struct MimallocConfig {
 
     int purgeDelayMs = 1000;   // MIMALLOC_PURGE_DELAY

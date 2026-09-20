@@ -107,7 +107,7 @@ namespace hope {
 
                 std::string accountId;
 
-                auto authIt = req.find(boost::beast::http::field::authorization);
+                boost::beast::http::request<boost::beast::http::string_body>::iterator authIt = req.find(boost::beast::http::field::authorization);
 
                 if (authIt != req.end()) {
 
@@ -116,19 +116,19 @@ namespace hope {
                 }
                 else {
 
-                    auto target = req.target();
+                    boost::core::string_view target = req.target();
 
-                    auto parsed = boost::urls::parse_origin_form(boost::core::string_view(target.data(), target.size()));
+                    boost::system::result<boost::urls::url_view> parsed = boost::urls::parse_origin_form(boost::core::string_view(target.data(), target.size()));
 
                     if (parsed) {
 
-                        auto it = parsed->params().find("authorization");
+                        boost::urls::params_view::iterator it = parsed->params().find("authorization");
 
                         if (it != parsed->params().end()) {
 
-                            auto v = (*it).value;
+                            boost::core::string_view authorizationValue = (*it).value;
 
-                            accountId.assign(v.data(), v.size());
+                            accountId.assign(authorizationValue.data(), authorizationValue.size());
 
                         }
 

@@ -8,6 +8,7 @@
 #include <system_error>
 #include <utility>
 #include <filesystem>
+#include <type_traits>
 
 #include <ylt/coro_io/coro_io.hpp>
 #include <ylt/coro_io/load_balancer.hpp>
@@ -19,36 +20,11 @@
 #include <async_simple/coro/Lazy.h>
 
 #include "../utils/Utils.h"   // LOG_ERROR 等日志宏
+#include "CoroRpcConfig.h"
 
 namespace hope {
 
 	namespace rpc {
-	
-		struct CoroRpcServerConfig {
-
-			size_t port = 10011;
-
-			size_t threadSize = 2;
-
-			bool enableSsl = false;
-
-			std::string basePath;
-
-			std::string certFile;
-
-			std::string keyFile;
-
-			std::string caCertFile; // 单向认证为空
-
-			bool enableClientVerify = false;
-
-			bool enableDoubleSsl = false; // 双向认证
-
-			std::string clientCertFile;
-
-			std::string clientKeyFile;
-
-		};
 
 		class CoroRpc{
 
@@ -107,9 +83,10 @@ namespace hope {
 			//       co_return;
 			//   }, rpc, std::move(data));
 			template <typename Func, typename... Args>
-			inline auto asyncAwait(Func func, Args&&... args) {
-				auto lazy = func(std::forward<Args>(args)...);
-				std::move(lazy).via(ioExecutor()).start([](auto&& result) {
+			inline void asyncAwait(Func func, Args&&... args) {
+				using LazyType = std::decay_t<decltype(func(std::forward<Args>(args)...))>;
+				LazyType lazy = func(std::forward<Args>(args)...);
+				std::move(lazy).via(ioExecutor()).start([](async_simple::Try<typename LazyType::ValueType>&& result) {
 					if (result.hasError()) {
 						try {
 							std::rethrow_exception(result.getException());
@@ -185,18 +162,18 @@ namespace hope {
 			template <auto func>
 			async_simple::coro::Lazy<ylt::expected<coro_rpc::rpc_result<std::string_view>, std::errc>>
 				asyncRequestRaw(std::string_view host, std::string payload) {
-				auto op = [payload = std::move(payload)](coro_rpc::coro_rpc_client& cli) mutable
-					-> async_simple::coro::Lazy<coro_rpc::rpc_result<std::string_view>> {
-					cli.set_req_attachment(std::string_view{ payload });
-					auto r = co_await cli.call<func>();  // func: void(context<void>), 无 typed 参数
-					if (!r) co_return coro_rpc::rpc_result<std::string_view>{ylt::unexpect, std::move(r).error()};
-					co_return coro_rpc::rpc_result<std::string_view>{cli.get_resp_attachment()};
-					};
 				if (!asyncEvents.load() || !clientPools) {
 					co_return ylt::expected<coro_rpc::rpc_result<std::string_view>, std::errc>{
 						ylt::unexpect, std::errc::not_connected};
 				}
-				co_return co_await clientPools->send_request(host, std::move(op));
+				co_return co_await clientPools->send_request(host,
+					[payload = std::move(payload)](coro_rpc::coro_rpc_client& cli) mutable
+					-> async_simple::coro::Lazy<coro_rpc::rpc_result<std::string_view>> {
+					cli.set_req_attachment(std::string_view{ payload });
+					coro_rpc::rpc_result<void> r = co_await cli.call<func>();  // func: void(context<void>), 无 typed 参数
+					if (!r) co_return coro_rpc::rpc_result<std::string_view>{ylt::unexpect, std::move(r).error()};
+					co_return coro_rpc::rpc_result<std::string_view>{cli.get_resp_attachment()};
+					});
 			}
 
 			void removeHost(std::string_view host);

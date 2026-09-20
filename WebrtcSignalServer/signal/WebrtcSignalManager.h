@@ -6,6 +6,9 @@
 
 #include "../utils/StringHasher.h"
 
+#include "../storage/MysqlConfig.h"
+#include "../storage/RedisConfig.h"
+
 #include "WebrtcLogicSystem.h"
 #include "WebrtcSignalSocket.h"
 #include "HttpSocket.h"
@@ -33,6 +36,11 @@ namespace hope {
 			int maxTlsHttpHandShakeTime = 10000;    // HTTP 读/keep-alive 超时(ms)
 
 			int maxHttpKeepAliveTime = 300;   // 客户端 Keep-Alive 协商超时上限(s)
+
+			// 存储层连接参数，Manager 只过路，原样带给 Logic。
+			hope::storage::MysqlConfig mysqlConfig;
+
+			hope::storage::RedisConfig redisConfig;
 
 		};
 

@@ -6,6 +6,7 @@
 #include <utility>
 #include <exception>
 #include <stdexcept>
+#include <string_view>
 
 #include <boost/asio.hpp>
 #include <boost/beast/http.hpp>
@@ -17,8 +18,12 @@
 #include <absl/functional/any_invocable.h>
 #include <absl/strings/str_format.h>
 
-#include "../mysql/WebrtcMysqlManagerPools.h"
+#include "../storage/MysqlConfig.h"
+#include "../storage/RedisConfig.h"
+#include "../storage/MysqlManagerPools.h"
+#include "../storage/RedisWrapper.h"
 
+#include "../utils/CompletionHandle.h"
 #include "../utils/Utils.h"
 
 #include "AwaitableTask.h"
@@ -37,24 +42,32 @@ namespace hope {
 
 		class HttpSocket;
 
-		// Handler 的具体签名。注册点（WebrtcLogicSystem.cpp 的 initHandlers / initHttpHandlers）
-		// 和派发点（下面的 postTask / coPostTask）共用，要改签名只需改这里一处。
 		using WebrtcHandler = absl::AnyInvocable<boost::asio::awaitable<void>(hope::signal::WebrtcSignalPacket)>;
 
 		using WebrtcValueHandler = absl::AnyInvocable<boost::asio::awaitable<boost::json::value>(hope::signal::WebrtcSignalPacket)>;
 
 		using HttpHandler = absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>;
 
-		// 注册表存的是 unique_ptr：handler 在启动时分配、之后只读，
-		// 派发时取裸指针捕获进异步执行体（见 postTask），既没有引用计数的开销，
-		// 也不会有"引用逃逸到延迟执行体"的隐患——handler 的生命周期就是进程的生命周期。
+		struct WebrtcLogicConfig {
+
+			int threshold = 256;          // 全局任务队列高水位
+
+			int exitThreshold = 128;      // 本地队列高水位,触发切本地处理
+
+			int asyncThreshold = 32;      // 异步派发阈值
+
+			hope::storage::MysqlConfig mysqlConfig;
+
+			hope::storage::RedisConfig redisConfig;
+
+		};
 
 		class WebrtcLogicSystem : public std::enable_shared_from_this<WebrtcLogicSystem>
 		{
 
 		public:
 
-			WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, int threshold, int exitThreshold, int asyncThreshold);
+			WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, WebrtcLogicConfig logicConfig);
 
 			~WebrtcLogicSystem();
 
@@ -62,66 +75,19 @@ namespace hope {
 
 			void operator=(const WebrtcLogicSystem& logic) = delete;
 
-			struct CompletionPostTask {
-
-				void operator()(std::exception_ptr exception) const {
-
-					if (exception) {
-
-						try {
-
-							std::rethrow_exception(exception);
-
-						}
-						catch (const std::exception& e) {
-
-							LOG_ERROR("PostTask CoSpawn Exception: {}", e.what());
-
-						}
-
-					}
-
-				}
-
-			};
-
-			struct CompletionCoPostTask {
-
-				template <typename... Args>
-				void operator()(std::exception_ptr exception, Args&&... /*value*/) const {
-
-					if (exception) {
-
-						try {
-
-							std::rethrow_exception(exception);
-
-						}
-						catch (const std::exception& e) {
-
-							LOG_ERROR("CoPostTask CoSpawn Exception: {}", e.what());
-
-						}
-
-					}
-
-				}
-
-			};
-
 			void postTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket);
 
-			template <typename CompletionToken = CompletionPostTask>
-			auto postTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token)
-				-> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::return_type
+			template <typename CompletionToken = CompletionHandle>
+			typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::return_type
+			postTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token)
 			{
+
+				using CompletionHandlerType = typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::completion_handler_type;
 
 				int type = webrtcSignalPacket.webrtcEnvelope.requestType;
 
 				return boost::asio::async_initiate<CompletionToken, void(std::exception_ptr)>(
-					[this, type, webrtcSignalPacket = std::move(webrtcSignalPacket)](auto completionHandler) mutable {
-
-						using CompletionHandlerType = std::decay_t<decltype(completionHandler)>;
+					[this, type, webrtcSignalPacket = std::move(webrtcSignalPacket)](CompletionHandlerType completionHandler) mutable {
 
 						std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
 
@@ -131,7 +97,7 @@ namespace hope {
 
 							WebrtcHandler* func = iterator->second.get();
 
-							if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
+							if (localTaskQueueSize.load() >= logicConfig.threshold && webrtcLogicHandlers[type]) {
 
 								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
@@ -186,7 +152,7 @@ namespace hope {
 									},
 									[this, completionHandlerPtr](std::exception_ptr exception) mutable {
 
-										if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
+										if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
 
 											asyncTaskExecute();
 
@@ -215,17 +181,17 @@ namespace hope {
 
 			}
 
-			template <typename CompletionToken = CompletionCoPostTask>
-			auto coPostTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token = CompletionToken{})
-				-> typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr, boost::json::value)>::return_type
+			template <typename CompletionToken = CompletionHandle>
+			typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr, boost::json::value)>::return_type
+			coPostTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket, CompletionToken&& token = CompletionToken{})
 			{
+
+				using CompletionHandlerType = typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr, boost::json::value)>::completion_handler_type;
 
 				int type = webrtcSignalPacket.webrtcEnvelope.requestType;
 
 				return boost::asio::async_initiate<CompletionToken, void(std::exception_ptr, boost::json::value)>(
-					[this, type, webrtcSignalPacket = std::move(webrtcSignalPacket)](auto completionHandler) mutable {
-
-						using CompletionHandlerType = std::decay_t<decltype(completionHandler)>;
+					[this, type, webrtcSignalPacket = std::move(webrtcSignalPacket)](CompletionHandlerType completionHandler) mutable {
 
 						std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
 
@@ -235,7 +201,7 @@ namespace hope {
 
 							WebrtcValueHandler* func = iterator->second.get();
 
-							if (localTaskQueueSize.load() >= threshold.load() && webrtcValueLogicHandlers[type]) {
+							if (localTaskQueueSize.load() >= logicConfig.threshold && webrtcValueLogicHandlers[type]) {
 
 								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
@@ -290,7 +256,7 @@ namespace hope {
 									},
 									[this, completionHandlerPtr](std::exception_ptr exception, boost::json::value value = {}) mutable {
 
-										if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
+										if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
 
 											asyncTaskExecute();
 
@@ -337,7 +303,11 @@ namespace hope {
 
 			void initHttpHandlers();
 
-		public:
+			hope::storage::RedisWrapper& loadRedisWrapper();
+
+			hope::storage::RedisWrapper& loadRedisWrapper(std::string_view key);
+
+		private:
 
 			boost::asio::io_context& ioContext;
 
@@ -357,7 +327,11 @@ namespace hope {
 
 			HttpFilters httpFilters;
 
-			std::shared_ptr<hope::mysql::WebrtcMysqlManagerPools> webrtcMysqlManagerPools;
+			std::shared_ptr<hope::storage::MysqlManagerPools> mysqlManagerPools;
+
+			std::vector<hope::storage::RedisWrapper> redisWrappers;
+
+			std::atomic<size_t> redisWrapperIndex{ 0 };
 
 			std::atomic<size_t> localTaskQueueSize{ 0 };
 
@@ -367,11 +341,7 @@ namespace hope {
 
 			std::atomic<bool> asyncTaskExecutes{ false };
 
-			std::atomic<uint32_t> threshold{ 0 };
-
-			std::atomic<uint32_t> exitThreshold{ 0 };
-
-			std::atomic<uint32_t> asyncThreshold{ 0 };
+			WebrtcLogicConfig logicConfig;
 
 		};
 

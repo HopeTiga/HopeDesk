@@ -12,46 +12,16 @@
 
 #include "AwaitableTask.h"
 
+#include "WebrtcSignalConfig.h"
 #include "WebrtcSignalManager.h"
 #include "../rpc/CoroRpc.h"
 #include "../rpc/CoroRpcHandleInterface.h"
+#include "../utils/CompletionHandle.h"
 #include "../utils/Utils.h"
 
 namespace hope {
 
     namespace signal {
-
-        struct WebrtcSignalConfig {
-
-            size_t signalPort = 8088;
-
-            size_t enableHttp = 0;
-
-            size_t httpPort = 9099;
-
-            size_t enablePublicPort = 1;
-
-            size_t threadSize = std::thread::hardware_concurrency();
-
-            size_t enableRpc = 0;
-
-            hope::rpc::CoroRpcServerConfig coroRpcServerConfig;
-
-            int overload = 256;
-
-            int threshold = 256;
-
-            int exitThreshold = 128;
-
-            int asyncThreshold = 32;
-
-            int maxTlsHandShakeTime = 10000;
-
-            int maxTlsHttpHandShakeTime = 10000;
-
-            int maxHttpKeepAliveTime = 300;
-
-        };
 
         template <typename T>
         struct AwaitableReturnValue;
@@ -100,32 +70,21 @@ namespace hope {
 
             void closeEvent();
 
-            struct CompletionPostTask {
-                template <typename... Args>
-                void operator()(std::exception_ptr exception, Args&&... /*value*/) const {
-                    if (exception) {
-                        try { std::rethrow_exception(exception); }
-                        catch (const std::exception& e) {
-                            LOG_ERROR("PostTask CoSpawn Exception: {}", e.what());
-                        }
-                    }
-                }
-            };
-
-            template <typename AsyncHandle, typename CompletionToken = CompletionPostTask,
+            template <typename AsyncHandle, typename CompletionToken = CompletionHandle,
                 std::enable_if_t<IsAwaitableReturning<AsyncHandle>::value, int> = 0>
-            auto postTask(size_t channelIndex, AsyncHandle&& asyncHandle,
+            typename boost::asio::async_result<std::decay_t<CompletionToken>,
+                typename PostTaskCompletionSignature<AwaitableReturnValueType<AsyncHandle>>::type>::return_type
+            postTask(size_t channelIndex, AsyncHandle&& asyncHandle,
                 CompletionToken&& token = CompletionToken{})
-                -> typename boost::asio::async_result<std::decay_t<CompletionToken>,
-                    typename PostTaskCompletionSignature<AwaitableReturnValueType<AsyncHandle>>::type>::return_type
             {
                 using ValueType = AwaitableReturnValueType<AsyncHandle>;
 
+                using CompletionHandlerType = typename boost::asio::async_result<std::decay_t<CompletionToken>,
+                    typename PostTaskCompletionSignature<ValueType>::type>::completion_handler_type;
+
                 return boost::asio::async_initiate<CompletionToken,
                     typename PostTaskCompletionSignature<ValueType>::type>(
-                    [this, channelIndex, asyncHandle = std::move(asyncHandle)](auto completionHandler) mutable {
-
-                        using CompletionHandlerType = std::decay_t<decltype(completionHandler)>;
+                    [this, channelIndex, asyncHandle = std::move(asyncHandle)](CompletionHandlerType completionHandler) mutable {
 
                         std::shared_ptr<CompletionHandlerType> completionHandlerPtr = std::make_shared<CompletionHandlerType>(std::move(completionHandler));
 

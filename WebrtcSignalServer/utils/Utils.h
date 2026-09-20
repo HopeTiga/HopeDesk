@@ -9,7 +9,9 @@
 #include <string>
 #include <utility>
 #include <chrono>
+#include <source_location>
 #include <boost/json.hpp>
+#include <boost/system/error_code.hpp>
 
 #ifdef _WIN32
 #include <direct.h>
@@ -66,12 +68,17 @@ inline void logMessage(LogLevel level, const char* file, int line,
 
 } // namespace hope::log
 
+// 错误文本由 boost 自己产出 UTF-8：Windows 靠 props 里的 BOOST_SYSTEM_USE_UTF8，
+// Linux 靠 main 里的 setlocale(C.UTF-8)。ec.message() / e.what() 直接写日志，不做转换。
+
 // 便捷宏定义（fmt 风格：{} 占位符，级别过滤前置：被关闭的级别连格式化都不做）
 #define LOG_DEBUG(...) do { if (consoleOutputLevels[LOG_LEVEL_DEBUG] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_DEBUG, __FILE__, __LINE__, __VA_ARGS__); } while(0)
 #define LOG_INFO(...)  do { if (consoleOutputLevels[LOG_LEVEL_INFO]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_INFO,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
 // warn/error 与 debug/info 同级受控：屏幕是否输出看 consoleOutputLevels，文件是否输出看 logToFileEnabled
 #define LOG_WARN(...)  do { if (consoleOutputLevels[LOG_LEVEL_WARN]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_WARN,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
 #define LOG_ERROR(...) do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, __VA_ARGS__); } while(0)
+// 位置由调用方给出：要报的不一定是这一行（如 CompletionHandle 报的是令牌的构造点）
+#define LOG_ERROR_FROM(sourceLocation, ...) do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_ERROR, (sourceLocation).file_name(), static_cast<int>((sourceLocation).line()), __VA_ARGS__); } while(0)
 
 #define LOG_INFO_PLAIN(...)  LOG_INFO(__VA_ARGS__)
 #define LOG_WARN_PLAIN(...)  LOG_WARN(__VA_ARGS__)

@@ -9,7 +9,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <iostream> 
 
-#include "../iocp/AsioProactors.h"
+#include "../executor/SchedulerContext.h"
 #include "WebrtcSignalSocket.h"
 #include "HttpSocket.h"
 #include "HttpFilters.h"
@@ -392,7 +392,7 @@ namespace hope {
 
             closeLatch.wait();
 
-            hope::iocp::AsioProactors::getInstance()->stop();
+            hope::executor::SchedulerContext::getInstance()->stop();
 
             webrtcSignalManagers.clear();
 
@@ -439,7 +439,7 @@ namespace hope {
 
             for (int i = 0; i < webrtcSignalConfig.threadSize; i++) {
 
-                boost::asio::io_context& ioContext = hope::iocp::AsioProactors::getInstance()->getIoCompletePort(i);
+                boost::asio::io_context& ioContext = hope::executor::SchedulerContext::getInstance()->getIoCompletePort(i);
 
                 WebrtcSignalChannelConfig channelConfig{
                     webrtcSignalConfig.threadSize,
@@ -448,7 +448,9 @@ namespace hope {
                     webrtcSignalConfig.asyncThreshold,
                     webrtcSignalConfig.maxTlsHandShakeTime,
                     webrtcSignalConfig.maxTlsHttpHandShakeTime,
-                    webrtcSignalConfig.maxHttpKeepAliveTime
+                    webrtcSignalConfig.maxHttpKeepAliveTime,
+                    webrtcSignalConfig.mysqlConfig,
+                    webrtcSignalConfig.redisConfig
                 };
 
                 webrtcSignalManagers[i] = std::make_shared<WebrtcSignalManager>(i, ioContext, this, taskQueues, channelConfig);

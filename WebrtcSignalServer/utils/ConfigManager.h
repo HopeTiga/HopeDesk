@@ -97,7 +97,7 @@ namespace hope{
             std::optional<T> Get(const std::string& key, const T& defaultValue = T{}) const {
                 std::lock_guard<std::mutex> lock(mutex);
                 try {
-                    auto value = tree.get_optional<T>(key);  // ���� boost::optional<T>
+                    boost::optional<T> value = tree.get_optional<T>(key);  // ���� boost::optional<T>
                     if (value) {
                         return std::optional<T>(*value);     // תΪ std::optional
                     }

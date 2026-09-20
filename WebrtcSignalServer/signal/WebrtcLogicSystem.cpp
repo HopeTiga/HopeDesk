@@ -25,7 +25,7 @@
 #include "../rpc/CoroRpc.h"
 #include "../rpc/CoroRpcHandleImpl.h"
 
-#include "../mysql/AsyncTransactionGuard.h"
+#include "../storage/AsyncTransactionGuard.h"
 
 #include "../utils/Utils.h"
 
@@ -36,18 +36,19 @@ namespace hope {
 
         thread_local int threadChannelIndex = -1;
 
-        WebrtcLogicSystem::WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, int threshold, int exitThreshold, int asyncThreshold)
+        WebrtcLogicSystem::WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, WebrtcLogicConfig logicConfig)
             : ioContext(ioContext)
             , channelIndex(channelIndex)
             , taskQueues(taskQueues)
+            , logicConfig(logicConfig)
         {
-            webrtcMysqlManagerPools = std::make_shared<hope::mysql::WebrtcMysqlManagerPools>(ioContext);
+            mysqlManagerPools = std::make_shared<hope::storage::MysqlManagerPools>(ioContext, logicConfig.mysqlConfig);
 
-            this->threshold.store(static_cast<uint32_t>(threshold));
+            for (std::size_t index = 0; index < logicConfig.redisConfig.connectionSize; index++) {
 
-            this->exitThreshold.store(static_cast<uint32_t>(exitThreshold));
+                redisWrappers.push_back(std::move(hope::storage::RedisWrapper(ioContext, logicConfig.redisConfig)));
 
-            this->asyncThreshold.store(static_cast<uint32_t>(asyncThreshold));
+            }
 
             boost::asio::post(ioContext, [channelIndex]() {
 
@@ -62,6 +63,20 @@ namespace hope {
             return ioContext;
         }
 
+        hope::storage::RedisWrapper& WebrtcLogicSystem::loadRedisWrapper()
+        {
+
+            return redisWrappers[redisWrapperIndex.fetch_add(1) % redisWrappers.size()];
+
+        }
+
+        hope::storage::RedisWrapper& WebrtcLogicSystem::loadRedisWrapper(std::string_view key)
+        {
+
+            return redisWrappers[hope::StringHasher{}(key) % redisWrappers.size()];
+
+        }
+
         void WebrtcLogicSystem::postTask(WebrtcSignalPacket webrtcSignalPacket)
         {
 
@@ -73,7 +88,7 @@ namespace hope {
 
                 WebrtcHandler* func = iterator->second.get();
 
-                if (localTaskQueueSize.load() >= threshold.load() && webrtcLogicHandlers[type]) {
+                if (localTaskQueueSize.load() >= logicConfig.threshold && webrtcLogicHandlers[type]) {
 
                     std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
@@ -125,7 +140,7 @@ namespace hope {
                         },
                         [this](std::exception_ptr exception) mutable {
 
-                            if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
+                            if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
 
                                 asyncTaskExecute();
 
@@ -181,7 +196,7 @@ namespace hope {
 
             if (!asyncEvents.exchange(false)) return;
 
-            webrtcMysqlManagerPools.reset();
+            mysqlManagerPools.reset();
 
             webrtcHandlers.clear();
 
@@ -223,7 +238,7 @@ namespace hope {
                                 });
                     }
 
-                    if (webrtcLogicSystem->localTaskQueueSize.load() >= webrtcLogicSystem->exitThreshold.load()) {
+                    if (webrtcLogicSystem->localTaskQueueSize.load() >= webrtcLogicSystem->logicConfig.exitThreshold) {
 
                         LOG_WARN("Local Queue Depth {} Exceeds Threshold, Switching To Local Processing", webrtcLogicSystem->localTaskQueueSize.load());
 
@@ -265,7 +280,7 @@ namespace hope {
 
                 HttpHandler* func = iterator->second.get();
 
-                if (localTaskQueueSize.load() >= threshold.load() && httpLogicHandlers[targetUrl]) {
+                if (localTaskQueueSize.load() >= logicConfig.threshold && httpLogicHandlers[targetUrl]) {
 
                     unsigned int version = httpRequest.version();
 
@@ -373,7 +388,7 @@ namespace hope {
 
                     }, [this, targetUrl](std::exception_ptr ptr) {
 
-                        if (localTaskQueueSize.fetch_sub(1) == asyncThreshold.load() + 1) {
+                        if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
 
                             asyncTaskExecute();
 
@@ -1056,7 +1071,7 @@ namespace hope {
 
                         std::string targetHost = "127.0.0.1:" + std::to_string(rpc->coroRpcServerConfig.port);
 
-                        auto result = co_await rpc->asyncRpcRequest(
+                        ylt::expected<coro_rpc::rpc_result<RpcForwardResponse>, std::errc> result = co_await rpc->asyncRpcRequest(
                             targetHost,
                             [packet = std::move(packet), targetHost](coro_rpc::coro_rpc_client& client)mutable
                             -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
@@ -1244,7 +1259,7 @@ namespace hope {
                     std::shared_ptr<HttpSocket> httpSocket,
                     boost::beast::http::request<boost::beast::http::string_body> httpRequest) mutable -> boost::asio::awaitable<void> {
 
-                        auto manager = httpSocket->getWebrtcSignalManager();
+                        WebrtcSignalManager* manager = httpSocket->getWebrtcSignalManager();
 
                         int currentChannelIndex = manager->channelIndex;
 
@@ -1279,8 +1294,8 @@ namespace hope {
                             co_return;
                         }
 
-                        auto& obj = reqBody.as_object();
-                        auto it = obj.find("channelIndex");
+                        boost::json::object& obj = reqBody.as_object();
+                        boost::json::object::iterator it = obj.find("channelIndex");
                         if (it == obj.end() || !it->value().is_int64()) {
                             if (isSameChannel) {
                                 co_await awaitableHttpSocketAsyncWrite(httpSocket, httpRequest.version(),

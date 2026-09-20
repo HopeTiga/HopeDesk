@@ -8,7 +8,7 @@
 #include "WebrtcSignalServer.h"
 #include "WebrtcSignalSocket.h"
 
-#include "../iocp/AsioProactors.h"
+#include "../executor/SchedulerContext.h"
 
 #include "../utils/Utils.h"
 
@@ -31,13 +31,17 @@ namespace hope {
 
 #ifndef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(ioContext, channelIndex, taskQueues, channelConfig.threshold, channelConfig.exitThreshold, channelConfig.asyncThreshold);
+            boost::asio::io_context& logicIoContext = ioContext;
 
 #else
 
-            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(hope::iocp::AsioProactors::getLogicInstance()->getIoCompletePort(channelIndex), channelIndex, taskQueues, channelConfig.threshold, channelConfig.exitThreshold, channelConfig.asyncThreshold);
+            boost::asio::io_context& logicIoContext = hope::executor::SchedulerContext::getLogicInstance()->getIoCompletePort(channelIndex);
 
 #endif
+
+            hope::signal::WebrtcLogicConfig logicConfig{ channelConfig.threshold, channelConfig.exitThreshold, channelConfig.asyncThreshold, channelConfig.mysqlConfig, channelConfig.redisConfig };
+
+            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(logicIoContext, channelIndex, taskQueues, logicConfig);
 
             webrtcLogicSystem->asyncEvent();
 

@@ -40,7 +40,7 @@ namespace hope {
         }
 
         boost::asio::awaitable<void> HttpClient::connect(const std::string& host, const std::string& port) {
-            auto results = co_await resolver.async_resolve(host, port, boost::asio::use_awaitable);
+            boost::asio::ip::tcp::resolver::results_type results = co_await resolver.async_resolve(host, port, boost::asio::use_awaitable);
 
             if (enableSsl) {
                 if (!sslStream) {
@@ -132,7 +132,7 @@ namespace hope {
 
                 // ----- 6. 检查 keep-alive -----
                 bool keepAlive = (response.version() >= 11);
-                if (auto it = response.find(boost::beast::http::field::connection);
+                if (Response::iterator it = response.find(boost::beast::http::field::connection);
                     it != response.end() && it->value() == "close") {
                     keepAlive = false;
                 }
