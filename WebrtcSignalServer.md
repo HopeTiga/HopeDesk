@@ -28,9 +28,11 @@ WebrtcSignalServer/
 ├── Ssl.h / Ssl.cpp               # 全局 ssl::context + initSslContext/getSslContext
 ├── config.ini                    # 配置文件(ini)
 ├── makefile                      # clang/linux 构建
-├── iocp/
-│   └── AsioProactors.h/.cpp      # io_context 池(每线程一个 io_context)
+├── executor/                     # io_context 池:namespace hope::executor
+│   ├── SchedulerConfig.h      # 每池线程数 + io/logic 两对绑核开关
+│   └── SchedulerContext.h/.cpp # io_context 池(每线程一个 io_context)
 ├── signal/                       # 信令+HTTP 主体
+│   ├── WebrtcSignalConfig.h      # 信号子系统参数结构体 + loadWebrtcSignalConfig(读 [WebrtcSignalServer] 段)
 │   ├── WebrtcSignalServer.*      # 顶层服务:acceptor、全局任务队列、通道编排
 │   ├── WebrtcSignalManager.*     # 单通道:socket 表、actor 路由索引、LogicSystem
 │   ├── WebrtcSignalSocket.*      # WebSocket 连接:握手、收发协程、keepalive
@@ -42,20 +44,25 @@ WebrtcSignalServer/
 │   ├── AsioConcurrentQueue.h     # moodycamel 队列 + sam 信号量 的 awaitable 封装
 │   └── AwaitableTask.h           # TaskChannel:全局任务队列(concurrent_channel + moodycamel)
 ├── rpc/
+│   ├── CoroRpcConfig.h                # RPC 参数结构体 + loadCoroRpcConfig(读 [CoroRpc] 段)
 │   ├── CoroRpc.h/.cpp                 # ylt/coro_rpc 封装(server+client pool+LB,单例 getInstance)
 │   ├── CoroRpcHandleInterface.h       # RPC handler 抽象基类(纯虚 registerRpcHandle,只持 server 引用)
 │   ├── CoroRpcHandleImpl.h/.cpp       # RPC handler 实现(requestForward 跨节点转发,自注册)
 │   └── Rpc.h/.cpp                     # RpcForward/RpcForwardResponse + 默认 handler 注册 initCoroRpcHandleInterface
-├── mysql/
-│   ├── MysqlConfig.h             # 全局 MysqlConfig 结构体 + inline globalMysqlConfig
-│   ├── WebrtcMysqlManagerPools.* # boost::mysql 连接池(每通道一个)
-│   └── AsyncTransactionGuard.h   # 事务 RAII(START TRANSACTION / COMMIT / ROLLBACK)
+├── storage/                      # 存储层:namespace hope::storage(MySQL 与 Redis 都在这里)
+│   ├── MysqlConfig.h             # MySQL 连接参数结构体 + loadMysqlConfig(读 [Mysql] 段)
+│   ├── MysqlManagerPools.*       # boost::mysql 连接池(每通道一个)
+│   ├── AsyncTransactionGuard.h   # 事务 RAII(START TRANSACTION / COMMIT / ROLLBACK)
+│   ├── RedisConfig.h             # Redis 连接参数 + makeBoostRedisConfig/makeRedisSslContext/makeRedisLogger
+│   ├── RedisWrapper.*             # boost::redis 连接(connection + 构造即 async_run)
+│   └── Subscribe.*               # Redis 订阅(保留组件,当前无调用者)
 └── utils/
-    ├── ConfigManager.h           # ini/json/xml 配置单例(只在 main 用)
-    ├── MimallocConfig.h          # mimalloc 配置:默认值 + 读 [Mimalloc] 段 + mi_option_set 注入
+    ├── ConfigManager.h           # ini/json/xml 配置单例(只在 main.cpp 与各 loadXxxConfig 里用)
+    ├── MimallocConfig.h          # mimalloc 配置:默认值 + loadMimallocConfig(读 [Mimalloc] 段) + applyMimallocConfig(mi_option_set 注入)
+    ├── LoggerConfig.h            # 日志配置:loadLoggerConfig(读 [Logger] 段) + applyLoggerConfig(建异步线程池/文件 sink)
     ├── Utils.h/.cpp              # spdlog 日志:异步线程池 + 控制台/滚动文件 sink + flush_every
     ├── concurrentqueue.h         # moodycamel::ConcurrentQueue(改名 hopeMoodycamel 隔离)
-    ├── StringHasher.h            # 透明 string hasher(进程级种子) + StringKeyedNodeMap/FlatMap 别名
+    ├── StringHasher.h            # 透明 string hasher(无种子) + StringKeyedNodeMap/FlatMap 别名
     └── SpinLock.h
 ```
 
@@ -64,12 +71,14 @@ WebrtcSignalServer/
 整个日志子系统基于 **spdlog**（header-only，内置 fmt）：
 
 - **编译面**：只有 `utils/Utils.cpp` 一个 TU `#include <spdlog/spdlog.h>` 编译完整 spdlog；其余 TU 仅经 `Utils.h` 引入内置 `fmt`（`{}` 占位 + 编译期格式校验）与 `LOG_*` 宏。`SPDLOG_HEADER_ONLY` / `SPDLOG_ACTIVE_LEVEL` 由编译期定义。
-- **异步**：`spdlog::async_logger`（名 `webrtc-signal`），线程池在 `initLogger()` 用 `spdlog::init_thread_pool(queueSize, threadCount)` 创建（两值来自 `[Logger]` 段，须先经 `setLoggerAsyncConfig` 设定）；队列满策略 `overrun_oldest`——丢最旧不阻塞业务线程。
+- **异步**：`spdlog::async_logger`（名 `webrtc-signal`），线程池在 `initLogger()` 用 `spdlog::init_thread_pool(queueSize, threadCount)` 创建（两值来自 `[Logger]` 段，须先经 `applyLoggerConfig` → `setLoggerAsyncConfig` 设定）；队列满策略 `overrun_oldest`——丢最旧不阻塞业务线程。
 - **双 sink**：
-  - 控制台 `LevelFilterConsoleSink`（自实现 `base_sink`）：按 `[Logger]` 的 `DEBUG/INFO/WARN/ERROR` 开关 + ANSI 着色。`DEBUG/INFO` 可被开关关掉；`WARN/ERROR` **无条件**打印（关键日志不受开关影响）。
-  - 文件 `rotating_file_sink_mt`：`logs/webrtc-signal-server.log`，单文件 `maxFileSizeMB`、保留 `maxFiles` 个（默认 10MB × 5）。
+  - 控制台 `LevelFilterConsoleSink`（自实现 `base_sink`）：按 `[Logger]` 的 `DEBUG/INFO/WARN/ERROR` 开关 + ANSI 着色。**四个级别一律受各自开关控制**（warn/error 没有豁免）。
+  - 文件 `rotating_file_sink_mt`：`logs/webrtc-signal-server.log`，单文件 `maxFileSizeMB`、保留 `maxFiles` 个（默认 10MB × 5）；`logToFileEnabled=0` 时该 sink 直接 `level::off`。
 - **实时落盘**：`spdlog::flush_every(3s)` 周期 flush；`closeLogger()` 里 `logger->flush()` + `spdlog::shutdown()` 冲刷并停掉异步线程池。
-- **宏短路**：`LOG_DEBUG/LOG_INFO` 在调用点先查 `consoleOutputLevels[]` 与 `logToFileEnabled`——控制台与文件都不需要时**连 fmt 格式化都不做**；`LOG_WARN/LOG_ERROR` 无条件执行。
+- **宏短路**：四个宏都在调用点先查 `consoleOutputLevels[本级] != 0 || logToFileEnabled != 0`——控制台与文件都不需要时**连 fmt 格式化都不做**。
+- **编码：全链路 UTF-8，且调用点不做任何转换**——`ec.message()` / `e.what()` 直接写进日志。Windows 侧靠 `webrtc-signal-server.props` 的 `BOOST_SYSTEM_USE_UTF8`（boost 的 `message_cp_win32()` 据此把系统消息代码页切成 `CP_UTF8`；`error_code::what()` 是 `message()` 加后缀，所以 `system_error::what()` 一起生效），Linux 侧靠 `main.cpp` 的 `setlocale(LC_ALL, "C.UTF-8")`（没有 zh_CN catalog 时 `strerror` 给英文，本就是合法 UTF-8），源/执行字符集由 props 里的 `/utf-8` 钉住。**调用点一律直接写 `ec.message()` / `e.what()`**——不套转换层，也不去改写 `what()` 里嵌着的系统文本；要动编码就动上面那个宏。
+- **位置（`%s:%#`）**：默认取宏所在那一行。要报的不是这一行时用 `LOG_ERROR_FROM(sourceLocation, ...)`——把 `std::source_location` 的文件/行写进日志。`CompletionHandle`（`co_spawn` 的默认完成令牌）就是这么做的：在**构造点**用默认实参 `std::source_location::current()` 抓位置（默认实参在调用点求值），异常落日志时走 `LOG_ERROR_FROM`，于是报出来的是 `co_spawn` 那一行。**这里必须用 `LOG_ERROR_FROM`**：换成普通 `LOG_ERROR`，所有协程异常就都指向 `CompletionHandle.h` 的 catch 行，看不出真凶在哪个文件。
 - **格式**：`[%Y-%m-%d %H:%M:%S.%e][%l] %s:%# %v`（时间毫秒 / 级别 / 文件:行 / 消息）。
 
 ## 3. 整体架构
@@ -78,11 +87,11 @@ WebrtcSignalServer/
 
 ```mermaid
 flowchart TB
-  main["main.cpp 组合根<br/>ConfigManager.Load → 组装配置<br/>initSslContext / AsioProactors::init(threadSize)"]
+  main["main.cpp 组合根<br/>ConfigManager.Load → 组装配置<br/>initSslContext / SchedulerContext::init(schedulerConfig)"]
   server["WebrtcSignalServer<br/>main io_context(单线程)<br/>acceptor + httpAcceptor<br/>全局 TaskChannel 排水<br/>signal_set(SIGINT/SIGTERM)"]
   main -->|"构造注入 WebrtcSignalConfig"| server
 
-  subgraph pool["AsioProactors: io_context × threadSize (每通道一个 worker 线程)"]
+  subgraph pool["SchedulerContext: io_context × threadSize (每通道一个 worker 线程)"]
     ch0["Manager ch0<br/>io_context#0<br/>── LogicSystem(handlers/过载/路由)<br/>── MysqlPool<br/>── socketMap / actorSocketMappingIndex"]
     ch1["Manager ch1<br/>io_context#1<br/>── LogicSystem / MysqlPool / socketMap"]
     chN["Manager chN<br/>io_context#N<br/>── LogicSystem / MysqlPool / socketMap"]
@@ -99,20 +108,20 @@ flowchart TB
 | 线程 | io_context | 职责 |
 |------|-----------|------|
 | main loop(1 个) | `ioContext{1}` | accept(WebSocket+HTTP)、全局 TaskChannel 排水、`signal_set` |
-| TPC reactor × `threadSize` | `AsioProactors` 池中各自一个 | 本通道连接的握手/读写协程 |
-| logic 池 × `threadSize`（仅 `HOPE_RTC_SIGNAL_SERVER_LOGIC`） | 第二个 `AsioProactors` 单例 | 本通道的 handler 执行、转发、MySQL pool |
+| TPC reactor × `threadSize` | `SchedulerContext` 池中各自一个 | 本通道连接的握手/读写协程 |
+| logic 池 × `threadSize`（仅 `HOPE_RTC_SIGNAL_SERVER_LOGIC`） | 第二个 `SchedulerContext` 单例 | 本通道的 handler 执行、转发、MySQL pool |
 
 - **连接绑定通道**：accept 后 `loadBalanceWebrtcManger()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
 - **跨通道通信**：两个原语（`WebrtcSignalServer::postTask` 按 `handler` 返回类型重载），都把活儿派到 `channelIndex` 通道的 io_context 上跑、lambda 收到 `shared_ptr<WebrtcSignalManager>`，区别在协程/非协程与完成令牌：
-  - `postTask(channelIndex, handler, token = CompletionPostTask)`——**协程 + completion-token 版**（`handler` 返回 `awaitable<T>(shared_ptr<M>)`）。内部 `async_initiate` + `co_spawn`。默认令牌 `CompletionPostTask` = fire-and-forget + 异常落日志（返回 `void`）；传 `boost::asio::use_awaitable` 即可 `co_await` 拿返回值（`handler` 返回 `awaitable<json>` 则直接得到 `json`），续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认 → `void`，`use_awaitable` → `awaitable<T>`。
+  - `postTask(channelIndex, handler, token = CompletionHandle)`——**协程 + completion-token 版**（`handler` 返回 `awaitable<T>(shared_ptr<M>)`）。内部 `async_initiate` + `co_spawn`。默认令牌 `CompletionHandle` = fire-and-forget + 异常落日志（返回 `void`）；传 `boost::asio::use_awaitable` 即可 `co_await` 拿返回值（`handler` 返回 `awaitable<json>` 则直接得到 `json`），续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认 → `void`，`use_awaitable` → `awaitable<T>`。
   - `postTask(channelIndex, handler)`——**普通 post 版**（`handler` 是 `void(shared_ptr<M>)` 的可调用对象）。内部 `boost::asio::post`，**不建协程、无协程帧开销**，返回 `bool`（校验 channelIndex）。给"纯同步活儿、不需要 `co_await`、不需要异常语义"的 fire-and-forget 跳用（如回写/清缓存）。轻量优先用普通重载；要 `co_await` 或要跨通道协程语义才用协程重载。
   - 入参非法（channelIndex 越界/manager 为空）时：普通 `postTask` 直接 `LOG_ERROR` + 返回 `false`；协程 `postTask` 走 async 契约——通过令牌完成一个 `runtime_error` 异常（默认令牌打日志、`use_awaitable` 在调用方 `co_await` 处抛出），不 `co_spawn`，避免 `use_awaitable` 调用方挂死。
   - 路由转发的线程跳转用这两个重载完成（forward 路径已确认无死代码、无冗余查找、无冗余自跳，到极限）。
 - **条件编译**：
   - `__linux__`：accept 走每通道 `SO_REUSEPORT` 多 acceptor（`WebrtcSignalManager::asyncAccept`），Linux 专用路径。
   - 非 Linux（含 Windows）：单 acceptor 在 main loop，accept 后分发。
-  - `HOPE_RTC_SIGNAL_SERVER_LOGIC`：LogicSystem 用独立 logic io 池（`AsioProactors::getLogicInstance`）而非本通道 io，即**收发与派发分池**；实测吞吐/延迟见 §11.2。
-  - `Webrtc_SIGNAL_SOCKET_DISABLE_SSL` / `Webrtc_SIGNAL_HTTP_SOCKET_DISABLE_SSL`：关闭对应连接的 SSL。
+  - `HOPE_RTC_SIGNAL_SERVER_LOGIC`：LogicSystem 用独立 logic io 池（`SchedulerContext::getLogicInstance`）而非本通道 io，即**收发与派发分池**；实测吞吐/延迟见 §11.2。
+  - `WEBRTC_SIGNAL_SOCKET_DISABLE_SSL` / `WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL`：关闭对应连接的 SSL。
 
 ### 3.3 配置解耦（重点）
 
@@ -120,19 +129,27 @@ flowchart TB
 
 ```
 main.cpp: ConfigManager.Instance().Load("config.ini")
-        → 读 [WebrtcSignalServer] 填 WebrtcSignalConfig(构造注入)
-        → 读 [CoroRpc]          填 WebrtcSignalConfig.coroRpcServerConfig + enableRpc
-        → 读 [Mysql]            填 globalMysqlConfig(全局)
-        → 读 [Logger]           异步线程池队列/线程数 + 控制台级别 + 滚动文件日志
         → 读 [Mimalloc]         填 MimallocConfig → mi_option_set 注入(编译期,等价 MIMALLOC_* 环境变量)
+        → 读 [Logger]           填 LoggerConfig → applyLoggerConfig(异步线程池队列/线程数 → 滚动文件 → initLogger → 控制台级别)
+        → 读 [WebrtcSignalServer] 的 threadSize 与两对绑核开关 填 SchedulerConfig → SchedulerContext::init
+        → 读 [WebrtcSignalServer] 其余键 填 WebrtcSignalConfig(loadWebrtcSignalConfig,构造注入)
+        → 读 [CoroRpc]          填 WebrtcSignalConfig.coroRpcServerConfig(loadCoroRpcConfig;段里的 enableRpc 这个键由 loadWebrtcSignalConfig 跨段读)
+        → 读 [Mysql]/[Redis]   填 WebrtcSignalConfig.mysqlConfig / .redisConfig(loadMysqlConfig / loadRedisConfig)
+        → initSslContext(WebrtcSignalConfig.certificateFile / .privateKeyFile)
 ```
 
-两条注入路径：
+注入路径（只有一条，全是构造注入）：
 
-1. **浅层(3 跳)走构造注入**：`WebrtcSignalConfig` → `WebrtcSignalServer` → `WebrtcSignalManager`（用标量小结构体 `WebrtcSignalChannelConfig` 收拢，避免把 CoroRpc 头拖进 Manager）→ `WebrtcLogicSystem`（threshold/exitThreshold/asyncThreshold）/ `WebrtcSignalSocket`（socketWaitTime）。
-2. **深层(4 跳、跨子系统)走全局**：`mysql/MysqlConfig.h` 里 `inline MysqlConfig globalMysqlConfig;`，main 填一次，`WebrtcMysqlManagerPools` 读。穿透 server→manager→logicSystem→pools 四层，中间三层不关心 mysql 参数，故按约定走全局而非透传。
+1. **浅层(3 跳)**：`WebrtcSignalConfig` → `WebrtcSignalServer` → `WebrtcSignalManager`（用标量小结构体 `WebrtcSignalChannelConfig` 收拢，避免把 CoroRpc 头拖进 Manager）→ `WebrtcLogicSystem`（三个水位 + 存储层连接参数再收拢成 `WebrtcLogicConfig`，在 Manager 的构造点拼）/ `WebrtcSignalSocket`（socketWaitTime）。
+2. **存储层参数跟着 `WebrtcLogicConfig` 走**：`MysqlConfig` 与 `RedisConfig` 都是 `WebrtcLogicConfig` 的成员。`WebrtcLogicSystem` 直接拿前者建 `MysqlManagerPools`；后者按 `connectionSize` 条喂给 `RedisWrapper`（`redisWrappers`，见 §9.3）。**存储层没有任何全局配置**，一律经注入进来。两棵树的共享源码逐文件一致，含 `storage/` 这个目录名与 `hope::storage` 这个 namespace（存储层类型名一律不带 `Webrtc` 前缀）。
 
-业务类内部**不再出现 `ConfigManager::Instance()`**。
+业务类内部**不出现 `ConfigManager::Instance()`**，配置只从构造函数进来。
+
+**读配置的唯一写法：`inline loadXxxConfig(XxxConfig&, const ConfigManager&)`**（2026-09-20 起全仓库统一）。每个组件一份 `XxxConfig.h`，`struct` 的成员默认值**就是** ini 缺项时的兜底值，loader 逐行 `GetString/GetInt/GetBool("<段名>." + 成员名, 当前值)`——ini key 与成员名机械对应，没有翻译层。**七个 ini 段各一份，`main.cpp` 里只剩调用**：`loadMimallocConfig`（`utils/MimallocConfig.h`）、`loadLoggerConfig`（`utils/LoggerConfig.h`，`[Logger]` 段；副作用在配对的 `applyLoggerConfig` 里）、`loadSchedulerConfig`（`executor/SchedulerConfig.h`）、`loadWebrtcSignalConfig`（`signal/WebrtcSignalConfig.h`）、`loadCoroRpcConfig`（`rpc/CoroRpcConfig.h`）、`loadMysqlConfig`（`storage/MysqlConfig.h`）、`loadRedisConfig`（`storage/RedisConfig.h`）。
+
+三处刻意的不机械，都是兼容既有 `config.ini` 或单一所有权：① `WebrtcSignalConfig::threadSize` 由 `loadSchedulerConfig` 唯一读一次（通道数 = 每个池的线程数）；② `WebrtcSignalConfig::enableRpc` 的键在 `[CoroRpc]` 段（`CoroRpc.enableRpc`），由 `loadWebrtcSignalConfig` 跨段读；③ `[Logger]` 的级别键是大写的（`Logger.DEBUG`），成员名小写。
+
+**已知陷阱：`ConfigManager::GetSize` 把 `<= 0` 当"回退到核数"**（默认退到 `std::thread::hardware_concurrency()`）。所以语义上 0 就是 0 的键一律走 `GetInt` + 手工夹取，不能走 `GetSize`：`Redis.maxReadSize`/`Redis.connectionSize`、`SchedulerConfig` 的两个绑核偏移量、`WebrtcSignalConfig` 的端口与开关（`enableHttp`/`enablePublicPort` 关掉的 0 会被 `GetSize` 换成兜底值）。
 
 ---
 
@@ -140,14 +157,14 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 ### 启动（`main.cpp`）
 
-1. 设置控制台 UTF-8。
+1. 设置控制台 UTF-8（Windows `SetConsoleOutputCP(CP_UTF8)` + `SetConsoleCP(CP_UTF8)`，Linux `setlocale(LC_ALL, "C.UTF-8")`）——日志全链路 UTF-8 的一半前提在这里，另一半在构建宏（见 §2.1）。
 2. `mi_version()`（强制引用 mimalloc 符号，保证动态库装载）。
 3. `ConfigManager.Load("config.ini")`。
 4. 读 `[Mimalloc]` 段（`loadMimallocConfig`）→ `applyMimallocConfig` 逐项 `mi_option_set`（编译期注入，等价 Windows 侧 `MIMALLOC_*` 环境变量，编进产物，运行时无需再设）。
-5. 读 `[Logger]`：`setLoggerAsyncConfig(queueSize, threadCount)` 建 spdlog 异步线程池 → `initLogger()`（控制台 + rotating 文件 sink，`spdlog::flush_every(3s)` 实时落盘）→ `setConsoleOutputLevels(DEBUG/INFO/WARN/ERROR)` → `setFileLoggingConfig(logToFile/logDirectory/maxFileSizeMB/maxFiles)`。
-6. `initSslContext(certificateFile, privateKeyFile)`（主 WebSocket/HTTP 的 SSL 上下文）。
-7. 组装 `WebrtcSignalConfig`（port/httpPort/enableHttp/enablePublicPort/threadSize/overload/threshold/exitThreshold/asyncThreshold/socketWaitTime + `[CoroRpc]` 子配置）与 `globalMysqlConfig`。
-8. `AsioProactors::init(threadSize)` 启动 worker 线程池。
+5. 读 `[Logger]` 段（`loadLoggerConfig`）→ `applyLoggerConfig`：`setLoggerAsyncConfig(queueSize, threadCount)` 建 spdlog 异步线程池 → `setFileLoggingConfig(logToFile/logDirectory/maxFileSizeMB/maxFiles)` → `initLogger()`（控制台 + rotating 文件 sink，`spdlog::flush_every(3s)` 实时落盘）→ `setConsoleOutputLevels(DEBUG/INFO/WARN/ERROR)`。
+6. 读 `[WebrtcSignalServer]` 的 `threadSize` 与两对绑核开关（`loadSchedulerConfig`）→ `SchedulerContext::init(schedulerConfig)` 启动 worker 线程池。
+7. `loadWebrtcSignalConfig` 填 `WebrtcSignalConfig`（port/httpPort/enableHttp/enablePublicPort/overload/threshold/exitThreshold/asyncThreshold/maxTls*/maxHttpKeepAliveTime/certificateFile/privateKeyFile），再 `loadCoroRpcConfig` / `loadMysqlConfig` / `loadRedisConfig` 三行填完它的三份子配置；`threadSize` 取第 6 步的值（同一个 ini 键只读一次）。
+8. `initSslContext(webrtcSignalConfig.certificateFile, webrtcSignalConfig.privateKeyFile)`（主 WebSocket/HTTP 的 SSL 上下文）。
 9. 构造 `WebrtcSignalServer(ioContext, WebrtcSignalConfig)`（内部 `initialize()` 建 N 个 Manager，每个 Manager 建 LogicSystem+MysqlPool 并 `asyncEvent()`）。
 10. `WebrtcSignalServer->asyncEvent()`：开 accept 协程、全局任务队列排水协程、各 LogicSystem 的 `asyncTaskExecute()`。
 11. `signal_set(SIGINT/SIGTERM).async_wait(...)`。
@@ -160,15 +177,15 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
    - `taskQueues.close()` 关全局任务队列（排水协程收到 `channel_closed`，排空队列后自然退出）。
    - **逐连接温和关闭**：每个 Manager 的 socket 关闭任务 `post` 到**它自己的连接池 ioContext**，与 `registerSocket`/`removeConnection` 串行（避免跨线程竞态访问 `webrtcSocketMap`）——逐个 `socket->closeEvent()` 后 `webrtcSocketMap.clear()`；N 个通道**并行**关闭，用 `std::latch`（C++20 barrier）`count_down()`/`wait()` 等全部完成。
      - **这一步必须留在下一句 `stop()` 之前**：它靠 worker 线程仍在 `run()` 才有机会执行，反序会死锁在 `closeLatch.wait()`。
-   - `AsioProactors::getInstance()->stop()`：`releaseWork()` → 全部 io_context `stop()`（停止派发、丢弃未执行 handler）→ **`join()` 全部 worker 线程**。
+   - `SchedulerContext::getInstance()->stop()`：`releaseWork()` → 全部 io_context `stop()`（停止派发、丢弃未执行 handler）→ **`join()` 全部 worker 线程**。
      - 这一句同时是**清表安全性的来源**。`webrtcHandlers` 等注册表里存的是 `awaitable` 协程对象，派发时取裸指针捕获进异步执行体；一个**已挂起**的 handler 协程帧并不安全——协程帧是透过闭包对象读捕获变量的，不是自己拷一份，所以注册表一 `clear()`，任何一次唤醒都是 use-after-free（`co_await` 带超时 RPC 的 handler 会挂数秒，窗口就是秒级）。
      - `stop()` 返回后这个窗口被彻底关掉：**协程的每一次恢复都必须由某个 io_context 派发一个完成回调，而线程已经 join 完、context 已停**，所以挂起的协程永远不会被唤醒，也就永远不会走到读捕获变量那行。改变的不是协程的生命周期，是它再也执行不到那行代码。
      - 由此 `webrtcSignalManagers.clear()` 从"赌没有协程在飞"变成"确定没有协程能跑"。
    - `webrtcSignalManagers.clear()`（触发各 Manager/LogicSystem/MysqlPool 析构，即 `webrtcHandlers.clear()` 等）。
-     - 注意 `~WebrtcMysqlManagerPools` 只是把 `pool->cancel()` `post` 到**已经停掉的** io_context，**这句不会被执行**；连接改由连接池析构时关闭（被遗弃的 handler 连同它捕获的 `shared_ptr<pool>` 在 `~AsioProactors` 销毁 io_context 时释放）。这是本次唯一的语义差异，进程即将退出，无实际影响。
+     - 注意 `~MysqlManagerPools` 只是把 `pool->cancel()` `post` 到**已经停掉的** io_context，**这句不会被执行**；连接改由连接池析构时关闭（被遗弃的 handler 连同它捕获的 `shared_ptr<pool>` 在 `~SchedulerContext` 销毁 io_context 时释放）。这是这套顺序唯一的语义差异，进程即将退出，无实际影响。
 2. 回到 `main`：`work.reset()` + `ioContext.stop()`（main **自己的** io_context，与 worker 池彼此独立）。
 3. `closeLogger()`。此时 worker 线程已 join，不会再有人往已拆掉的 logger 里写。
-4. `AsioProactors` 析构 → 再调一次 `stop()`（幂等，`joinable()` 为假直接跳过）→ 销毁 io_context，被遗弃的协程帧此刻析构，只跑自身局部变量的析构，不会回头读已释放的 handler 闭包。
+4. `SchedulerContext` 析构 → 再调一次 `stop()`（幂等，`joinable()` 为假直接跳过）→ 销毁 io_context，被遗弃的协程帧此刻析构，只跑自身局部变量的析构，不会回头读已释放的 handler 闭包。
 
 ---
 
@@ -190,7 +207,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 ### 5.2 收发循环
 
 - `asyncEvent()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
-- **握手之后不再用 Beast 的 `async_read`/`async_write`**，两侧都直接走 `webSocket.next_layer()`（SSL 开着时是 `ssl::stream`，关掉时是 `tcp::socket`，同一份代码）。原因见下方「为什么换掉 Beast」。
+- **握手之后直接操作 `webSocket.next_layer()`**，不走 Beast 的 `async_read`/`async_write`（SSL 开着时是 `ssl::stream`，关掉时是 `tcp::socket`，同一份代码）。理由见下方「为什么不用 Beast 的读写接口」。
 - **revice**：`async_read_some` 读进 `receiveBuffer`（缓冲区两档，见下方「接收缓冲区」）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头到 `webrtcEnvelope`（`WebrtcEnvelopeView`，返回消耗字节数，信封后的 body 留在 `packet`）→ 取 `requestType` → 组装 `WebrtcSignalPacket`（内嵌 `webrtcEnvelope` + 整帧 `packet`）→ `logicSystem->postTask(packet)`。
   - 一次读完成产出 K 条消息，K 通常 > 1（128B 消息实测 ~17–42），这是写侧批量能成立的前提。
   - RFC 6455 的分片消息（FIN=0 + 延续帧）在这里自己拼回来，不依赖 Beast；拼回来的整条消息另卡一道 `maximumMessageSize`（与缓冲区同档，见下）。**缓冲区上限对分片路径无效** —— 每帧独立过完整性检查，N 个 FIN=0 的帧累加就能把内存吃干，所以这道口子必须单独堵。
@@ -211,15 +228,15 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
   - 取空即 `co_await` 挂起、不等配额，所以严格一问一答（window=1）时自动退化成一条一条，不会死锁。
 - 异常/断开 → `onDisConnectHandle(accountId, sessionId)` → `removeConnection`。
 
-**为什么换掉 Beast**：Beast 的 `webSocket.async_read(dynamicBuffer)` 一次完成只产出一个消息（K=1）。读协程与写协程在同一条单线程 io_context 上严格交替，于是每个连接的写队列深度恒为 **1** —— 写者取走那一条、写出去、再看队列已空、挂起，然后才轮到下一个读完成。**写侧怎么改写都取不到第二条**。隔离台架实测：只改写侧 0.98×（无收益，window=1 时还慢 7%），只改读侧 1.33×，两侧都改 **6.16–6.73×**，两个修复是乘性的不是相加的。
+**为什么不用 Beast 的读写接口**：Beast 的 `webSocket.async_read(dynamicBuffer)` 一次完成只产出一个消息（K=1）。读协程与写协程在同一条单线程 io_context 上严格交替，于是每个连接的写队列深度恒为 **1** —— 写者取走那一条、写出去、再看队列已空、挂起，然后才轮到下一个读完成。**写侧怎么改写都取不到第二条**。隔离台架实测：只改写侧 0.98×（无收益，window=1 时还慢 7%），只改读侧 1.33×，两侧都改 **6.16–6.73×**，两个修复是乘性的不是相加的。
 
 **真机 1000 连接**（sdp 1KB）：143k → 198k msgs/s（**1.38×**），带宽 140 → 193 MB/s。代价是**尾延迟变差**：p99 3.28 → 9.55/10.71ms、max 18 → 77ms（p50 基本不动，0.64 → 0.65ms）。这是批量的固有代价 —— 服务端一次最多推 32 条，某一条得在批量队列里多等，拆分指标「发出后在管道内」0.09 → 0.37ms 量的正是这一段。
 
-> **⚠️ 上面的 198k 是「无逻辑池」构建的上限，不是批量的真实潜力**（2026-09-16 更正）：这一轮的 1.38× 全部测于**未开 `HOPE_RTC_SIGNAL_SERVER_LOGIC`** 的构建，其特征状态（197,790 msgs/s / 193.15 MB/s / p99 9.55 / max 77.15 / 管道内 0.37ms）后来被逐项复现。同一个批量构建**加上逻辑池**（§11.2）后是 **842,759 msgs/s**（4.26×）。
+> **⚠️ 上面的 198k 是「无逻辑池」构建的上限，不是批量的真实潜力**：这一轮的 1.38× 测的是**未开 `HOPE_RTC_SIGNAL_SERVER_LOGIC`** 的构建，其特征状态（197,790 msgs/s / 193.15 MB/s / p99 9.55 / max 77.15 / 管道内 0.37ms）已逐项复现。同一个批量构建**加上逻辑池**（§11.2）后是 **842,759 msgs/s**（4.26×）。
 >
 > **所以批量与逻辑线程不是两条独立收益，是同一条杠杆的两半**：写侧批量成立的前提是"一次读完成产出 K>1 条"，而这要求收发线程能**一直**攒批、凑批；只要派发/转发还压在同一个线程上，攒批就被打断。1.38× 是被压制后的数 —— 逻辑池把收发线程还给收发，批量的收益才兑现。算账时**不要把两者相乘**。
 
-**行为变化**：`webSocket.set_option(stream_base::timeout::suggested(server))` 设的空闲超时与 keep-alive ping 由 Beast 的读写操作驱动，绕过之后**不再触发** —— 死连接不再由超时清理（TCP keepalive 仍在，但它只能发现对端主机消失，发现不了"连接活着但不说话"），客户端也不再收到周期性 ping。
+**注意**：`webSocket.set_option(stream_base::timeout::suggested(server))` 设的空闲超时与 keep-alive ping 由 Beast 的读写操作驱动；自己读写 `next_layer()` 之后这两样**都不生效** —— 死连接不靠超时清理（TCP keepalive 仍在，但它只能发现对端主机消失，发现不了"连接活着但不说话"），客户端也收不到周期性 ping。
 
 ### 5.3 关闭：RST 强关
 
@@ -249,7 +266,7 @@ handler = WebrtcHandlers[requestType]
                有异常 → 普通版就地 LOG;token 版经 completion handler 传播
 ```
 
-- 值返回的兄弟原语 `coPostTask(packet)` 走 `webrtcValueHandlers[type]`，同队列/削峰逻辑，但 handler 返回 `awaitable<boost::json::value>`，最终以 `void(std::exception_ptr, json)` 回调值（或经默认 token `CompletionCoPostTask` 只记异常）。
+- 值返回的兄弟原语 `coPostTask(packet)` 走 `webrtcValueHandlers[type]`，同队列/削峰逻辑，但 handler 返回 `awaitable<boost::json::value>`，最终以 `void(std::exception_ptr, json)` 回调值（或经默认 token `CompletionHandle` 只记异常）。
 - `WebrtcLogicHandlers[type]` 标记该 handler 是否可搬到全局队列。**当前信令 1–7、9 全为 false**，即信令始终本地派发（低延迟、贴在连接所在线程）；全局队列主要服务可搬迁的 HTTP handler（`overview` 为 true）。
 - 全局 `TaskChannel` 由 `threadSize+1` 个排水协程消费（main loop 1 个 + 每通道 LogicSystem 1 个），moodycamel 多消费安全。
 
@@ -283,7 +300,7 @@ handler = WebrtcHandlers[requestType]
 
 要点：
 - **一致性哈希 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射**在一个进程内**稳定（全仓库只有 `WebrtcSignalManager` 里那一个 `StringHasher` 成员被 5 处路由决策共用，所以各通道必然算出同一个桶）。`actorSocketMappingIndex`（targetId→{sessionId,channel}）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
-  - hasher 的值**从不跨进程**：跨节点转发时接收端用自己的 hasher 重算桶，所以哈希值里那个进程级随机种子（见 §11）不影响跨节点路由；它只让**同一账号在重启后可能落到不同通道**。
+  - hasher 的值**从不跨进程**：跨节点转发时 `forwardChannel` 恒为 0（`signal/WebrtcLogicSystem.cpp:1079`），接收端用自己的 hasher 重算桶。所以 hasher 必须跨实例可复现（见 §11）。
 - **两级缓存**：源 socket 的 `actorMappingIndex`（targetId→channel）就近缓存，home 的 `actorSocketMappingIndex` 全局索引。命中缓存省一跳；缓存命中这条是 1 跳的常见好路径。
 - **过期自愈**：缓存指向的通道查不到 socket（缓存过期）就重路由到 home 重新寻址；404 时清掉源 socket 上指向错误通道的缓存项，下次重新寻址。缓存失效多出的那一跳是缓存换来的代价——要消只能放弃缓存（每条都先跳 home）或给缓存加版本号，得不偿失。
 - **线程安全**：`webrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 各自只在所属通道的 io_context 线程上访问，跨通道读写一律经 `postTask`（普通/协程两个重载）跳到该线程，无锁。
@@ -343,11 +360,8 @@ flowchart TD
 | 6 | CLOSESYSTEM | forwardHandler |
 | 7 | SYSTEMREADLY | forwardHandler |
 | 9 | RPC 跨节点转发 | CoroRpc::asyncRpcRequest → requestForward（见 §8.7） |
-| 5 | **压测 echo（非业务）** | 无捕获 lambda：原帧回写给来源连接 |
 
-2 未被任何 handler 注册（真实客户端的 `WebrtcRequestState` 里也没有 2 和 5，所以这两个值不会被业务流量命中）。1/3/6/7 复用同一个 `forwardHandler`，仅 `requestTypeStr` 不同（日志区分）；9 走 CoroRpc 跨节点 RPC。
-
-5 号 echo 是**压测专用**，只做一件事：`webrtcSignalPacket.webrtcSignalSocket->asyncWrite(std::move(packet))`，不查表、不跨通道、不解析 body，写路径与转发完全同一条（`asyncWrite` → `asioConcurrentQueue` → `writerCoroutine` 批量出帧）。它量的是信令通道自己的回环上限——去掉的只有三级寻址和 `postTask` 那一次跨通道投递。压测客户端用 `--request-type 5` 打它。
+服务端 `webrtcHandlers` 只登记 1/3/6/7/9。**2 与 5 都未被任何 handler 注册**（真实客户端的 `WebrtcRequestState` 也只有 0/1/3/4/6/7/8/9 —— 见 `WebrtcManager.h`，所以这两个值不会被业务流量命中）。1/3/6/7 复用同一个 `forwardHandler`，仅 `requestTypeStr` 不同（日志区分）；9 走 CoroRpc 跨节点 RPC。
 
 ---
 
@@ -377,7 +391,7 @@ flowchart TD
 
 **鉴权由每通道的 `HttpFilters` 承担**（`WebrtcLogicSystem` 的成员 `httpFilters`，每实例一份，不走 thread_local / 单例，便于规则内协程查库）。配置在 `initFilters()`（`asyncEvent` 依次调 `initHandlers → initFilters → initHttpHandlers`）：
 
-- `addRule(pathPattern)`：**放行规则**，纯路径、无回调。请求路径命中即**直接放行**，不再走过滤器。`matchPath` 规则：空或 `*` 全中；尾部 `*` 前缀匹配；否则精确相等。
+- `addRule(pathPattern)`：**放行规则**，纯路径、无回调。请求路径命中即**直接放行**，不进过滤器。`matchPath` 规则：空或 `*` 全中；尾部 `*` 前缀匹配；否则精确相等。
 - `addFilter(check)`：**全局过滤器**，真正的校验回调 `bool(shared_ptr<HttpSocket>, const request&)`。**未命中任何规则**的请求才落到这里，任一返回 `false` 即拒绝。
 - `authorization()` 裁决顺序（先规则、后过滤器）：规则命中 → 放行短路；无规则命中 → 逐个过全局过滤器；什么都没配置 → 直接放行。
 
@@ -437,7 +451,7 @@ HttpClient 是出站客户端，供服务端（或调用方）访问外部 HTTP 
 示例（向 Polaris 注册实例）：
 
 ```cpp
-auto client = std::make_shared<HttpClient>(ioc, /*enableSsl=*/false);  // Polaris 常用明文 80
+std::shared_ptr<HttpClient> client = std::make_shared<HttpClient>(ioc, /*enableSsl=*/false);  // Polaris 常用明文 80
 
 boost::asio::co_spawn(ioc, [client, token]() mutable -> boost::asio::awaitable<void> {
     HttpClient::Request req;
@@ -466,7 +480,7 @@ boost::asio::co_spawn(ioc, [client, token]() mutable -> boost::asio::awaitable<v
     req.body() = boost::json::serialize(obj);
     req.prepare_payload();
 
-    auto resp = co_await client->asyncRequest("127.0.0.1:8090", req);
+    HttpClient::Response resp = co_await client->asyncRequest("127.0.0.1:8090", req);
     // Discover / Heartbeat / DeregisterInstance 同理,换 target + body
 }, boost::asio::detached);
 ```
@@ -504,7 +518,7 @@ ylt/coro_rpc 的 handler 必须是**命名空间作用域的自由函数**或**�
 ```cpp
 struct RpcRequest { int request; std::string json; };
 async_simple::coro::Lazy<RpcRequest> calculate(RpcRequest req) {
-    auto val = co_await coro_io::post([req]() { return req; });
+    RpcRequest val = co_await coro_io::post([req]() { return req; });
     co_return val.value();
 }
 hope::rpc::CoroRpc* rpc = hope::rpc::CoroRpc::getInstance();
@@ -543,7 +557,7 @@ flowchart TD
 
 **调用自由函数 handler**（服务端按 `registerHandler<func>` 注册）：
 ```cpp
-auto r = co_await rpc->asyncRpcRequest(
+ylt::expected<coro_rpc::rpc_result<RpcRequest>, std::errc> r = co_await rpc->asyncRpcRequest(
     "127.0.0.1:10011",
     [](coro_rpc::coro_rpc_client& cli)
     -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcRequest>> {
@@ -552,12 +566,12 @@ auto r = co_await rpc->asyncRpcRequest(
     });
 if (!r)              { /* 连接层失败 */ }
 else if (!r.value()) { /* RPC 业务失败 */ }
-else                 { auto& resp = r.value().value(); /* 使用 resp */ }
+else                 { RpcRequest& resp = r.value().value(); /* 使用 resp */ }
 ```
 
 **调用成员函数 handler**（服务端按 `registerHandler<&Class::method>(obj)` 注册）：
 ```cpp
-auto result = co_await rpc->asyncRpcRequest(
+ylt::expected<coro_rpc::rpc_result<RpcForwardResponse>, std::errc> result = co_await rpc->asyncRpcRequest(
     "127.0.0.1:10011",
     [](coro_rpc::coro_rpc_client& client)
     -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
@@ -570,7 +584,7 @@ auto result = co_await rpc->asyncRpcRequest(
 
 **负载均衡版** `asyncLbRpcRequest(op)`：用 `createLoadBalancer` 配置的 host 列表轮询/加权分发，`op` 多一个 `string_view host` 参数告知本次选中的节点：
 ```cpp
-auto r = co_await rpc->asyncLbRpcRequest(
+ylt::expected<coro_rpc::rpc_result<int>, std::errc> r = co_await rpc->asyncLbRpcRequest(
     [](coro_rpc::coro_rpc_client& cli, std::string_view host)
     -> async_simple::coro::Lazy<coro_rpc::rpc_result<int>> {
         co_return co_await cli.call<someFunc>();
@@ -581,7 +595,7 @@ auto r = co_await rpc->asyncLbRpcRequest(
 
 **异步等待 `asyncAwait(func, args...)`**：接收一个【协程函数】+ 参数，参数以协程参数形式（走协程 ABI）传进 Lazy，投递到 RPC 内部 io 池异步执行，不阻塞当前协程（若在 asio 协程中调用，则立即返回）。常用于在 `boost::asio::awaitable` 上下文中发起 RPC（见 §8.7）。
 
-**host 黑名单**：对端下线后调 `removeHost(host)`（或 `removeHostsNotIn(onlineList)`）将其剔除，后续 `asyncRpcRequest` 对该 host 直接返回 `std::errc::not_connected`，不再走网络；同时清除该 host 的空闲连接。
+**host 黑名单**：对端下线后调 `removeHost(host)`（或 `removeHostsNotIn(onlineList)`）将其剔除，后续 `asyncRpcRequest` 对该 host 直接返回 `std::errc::not_connected`，不走网络；同时清除该 host 的空闲连接。
 
 ### 8.4 SSL 三模式
 
@@ -593,7 +607,7 @@ auto r = co_await rpc->asyncLbRpcRequest(
 
 ### 8.5 在信令服务器中的集成
 
-`CoroRpc` 是**全局单例**（`CoroRpc::getInstance()`），不再由 `WebrtcSignalServer` 持有。服务器只维护一个 RPC handler 数组：`std::vector<std::unique_ptr<CoroRpcHandleInterface>> coroRpcHandleInterfaces`，每个元素是自包含的 handler 对象（默认是 `CoroRpcHandleImpl`），在 `asyncEvent` 中逐个自注册。
+`CoroRpc` 是**全局单例**（`CoroRpc::getInstance()`），不由 `WebrtcSignalServer` 持有。服务器只维护一个 RPC handler 数组：`std::vector<std::unique_ptr<CoroRpcHandleInterface>> coroRpcHandleInterfaces`，每个元素是自包含的 handler 对象（默认是 `CoroRpcHandleImpl`），在 `asyncEvent` 中逐个自注册。
 
 当 `enableRpc=1` 时，`WebrtcSignalServer::asyncEvent()` 按以下顺序拉起 RPC：
 
@@ -698,7 +712,7 @@ CoroRpcHandleImpl::requestForward(RpcForward rpcforward) {
 
     // 2. 建 Promise/Future 对
     async_simple::Promise<RpcForwardResponse> promise;
-    auto future = promise.getFuture();
+    async_simple::Future<RpcForwardResponse> future = promise.getFuture();
 
     // 3. 将 promise 移动进 asio 协程 lambda，在目标通道跑完活后 setValue
     WebrtcSignalServer.postTask(channelIndex,
@@ -748,7 +762,7 @@ coroRpc->asyncAwait(
        std::string packet, std::shared_ptr<RpcForwardResponse> resp)
     -> async_simple::coro::Lazy<void> {
         std::string targetHost = "127.0.0.1:" + std::to_string(rpc->coroRpcServerConfig.port);
-        auto result = co_await rpc->asyncRpcRequest(
+        ylt::expected<coro_rpc::rpc_result<RpcForwardResponse>, std::errc> result = co_await rpc->asyncRpcRequest(
             targetHost,
             [packet = std::move(packet), targetHost](coro_rpc::coro_rpc_client& client)
             -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
@@ -799,12 +813,14 @@ LOG_INFO("rpcResponse state:%d message:%s", rpcForwardResponse->state, rpcForwar
 
 ---
 
-## 9. MySQL（`mysql/`）
+## 9. 存储层（`storage/`，namespace `hope::storage`）
 
-### 9.1 连接池 `WebrtcMysqlManagerPools`
+两个后端都在这个目录下，类型名一律不带 `Webrtc` 前缀。**MySQL 已接入（每通道一池），Redis 只建了连接、还没接到任何业务路径上**——见 9.3 结尾的现状说明。
+
+### 9.1 连接池 `MysqlManagerPools`
 
 - 每个 `WebrtcLogicSystem` 构造时建一个 `boost::mysql::connection_pool`，跑在该通道 io_context 上（`co_spawn` `pool->async_run`）。
-- 配置来自全局 `globalMysqlConfig`（host/port/user/password/database/multiQueries/poolInitialSize/poolMaxSize/connectTimeout/pingInterval/pingTimeout），main 启动时填一次，启动后只读无锁。
+- 配置来自 `WebrtcLogicConfig::mysqlConfig`。`poolInitialSize`/`poolMaxSize` 是**每个 channel** 各一份池的大小。启动后只读无锁。
 - `getTransactionMysqlManager() -> awaitable<ScopedMysqlConnection>`：`async_get_connection` 取连接，包成 `ScopedMysqlConnection`（`getConnection()` 拿 `any_connection*`）。
 - 析构：`post` 一个 `pool->cancel()`。
 
@@ -813,6 +829,25 @@ LOG_INFO("rpcResponse state:%d message:%s", rpcForwardResponse->state, rpcForwar
 RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollback()` 显式提交/回滚；`rollback()` 同步回滚。**析构不自动异步回滚**——调用方需显式 `commit()` 或 `asyncRollback()`，否则事务悬空（依赖连接归还/服务端超时）。
 
 > 现状：MysqlPool 已在每通道构造，但信令 handler 里未见实际 SQL 调用——是预留的持久化层。
+
+### 9.3 Redis 连接 `RedisWrapper`
+
+`hope::storage::RedisWrapper` = 一条 `boost::redis::connection` + 一份 `RedisConfig` + 一个 `boost::asio::io_context&`（连接跑在该通道的 io_context 上）。
+
+- **构造即连，没有"启动"这一步**：构造函数里直接 `co_spawn` 起 `connection->async_run(boostRedisConfig, use_awaitable)`（`storage/RedisWrapper.cpp:19-23`），令牌是 `CompletionHandle{}`。所以对象一建出来就是"连接/重连中"，重试间隔由 `Redis.reconnectWaitIntervalSeconds` 决定，`health_check_interval` 由 `Redis.healthCheckIntervalSeconds` 决定。析构只调 `connection->cancel()`，协程自己收尾。
+- **参数翻译**：`RedisConfig.h` 里四个纯函数——`loadRedisConfig`（ini → `RedisConfig`）、`makeBoostRedisConfig`（→ `boost::redis::config`）、`makeRedisSslContext`、`makeRedisLogger`。SSL context 只能从构造函数进去，`useSsl=false` 时 context 建了但不用（真正决定握不握手的是 `config.use_ssl`）；`verifyPeer=false` 会给 `verify_none`。日志用 boost::redis 自己的 logger：`enableLog=false` → `level::disabled`；`logLevel` 写了个不认识的名字按 `info` 处理，**不静默成 disabled**——配置写错要看得见。
+- **不是连接池**：`WebrtcLogicSystem::redisWrappers` 是 `std::vector<RedisWrapper>`（值语义，move-only），`Redis.connectionSize` = 这个通道建几条，默认 1。与 `MysqlManagerPools` 的"一份池、池内多连接"是两种模型。
+- **两个取用口**（都在 `WebrtcLogicSystem`）：
+  - `loadRedisWrapper()` — 轮转：`redisWrappers[redisWrapperIndex.fetch_add(1) % size]`，纯均摊。
+  - `loadRedisWrapper(std::string_view key)` — 按 key 定连接：`redisWrappers[hope::StringHasher{}(key) % size]`，同一个 key 永远落同一条连接（同一 key 的读写顺序不会被摊到不同连接上）。用的是 §3.3 那个全局唯一 hasher，不是另一个。
+- **现状：已建连接，但没有调用者。** 两个重载在整个 `signal/` 里都没有调用点，`redisWrappers` 只在 `WebrtcLogicSystem` 构造函数里被填（`signal/WebrtcLogicSystem.cpp:47-51`）。也就是说今天 Redis 只到"连上了"为止，读写在业务路径上一条都没有；跨实例转发仍然走 CoroRpc（§8）。Redis 没起来时的症状是启动期每通道一条 `RedisWrapper.cpp:23 CoSpawn Exception: Connection refused`，服务照常起——这是默认状态，不是故障。
+
+### 9.4 Redis 订阅 `Subscribe`（保留组件）
+
+- 自持一份 `RedisWrapper`（**不复用** `redisWrappers`）、一个 `boost::redis::generic_flat_response`，以及 `RedisMessageHandle = absl::AnyInvocable<void(std::string_view channel, std::string_view payload)>`。
+- 构造里 `set_receive_response(response)` + `co_spawn(receiveLoop(), CompletionHandle{})`；`asyncSubscribe(channel)` 只负责发一条 `SUBSCRIBE`。
+- `receiveLoop()`：`async_receive2`（`redirect_error` 收错误码）→ `boost::redis::push_parser` 遍历 push 帧 → 逐条 `messageHandle(channel, payload)`。`async_receive` 一出错就 `co_return`（**不重连**，连接层由 `RedisWrapper` 的 `async_run` 负责）；response 形态不对则 `emplace()` 重来，不退出。
+- **当前无调用者**：它是"跨实例广播"这条路的保留组件。定论是跨实例只走 CoroRpc、Redis 只当路由表、不走 pub/sub，所以它暂不接入。
 
 ---
 
@@ -844,38 +879,50 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 
 ## 11. 性能设计要点
 
-1. **io_context-per-thread proactor 池**（`AsioProactors`），连接按通道分片，**单连接生命周期内绑定单线程，无锁**。
+1. **io_context-per-thread proactor 池**（`SchedulerContext`），连接按通道分片，**单连接生命周期内绑定单线程，无锁**。
 2. **一致性哈希路由**（`accountId % threadSize`）+ 每 socket 路由缓存，跨通道寻址最多两跳，命中缓存一跳。
 3. **无锁队列** moodycamel::ConcurrentQueue（仓库自带副本改名为 `hopeMoodycamel` 隔离，避免与 ylt 自带 moodycamel 撞名/共享宏守卫）。
 4. **concurrent_channel / sam 信号量** 做协程唤醒，避免轮询。
 5. **RST 强关**（`linger{1,0}`）避免 TIME_WAIT，短连接高 churn 场景友好。
 6. **TCP keepalive** 按平台精细调参，及时探活。
-7. **boost::json `monotonic_resource`** arena 分配 HTTP 响应，减少堆分配（信令包已改 struct_pack 二进制帧）。
+7. **boost::json `monotonic_resource`** arena 分配 HTTP 响应，减少堆分配（信令包走 struct_pack 二进制帧）。
 8. **过载两级调度 + 503 背压**，防止雪崩。
 9. **构建优化**：clang `-O3 -march=x86-64-v3 -flto=thin`、`-ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--icf=all`、mimalloc（`-lmimalloc` 置 LDLIBS 首位做 glibc malloc/free 全局替换 + `-fno-builtin-malloc/calloc/realloc/free`）、Linux `io_uring`（`BOOST_ASIO_HAS_IO_URING`）。**不用 `-march=native`**：会把构建机专属指令（如 AVX-512）编进产物，换到无该指令的 CPU 上启动即 `Illegal instruction`（实测过）；`x86-64-v3`（AVX2）兼容 ~2015 年后全部 x86-64，纯可移植则改 `x86-64`。
 10. **round-robin accept** 均衡连接到各通道；Linux 下 `SO_REUSEPORT` 多 acceptor 分流。
-11. **CPU 亲和绑核**（可选，`enableCpuAffinity`）：每个通道的反应堆线程钉在一个固定物理核上，一个反应堆独占一个物理核；详见 §11.1。
+11. **CPU 亲和绑核**（可选，`ioEnableCpuAffinity` / `logicEnableCpuAffinity`）：每个通道的反应堆线程钉在一个固定物理核上，一个反应堆独占一个物理核；io 池与 logic 池各一对独立开关，开哪一侧只钉哪一侧；详见 §11.1。
 12. **路由表容器与哈希**（`utils/StringHasher.h`）：以 `std::string` 为键的表（`webrtcSocketMap` / `actorSocketMappingIndex` / `actorMappingIndex` / `httpHandlers` / `httpLogicHandlers`）统一走 `hope::StringKeyedNodeMap<V>` / `StringKeyedFlatMap<V>` 别名，即 `boost::unordered_node_map` / `unordered_flat_map` + `hope::StringHasher` + `std::equal_to<>`。
     - **为什么 hasher 必须透明**（收 `string_view` 并 `using is_transparent = void`）：仓库里有 11 处 `map.find(targetId.data())` 传的是 `const char*`。`boost::hash<std::string>` 不透明，用它会让这 11 处**每次查找多构造一个临时 `std::string`**；透明 hasher 下按字符内容命中，零分配，`const char*` 只多一次 `strlen`。
-    - **为什么哈希值要异或一个进程级随机种子**（`getProcessWideHashSeed()`，`std::random_device`）：`accountId` 来自客户端 `Authorization` 头，**攻击者可控**，而 `hasher(accountId) % hashSize` 决定 actor 落哪个通道。种子固定（如 `std::hash<std::string>` 的 MSVC 实现）就能离线预挖一批同桶 id，把流量定向压到单一通道。这是**分片抗打偏**，不是密码学强度——攻击者只能看到 `(h ^ seed) % N`，看不到 `h`，也推不出 `seed`，代价为零。
-    - **种子绝不能做成每 Manager 一份**：同一个 `accountId` 必须算出同一个桶（跨通道转发、全局索引都依赖它），所以全仓库只有一个 `StringHasher` 成员，5 处路由决策共用。
-    - **代价（已知并接受）**：同一账号重启后可能落到不同通道，排查"某通道集中过载"时要意识到这点；要复现只能临时把种子固定成常量，别提交。
-    - 注：本次从 absl 容器换成 boost，**absl 的 `.lib` 一个都删不掉**——`absl::AnyInvocable`（15 处）和 `absl::StrFormat` 还在。收益是更快 + 容器风格统一，不是甩掉 abseil。
+    - **哈希值里没有种子，也不加**：跨节点转发的帧里 `forwardChannel` **恒为 0**（`signal/WebrtcLogicSystem.cpp:1079` 的 `RpcForward rpcForward(0, ...)`），接收端不信发送端给的桶号，而是**用自己进程里同一个 `StringHasher` 对 `targetId` 重算一次**。所以哈希函数必须**跨进程可复现**——一旦引入随机种子，同一个 `accountId` 在 A 实例和 B 实例就可能算出不同桶，跨实例路由直接错。这是刻意的取舍：`accountId` 来自客户端 `Authorization` 头、攻击者可控，"分片抗打偏"是加种子的唯一动机，但它与可复现直接冲突。
+    - **只有一个 `StringHasher`、全仓库共用**：同一个 `accountId` 必须算出同一个桶（跨通道转发、全局索引都依赖它），5 处路由决策走的是同一个类型。
+    - 注：容器用 boost 不等于能少链 absl 的库——`absl::AnyInvocable`（15 处）和 `absl::StrFormat` 还在。收益是更快 + 容器风格统一。
 
-### 11.1 CPU 亲和绑核（`enableCpuAffinity`）
+### 11.1 CPU 亲和绑核（`ioEnableCpuAffinity` / `logicEnableCpuAffinity`）
 
-每个通道的反应堆（`io_context` + 线程）默认由 OS 调度器随意放置和迁移。开启绑核后，第 `i` 个反应堆线程被钉在 `cores[(cpuAffinityOffset + i) % cores.size()].cpuIndex` 上，其中 `cores` 是启动时枚举出来的**物理核**列表。
+每个通道的反应堆（`io_context` + 线程）默认由 OS 调度器随意放置和迁移。开启绑核后，第 `i` 个反应堆线程被钉在 `cores[(池的 cpuAffinityOffset + i) % cores.size()].cpuIndex` 上，其中 `cores` 是启动时枚举出来的**物理核**列表。
+
+**io 池与 logic 池各有一对独立开关**（见 §11.2，两池并存只在 `HOPE_RTC_SIGNAL_SERVER_LOGIC` 下）：开哪一侧就只钉那一侧的线程，另一侧照常交给 OS 调度。两池的线程数都等于 `threadSize`，所以**两侧同时开且偏移量相同时，第 `i` 个 io 线程和第 `i` 个 logic 线程钉在同一个物理核上** —— 一个核上两个反应堆互相抢执行单元。这种重叠启动时会打 WARN 并给出建议偏移（`ioCpuAffinityOffset + threadSize`），要两池真分核就自己把 `logicCpuAffinityOffset` 挪到 io 池占用的核之后。
 
 #### 开关（`config.ini`）
 
 | 键 | 默认 | 含义 |
 |----|------|------|
-| `enableCpuAffinity` | `0` | `0`=完全不绑核（`cpuAffinityOffset` 一并失效）；`1`=按下面规则绑 |
-| `cpuAffinityOffset` | `0` | 起始物理核下标；≤0 一律按 `0` 处理 |
+| `threadSize` | `0` | 通道数 = **每个池**的线程数；`0`=取 `hardware_concurrency()`（见 §11.2） |
+| `ioEnableCpuAffinity` | `0` | io 池（握手/收发）是否绑核；`0`=不绑（`ioCpuAffinityOffset` 一并失效） |
+| `ioCpuAffinityOffset` | `0` | io 池起始物理核下标；≤0 一律按 `0` 处理 |
+| `logicEnableCpuAffinity` | `0` | logic 池（handler 派发/转发/MySQL）是否绑核；`0`=不绑（`logicCpuAffinityOffset` 一并失效） |
+| `logicCpuAffinityOffset` | `0` | logic 池起始物理核下标；≤0 一律按 `0` 处理 |
 
-`main.cpp` 读这两个键后一次性注入：`AsioProactors::init(threadSize, enableCpuAffinity, cpuAffinityOffset)`（`iocp/AsioProactors.cpp`）。
+这五个键（上面四个 + `threadSize`）都收在 `hope::executor::SchedulerConfig`（`executor/SchedulerConfig.h`，结构体默认值就是兜底值）里，`main.cpp` 里三行完成注入：
 
-关掉开关时 `cores` 保持为空，绑定判据 `bindCpuAffinity = sEnableCpuAffinity && !cores.empty()` 为假 —— **整段枚举与绑定都不执行**，线程完全交给 OS 调度，这就是"不绑核"的对照跑法。开机时也不会打印任何 CPU affinity 日志。
+```cpp
+hope::executor::SchedulerConfig schedulerConfig;
+hope::executor::loadSchedulerConfig(schedulerConfig, configManager);
+hope::executor::SchedulerContext::init(schedulerConfig);
+```
+
+`threadSize` 就是"通道数"，也在这个结构体里（`WebrtcSignalServer.threadSize` 这个键**只由 `loadSchedulerConfig` 读一次**，`WebrtcSignalConfig::threadSize` 直接取它的值）；偏移量那份不是 ini 兜底值而是 0 的语义，所以 `loadSchedulerConfig` 里用 `GetInt` + 手工夹取，没走 `GetSize`（后者把 `<= 0` 当"回退到核数"）。
+
+`init()` 在**起线程之前**就把两池各自的核下标算成 `sIoCpuIndexes` / `sLogicCpuIndexes` 两个向量（`resolveCpuIndexes`，枚举、排序、E 核检查、重叠检查全在这里，见下"启动时会打印什么"）。构造函数只认传进来的那个向量：`bindCpuAffinity = 线程号 < cpuIndexes.size()`，为假就整段不绑。所以某一侧开关关掉时该侧向量为空 —— 枚举与绑定都不执行，线程完全交给 OS 调度，这就是"不绑核"的对照跑法；四个键全不写时开机不会打印任何 CPU affinity 日志。
 
 #### 枚举规则（`getPhysicalCores`）
 
@@ -895,12 +942,15 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 
 #### 启动时会打印什么
 
+每条日志都带池名，前缀形如 `SchedulerContext io CPU affinity ...` / `SchedulerContext logic CPU affinity ...`，一眼能分出是哪个池；某一侧的开关关掉时那一侧一条都不打。
+
 | 情况 | 日志 |
 |------|------|
-| 枚举不到物理核 | `LOG_WARN` CPU affinity requested but no physical core found, threads stay unbound（此时 `cores` 为空，等同不绑核） |
+| 枚举不到物理核 | `LOG_WARN` CPU affinity requested but no physical core found, threads stay unbound（此时该池的核下标向量为空，等同不绑核） |
 | 正常 | `LOG_INFO` CPU affinity enabled: N threads over M physical cores (K with smt), one logical cpu per core |
 | `threadSize > 物理核数` | `LOG_WARN` ... cores are reused round-robin and some will carry two reactors —— 有核要扛两个反应堆 |
 | 有反应堆落在 E 核 | `LOG_WARN` ... of N reactors land on e-cores, which have much lower single-core throughput; set threadSize to K to keep every reactor on a p-core |
+| **两池钉到同一批核** | `LOG_WARN` io and logic pools are pinned to the same K logical cpus, each of them carries two reactors sharing one core; set logicCpuAffinityOffset to `ioCpuAffinityOffset + threadSize` or more to keep the two pools apart |
 | 绑定失败 | `LOG_WARN` failed to bind thread i to cpu j |
 
 #### 12600KF 上的具体表现（举例）
@@ -914,17 +964,19 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 | `0`(auto) | 开 | auto 取到 16 > 10 物理核 → 6 个核各扛 2 个反应堆，且 4 个落在 E 核 |
 | `0`(auto) | 关 | auto 取到 10 = 物理核数，1:1 对齐绑核规则 |
 
+**两池都开绑核时的口径**：上表是**单个池**的。12600KF 只有 10 个物理核，两个池各 `threadSize` 线程要不抢核就得 `2 × threadSize ≤ 10`，而且两段偏移量不能重叠 —— 注意偏移量是**排序后物理核列表的下标**（不是 CPU 号），P 核在前，所以下标 0..5 才是 6 个 P 核，下标 6 起就是 E 核了。核数不够时的常见做法是**只给真正吃 CPU 的那个池开绑核**：要么钉 io 池（保握手/读写的确定性），要么钉 logic 池（保派发/转发的确定性），另一个池交给 OS 调度。
+
 #### 为什么建议关掉超线程
 
 `threadSize = 0` 的含义是"取 `std::thread::hardware_concurrency()`"，而它返回的是**逻辑** CPU 数。开着超线程时 12600KF 返回 **16**，但物理核只有 **10** —— 16 个反应堆铺在 10 个核上，`(offset + i) % cores.size()` 会让其中 6 个核各扛两个反应堆（正是上面那条 "some will carry two reactors" 警告的来源）。
 
 这时"一个反应堆独占一个物理核"的设计就落空了：这 6 个核上的两个反应堆互相抢执行单元（ALU / ROB / L1 / L2 全共享）。更要命的是**哪条通道落在被抢占的核上是不变的** —— 一致性哈希把 `accountId` 钉死在通道上，通道又钉死在线程上，于是同一批账号**永远**跑在抢核的通道上。CPU 拓扑的差异因此直接暴露成**尾延迟**：p50 不受影响，p99 被那几条抢核的通道抬起来。事件循环最怕这种非均匀的、固定的慢路径。
 
-关掉超线程后 `hardware_concurrency()` 就等于物理核数 10，`threadSize = 0` 自动取到 10，与绑核规则天然 1:1 对齐，不再有"谁和谁共用一核"的抽签，也不必为此手调 `threadSize`。
+关掉超线程时 `hardware_concurrency()` 就等于物理核数 10，`threadSize = 0` 自动取到 10，与绑核规则天然 1:1 对齐，不存在"谁和谁共用一核"的抽签，也不必为此手调 `threadSize`。
 
 > 不想动 BIOS 的话，**显式写死 `threadSize = 6`** 拿到的是同样的确定性，而且比关超线程更好：6 个反应堆全在 P 核上、每个独占一整个物理核，把 E 核和 P 核的单核吞吐差异也一并绕开了。代价是只用 6 个核，剩下的 **4 个 E 核整核 + 6 个 P 核的超线程兄弟（6 个逻辑 CPU）** 全空着，留给 spdlog 异步线程、CoroRpc 线程池、MySQL 连接池这些**没有绑核**的线程（它们仍会被 OS 调度到反应堆所在的物理核上，只是不会固定占用某个逻辑 CPU）。
 
-> **实测口径**：本机（12600KF，压测客户端与服务端同机）10 线程服务端下，**绑核与不绑核都能跑到 ~143k msgs/s**（p50 0.96 / p95 4.76 / p99 10.34 ms，丢失 0）。也就是说在当前核数下**绑核不是吞吐瓶颈** —— 它要解决的是尾延迟的**确定性**，不是把 QPS 顶上去。
+> **实测口径**：本机（12600KF，压测客户端与服务端同机）10 线程服务端下，**绑核与不绑核都能跑到 ~143k msgs/s**（p50 0.96 / p95 4.76 / p99 10.34 ms）。也就是说在当前核数下**绑核不是吞吐瓶颈** —— 它要解决的是尾延迟的**确定性**，不是把 QPS 顶上去。
 
 ### 11.2 逻辑线程分池（`HOPE_RTC_SIGNAL_SERVER_LOGIC`）
 
@@ -937,7 +989,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 | 连接握手 / 读写协程 | 本通道 TPC 线程 | 本通道 TPC 线程（不变） |
 | 业务派发 / 转发 / MySQL 池 | **同一个 TPC 线程**，就地执行 | **独立 logic 池的第 `channelIndex` 个线程** |
 
-- `AsioProactors::getLogicInstance()`（`iocp/AsioProactors.h:23`）是**第二个 `AsioProactors` 单例**：自己的 `ioContexts` / `threads` / `work_guard`，池大小 `sLogicSize`——由 `AsioProactors::init(size,...)` 与 `sIoSize` 一起设成同一个 `threadSize`（`iocp/AsioProactors.cpp:188-189`）。12600KF 上 `threadSize=0` 解析为 16（`main.cpp:89`）→ **16 个收发线程 + 16 个 logic 线程**。
+- `SchedulerContext::getLogicInstance()`（`executor/SchedulerContext.h`）是**第二个 `SchedulerContext` 单例**：自己的 `ioContexts` / `threads` / `work_guard`，池大小 `sLogicSize`——由 `SchedulerContext::init(schedulerConfig)` 与 `sIoSize` 一起设成同一个 `threadSize`；绑核也是两池各一对开关、各算各的核下标（见 §11.1）。12600KF 上 `threadSize=0` 由 `loadSchedulerConfig` 里的 `GetSize` 解析成 16（`executor/SchedulerConfig.h`）→ **16 个收发线程 + 16 个 logic 线程**。
 - 配对方式是**按通道号对齐**，不是搬进同一个线程：manager `i` 的 LogicSystem 拿 logic 池的 `getIoCompletePort(i)`（`signal/WebrtcSignalManager.cpp:38`）。同一条连接的收发与派发在两个线程上，靠 `post` 交接——这也是为什么断开回写、跨通道转发在开启后要显式 `post` 到 logic 池（`signal/WebrtcSignalServer.cpp:166-176`、`:369-374` 同一开关）。
 - 于是 `WebrtcLogicSystem::getIoCompletionPorts()`（`signal/WebrtcLogicSystem.cpp:60`）返回的就是 logic 池的 context。
 
@@ -955,7 +1007,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 
 这节要记的结论就一句：**把派发/转发从 reactor 上摘出去，吞吐上 4 倍，而延迟没被拿去换**——尾延迟仍在十毫秒量级。
 
-关掉那组的 197,790 msgs/s 就是 §5.2 量到的那一档：**批量在没有逻辑池的构建上只能到 198k**，加了逻辑池才兑现 —— 这两个改动是**同一条杠杆的两半**（收发线程专职收发，攒批才不被打断），不是两条独立收益。
+关掉那组的 197,790 msgs/s 就是 §5.2 量到的那一档：**批量在没有逻辑池的构建上只能到 198k**，加了逻辑池才兑现 —— 这两者是**同一条杠杆的两半**（收发线程专职收发，攒批才不被打断），不是两条独立收益。
 
 关掉那组 p50 反而更低（0.65 ms）**不代表它更快**：它自己的上限就在 20 万，压根没进入排队区。延迟只在**同一吞吐**下比较才有意义。
 
@@ -986,8 +1038,10 @@ httpPort = 9099          ; HTTP 运维端口
 enableHttp = 1           ; 是否开 HTTP
 enablePublicPort = 1     ; 1=监听 0.0.0.0,0=仅 127.0.0.1
 threadSize = 0           ; 通道数,0=硬件并发数(取 hardware_concurrency)
-enableCpuAffinity = 0    ; 1=把每个通道的反应堆线程钉到固定物理核(见 §11.1)
-cpuAffinityOffset = 0    ; 绑核起始物理核下标;P 核在前、E 核在后
+ioEnableCpuAffinity = 0  ; 1=把 io(收发)线程钉到固定物理核(见 §11.1)
+ioCpuAffinityOffset = 0  ; io 池绑核起始核下标;P 核在前、E 核在后
+logicEnableCpuAffinity = 0 ; 1=把 logic(派发)线程钉到固定物理核
+logicCpuAffinityOffset = 0 ; logic 池绑核起始核下标;与 io 偏移量重叠会抢核
 certificateFile = server.crt
 privateKeyFile = server.key
 maxTlsHandShakeTime = 3000    ; WebSocket 握手超时 ms
@@ -1005,10 +1059,10 @@ maxFileSizeMB = 10       ; 单文件滚动上限 MB
 maxFiles = 5             ; 保留文件数
 queueSize = 8192         ; spdlog 异步线程池队列长度
 threadCount = 1          ; 异步消费线程数
-DEBUG = 0                ; 控制台日志级别
+DEBUG = 0                ; 控制台日志级别(四个级别各自独立,见 §2.1)
 INFO = 1
 WARN = 1
-ERROR = 1
+ERROR = 0                ; 0 只关屏幕;日志文件仍收 error(logToFile=1)
 
 [Mysql]
 host = 127.0.0.1
@@ -1022,6 +1076,27 @@ connectTimeoutSeconds = 20
 pingIntervalSeconds = 3600
 pingTimeoutSeconds = 10
 multiQueries = 0
+
+[Redis]
+host = 127.0.0.1
+port = 6379
+username = default
+password = default
+clientName = Boost.Redis
+databaseIndex = 0
+useSsl = 0                     ; 0=明文 TCP,下面四项证书都不用配
+certificateFile = redis.crt
+privateKeyFile = redis.key
+caCertificateFile = redis.crt
+verifyPeer = 1                 ; useSsl=1 时才生效
+connectTimeoutSeconds = 10
+sslHandshakeTimeoutSeconds = 10
+healthCheckIntervalSeconds = 2
+reconnectWaitIntervalSeconds = 0
+maxReadSize = 0                ; 0=不限制(走 GetInt+手工夹取,不能用 GetSize)
+connectionSize = 1             ; 每个 channel 建几条连接(见 §9.3)
+enableLog = 0                  ; boost::redis 自己的日志
+logLevel = info                ; disabled/emerg/alert/crit/err/warning/notice/info/debug
 
 [CoroRpc]
 enableRpc = 0            ; 1 才启用 RPC(节点间转发 requestForward 用)
@@ -1097,7 +1172,7 @@ cd <含 config.ini + server.crt + server.key 的目录>
 - 握手后帧类型为 **binary**（`webSocket.binary(true)`），整帧是 **struct_pack（ylt）二进制**，由两部分拼接：
   - **信封头**：`struct_pack::serialize(WebrtcEnvelope)`。字段顺序固定 `requestType → state → message → accountId → targetId`，客户端 `net/Socket.h` 的 `WebrtcEnvelope` 与服务端 `WebrtcSignalPacket.h` 的 `WebrtcEnvelopeView` 一一对应。
   - **业务载荷（body）**：信封之后**原样拼接**的字节（SDP/ICE、桌面配置等），对服务器不透明。接收端用 `deserialize_to` 返回的消耗字节数定位信封边界，之后即 body。
-- 客户端→服务端：把 `requestType/accountId/targetId` 填进信封（`state=200`，`message` 留空），业务字段作为 body `append` 在信封后，整体 `struct_pack::serialize(WebrtcEnvelope).append(payload)` 一帧发出；**不再有 JSON 信封**。
+- 客户端→服务端：把 `requestType/accountId/targetId` 填进信封（`state=200`，`message` 留空），业务字段作为 body `append` 在信封后，整体 `struct_pack::serialize(WebrtcEnvelope).append(payload)` 一帧发出（信封是 struct_pack 二进制，没有 JSON 信封）。
 - 服务器转发：路由只用信封的 `requestType/accountId/targetId`，命中目标后把**整帧原样** `asyncWrite` 给目标 socket（信封与 body 均不改写），body 不解析。
 - 目标未登记 / 请求非法 / 过载：服务器回一帧**只有信封头**（无 body）的消息，`state=404/400/503` + `message` 说明（如 `"TargetId is not register"`、`"webrtcSignalServer busy, please retry later"`）。
 - 对端 Native 收到后 `deserialize_to` 解出信封，按 `state` 判断结果、按 `requestType` 走业务；`requestType` 语义见 §5.7。
@@ -1120,35 +1195,44 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 
 | 结构 | 位置 | 作用 |
 |------|------|------|
-| `WebrtcSignalConfig` | `WebrtcSignalServer.h` | 信号子系统配置（注入） |
+| `WebrtcSignalConfig` | `signal/WebrtcSignalConfig.h` | 信号子系统配置（注入）+ `loadWebrtcSignalConfig` |
 | `WebrtcSignalChannelConfig` | `WebrtcSignalManager.h` | 透传到通道的标量配置 |
-| `CoroRpcServerConfig` | `CoroRpc.h` | RPC 配置 |
-| `MysqlConfig` / `globalMysqlConfig` | `mysql/MysqlConfig.h` | MySQL 全局配置 |
+| `CoroRpcServerConfig` | `rpc/CoroRpcConfig.h` | RPC 配置 + `loadCoroRpcConfig` |
+| `SchedulerConfig` | `executor/SchedulerConfig.h` | 每池线程数（`threadSize` = 通道数）+ io/logic 两对绑核开关（§11.1）+ `loadSchedulerConfig` |
+| `LoggerConfig` | `utils/LoggerConfig.h` | 日志配置（`[Logger]` 段）+ `loadLoggerConfig` / `applyLoggerConfig`（后者才有副作用） |
+| `MysqlConfig` | `storage/MysqlConfig.h` | MySQL 连接池配置（`poolInitialSize`/`poolMaxSize` 是每个 channel 的）+ `loadMysqlConfig`，`WebrtcLogicConfig` 成员 |
+| `RedisConfig` | `storage/RedisConfig.h` | Redis 连接配置（含 TLS）。`connectionSize` = 每个 channel 建几个 `RedisWrapper`（对应 `WebrtcLogicSystem::redisWrappers`），`WebrtcLogicConfig` 成员 |
+| `RedisWrapper` | `storage/RedisWrapper.h` | 一条 `boost::redis::connection`（构造即 `async_run`，§9.3）。`redisWrappers` 的元素，**当前无调用者** |
+| `Subscribe` | `storage/Subscribe.h` | Redis 订阅（`asyncSubscribe` + `receiveLoop` + `RedisMessageHandle`）。保留组件，**当前无调用者**（§9.4） |
+| `WebrtcLogicConfig` | `WebrtcLogicSystem.h` | Logic 的标量 + 存储层配置（队列水位 + `mysqlConfig` + `redisConfig`），在 Manager 构造点拼 |
 | `WebrtcSignalPacket` | `WebrtcSignalPacket.h` | 信令包（socket + 整帧 packet + `WebrtcEnvelopeView` 信封头） |
 | `WebrtcEnvelopeView` | `WebrtcSignalPacket.h` | struct_pack 信封头（`requestType/state/message/accountId/targetId`，string_view 零拷贝视图） |
 | `TaskChannel` | `AwaitableTask.h` | 全局任务队列 |
 | `AsioConcurrentQueue<T>` | `AsioConcurrentQueue.h` | socket 写队列 |
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
 | `ActorMapping` | `WebrtcSignalManager.h` | `{sessionId, channelIndex}` |
-| `StringHasher` | `utils/StringHasher.h` | 透明 string hasher（收 `string_view`，异或进程级随机种子） |
+| `StringHasher` | `utils/StringHasher.h` | 透明 string hasher（收 `string_view`，`boost::hash<string_view>`，**无种子**：接收端自己重算桶号，跨实例必须可复现） |
 | `StringKeyedNodeMap<T>` / `StringKeyedFlatMap<T>` | `utils/StringHasher.h` | string 键路由表的统一别名（boost node/flat + 透明 hasher） |
-| `AsyncTransactionGuard` | `mysql/AsyncTransactionGuard.h` | 事务 RAII |
+| `AsyncTransactionGuard` | `storage/AsyncTransactionGuard.h` | 事务 RAII |
 | `HttpFilters` | `signal/HttpFilters.h` | HTTP 鉴权(放行规则 + 全局过滤器) |
 
 ---
 
 ## 14. 注意事项
 
-- ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebrtcSignalConfig` / `WebrtcSignalChannelConfig`），MySQL 走全局 `globalMysqlConfig`。
-- 仓库自带的 moodycamel 副本改名为 `hopeMoodycamel`、宏前缀改为 `HOPE_MOODYCAMEL_*`，避免与 ylt 自带的 moodycamel 撞名并共享 `#ifndef MOODYCAMEL_ALIGNAS` 守卫。升级上游 moodycamel 时需重新套用这两处改名（见 `utils/concurrentqueue.h` 顶部注释）。
-- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。分发拷贝由 `MIMALLOC_SHARED/BOOST_SHARED` 按 `-l` 清单反推（`foreach`+`patsubst -l%,lib%.so*`+`wildcard`，仅有 `.a` 的库匹配不到即自动跳过），openssl 单独 `cp libcrypto.so.3 libssl.so.3`，链接规则里一条 `for` 循环统一拷入 `release-x64/`。**abseil 已静态化，原 `ABSL_SHARED` 那一行已删除**（见 §12.2）。
-- **`DT_RUNPATH` 不传递（记录在案的老坑）**：`-Wl,-rpath,'$ORIGIN/../lib/xxx'` 只对主程序的**直接**依赖生效；`.so` 之间的**间接**依赖要用加载者自己的 RUNPATH。当初 abseil 走动态链接时，`libabsl_base_cpu_detect.so.0`、`libabsl_log_internal_fnmatch.so.0` 这类不被任何 `-l` 项直接引用的库正是靠这一条漏掉的（makefile 从 `-l` 清单反推拷贝列表，它们不在清单里）→ 运行时 `cannot open shared object file`。**abseil 改静态后这个坑不复存在**；但如果将来又给某个第三方库改回动态链接，这条会立刻还魂。
+- ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebrtcSignalConfig` / `WebrtcSignalChannelConfig` / `WebrtcLogicConfig`），**存储层也不例外**——`MysqlConfig` 与 `RedisConfig` 都是 `WebrtcLogicConfig` 的成员。**配置一律不走全局变量**，新增配置照这个走。
+- **错误文本的编码只由构建环境决定，调用点一律不转码**（细节见 §2.1）：Windows 靠 `webrtc-signal-server.props` 里的 `BOOST_SYSTEM_USE_UTF8`，Linux 靠 `main.cpp` 的 `setlocale(C.UTF-8)`。调用点直接写 `ec.message()` / `e.what()`，不套包装、不改写 `what()` 里嵌的系统文本——要动编码就动构建面那一个宏。
+- **项目代码不写 `auto`**，写不出类型的场合只有 9 处：`rpc/CoroRpc.h` 的 3 处**非类型模板参数**（`template <auto... functions>` / `<auto first, auto...>` / `<auto func>`）、2 处**尾置返回 `auto`**（`asyncRpcRequest` / `asyncLbRpcRequest`——返回类型由 `Op` 推导，前导返回类型看不到参数名）、4 处**结构化绑定**（`HttpSocket.cpp` 的 `auto [handshake_ec] = ...` 与 `WebrtcLogicSystem.cpp` 的 3 处）。本文档的示例代码同样不写 `auto`。
+- **实参列表里不要塞函数调用或大按值临时量**：先提成具名局部量再传。2026-09-20 那次开机崩溃（`WebrtcLogicSystem` 构造处读 `0xFFFF...`）就落在 `WebrtcSignalManager` 构造点那一句：实参里既有会起逻辑线程的 `ExecutorSchedulers::getLogicInstance()->getIoCompletePort(channelIndex)`，又有一个 1KB 级的 `WebrtcLogicConfig` 按值临时量。构建自洽已由 tlog 证明，同一份配置在链上前 4 次拷贝都没事、只炸最后一次，所以嫌疑在这个写法；提成具名局部量已落盘，若重编后仍崩，改查线程竞争与 `/LTCG:incremental`，不要再从结构体布局方向猜。
+- 仓库自带的 moodycamel 副本叫 `hopeMoodycamel`、宏前缀是 `HOPE_MOODYCAMEL_*`，避免与 ylt 自带的 moodycamel 撞名并共享 `#ifndef MOODYCAMEL_ALIGNAS` 守卫。升级上游 moodycamel 时要重新套用这两处改名（见 `utils/concurrentqueue.h` 顶部注释）。
+- makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。分发拷贝由 `MIMALLOC_SHARED/BOOST_SHARED` 按 `-l` 清单反推（`foreach`+`patsubst -l%,lib%.so*`+`wildcard`，仅有 `.a` 的库匹配不到即自动跳过），openssl 单独 `cp libcrypto.so.3 libssl.so.3`，链接规则里一条 `for` 循环统一拷入 `release-x64/`。**abseil 是静态链接的**，makefile 里没有 `ABSL_SHARED` 那一行（见 §12.2）。
+- **`DT_RUNPATH` 不传递**：`-Wl,-rpath,'$ORIGIN/../lib/xxx'` 只对主程序的**直接**依赖生效；`.so` 之间的**间接**依赖要用加载者自己的 RUNPATH。makefile 是从 `-l` 清单反推要拷哪些库的，所以**任何一个不被 `-l` 项直接引用的 `.so` 都会漏拷**（abseil 动态链接时期的 `libabsl_base_cpu_detect.so.0`、`libabsl_log_internal_fnmatch.so.0` 就是这么漏的）→ 运行时 `cannot open shared object file`。现在 abseil 走静态链接，没有这个问题；**给第三方库改动态链接时要按这一条检查它的依赖闭包**。
 - mimalloc 全局替换（`-lmimalloc` 首位 + ELF 符号抢占）：进程内 malloc/free 全走 mimalloc；`mimalloc-new-delete.h` 覆盖 C++ `new`/`delete`，Linux ELF 下对整进程（含第三方动态库）统一生效，无 Windows 侧跨模块堆错配问题——这正是它**不**放进 Windows Qt 客户端的原因（Windows 按 DLL 各自绑定，只覆盖 exe 会产生 Qt DLL ↔ exe 的 new/delete 错配崩溃）。
 - CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
 - HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
 - MySQL 连接池每通道建好，handler 暂无 SQL 调用；`AsyncTransactionGuard` 析构不自动回滚，需显式 `commit()` / `asyncRollback()`。
 - `[Protect]` 段当前无代码消费。
-- `WebrtcLogicSystem` 的三个 handler 注册表（`webrtcHandlers` / `webrtcValueHandlers` / `httpHandlers`）是 **write-once**：只在 `initHandlers()` / `initHttpHandlers()`（`asyncEvent()` 期间）写。表内存 `std::unique_ptr<WebrtcHandler>`，派发时取 `.get()` 拿**裸指针**捕获进异步执行体——不要退回 `AnyInvocable& func = iterator->second;` 再捕获 `&func`：那个引用指向 **map 槽位内部**，一旦运行期注册触发扩容就立刻悬空。**同理不要在运行期注册 handler**：裸指针不怕扩容，但会引入新的生命周期问题（见 §4 关闭流程为什么必须先 `stop()` 再清表）。
+- `WebrtcLogicSystem` 的三个 handler 注册表（`webrtcHandlers` / `webrtcValueHandlers` / `httpHandlers`）是 **write-once**：只在 `initHandlers()` / `initHttpHandlers()`（`asyncEvent()` 期间）写。表内存 `std::unique_ptr<WebrtcHandler>`，派发时取 `.get()` 拿**裸指针**捕获进异步执行体——**不要捕获 `iterator->second` 的引用**（`AnyInvocable& func = iterator->second;` 再捕获 `&func`）：那个引用指向 **map 槽位内部**，一旦运行期注册触发扩容就立刻悬空。**同理不要在运行期注册 handler**：裸指针不怕扩容，但会引入新的生命周期问题（见 §4 关闭流程为什么必须先 `stop()` 再清表）。
 - HTTP 鉴权 token `913140924@qq.com` 为示例硬编码，生产环境需替换为真实鉴权。
-- **接收上限是行为变化，不是新增护栏**：旧 Beast 走 `dynamic_buffer` 无上限，多大的消息都收得下；现在单条净荷超过「接收缓冲区」那一档的上限（不定义 `WEBSOCKET_BIG_BUFFER` 时 16376 字节，定义时 65528 字节）直接断连（RST）。压测客户端 `--sdp-size` 要留在当前档之内，否则每条连接都被 RST，症状伪装成「大量丢失」。分片累加那道 `maximumMessageSize` 检查目前**无测试覆盖** —— 项目里没有任何会发 FIN=0 分片帧的客户端。
+- **接收上限是刻意的硬线，不是只防攻击者的护栏**：单条净荷超过「接收缓冲区」那一档的上限（不定义 `WEBSOCKET_BIG_BUFFER` 时 16376 字节，定义时 65528 字节）直接断连（RST）。压测客户端 `--sdp-size` 要留在当前档之内，否则每条连接都被 RST，压测端的读数会失真。分片累加那道 `maximumMessageSize` 检查目前**无测试覆盖** —— 项目里没有任何会发 FIN=0 分片帧的客户端。
 - `writerCoroutine` 在「取空挂起后被唤醒」那条分支上只取 1 条就写、不继续排空（批量只在队列里已积了多条时才发生）；超限是直接 `throw`，没回 1009 关闭帧，对端只看到 RST。另：`maximumFrameHeaderSize = 10` 是**写侧** `frameHeaderScratch` 的槽位步长，读侧 `takeFrames` 本地另写了一遍 `2/4/10`，两处手工绑死、编译器不保证，改帧格式要同时动。
