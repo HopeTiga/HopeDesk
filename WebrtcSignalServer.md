@@ -786,7 +786,7 @@ co_return;
 - 这个包装只做“asio 认下来 + 把值带回来”两件事，**不加界**：对端不答就一直等；响应 200/404/500 只落日志，不回包给请求方。
 - asio 侧认下来靠 `LazyAwaitOperation::operator()` 里的 `async_initiate<CompletionToken, void(std::exception_ptr, T)>`：完成签名就是 `(异常, 值)`，`cb` 里那两行 `handler(result.getException(), T{})` / `handler(std::exception_ptr{}, std::move(result).value())` 就是它的两个分支。
 - 值怎么回来：`LazyAwaitInitiation` 用 `std::move(lazy).via(executor).start(cb)` 起 Lazy（`executor` 是 `asyncAwaitResult` 传进来的 `ioExecutor()`），`cb` 里把 asio 的完成处理程序 `post` 回**它自己关联的执行器**——那个执行器就是等待方 asio 那一帧的执行器，不 post 等于在 io 池线程上恢复别人的帧。
-- **执行器先取、handler 后移，分成两句**：那个执行器是从 handler 自己那一帧里读出来的，而 handler 又要 move 进 `post` 的 lambda，写成一句 `post(get_associated_executor(handler), [handler = std::move(handler), ...])` 就是「同一个实参列表里移走一个、另一个又去读它」。实参求值顺序未规定（MSVC 从右往左），先搬空 handler 再取执行器，`awaitable_thread::get_executor()` 直接读 `bottom_of_stack_.frame_->u_.executor_`（没有有效性检查），于是崩在读 `nullptr + 0x38`。现在的写法是先把执行器取成具名局部量 `handlerExecutor`，再用它起 `post`。
+- **执行器先取、handler 后移，分成两句**：那个执行器是从 handler 自己那一帧里读出来的，而 handler 又要 move 进 `post` 的 lambda——写进同一个实参列表（`post(get_associated_executor(handler), [handler = std::move(handler), ...])`）时求值顺序没有保证（MSVC 从右往左），先搬空 handler 再取执行器，读到的就是空帧。所以现在是先把执行器取成具名局部量 `handlerExecutor`，再用它起 `post`。
 - Lazy 里抛的异常走 `std::exception_ptr` 那一路，在 `co_await` 处重抛；派发侧的完成回调把它记成 `PostTask CoSpawn Exception: ...`。
 - 两层错误检查 `!result` 和 `!result.value()` 缺一不可，直接 `.value().value()` 会在任一层失败时抛出异常。
 - 不需要结果的场合用 `asyncAwait(func, args...)`：投到 io 池就不管，数据以协程参数（走协程 ABI）传进帧，协程函数的 capture 里不放数据。
@@ -800,7 +800,7 @@ coro_io::callback_awaitor<int> callbackAwaitor;
 
 int awaitorInt = co_await callbackAwaitor.await_resume([&mapChannelIoContext](auto handler)mutable {
 
-    boost::asio::co_spawn(mapChannelIoContext, [handler]()mutable -> boost::asio::awaitable<void> {
+    boost::asio::co_spawn(mapChannelIoContext, [handler = std::move(handler)]()mutable -> boost::asio::awaitable<void> {
 
         handler.set_value_then_resume(1);
 
@@ -1243,7 +1243,7 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 - **错误文本的编码只由构建环境决定，调用点一律不转码**（细节见 §2.1）：Windows 靠 `webrtc-signal-server.props` 里的 `BOOST_SYSTEM_USE_UTF8`，Linux 靠 `main.cpp` 的 `setlocale(C.UTF-8)`。调用点直接写 `ec.message()` / `e.what()`，不套包装、不改写 `what()` 里嵌的系统文本——要动编码就动构建面那一个宏。
 - **项目代码不写 `auto`**，写不出类型的场合只有 9 处：`rpc/CoroRpc.h` 的 3 处**非类型模板参数**（`template <auto... functions>` / `<auto first, auto...>` / `<auto func>`）、2 处**尾置返回 `auto`**（`asyncRpcRequest` / `asyncLbRpcRequest`——返回类型由 `Op` 推导，前导返回类型看不到参数名）、4 处**结构化绑定**（`HttpSocket.cpp` 的 `auto [handshake_ec] = ...` 与 `WebrtcLogicSystem.cpp` 的 3 处）。本文档的示例代码同样不写 `auto`。
 - **实参列表里不要塞函数调用或大按值临时量**：先提成具名局部量再传。2026-09-20 那次开机崩溃（`WebrtcLogicSystem` 构造处读 `0xFFFF...`）就落在 `WebrtcSignalManager` 构造点那一句：实参里既有会起逻辑线程的 `SchedulerContext::getLogicInstance()->getIoCompletePort(channelIndex)`，又有一个 1KB 级的 `WebrtcLogicConfig` 按值临时量。构建自洽已由 tlog 证明，同一份配置在链上前 4 次拷贝都没事、只炸最后一次，所以嫌疑在这个写法；提成具名局部量已落盘，若重编后仍崩，改查线程竞争与 `/LTCG:incremental`，不要再从结构体布局方向猜。
-- **同一条规则在线程上还有一处已定论的实例**（`rpc/CoroRpc.h` 的 `LazyAwaitInitiation::operator()`）：取执行器和 move handler 不能写在同一个实参列表里，`post(boost::asio::get_associated_executor(handler), [handler = std::move(handler), ...])` 就是「移走一个、另一个又去读它」——MSVC 从右往左求值，先搬空 handler 再去取执行器，`awaitable_thread::get_executor()` 读 `bottom_of_stack_.frame_->u_.executor_` 时 `frame_` 已是 `nullptr`，崩在读 `0x38`。所以这类写法是**实测会崩**，不是风格问题：执行器先取成具名局部量 `handlerExecutor`，handler 再 move（见 §8.7 B）。
+- **取执行器和 move handler 要分成两句**（`rpc/CoroRpc.h` 的 `LazyAwaitInitiation::operator()`）：handler 的执行器是从它自己所在的协程帧里读出来的，而 handler 又要 move 进 `post` 的 lambda——这两件事写进同一个实参列表，求值顺序就没有保证（MSVC 从右往左），先搬走 handler 再取执行器读到的是空帧。写法：先把执行器取成具名局部量（`decltype(boost::asio::get_associated_executor(handler)) handlerExecutor = boost::asio::get_associated_executor(handler);`），再用它起 `post`（见 §8.7 B）。
 - **命名**：成员名与构造形参同名、都不带下划线后缀——`WebrtcSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, ...) : channelIndex(channelIndex), ioContext(ioContext)`；类型别名与函数名不用 snake_case（`WebSocketType` / `parseArguments`）。唯一例外是库自身的接口名（spdlog `base_sink` 的 `sink_it_` / `formatter_` / `flush_`）。
 - **asio 定时器只用在连接级/握手级这种粗粒度的界上**：Boost 1.91 在 Windows/IOCP 下是「io_context 自带一条专用 timer 线程，给它一个 `GetQueuedCompletionStatus` 超时值睡到下一个到期点」的轮询模型（`include/boost/boost/asio/detail/win_iocp_io_context.hpp` 的 `timer_thread_`），粒度跟着那个 wait 走，每个 timer 实例还要挂进 io_context 的 timer 队列；`cancel()` 与到期本身是竞态，想「超时就放弃」得自己再加一个完成标志。转发路径不设界（见 §8.7 B）。
 - 仓库自带的 moodycamel 副本叫 `hopeMoodycamel`、宏前缀是 `HOPE_MOODYCAMEL_*`，避免与 ylt 自带的 moodycamel 撞名并共享 `#ifndef MOODYCAMEL_ALIGNAS` 守卫。升级上游 moodycamel 时要重新套用这两处改名（见 `utils/concurrentqueue.h` 顶部注释）。
