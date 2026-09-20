@@ -19,6 +19,10 @@
 #include <async_simple/coro/SyncAwait.h>
 #include <async_simple/coro/Lazy.h>
 
+#include <boost/asio/async_result.hpp>
+#include <boost/asio/associated_executor.hpp>
+#include <boost/asio/post.hpp>
+
 #include "../utils/Utils.h"   // LOG_ERROR 等日志宏
 #include "CoroRpcConfig.h"
 
@@ -101,18 +105,90 @@ namespace hope {
 				});
 			}
 
+			// 把 Lazy 的完成交回 asio 侧。完成回调跑在 io 池线程上，必须 post 回 handler 自己关联的执行器
+			// 再调 —— 那个执行器就是等待方 asio 那一帧的执行器，不 post 等于在 io 池线程上恢复别人的帧。
+			template <typename T>
+			class LazyAwaitInitiation {
 
-			// 指定 host 版本:把请求发到指定下游地址,host 形如 "ip:port"。
-		// op 由调用方提供,内部就是 coro_rpc_client::call<func>(args...),形如:
-		//   [](coro_rpc::coro_rpc_client& cli)
-		//       -> async_simple::coro::Lazy<coro_rpc::rpc_result<R>> {
-		//       co_return co_await cli.call<echo>("hi");
-		//   }
-		// 返回 Lazy<expected<rpc_result<R>, std::errc>>:
-		//   外层 std::errc           -> 连接层错误(池未就绪 / host 不通)
-		//   内层 coro_rpc::rpc_error  -> RPC 业务层错误
-		// 返回类型完全由库的 client_pools::send_request 推导,不自己算 R,
-		// 也不用偏特化萃取(MSVC 对那套解析有问题)。Lazy<T>::ValueType 直接就是内层 T。
+			public:
+
+				LazyAwaitInitiation(async_simple::coro::Lazy<T> lazy, async_simple::Executor* executor)
+					: lazy(std::move(lazy)), executor(executor) {
+
+				}
+
+				template <typename HandlerType>
+				void operator()(HandlerType&& handler) {
+
+					std::move(lazy).via(executor).start(
+						[handler = std::forward<HandlerType>(handler)](async_simple::Try<T>&& result) mutable {
+
+
+							decltype(boost::asio::get_associated_executor(handler)) handlerExecutor = boost::asio::get_associated_executor(handler);
+
+							boost::asio::post(handlerExecutor,
+								[handler = std::move(handler), result = std::move(result)]() mutable {
+
+									if (result.hasError()) {
+
+										handler(result.getException(), T{});
+
+										return;
+
+									}
+
+									handler(std::exception_ptr{}, std::move(result).value());
+
+								});
+
+						});
+
+				}
+
+			private:
+
+				async_simple::coro::Lazy<T> lazy;
+
+				async_simple::Executor* executor;
+
+			};
+
+			template <typename T>
+			class LazyAwaitOperation {
+
+			public:
+
+				LazyAwaitOperation(async_simple::coro::Lazy<T> lazy, async_simple::Executor* executor)
+					: lazy(std::move(lazy)), executor(executor) {
+
+				}
+
+				template <typename CompletionToken>
+				typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr, T)>::return_type
+					operator()(CompletionToken&& token) {
+
+					LazyAwaitInitiation<T> initiation(std::move(lazy), executor);
+
+					return boost::asio::async_initiate<std::decay_t<CompletionToken>, void(std::exception_ptr, T)>(initiation, token);
+
+				}
+
+			private:
+
+				async_simple::coro::Lazy<T> lazy;
+
+				async_simple::Executor* executor;
+
+			};
+
+			template <typename T>
+			LazyAwaitOperation<T> asyncAwaitResult(async_simple::coro::Lazy<T> lazy) {
+
+				return LazyAwaitOperation<T>(std::move(lazy), ioExecutor());
+
+			}
+
+
 			template <typename Op>
 			auto asyncRpcRequest(std::string_view host, Op op)
 				-> decltype(std::declval<coro_io::client_pools<coro_rpc::coro_rpc_client>&>()
@@ -129,12 +205,6 @@ namespace hope {
 				co_return co_await clientPools->send_request(host, std::move(op));
 			}
 
-			// 负载均衡版本:用 createLoadBalancer 配置好的 host 列表轮询 / 随机分发。
-			// op 比 asyncRpcRequest 多一个 std::string_view host 参数(告诉你这次落到哪台):
-			//   [](coro_rpc::coro_rpc_client& cli, std::string_view host)
-			//       -> async_simple::coro::Lazy<coro_rpc::rpc_result<R>> {
-			//       co_return co_await cli.call<echo>("hi");
-			//   }
 			template <typename Op>
 			auto asyncLbRpcRequest(Op op)
 				-> decltype(std::declval<coro_io::load_balancer<coro_rpc::coro_rpc_client>&>()
@@ -151,14 +221,6 @@ namespace hope {
 				co_return co_await loadBalancer->send_request(std::move(op));
 			}
 
-			// 原始字节请求:走 coro_rpc 的 attachment 机制(直接传字节的正路,不是 call<func>(string))。
-			// func 是服务端 handler,必须是 void(coro_rpc::context<void>):用 release_request_attachment()
-			// 取请求字节,set_response_attachment() 回字节,最后 response_msg()。
-			// 调用方传 payload(请求字节),返回 Lazy<expected<rpc_result<string_view>, std::errc>>:
-			//   外层 std::errc       -> 连接层错误(池未就绪 / host 不通)
-			//   内层 rpc_error        -> RPC 业务层错误
-			//   内层 value(string_view) -> 返回字节(指向 client 响应缓冲,拿到后立即用,别存)
-			// 用法:co_await rpc.asyncRequestRaw<echoRaw>("127.0.0.1:10087", payload);
 			template <auto func>
 			async_simple::coro::Lazy<ylt::expected<coro_rpc::rpc_result<std::string_view>, std::errc>>
 				asyncRequestRaw(std::string_view host, std::string payload) {
