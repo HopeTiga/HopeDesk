@@ -23,7 +23,7 @@ InterceptionHook::InterceptionHook(QObject* parent)
     , lastMouseY(0)
     , numLockState(false)
 {
-    LOG_INFO("InterceptionHook constructor");
+    LOG_INFO("InterceptionHook Constructor");
 
     // Get screen dimensions
     screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -33,7 +33,7 @@ InterceptionHook::InterceptionHook(QObject* parent)
 InterceptionHook::~InterceptionHook()
 {
     stopCapture();
-    LOG_INFO("InterceptionHook destroyed");
+    LOG_INFO("InterceptionHook Destroyed");
 }
 
 void InterceptionHook::setTargetWidget(VideoWidget* widget)
@@ -41,14 +41,14 @@ void InterceptionHook::setTargetWidget(VideoWidget* widget)
     targetWidget = widget;
     if (widget) {
         targetHwnd = reinterpret_cast<HWND>(widget->winId());
-        LOG_INFO("Target widget set, HWND: {}", fmt::ptr(targetHwnd));
+        LOG_INFO("Target Widget Set, HWND: {}", fmt::ptr(targetHwnd));
     }
 }
 
 void InterceptionHook::setWebrtcManager(std::shared_ptr<WebrtcManager> webrtcManager)
 {
     this->webrtcManager = webrtcManager;
-    LOG_INFO("Remote client set");
+    LOG_INFO("Remote Client Set");
 }
 
 void InterceptionHook::setVideoSize(int width, int height)
@@ -59,24 +59,24 @@ void InterceptionHook::setVideoSize(int width, int height)
 bool InterceptionHook::startCapture()
 {
     if (running) {
-        LOG_WARN("Capture already running");
+        LOG_WARN("Capture Already Running");
         return true;
     }
 
-    LOG_INFO("Starting Interception capture...");
+    LOG_INFO("Starting Interception Capture...");
 
     // Create Interception context
     context = interception_create_context();
     if (!context) {
-        LOG_ERROR("Failed to create Interception context");
-        LOG_ERROR("Please ensure:");
-        LOG_ERROR("1. Running with administrator privileges");
-        LOG_ERROR("2. Interception driver is installed");
-        LOG_ERROR("3. Driver service is running");
+        LOG_ERROR("Failed To Create Interception Context");
+        LOG_ERROR("Please Ensure:");
+        LOG_ERROR("1. Running With Administrator Privileges");
+        LOG_ERROR("2. Interception Driver Is Installed");
+        LOG_ERROR("3. Driver Service Is Running");
         return false;
     }
 
-    LOG_INFO("Interception context created successfully");
+    LOG_INFO("Interception Context Created Successfully");
 
     // Set device IDs
     keyboard = INTERCEPTION_KEYBOARD(0);
@@ -92,7 +92,7 @@ bool InterceptionHook::startCapture()
     // Start capture thread
     captureThread = std::thread(&InterceptionHook::captureThreadFunc, this);
 
-    LOG_INFO("Capture thread started");
+    LOG_INFO("Capture Thread Started");
     return true;
 }
 
@@ -102,7 +102,7 @@ void InterceptionHook::stopCapture()
         return;
     }
 
-    LOG_INFO("Stopping capture...");
+    LOG_INFO("Stopping Capture...");
     running = false;
 
     // Wait for thread to finish
@@ -118,7 +118,7 @@ void InterceptionHook::stopCapture()
     }
 
     initialized = false;
-    LOG_INFO("Capture stopped");
+    LOG_INFO("Capture Stopped");
 }
 
 bool InterceptionHook::isInTargetWindow() const
@@ -140,7 +140,7 @@ bool InterceptionHook::isInTargetWindow() const
 
 void InterceptionHook::captureThreadFunc()
 {
-    LOG_INFO("Capture thread started");
+    LOG_INFO("Capture Thread Started");
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
     InterceptionDevice device;
@@ -159,7 +159,7 @@ void InterceptionHook::captureThreadFunc()
             bool isPress = !(keystroke->state & INTERCEPTION_KEY_UP);
             if (keystroke->code == 0x45 && isPress) {
                 numLockState = !numLockState.load();
-                LOG_INFO("NumLock toggled to: {}", numLockState ? "ON" : "OFF");
+                LOG_INFO("NumLock Toggled To: {}", numLockState ? "ON" : "OFF");
             }
 
             HWND foregroundWnd = GetForegroundWindow();
@@ -183,7 +183,7 @@ void InterceptionHook::captureThreadFunc()
         interception_send(context, device, &stroke, 1);
     }
 
-    LOG_INFO("Capture thread exiting");
+    LOG_INFO("Capture Thread Exiting");
 }
 
 void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)

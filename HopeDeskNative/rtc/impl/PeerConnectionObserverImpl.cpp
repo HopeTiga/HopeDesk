@@ -15,7 +15,7 @@ PeerConnectionObserverImpl::PeerConnectionObserverImpl(WebrtcManager* webrtcMana
 void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
     switch (newState) {
     case webrtc::PeerConnectionInterface::kStable:
-        LOG_INFO("Signaling state: kStable");
+        LOG_INFO("Signaling State: KStable");
         break;
     case webrtc::PeerConnectionInterface::kHaveLocalOffer:
         break;
@@ -26,7 +26,7 @@ void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterfa
     case webrtc::PeerConnectionInterface::kHaveRemotePrAnswer:
         break;
     case webrtc::PeerConnectionInterface::kClosed:
-        LOG_INFO("Signaling state: kClosed");
+        LOG_INFO("Signaling State: KClosed");
         break;
     default:
         break;
@@ -35,7 +35,7 @@ void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterfa
 
 void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> dataChannel) {
     const std::string label = dataChannel->label();
-    LOG_INFO("Data channel received: {}", label.c_str());
+    LOG_INFO("Data Channel Received: {}", label.c_str());
 
     if (label == "dataChannel") {
         std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
@@ -55,7 +55,7 @@ void PeerConnectionObserverImpl::OnDataChannel(webrtc::scoped_refptr<webrtc::Dat
 void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState newState) {
     switch (newState) {
     case webrtc::PeerConnectionInterface::kIceGatheringComplete:
-        LOG_INFO("ICE gathering complete");
+        LOG_INFO("ICE Gathering Complete");
         break;
     default:
         break;
@@ -64,13 +64,13 @@ void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInte
 
 void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
     if (!candidate) {
-        LOG_ERROR("OnIceCandidate called with null candidate");
+        LOG_ERROR("OnIceCandidate Called With Null Candidate");
         return;
     }
 
     std::string sdp;
     if (!candidate->ToString(&sdp)) {
-        LOG_ERROR("Failed to convert ICE candidate to string");
+        LOG_ERROR("Failed To Convert ICE Candidate To String");
         return;
     }
 
@@ -90,7 +90,7 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
     webrtcManager->post([manager, newState]() {
         switch (newState) {
         case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
-            LOG_INFO("WebRTC connection established");
+            LOG_INFO("WebRTC Connection Established");
             manager->isRemote = true;
             manager->cancelRequestTimeout();  // 连上即取消挂起的请求超时看门狗,防止断开后幽灵补刀
             manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
@@ -106,18 +106,18 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
             break;
         }
         case webrtc::PeerConnectionInterface::kIceConnectionFailed:
-            LOG_ERROR("ICE connection failed");
+            LOG_ERROR("ICE Connection Failed");
             // ICE 失败是终态:走 disConnectRemoteHandler 强制重置连接态(关 tcpSocket/peerConnection、
             // 重建空白 peerConnection),若之前已连上还会通知 UI。防止残留导致重连失败。
             manager->disConnectRemoteHandler();
             break;
         case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
-            LOG_WARN("ICE connection disconnected");
+            LOG_WARN("ICE Connection Disconnected");
             manager->disConnectRemoteHandler();
             break;
         }
         case webrtc::PeerConnectionInterface::kIceConnectionClosed: {
-            LOG_INFO("ICE connection closed");
+            LOG_INFO("ICE Connection Closed");
             break;
         }
         default:
@@ -129,14 +129,14 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
 void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
     switch (newState) {
     case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
-        LOG_INFO("Peer connection established");
+        LOG_INFO("Peer Connection Established");
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected:
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
         break;
     case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
-        LOG_INFO("Peer connection closed");
+        LOG_INFO("Peer Connection Closed");
         break;
     default:
         break;
@@ -151,7 +151,7 @@ void PeerConnectionObserverImpl::OnTrack(webrtc::scoped_refptr<webrtc::RtpTransc
         webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track = receiver->track();
 
         if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
-            LOG_INFO("Video track received");
+            LOG_INFO("Video Track Received");
             receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
             manager->videoTrack = webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
                 static_cast<webrtc::VideoTrackInterface*>(track.release()));
@@ -161,7 +161,7 @@ void PeerConnectionObserverImpl::OnTrack(webrtc::scoped_refptr<webrtc::RtpTransc
         }
 
         if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
-            LOG_INFO("Audio track received");
+            LOG_INFO("Audio Track Received");
             receiver->SetJitterBufferMinimumDelay(std::optional<double>(0.00));
             manager->audioTrack = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
                 static_cast<webrtc::AudioTrackInterface*>(track.release()));
@@ -221,7 +221,7 @@ void PeerConnectionObserverImpl::OnRemoveTrack(webrtc::scoped_refptr<webrtc::Rtp
 void PeerConnectionObserverImpl::OnIceCandidateError(const std::string& address, int port,
                                                      const std::string& url, int errorCode,
                                                      const std::string& errorText) {
-    LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address={}, port={}, url={}, errorCode={}, errorText={}",
+    LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: Address={}, Port={}, Url={}, ErrorCode={}, ErrorText={}",
               address.c_str(), port, url.c_str(), errorCode, errorText.c_str());
 }
 

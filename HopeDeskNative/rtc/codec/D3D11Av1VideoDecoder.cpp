@@ -374,7 +374,7 @@ public:
     webrtc::scoped_refptr<media::AV1Picture> createAV1Picture(bool applyGrain) override {
         auto* slot = decoder->acquireFreeSlot();
         if (!slot) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] slot pool exhausted (all {} slots held by DPB/delivered frames)",
+            LOG_ERROR("[D3D11Av1VideoDecoder] Slot Pool Exhausted (All {} Slots Held By DPB/delivered Frames)",
                       decoder->slotPoolSize());
             return nullptr;
         }
@@ -390,7 +390,7 @@ public:
         const auto* d3d11Pic = static_cast<const D3D11Av1Picture*>(&pic);
         auto* slot = d3d11Pic->getSlot();
         if (!slot || !decoder->videoDecoder || !decoder->videoContext) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] submitDecode guard failed: slot={} videoDecoder={} videoContext={}",
+            LOG_ERROR("[D3D11Av1VideoDecoder] SubmitDecode Guard Failed: Slot={} VideoDecoder={} VideoContext={}",
                       slot != nullptr, decoder->videoDecoder != nullptr, decoder->videoContext != nullptr);
             return Status::kFail;
         }
@@ -398,7 +398,7 @@ public:
         DXVA_PicParams_AV1 picParams{};
         if (!FillPicParams(slot->index, d3d11Pic->ApplyGrain(), pic.frameHeader,
                            seqHeader, refFrames, &picParams)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] FillPicParams failed");
+            LOG_ERROR("[D3D11Av1VideoDecoder] FillPicParams Failed");
             return Status::kFail;
         }
 
@@ -419,17 +419,17 @@ public:
             if (hr == E_PENDING || hr == kD3DErrWasStillDrawing) {
                 std::this_thread::yield();
                 if (++beginRetries >= kMaxBeginFrameRetries) {
-                    LOG_ERROR("[D3D11Av1VideoDecoder] DecoderBeginFrame still busy after {} retries", beginRetries);
+                    LOG_ERROR("[D3D11Av1VideoDecoder] DecoderBeginFrame Still Busy After {} Retries", beginRetries);
                     break;
                 }
             }
         } while (hr == E_PENDING || hr == kD3DErrWasStillDrawing);
         if (FAILED(hr)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] DecoderBeginFrame failed hr=0x{:08X} (retries={})", (unsigned)hr, beginRetries);
+            LOG_ERROR("[D3D11Av1VideoDecoder] DecoderBeginFrame Failed Hr=0x{:08X} (Retries={})", (unsigned)hr, beginRetries);
             return Status::kFail;
         }
         if (beginRetries > 0) {
-            LOG_INFO("[D3D11Av1VideoDecoder] DecoderBeginFrame retried {} times", beginRetries);
+            LOG_INFO("[D3D11Av1VideoDecoder] DecoderBeginFrame Retried {} Times", beginRetries);
         }
 
         // 2. 图片参数
@@ -439,7 +439,7 @@ public:
             decoder->videoDecoder.Get(), D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS,
             &bufSize, &buf);
         if (FAILED(hr) || bufSize < sizeof(picParams)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] GetDecoderBuffer(PIC) failed hr=0x{:08X}", (unsigned)hr);
+            LOG_ERROR("[D3D11Av1VideoDecoder] GetDecoderBuffer(PIC) Failed Hr=0x{:08X}", (unsigned)hr);
             return Status::kFail;
         }
         memcpy(buf, &picParams, sizeof(picParams));
@@ -452,7 +452,7 @@ public:
             decoder->videoDecoder.Get(), D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL,
             &bufSize, &buf);
         if (FAILED(hr) || bufSize < tileCount * sizeof(DXVA_Tile_AV1)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] GetDecoderBuffer(SLICE) failed hr=0x{:08X}", (unsigned)hr);
+            LOG_ERROR("[D3D11Av1VideoDecoder] GetDecoderBuffer(SLICE) Failed Hr=0x{:08X}", (unsigned)hr);
             return Status::kFail;
         }
         auto* tiles = static_cast<DXVA_Tile_AV1*>(buf);
@@ -473,7 +473,7 @@ public:
             decoder->videoDecoder.Get(), D3D11_VIDEO_DECODER_BUFFER_BITSTREAM,
             &bufSize, &buf);
         if (FAILED(hr) || bufSize < tileOffset) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] GetDecoderBuffer(BITSTREAM) failed hr=0x{:08X}", (unsigned)hr);
+            LOG_ERROR("[D3D11Av1VideoDecoder] GetDecoderBuffer(BITSTREAM) Failed Hr=0x{:08X}", (unsigned)hr);
             return Status::kFail;
         }
         auto* dst = static_cast<uint8_t*>(buf);
@@ -495,19 +495,19 @@ public:
         hr = decoder->videoContext->SubmitDecoderBuffers(
             decoder->videoDecoder.Get(), 3, desc);
         if (FAILED(hr)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] SubmitDecoderBuffers failed hr=0x{:08X}", (unsigned)hr);
+            LOG_ERROR("[D3D11Av1VideoDecoder] SubmitDecoderBuffers Failed Hr=0x{:08X}", (unsigned)hr);
             return Status::kFail;
         }
         hr = decoder->videoContext->DecoderEndFrame(decoder->videoDecoder.Get());
         if (FAILED(hr)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] DecoderEndFrame failed hr=0x{:08X}", (unsigned)hr);
+            LOG_ERROR("[D3D11Av1VideoDecoder] DecoderEndFrame Failed Hr=0x{:08X}", (unsigned)hr);
             return Status::kFail;
         }
         // Copy 路径:VideoProcessorBlt 把私有解码纹理拷到共享输出纹理。
         // 参考 Chromium d3d11_copying_texture_wrapper::ProcessTexture。
         if (decoder->decodePath == D3D11Av1VideoDecoder::DecodePath::Copy) {
             if (!decoder->videoProcessor || !slot->vpInputView || !slot->vpOutputView) {
-                LOG_ERROR("[D3D11Av1VideoDecoder] copy path: videoProcessor/views not ready");
+                LOG_ERROR("[D3D11Av1VideoDecoder] Copy Path: videoProcessor/views Not Ready");
                 return Status::kFail;
             }
             D3D11_VIDEO_PROCESSOR_STREAM streams{};
@@ -516,7 +516,7 @@ public:
             hr = decoder->videoContext->VideoProcessorBlt(
                 decoder->videoProcessor.Get(), slot->vpOutputView.Get(), 0, 1, &streams);
             if (FAILED(hr)) {
-                LOG_ERROR("[D3D11Av1VideoDecoder] VideoProcessorBlt failed hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("[D3D11Av1VideoDecoder] VideoProcessorBlt Failed Hr=0x{:08X}", (unsigned)hr);
                 return Status::kFail;
             }
         }
@@ -529,7 +529,7 @@ public:
         const auto* d3d11Pic = static_cast<const D3D11Av1Picture*>(&pic);
         bool ok = decoder->outputFrame(d3d11Pic->getSlot(), pic);
         if (!ok) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] outputPicture failed slot={} show_frame={}",
+            LOG_ERROR("[D3D11Av1VideoDecoder] OutputPicture Failed Slot={} Show_frame={}",
                       d3d11Pic->getSlot() ? d3d11Pic->getSlot()->index : -1, (int)pic.frameHeader.show_frame);
         }
         return ok;
@@ -554,7 +554,7 @@ bool D3D11Av1VideoDecoder::Configure(const Settings& /*settings*/) {
     released.store(false, std::memory_order_release);  // 复用解码器时重置释放标志
     if (initialized) return true;
     if (!ensureInitialized()) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] init failed");
+        LOG_ERROR("[D3D11Av1VideoDecoder] Init Failed");
         return false;
     }
     return true;
@@ -565,18 +565,18 @@ bool D3D11Av1VideoDecoder::ensureInitialized() {
     // 渲染设备没注入前不建解码设备:避免用 D3D_DRIVER_TYPE_HARDWARE 建到错误的适配器。
     // 等 setD3D11Device 注入当前连接的渲染设备后再初始化。
     if (!renderDevice) {
-        LOG_INFO("[D3D11Av1VideoDecoder] ensureInitialized deferred: no render device yet");
+        LOG_INFO("[D3D11Av1VideoDecoder] EnsureInitialized Deferred: No Render Device Yet");
         return true;
     }
     if (!createDecodeDevice()) return false;
     // 默认零拷贝(单共享纹理直解码);驱动不认共享解码纹理则改用拷贝路径
     // (解码进私有纹理 + VideoProcessor 拷到共享纹理),而不是整体失败回软解。
     if (!probeSingleTextureSupport()) {
-        LOG_WARN("[D3D11Av1VideoDecoder] single shared texture not supported, switch to COPY path");
+        LOG_WARN("[D3D11Av1VideoDecoder] Single Shared Texture Not Supported, Switch To COPY Path");
         decodePath = DecodePath::Copy;
     }
     initialized = true;
-    LOG_INFO("[D3D11Av1VideoDecoder] decode device ready (DXVA AV1, path={})",
+    LOG_INFO("[D3D11Av1VideoDecoder] Decode Device Ready (DXVA AV1, Path={})",
              decodePath == DecodePath::ZeroCopy ? "zero-copy" : "copy");
     return true;
 }
@@ -600,14 +600,14 @@ bool D3D11Av1VideoDecoder::createDecodeDevice() {
         nullptr, flags, nullptr, 0, D3D11_SDK_VERSION,
         &decodeDevice, &fl, &decodeContext);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] D3D11CreateDevice failed hr=0x{:08X}", (unsigned)hr);
+        LOG_ERROR("[D3D11Av1VideoDecoder] D3D11CreateDevice Failed Hr=0x{:08X}", (unsigned)hr);
         decodeDevice.Reset();
         decodeContext.Reset();
         return false;
     }
     if (FAILED(decodeDevice.As(&videoDevice)) ||
         FAILED(decodeContext.As(&videoContext))) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] QI video device/context failed");
+        LOG_ERROR("[D3D11Av1VideoDecoder] QI Video device/context Failed");
         decodeDevice.Reset();
         decodeContext.Reset();
         return false;
@@ -616,7 +616,7 @@ bool D3D11Av1VideoDecoder::createDecodeDevice() {
     // 查询在 decodeContext,拷贝也在这,End 后 GetData 等到拷贝(及之前的解码)完成。
     D3D11_QUERY_DESC qd{ D3D11_QUERY_EVENT, 0 };
     if (FAILED(decodeDevice->CreateQuery(&qd, &copyQuery))) {
-        LOG_WARN("[D3D11Av1VideoDecoder] CreateQuery(copyQuery) failed, copy sync disabled");
+        LOG_WARN("[D3D11Av1VideoDecoder] CreateQuery(CopyQuery) Failed, Copy Sync Disabled");
     }
     return true;
 }
@@ -630,7 +630,7 @@ bool D3D11Av1VideoDecoder::recreateDecoder(int width, int height,
 
     // 拷贝路径:解码进私有纹理后要 VideoProcessor 拷到共享纹理,先建 VP。
     if (decodePath == DecodePath::Copy && !ensureVideoProcessor(width, height)) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] ensureVideoProcessor failed {}x{}", width, height);
+        LOG_ERROR("[D3D11Av1VideoDecoder] EnsureVideoProcessor Failed {}X{}", width, height);
         return false;
     }
 
@@ -641,7 +641,7 @@ bool D3D11Av1VideoDecoder::recreateDecoder(int width, int height,
     BOOL supported = FALSE;
     HRESULT hr = videoDevice->CheckVideoDecoderFormat(&decoderGuid, DXGI_FORMAT_NV12, &supported);
     if (FAILED(hr) || !supported) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] AV1 decoder format not supported (hr=0x{:08X} supported={})", (unsigned)hr, supported);
+        LOG_ERROR("[D3D11Av1VideoDecoder] AV1 Decoder Format Not Supported (Hr=0x{:08X} Supported={})", (unsigned)hr, supported);
         return false;
     }
 
@@ -655,7 +655,7 @@ bool D3D11Av1VideoDecoder::recreateDecoder(int width, int height,
     UINT configCount = 0;
     hr = videoDevice->GetVideoDecoderConfigCount(&desc, &configCount);
     if (FAILED(hr) || configCount == 0) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] GetVideoDecoderConfigCount failed hr=0x{:08X} count={}", (unsigned)hr, configCount);
+        LOG_ERROR("[D3D11Av1VideoDecoder] GetVideoDecoderConfigCount Failed Hr=0x{:08X} Count={}", (unsigned)hr, configCount);
         return false;
     }
     D3D11_VIDEO_DECODER_CONFIG decConfig{};
@@ -669,18 +669,18 @@ bool D3D11Av1VideoDecoder::recreateDecoder(int width, int height,
         }
     }
     if (!configFound) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] no decoder config with ConfigBitstreamRaw=1");
+        LOG_ERROR("[D3D11Av1VideoDecoder] No Decoder Config With ConfigBitstreamRaw=1");
         return false;
     }
 
     hr = videoDevice->CreateVideoDecoder(&desc, &decConfig, &videoDecoder);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoDecoder failed hr=0x{:08X}", (unsigned)hr);
+        LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoDecoder Failed Hr=0x{:08X}", (unsigned)hr);
         return false;
     }
     codedWidth = width;
     codedHeight = height;
-    LOG_INFO("[D3D11Av1VideoDecoder] AV1 decoder created {}x{}", width, height);
+    LOG_INFO("[D3D11Av1VideoDecoder] AV1 Decoder Created {}X{}", width, height);
 
     if (!ensureSlots(width, height, decoderGuid)) return false;
     return true;
@@ -691,7 +691,7 @@ bool D3D11Av1VideoDecoder::recreateDecoder(int width, int height,
 // 绕开"解码直写共享纹理"这一驱动不保证支持、容易崩 GPU 的路径。
 bool D3D11Av1VideoDecoder::switchToCopyMode() {
     if (decodePath != DecodePath::ZeroCopy) return true;
-    LOG_WARN("[D3D11Av1VideoDecoder] switchToCopyMode: zero-copy -> COPY path (VideoProcessor)");
+    LOG_WARN("[D3D11Av1VideoDecoder] SwitchToCopyMode: Zero-Copy -> COPY Path (VideoProcessor)");
 
     // 销毁当前解码器/槽位(可能 GPU 已移除)。
     videoDecoder.Reset();
@@ -703,13 +703,13 @@ bool D3D11Av1VideoDecoder::switchToCopyMode() {
     // 设备移除(TDR)后解码设备也要重建;渲染设备由上层(QRhi)重建。
     HRESULT removedReason = decodeDevice ? decodeDevice->GetDeviceRemovedReason() : S_OK;
     if (removedReason != S_OK) {
-        LOG_WARN("[D3D11Av1VideoDecoder] decode device removed (hr=0x{:08X}), recreating", (unsigned)removedReason);
+        LOG_WARN("[D3D11Av1VideoDecoder] Decode Device Removed (Hr=0x{:08X}), Recreating", (unsigned)removedReason);
         decodeContext.Reset();
         videoDevice.Reset();
         videoContext.Reset();
         decodeDevice.Reset();
         if (!createDecodeDevice()) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] recreate decode device failed");
+            LOG_ERROR("[D3D11Av1VideoDecoder] Recreate Decode Device Failed");
             return false;
         }
     }
@@ -721,12 +721,12 @@ bool D3D11Av1VideoDecoder::switchToCopyMode() {
         h = s.height();
     }
     if (w <= 0 || h <= 0) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] no known size for copy mode, cannot recreate");
+        LOG_ERROR("[D3D11Av1VideoDecoder] No Known Size For Copy Mode, Cannot Recreate");
         return false;
     }
     decodePath = DecodePath::Copy;
     if (!recreateDecoder(w, h, currentProfile)) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] recreateDecoder(copy) failed");
+        LOG_ERROR("[D3D11Av1VideoDecoder] RecreateDecoder(Copy) Failed");
         return false;
     }
     LOG_INFO("[D3D11Av1VideoDecoder] 已进入拷贝模式(解码进私有纹理 -> VideoProcessor 拷贝到共享纹理)");
@@ -742,13 +742,13 @@ bool D3D11Av1VideoDecoder::ensureSlots(int width, int height, const GUID& decode
         if ((int)slots.size() <= i)
             slots.push_back(std::make_unique<Slot>());
         if (!createSlotOne(*slots[i], i, width, height, decoderGuid)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] slot pool creation failed");
+            LOG_ERROR("[D3D11Av1VideoDecoder] Slot Pool Creation Failed");
             return false;
         }
     }
     for (auto& up : slots) freeSlots.enqueue(up.get());
     slotCount.store(kSlotCount, std::memory_order_relaxed);
-    LOG_INFO("[D3D11Av1VideoDecoder] slot pool ready {}x{} x{}", width, height, kSlotCount);
+    LOG_INFO("[D3D11Av1VideoDecoder] Slot Pool Ready {}X{} X{}", width, height, kSlotCount);
     return true;
 }
 
@@ -774,18 +774,18 @@ bool D3D11Av1VideoDecoder::ensureVideoProcessor(int width, int height) {
 
     HRESULT hr = videoDevice->CreateVideoProcessorEnumerator(&desc, &vpEnumerator);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessorEnumerator failed hr=0x{:08X}", (unsigned)hr);
+        LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessorEnumerator Failed Hr=0x{:08X}", (unsigned)hr);
         return false;
     }
     hr = videoDevice->CreateVideoProcessor(vpEnumerator.Get(), 0, &videoProcessor);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessor failed hr=0x{:08X}", (unsigned)hr);
+        LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessor Failed Hr=0x{:08X}", (unsigned)hr);
         vpEnumerator.Reset();
         return false;
     }
     vpWidth = width;
     vpHeight = height;
-    LOG_INFO("[D3D11Av1VideoDecoder] VideoProcessor created {}x{} (copy path)", width, height);
+    LOG_INFO("[D3D11Av1VideoDecoder] VideoProcessor Created {}X{} (Copy Path)", width, height);
     return true;
 }
 
@@ -820,7 +820,7 @@ bool D3D11Av1VideoDecoder::createSlotOne(Slot& slot, int index, int width, int h
         singleTextureDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
         HRESULT hrResult = decodeDevice->CreateTexture2D(&singleTextureDesc, nullptr, &slot.texture);
         if (FAILED(hrResult)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] CreateTexture2D(single) failed hr=0x{:08X}", (unsigned)hrResult);
+            LOG_ERROR("[D3D11Av1VideoDecoder] CreateTexture2D(Single) Failed Hr=0x{:08X}", (unsigned)hrResult);
             return false;
         }
 
@@ -830,7 +830,7 @@ bool D3D11Av1VideoDecoder::createSlotOne(Slot& slot, int index, int width, int h
         outputViewDesc.Texture2D.ArraySlice = 0;
         hrResult = videoDevice->CreateVideoDecoderOutputView(slot.texture.Get(), &outputViewDesc, &slot.outputView);
         if (FAILED(hrResult)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoDecoderOutputView failed hr=0x{:08X}", (unsigned)hrResult);
+            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoDecoderOutputView Failed Hr=0x{:08X}", (unsigned)hrResult);
             return false;
         }
     } else {
@@ -840,7 +840,7 @@ bool D3D11Av1VideoDecoder::createSlotOne(Slot& slot, int index, int width, int h
         decodeTexDesc.MiscFlags = 0;
         HRESULT hrResult = decodeDevice->CreateTexture2D(&decodeTexDesc, nullptr, &slot.decodeTexture);
         if (FAILED(hrResult)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] CreateTexture2D(decode/private) failed hr=0x{:08X}", (unsigned)hrResult);
+            LOG_ERROR("[D3D11Av1VideoDecoder] CreateTexture2D(decode/private) Failed Hr=0x{:08X}", (unsigned)hrResult);
             return false;
         }
         D3D11_VIDEO_DECODER_OUTPUT_VIEW_DESC decodeOutViewDesc{};
@@ -849,7 +849,7 @@ bool D3D11Av1VideoDecoder::createSlotOne(Slot& slot, int index, int width, int h
         decodeOutViewDesc.Texture2D.ArraySlice = 0;
         hrResult = videoDevice->CreateVideoDecoderOutputView(slot.decodeTexture.Get(), &decodeOutViewDesc, &slot.decodeOutputView);
         if (FAILED(hrResult)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoDecoderOutputView(decode/private) failed hr=0x{:08X}", (unsigned)hrResult);
+            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoDecoderOutputView(decode/private) Failed Hr=0x{:08X}", (unsigned)hrResult);
             return false;
         }
 
@@ -859,7 +859,7 @@ bool D3D11Av1VideoDecoder::createSlotOne(Slot& slot, int index, int width, int h
         sharedTexDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
         hrResult = decodeDevice->CreateTexture2D(&sharedTexDesc, nullptr, &slot.sharedTexture);
         if (FAILED(hrResult)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] CreateTexture2D(shared/out) failed hr=0x{:08X}", (unsigned)hrResult);
+            LOG_ERROR("[D3D11Av1VideoDecoder] CreateTexture2D(shared/out) Failed Hr=0x{:08X}", (unsigned)hrResult);
             return false;
         }
 
@@ -871,7 +871,7 @@ bool D3D11Av1VideoDecoder::createSlotOne(Slot& slot, int index, int width, int h
         hrResult = videoDevice->CreateVideoProcessorInputView(
             slot.decodeTexture.Get(), vpEnumerator.Get(), &vpivDesc, &slot.vpInputView);
         if (FAILED(hrResult)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessorInputView failed hr=0x{:08X}", (unsigned)hrResult);
+            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessorInputView Failed Hr=0x{:08X}", (unsigned)hrResult);
             return false;
         }
         D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC vpovDesc{};
@@ -880,7 +880,7 @@ bool D3D11Av1VideoDecoder::createSlotOne(Slot& slot, int index, int width, int h
         hrResult = videoDevice->CreateVideoProcessorOutputView(
             slot.sharedTexture.Get(), vpEnumerator.Get(), &vpovDesc, &slot.vpOutputView);
         if (FAILED(hrResult)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessorOutputView failed hr=0x{:08X}", (unsigned)hrResult);
+            LOG_ERROR("[D3D11Av1VideoDecoder] CreateVideoProcessorOutputView Failed Hr=0x{:08X}", (unsigned)hrResult);
             return false;
         }
     }
@@ -933,7 +933,7 @@ bool D3D11Av1VideoDecoder::openSharedTexForRender(
         }
     }
     if (!haveSharedHandle) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] texture not shareable");
+        LOG_ERROR("[D3D11Av1VideoDecoder] Texture Not Shareable");
         return false;
     }
 
@@ -948,13 +948,13 @@ bool D3D11Av1VideoDecoder::openSharedTexForRender(
     }
     CloseHandle(sharedHandle);
     if (FAILED(hrResult)) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] OpenSharedResource failed hr=0x{:08X}", (unsigned)hrResult);
+        LOG_ERROR("[D3D11Av1VideoDecoder] OpenSharedResource Failed Hr=0x{:08X}", (unsigned)hrResult);
         return false;
     }
 
     Microsoft::WRL::ComPtr<ID3D11Device3> d3d11Device3;
     if (FAILED(renderDevice.As(&d3d11Device3))) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] renderDevice QI ID3D11Device3 failed");
+        LOG_ERROR("[D3D11Av1VideoDecoder] RenderDevice QI ID3D11Device3 Failed");
         return false;
     }
     D3D11_SHADER_RESOURCE_VIEW_DESC1 srvDesc{};
@@ -964,13 +964,13 @@ bool D3D11Av1VideoDecoder::openSharedTexForRender(
     srvDesc.Texture2D.MipLevels = 1;
     srvDesc.Texture2D.PlaneSlice = 0;
     if (FAILED(d3d11Device3->CreateShaderResourceView1(renderTexture.Get(), &srvDesc, planeYSrv.GetAddressOf()))) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] CreateShaderResourceView1(Y plane) failed");
+        LOG_ERROR("[D3D11Av1VideoDecoder] CreateShaderResourceView1(Y Plane) Failed");
         return false;
     }
     srvDesc.Format = DXGI_FORMAT_R8G8_UNORM;
     srvDesc.Texture2D.PlaneSlice = 1;
     if (FAILED(d3d11Device3->CreateShaderResourceView1(renderTexture.Get(), &srvDesc, planeUvSrv.GetAddressOf()))) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] CreateShaderResourceView1(UV plane) failed");
+        LOG_ERROR("[D3D11Av1VideoDecoder] CreateShaderResourceView1(UV Plane) Failed");
         return false;
     }
     return true;
@@ -1028,12 +1028,12 @@ int32_t D3D11Av1VideoDecoder::Decode(const webrtc::EncodedImage& inputImage,
 
     renderCv.wait(lock, [&] { return renderDevice != nullptr || released.load(std::memory_order_acquire); });
     if (!renderDevice) {
-        LOG_WARN("[D3D11Av1VideoDecoder] Decode after release");
+        LOG_WARN("[D3D11Av1VideoDecoder] Decode After Release");
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
     if (!decodeCallback) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
     if (!initialized && !ensureInitialized()) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] not initialized");
+        LOG_ERROR("[D3D11Av1VideoDecoder] Not Initialized");
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
     if (!av1Decoder) {
@@ -1055,14 +1055,14 @@ int32_t D3D11Av1VideoDecoder::Decode(const webrtc::EncodedImage& inputImage,
         const gfx::Size picSize = av1Decoder->GetPicSize();
         if (!recreateDecoder(picSize.width(), picSize.height(),
                              av1Decoder->GetProfile())) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] recreateDecoder failed");
+            LOG_ERROR("[D3D11Av1VideoDecoder] RecreateDecoder Failed");
             return WEBRTC_VIDEO_CODEC_ERROR;
         }
         result = av1Decoder->Decode();
     }
     if (result == media::AcceleratedVideoDecoder::kDecodeError) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] AV1 decode error (streamId={} inBytes={} rtp={} "
-                  "pic={}x{} profile={} chroma={} bitdepth={})",
+        LOG_ERROR("[D3D11Av1VideoDecoder] AV1 Decode Error (StreamId={} InBytes={} Rtp={} "
+                  "Pic={}X{} Profile={} Chroma={} Bitdepth={})",
                   streamId - 1, inputImage.size(), inputImage.RtpTimestamp(),
                   av1Decoder->GetPicSize().width(),
                   av1Decoder->GetPicSize().height(),
@@ -1074,14 +1074,14 @@ int32_t D3D11Av1VideoDecoder::Decode(const webrtc::EncodedImage& inputImage,
         if (!metaQueue.empty()) metaQueue.pop_front();   // 丢弃该帧时间戳,避免后续错位
         // 零拷贝解码失败(GPU 崩/设备移除/驱动不支持共享纹理解码) -> 切拷贝路径。
         if (decodePath == DecodePath::ZeroCopy) {
-            LOG_WARN("[D3D11Av1VideoDecoder] zero-copy decode error -> switch to copy path");
+            LOG_WARN("[D3D11Av1VideoDecoder] Zero-Copy Decode Error -> Switch To Copy Path");
             switchToCopyMode();
         }
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
     if (result == media::AcceleratedVideoDecoder::kRanOutOfSurfaces) {
 
-        LOG_ERROR("[D3D11Av1VideoDecoder] kRanOutOfSurfaces: slot pool exhausted (drop frame, NO_OUTPUT)");
+        LOG_ERROR("[D3D11Av1VideoDecoder] KRanOutOfSurfaces: Slot Pool Exhausted (Drop Frame, NO_OUTPUT)");
 
         if (!metaQueue.empty()) metaQueue.pop_front();
 
@@ -1092,7 +1092,7 @@ int32_t D3D11Av1VideoDecoder::Decode(const webrtc::EncodedImage& inputImage,
 
 bool D3D11Av1VideoDecoder::outputFrame(Slot* slot, const media::AV1Picture& picture) {
     if (!slot || !decodeCallback || !renderDevice) {
-        LOG_ERROR("[D3D11Av1VideoDecoder] outputFrame guard failed: slot={} callback={} renderDevice={}",
+        LOG_ERROR("[D3D11Av1VideoDecoder] OutputFrame Guard Failed: Slot={} Callback={} RenderDevice={}",
                   slot != nullptr, decodeCallback != nullptr, renderDevice != nullptr);
         return false;
     }
@@ -1120,7 +1120,7 @@ bool D3D11Av1VideoDecoder::outputFrame(Slot* slot, const media::AV1Picture& pict
         slot->renderDeviceCached = nullptr;
         if (!openSharedTexForRender(sharedSource, slot->renderTexture,
                                     slot->planeYSrv, slot->planeUvSrv)) {
-            LOG_ERROR("[D3D11Av1VideoDecoder] openSharedTexForRender failed");
+            LOG_ERROR("[D3D11Av1VideoDecoder] OpenSharedTexForRender Failed");
             return false;
         }
         slot->renderDeviceCached = renderDevice.Get();
@@ -1132,7 +1132,7 @@ bool D3D11Av1VideoDecoder::outputFrame(Slot* slot, const media::AV1Picture& pict
             std::this_thread::yield();
         }
     } else {
-        LOG_ERROR("[D3D11Av1VideoDecoder] copyQuery missing, cannot sync decode -> refuse to deliver");
+        LOG_ERROR("[D3D11Av1VideoDecoder] CopyQuery Missing, Cannot Sync Decode -> Refuse To Deliver");
         return false;
     }
     data->nv12Texture = slot->renderTexture;
@@ -1184,7 +1184,7 @@ void D3D11Av1VideoDecoder::setD3D11Device(ID3D11Device* dev) {
     // 必须重建解码器,否则沿用上一连接的旧设备(可能已销毁/移除) -> 解码/共享异常。
     // 旧的 "仅适配器不同才重建" 在两次连接用同一张卡时会跳过重建,正是这个 bug。
     if (initialized) {
-        LOG_WARN("[D3D11Av1VideoDecoder] render device changed (new connection), rebuilding");
+        LOG_WARN("[D3D11Av1VideoDecoder] Render Device Changed (New Connection), Rebuilding");
         av1Decoder.reset();   // 先释放 picture(回槽位),避免销毁槽位后 returnSlot 悬垂
         videoDecoder.Reset();
         videoProcessor.Reset();

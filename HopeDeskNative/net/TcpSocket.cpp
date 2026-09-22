@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "../utils/Utils.h"
+#include "../utils/CompletionHandle.h"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -41,7 +42,7 @@ TcpSocket::~TcpSocket() {
 
 boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
     if (connecting.exchange(true)) {
-        LOG_WARN("TcpSocket::connect: already connecting, skip duplicate connect");
+        LOG_WARN("TcpSocket::Connect: Already Connecting, Skip Duplicate Connect");
         co_return false;
     }
 
@@ -63,19 +64,19 @@ boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
 
         startCoroutines();
 
-        LOG_INFO("TcpSocket connected to 127.0.0.1:{}", static_cast<unsigned int>(port));
+        LOG_INFO("TcpSocket Connected To 127.0.0.1:{}", static_cast<unsigned int>(port));
 
         co_return true;
     }
     catch (const std::exception& e) {
         connecting.store(false);
-        LOG_ERROR("TcpSocket::connect error: {}", e.what());
+        LOG_ERROR("TcpSocket::Connect Error: {}", e.what());
         closeSocket();
         co_return false;
     }
     catch (...) {
         connecting.store(false);
-        LOG_ERROR("TcpSocket::connect unknown error");
+        LOG_ERROR("TcpSocket::Connect Unknown Error");
         closeSocket();
         co_return false;
     }
@@ -85,12 +86,12 @@ void TcpSocket::startCoroutines() {
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->receiveCoroutine();
         co_return;
-    }, boost::asio::detached);
+    }, hope::CompletionHandle{});
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->writerCoroutine();
         co_return;
-    }, boost::asio::detached);
+    }, hope::CompletionHandle{});
 }
 
 void TcpSocket::closeEvent() {
@@ -142,7 +143,7 @@ boost::asio::awaitable<void> TcpSocket::receiveCoroutine() {
             int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
             if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
-                LOG_ERROR("TcpSocket receiveCoroutine invalid body length: {}", static_cast<int>(bodyLength));
+                LOG_ERROR("TcpSocket ReceiveCoroutine Invalid Body Length: {}", static_cast<int>(bodyLength));
                 co_return;
             }
 
@@ -150,7 +151,7 @@ boost::asio::awaitable<void> TcpSocket::receiveCoroutine() {
 
             std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]);
             if (!bodyBuffer) {
-                LOG_ERROR("TcpSocket receiveCoroutine failed to allocate body buffer");
+                LOG_ERROR("TcpSocket ReceiveCoroutine Failed To Allocate Body Buffer");
                 co_return;
             }
             std::memset(bodyBuffer.get(), 0, bodySize + 1);
@@ -174,11 +175,11 @@ boost::asio::awaitable<void> TcpSocket::receiveCoroutine() {
         }
     }
     catch (const std::exception& e) {
-        LOG_ERROR("TcpSocket receiveCoroutine error: {}", e.what());
+        LOG_ERROR("TcpSocket ReceiveCoroutine Error: {}", e.what());
         disconnectEvent();
     }
     catch (...) {
-        LOG_ERROR("TcpSocket receiveCoroutine unknown error");
+        LOG_ERROR("TcpSocket ReceiveCoroutine Unknown Error");
         disconnectEvent();
     }
 
@@ -205,11 +206,11 @@ boost::asio::awaitable<void> TcpSocket::writerCoroutine() {
         }
     }
     catch (const std::exception& e) {
-        LOG_ERROR("TcpSocket writerCoroutine error: {}", e.what());
+        LOG_ERROR("TcpSocket WriterCoroutine Error: {}", e.what());
         disconnectEvent();
     }
     catch (...) {
-        LOG_ERROR("TcpSocket writerCoroutine unknown error");
+        LOG_ERROR("TcpSocket WriterCoroutine Unknown Error");
         disconnectEvent();
     }
 
@@ -233,13 +234,13 @@ void TcpSocket::closeSocket() {
 
     tcpSocket.cancel(errorCode);
     if (errorCode) {
-        LOG_WARN("TcpSocket::closeSocket cancel failed: {}", errorCode.message().c_str());
+        LOG_WARN("TcpSocket::CloseSocket Cancel Failed: {}", errorCode.message().c_str());
     }
 
     if (tcpSocket.is_open()) {
         tcpSocket.close(errorCode);
         if (errorCode && errorCode != boost::asio::error::not_connected) {
-            LOG_ERROR("TcpSocket::closeSocket close failed: {}", errorCode.message().c_str());
+            LOG_ERROR("TcpSocket::CloseSocket Close Failed: {}", errorCode.message().c_str());
         }
     }
 }

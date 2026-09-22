@@ -163,12 +163,12 @@ namespace hope {
 
         std::unique_ptr<webrtc::VideoDecoder> WebrtcVideoDecoderFactory::Create(const webrtc::Environment& env, const webrtc::SdpVideoFormat& format)
         {
-            LOG_INFO("DecoderFactory::Create format={} webrtcEnableD3D11={}",
+            LOG_INFO("DecoderFactory::Create Format={} WebrtcEnableD3D11={}",
                      format.name.c_str(), webrtcEnableD3D11);
 
             if (!format.IsCodecInList(GetSupportedFormats())) {
 
-                LOG_WARN("Trying to create decoder for unsupported format: {}", format.ToString().c_str());
+                LOG_WARN("Trying To Create Decoder For Unsupported Format: {}", format.ToString().c_str());
 
                 return nullptr;
             }
@@ -199,7 +199,7 @@ namespace hope {
                                     absl::EqualsIgnoreCase(format.name, "HEVC");
 
                 if (isAv1) {
-                    LOG_INFO("Prefer D3D11(AV1/DXVA) hardware decode for {} (fallback to soft on failure)", format.name.c_str());
+                    LOG_INFO("Prefer D3D11(AV1/DXVA) Hardware Decode For {} (Fallback To Soft On Failure)", format.name.c_str());
                     std::unique_ptr<D3D11Av1VideoDecoder> hardDecoder = std::make_unique<D3D11Av1VideoDecoder>();
                     {
                         std::lock_guard<std::mutex> lock(decoderMutex);
@@ -214,7 +214,7 @@ namespace hope {
                 if (isH264 || isH265) {
                     NvdecDecoder::Codec nvdecCodec =
                         isH264 ? NvdecDecoder::Codec::H264 : NvdecDecoder::Codec::H265;
-                    LOG_INFO("Prefer NVDEC hardware decode for {} (fallback to soft on failure)", format.name.c_str());
+                    LOG_INFO("Prefer NVDEC Hardware Decode For {} (Fallback To Soft On Failure)", format.name.c_str());
                     std::unique_ptr<NvdecDecoder> hardDecoder = std::make_unique<NvdecDecoder>(nvdecCodec);
                     {
                         std::lock_guard<std::mutex> lock(decoderMutex);
@@ -229,9 +229,9 @@ namespace hope {
 
             // 否则直接 WebRTC 原生软解
             if (webrtcEnableD3D11) {
-                LOG_INFO("解码: 软件解码 已启用(format={},该 codec 无硬解路径)", format.name.c_str());
+                LOG_INFO("解码: 软件解码 已启用(Format={},该 Codec 无硬解路径)", format.name.c_str());
             } else {
-                LOG_INFO("解码: 软件解码 已启用(format={},硬件解码未开启)", format.name.c_str());
+                LOG_INFO("解码: 软件解码 已启用(Format={},硬件解码未开启)", format.name.c_str());
             }
             if (onDecoderStatusHandle) onDecoderStatusHandle(format.name, false);
             return makeSoft();
@@ -241,7 +241,7 @@ namespace hope {
             const webrtc::SdpVideoFormat& format,
             bool reference_scaling) const {
 
-            LOG_INFO("format Support:{}", format.name.c_str());
+            LOG_INFO("Format Support:{}", format.name.c_str());
 
             if (format.name == "H265" || format.name == "HEVC") {
 

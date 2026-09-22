@@ -61,20 +61,20 @@ bool D3D11Nv12Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
                     "main", "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3,
                     0, &vsBlob, &errBlob);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Nv12Renderer] VS compile failed hr=0x{:08X}", (unsigned)hr);
+        LOG_ERROR("[D3D11Nv12Renderer] VS Compile Failed Hr=0x{:08X}", (unsigned)hr);
         return false;
     }
     hr = D3DCompile(kPixelShaderSrc, strlen(kPixelShaderSrc), nullptr, nullptr, nullptr,
                     "main", "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3,
                     0, &psBlob, &errBlob);
     if (FAILED(hr)) {
-        LOG_ERROR("[D3D11Nv12Renderer] PS compile failed hr=0x{:08X}", (unsigned)hr);
+        LOG_ERROR("[D3D11Nv12Renderer] PS Compile Failed Hr=0x{:08X}", (unsigned)hr);
         return false;
     }
 
     if (FAILED(dev->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vs)) ||
         FAILED(dev->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &ps))) {
-        LOG_ERROR("[D3D11Nv12Renderer] Create shaders failed");
+        LOG_ERROR("[D3D11Nv12Renderer] Create Shaders Failed");
         return false;
     }
 
@@ -83,7 +83,7 @@ bool D3D11Nv12Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 2 * sizeof(float), D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
     if (FAILED(dev->CreateInputLayout(layoutDesc, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout))) {
-        LOG_ERROR("[D3D11Nv12Renderer] CreateInputLayout failed");
+        LOG_ERROR("[D3D11Nv12Renderer] CreateInputLayout Failed");
         return false;
     }
 
@@ -93,7 +93,7 @@ bool D3D11Nv12Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
     vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     D3D11_SUBRESOURCE_DATA vbData{ kQuadVertices };
     if (FAILED(dev->CreateBuffer(&vbDesc, &vbData, &vertexBuffer))) {
-        LOG_ERROR("[D3D11Nv12Renderer] CreateBuffer failed");
+        LOG_ERROR("[D3D11Nv12Renderer] CreateBuffer Failed");
         return false;
     }
 
@@ -105,7 +105,7 @@ bool D3D11Nv12Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
     sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
     sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
     if (FAILED(dev->CreateSamplerState(&sampDesc, &samplerState))) {
-        LOG_ERROR("[D3D11Nv12Renderer] CreateSamplerState failed");
+        LOG_ERROR("[D3D11Nv12Renderer] CreateSamplerState Failed");
         return false;
     }
 
@@ -113,7 +113,7 @@ bool D3D11Nv12Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
     blendDesc.RenderTarget[0].BlendEnable = FALSE;
     blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     if (FAILED(dev->CreateBlendState(&blendDesc, &blendState))) {
-        LOG_ERROR("[D3D11Nv12Renderer] CreateBlendState failed");
+        LOG_ERROR("[D3D11Nv12Renderer] CreateBlendState Failed");
         return false;
     }
 
@@ -121,11 +121,11 @@ bool D3D11Nv12Renderer::init(ID3D11Device* dev, ID3D11DeviceContext* ctx) {
     rastDesc.FillMode = D3D11_FILL_SOLID;
     rastDesc.CullMode = D3D11_CULL_NONE;
     if (FAILED(dev->CreateRasterizerState(&rastDesc, &rasterState))) {
-        LOG_ERROR("[D3D11Nv12Renderer] CreateRasterizerState failed");
+        LOG_ERROR("[D3D11Nv12Renderer] CreateRasterizerState Failed");
         return false;
     }
 
-    LOG_INFO("[D3D11Nv12Renderer] init done");
+    LOG_INFO("[D3D11Nv12Renderer] Init Done");
     ready = true;
     return true;
 }

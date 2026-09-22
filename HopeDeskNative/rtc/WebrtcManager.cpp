@@ -17,6 +17,7 @@
 #include <api/field_trials.h>
 #include <immintrin.h>
 #include "../utils/Utils.h"
+#include "../utils/CompletionHandle.h"
 
 #ifdef _WIN32
 #include <winsock2.h>      // Windows Socket API
@@ -73,7 +74,7 @@ void WebrtcManager::asyncBoot(){
 
     tcpAcceptor->startAccept();
 
-    LOG_INFO("WebrtcManager local TCP accept started on 127.0.0.1:19998");
+    LOG_INFO("WebrtcManager Local TCP Accept Started On 127.0.0.1:19998");
 }
 
 void WebrtcManager::closeEvent(){
@@ -132,7 +133,7 @@ void WebrtcManager::connect(std::string ip)
         }
 
         co_return;
-    }, boost::asio::detached);
+    }, hope::CompletionHandle{});
 
 
 }
@@ -226,34 +227,34 @@ bool WebrtcManager::initializePeerConnection()
         networkThread = webrtc::Thread::CreateWithSocketServer();
 
         if (!networkThread) {
-            LOG_ERROR("Failed to create network thread");
+            LOG_ERROR("Failed To Create Network Thread");
             return false;
         }
         networkThread->SetName("network_thread", nullptr);
         if (!networkThread->Start()) {
-            LOG_ERROR("Failed to start network thread");
+            LOG_ERROR("Failed To Start Network Thread");
             return false;
         }
 
         workerThread = webrtc::Thread::Create();
         if (!workerThread) {
-            LOG_ERROR("Failed to create worker thread");
+            LOG_ERROR("Failed To Create Worker Thread");
             return false;
         }
         workerThread->SetName("worker_thread", nullptr);
         if (!workerThread->Start()) {
-            LOG_ERROR("Failed to start worker thread");
+            LOG_ERROR("Failed To Start Worker Thread");
             return false;
         }
 
         signalingThread = webrtc::Thread::Create();
         if (!signalingThread) {
-            LOG_ERROR("Failed to create signaling thread");
+            LOG_ERROR("Failed To Create Signaling Thread");
             return false;
         }
         signalingThread->SetName("signaling_thread", nullptr);
         if (!signalingThread->Start()) {
-            LOG_ERROR("Failed to start signaling thread");
+            LOG_ERROR("Failed To Start Signaling Thread");
             return false;
         }
 
@@ -281,7 +282,7 @@ bool WebrtcManager::initializePeerConnection()
             );
 
         if (!peerConnectionFactory) {
-            LOG_ERROR("Failed to create PeerConnectionFactory");
+            LOG_ERROR("Failed To Create PeerConnectionFactory");
             webrtcVideoEncoderFactory = nullptr;
             webrtcVideoDecoderFactory = nullptr;
             return false;
@@ -323,7 +324,7 @@ bool WebrtcManager::initializePeerConnection()
 
     auto pcResult = peerConnectionFactory->CreatePeerConnectionOrError(config, std::move(pcDependencies));
     if (!pcResult.ok()) {
-        LOG_ERROR("Failed to create PeerConnection: {}" ,pcResult.error().message());
+        LOG_ERROR("Failed To Create PeerConnection: {}" ,pcResult.error().message());
         return false;
     }
 
@@ -342,11 +343,11 @@ bool WebrtcManager::webrtcAsyncWrite(std::string str)
 {
 
     if (!webSocket) {
-        LOG_ERROR("webrtcAsyncWrite: websocket is null, message dropped");
+        LOG_ERROR("WebrtcAsyncWrite: Websocket Is Null, Message Dropped");
         return false;
     }
     if (!webSocket->asyncWrite(std::move(str))) {
-        LOG_ERROR("webrtcAsyncWrite: websocket send queue is closed, message dropped");
+        LOG_ERROR("WebrtcAsyncWrite: Websocket Send Queue Is Closed, Message Dropped");
         return false;
     }
     return true;
@@ -421,7 +422,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
     struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcEnvelope, str, envelopeSize);
     if (deserializeError) {
-        LOG_ERROR("WebSocket received invalid struct_pack: {}", deserializeError.message().data());
+        LOG_ERROR("WebSocket Received Invalid Struct_pack: {}", deserializeError.message().data());
         return;
     }
 
@@ -436,7 +437,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
             json = boost::json::parse(payload).as_object();
         }
         catch (const std::exception& e) {
-            LOG_ERROR("WebSocket received invalid payload JSON: {}", e.what());
+            LOG_ERROR("WebSocket Received Invalid Payload JSON: {}", e.what());
             return;
         }
     }
@@ -504,7 +505,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
                         if (WindowsServiceManager::startService(webrtcManagerConfig.systemService)) {
 
-                            LOG_INFO("WindowsServiceManager::startService Successful!");
+                            LOG_INFO("WindowsServiceManager::StartService Successful!");
 
                             this->armRequestTimeout(WebrtcRole::Callee);
 
@@ -520,7 +521,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
                         std::string sdp(json["sdp"].as_string().c_str());
 
                         if (!peerConnection) {
-                            LOG_ERROR("PeerConnection is null, cannot process offer");
+                            LOG_ERROR("PeerConnection Is Null, Cannot Process Offer");
                             return;
                         }
 
@@ -530,7 +531,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
                             webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
 
                         if (!remoteDesc) {
-                            LOG_ERROR("Failed to parse offer SDP: {}", error.description.c_str());
+                            LOG_ERROR("Failed To Parse Offer SDP: {}", error.description.c_str());
                             return;
                         }
 
@@ -559,17 +560,17 @@ void WebrtcManager::handleSignalMessage(std::string str)
                                 webrtc::CreateIceCandidate(mid, mlineIndex, candidateStr, &error));
 
                             if (!candidate) {
-                                LOG_ERROR("Failed to parse ICE candidate: {}", error.description.c_str());
+                                LOG_ERROR("Failed To Parse ICE Candidate: {}", error.description.c_str());
                                 return;
                             }
 
                             bool success = peerConnection->AddIceCandidate(candidate.get());
                             if (!success) {
-                                LOG_ERROR("Failed to add ICE candidate");
+                                LOG_ERROR("Failed To Add ICE Candidate");
                             }
 
                         } else {
-                            LOG_ERROR("PeerConnection is null, cannot add ICE candidate");
+                            LOG_ERROR("PeerConnection Is Null, Cannot Add ICE Candidate");
                         }
                     }
                 }
@@ -700,7 +701,7 @@ void WebrtcManager::applyWebrtcDebugLog(bool enabled)
         std::string registerStr = boost::json::serialize(registerJson);
         auto registerData = std::make_shared<WriterData>(registerStr.data(), registerStr.size());
         self->asyncWrite(registerData);
-        LOG_INFO("applyWebrtcDebugLog: pushed debugLog={} to System", enabled ? 1 : 0);
+        LOG_INFO("ApplyWebrtcDebugLog: Pushed DebugLog={} To System", enabled ? 1 : 0);
     });
 }
 
@@ -716,7 +717,7 @@ void WebrtcManager::requestCursorResync()
 
     if (cursorResyncRequested.exchange(true)) return;
     cursorArray.clear();
-    LOG_WARN("Cursor index invalid -> request peer resync (type=7), local cache cleared");
+    LOG_WARN("Cursor Index Invalid -> Request Peer Resync (Type=7), Local Cache Cleared");
 
     if (!dataChannel) return;
 
@@ -739,7 +740,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 
     // Minimum size check
     if (size < sizeof(short)) {
-        LOG_ERROR("Message too small to contain type");
+        LOG_ERROR("Message Too Small To Contain Type");
         return;
     }
 
@@ -761,7 +762,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
     case 0: { // Cursor index message (隐式：光标可见 -> 绝对模式)
         relativeMouseMode = false;
         if (size < sizeof(CursorMessage)) {
-            LOG_ERROR("Invalid cursor index message size");
+            LOG_ERROR("Invalid Cursor Index Message Size");
             break;
         }
 
@@ -769,7 +770,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 
         // CRITICAL: Validate index bounds
         if (msg->index < 0 || msg->index >= this->cursorArray.size()) {
-            LOG_ERROR("Invalid cursor index: {} (array size: {})", msg->index, this->cursorArray.size());
+            LOG_ERROR("Invalid Cursor Index: {} (Array Size: {})", msg->index, this->cursorArray.size());
             // 本地缓存与对端索引错位:请求双方清空、从 0 重新全量同步
             requestCursorResync();
             break;
@@ -778,7 +779,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Validate dimensions
         if (msg->width <= 0 || msg->width > 256 ||
             msg->height <= 0 || msg->height > 256) {
-            LOG_ERROR("Invalid cursor dimensions: {}x{}", msg->width, msg->height);
+            LOG_ERROR("Invalid Cursor Dimensions: {}X{}", msg->width, msg->height);
             break;
         }
 
@@ -788,7 +789,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Verify stored data size matches expected size
         size_t expectedSize = msg->width * msg->height * 4; // RGBA
         if (cursorData.size() != expectedSize) {
-            LOG_ERROR("Stored cursor data size mismatch. Expected: {}, Got: {}", expectedSize, cursorData.size());
+            LOG_ERROR("Stored Cursor Data Size Mismatch. Expected: {}, Got: {}", expectedSize, cursorData.size());
             break;
         }
 
@@ -811,7 +812,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
     case 1: { // New cursor data (隐式：光标可见 -> 绝对模式)
         relativeMouseMode = false;
         if (size < sizeof(CursorMessage)) {
-            LOG_ERROR("Invalid new cursor message size");
+            LOG_ERROR("Invalid New Cursor Message Size");
             break;
         }
 
@@ -820,13 +821,13 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Validate dimensions
         if (msg->width <= 0 || msg->width > 256 ||
             msg->height <= 0 || msg->height > 256) {
-            LOG_ERROR("Invalid cursor dimensions: {}x{}", msg->width, msg->height);
+            LOG_ERROR("Invalid Cursor Dimensions: {}X{}", msg->width, msg->height);
             break;
         }
 
         // Validate index
         if (msg->index < 0 || msg->index > this->cursorArray.size()) {
-            LOG_ERROR("Invalid cursor index for storage: {}", msg->index);
+            LOG_ERROR("Invalid Cursor Index For Storage: {}", msg->index);
             // 索引跳号/乱序:本地无法按 vector 顺序存储,请求双方清空、从 0 重新全量同步
             requestCursorResync();
             break;
@@ -837,7 +838,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 
         // Prevent integer underflow
         if (size <= headerSize) {
-            LOG_ERROR("No cursor image data");
+            LOG_ERROR("No Cursor Image Data");
             break;
         }
 
@@ -846,7 +847,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
         // Verify image data size
         size_t expectedSize = msg->width * msg->height * 4; // RGBA
         if (imageSize != expectedSize) {
-            LOG_ERROR("Image data size mismatch. Expected: {}, Got: {}", expectedSize, imageSize);
+            LOG_ERROR("Image Data Size Mismatch. Expected: {}, Got: {}", expectedSize, imageSize);
             break;
         }
 
@@ -898,7 +899,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
     }
 
     default:
-        LOG_WARN("Unknown message type: {}", type);
+        LOG_WARN("Unknown Message Type: {}", type);
         break;
     }
 }
@@ -910,13 +911,13 @@ void WebrtcManager::handleSystemMessage(std::string str)
         json = boost::json::parse(str).as_object();
     }
     catch (const std::exception& e) {
-        LOG_ERROR("handleSystemMessage: invalid JSON from System: {}", e.what());
+        LOG_ERROR("HandleSystemMessage: Invalid JSON From System: {}", e.what());
         handleSystemDisconnect();
         return;
     }
 
     if (!json.contains("requestType")) {
-        LOG_WARN("handleSystemMessage: missing requestType, drop");
+        LOG_WARN("HandleSystemMessage: Missing RequestType, Drop");
         return;
     }
 
@@ -944,7 +945,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
         std::string codec = json.contains("codec") ? json["codec"].as_string().c_str() : "";
         bool hard = json.contains("hard") ? json["hard"].as_bool() : false;
         std::string capture = json.contains("capture") ? json["capture"].as_string().c_str() : "Hope Virtual Display";
-        LOG_INFO("Encode status from System: codec={} hard={} capture={}", codec.c_str(), hard ? 1 : 0, capture.c_str());
+        LOG_INFO("Encode Status From System: Codec={} Hard={} Capture={}", codec.c_str(), hard ? 1 : 0, capture.c_str());
         if (onEncodeStatusHandle) onEncodeStatusHandle(codec, hard, capture);
 
         return;  // 状态消息不再转发给信号服务器
@@ -1022,7 +1023,7 @@ void WebrtcManager::handleSystemDisconnect()
 void WebrtcManager::sendSignalingMessage(boost::json::object& msg) {
 
     if (!webSocket || !webSocket->isOpen()) {
-        LOG_ERROR("Cannot send signaling message - WebSocket not connected");
+        LOG_ERROR("Cannot Send Signaling Message - WebSocket Not Connected");
         if(onSignalServerDisConnectHandle){
 
             onSignalServerDisConnectHandle();
@@ -1044,7 +1045,7 @@ void WebrtcManager::sendSignalingMessage(boost::json::object& msg) {
     try {
         webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(webrtcPayload));
     } catch (const std::exception& e) {
-        LOG_ERROR("Failed to send signaling message: {}",e.what());
+        LOG_ERROR("Failed To Send Signaling Message: {}",e.what());
     }
 }
 
@@ -1153,11 +1154,11 @@ void WebrtcManager::armRequestTimeout(WebrtcRole role)
 
             if (caller && self->onRemoteFailedHandle) self->onRemoteFailedHandle();
 
-            LOG_INFO("WebrtcManager Request Timeout ReInit (caller={})", caller ? 1 : 0);
+            LOG_INFO("WebrtcManager Request Timeout ReInit (Caller={})", caller ? 1 : 0);
 
         }
 
-    },boost::asio::detached);
+    },hope::CompletionHandle{});
 }
 
 void WebrtcManager::cancelRequestTimeout()
@@ -1194,18 +1195,18 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
                 };
             // 硬解直投:帧回调同步给工厂(下发给存活/新建的硬解解码器)。
             self->webrtcVideoDecoderFactory->setOnDisplayHandle(self->onVideoFrameHandler);
-            LOG_INFO("AsyncRemoteDesk: set decoder factory webrtcEnableD3D11={}", self->webrtcDeskConfig.webrtcEnableD3D11);
+            LOG_INFO("AsyncRemoteDesk: Set Decoder Factory WebrtcEnableD3D11={}", self->webrtcDeskConfig.webrtcEnableD3D11);
         } else {
-            LOG_WARN("AsyncRemoteDesk: webrtcVideoDecoderFactory is null, hard decode disabled");
+            LOG_WARN("AsyncRemoteDesk: WebrtcVideoDecoderFactory Is Null, Hard Decode Disabled");
         }
 
         if (self->targetId.empty()) {
-            LOG_ERROR("TargetId not set");
+            LOG_ERROR("TargetId Not Set");
             co_return;
         }
 
         if (!self->webSocket || !self->webSocket->isOpen()) {
-            LOG_ERROR("WebSocket not connected");
+            LOG_ERROR("WebSocket Not Connected");
             co_return;
         }
 
@@ -1234,19 +1235,19 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
             bool enqueued = self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(webrtcPayload));
 
             if (enqueued) {
-                LOG_INFO("AsyncRemoteDesk to Target: {}", self->targetId.c_str());
+                LOG_INFO("AsyncRemoteDesk To Target: {}", self->targetId.c_str());
             } else {
-                LOG_ERROR("AsyncRemoteDesk: request NOT enqueued, websocket send queue is closed");
+                LOG_ERROR("AsyncRemoteDesk: Request NOT Enqueued, Websocket Send Queue Is Closed");
             }
 
             self->armRequestTimeout(WebrtcRole::Caller);
         } else {
 
-            LOG_ERROR("AsyncRemoteDesk: PeerConnection is null, request not sent");
+            LOG_ERROR("AsyncRemoteDesk: PeerConnection Is Null, Request Not Sent");
 
         }
 
-    },boost::asio::detached);
+    },hope::CompletionHandle{});
 
 }
 
@@ -1272,14 +1273,14 @@ void WebrtcManager::abortPendingConnection()
         self->cancelRequestTimeout();     // UI 超时重置:取消挂起的看门狗,避免与 onRemoteConnectionTimeout 双份 teardown
         self->releaseSource();            // 关 peerConnection/dataChannel/tcpSocket + 停服务
         self->initializePeerConnection();
-        LOG_INFO("abortPendingConnection: connection state reset");
+        LOG_INFO("AbortPendingConnection: Connection State Reset");
     });
 }
 
 void WebrtcManager::sendKeyComboCtrlAltF()
 {
     if (!dataChannel) {
-        LOG_ERROR("sendKeyComboCtrlAltF: dataChannel null");
+        LOG_ERROR("SendKeyComboCtrlAltF: DataChannel Null");
         return;
     }
 #pragma pack(push,1)
@@ -1296,14 +1297,14 @@ void WebrtcManager::sendKeyComboCtrlAltF()
         KeyButton* pkt = new KeyButton{s.type, s.vk, 0};
         writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(KeyButton));
     }
-    LOG_INFO("sendKeyComboCtrlAltF sent");
+    LOG_INFO("SendKeyComboCtrlAltF Sent");
 }
 
 void WebrtcManager::writerRemote(unsigned char *data, size_t size)
 {
     if(!dataChannel) {
 
-        LOG_ERROR("DataChannel is null");
+        LOG_ERROR("DataChannel Is Null");
 
         delete reinterpret_cast<void*>(data);
 

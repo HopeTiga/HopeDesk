@@ -94,6 +94,8 @@ inline void logToFileOnly(LogLevel level, const char* file, int line, fmt::forma
 #define LOG_INFO(...)  do { if (consoleOutputLevels[LOG_LEVEL_INFO]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_INFO,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
 #define LOG_WARN(...)  do { if (consoleOutputLevels[LOG_LEVEL_WARN]  != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_WARN,  __FILE__, __LINE__, __VA_ARGS__); } while(0)
 #define LOG_ERROR(...) do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_ERROR, __FILE__, __LINE__, __VA_ARGS__); } while(0)
+// 位置由调用方给出：要报的不一定是这一行（如 CompletionHandle 报的是令牌的构造点）
+#define LOG_ERROR_FROM(sourceLocation, ...) do { if (consoleOutputLevels[LOG_LEVEL_ERROR] != 0 || logToFileEnabled != 0) hope::log::logMessage(LOG_LEVEL_ERROR, (sourceLocation).file_name(), static_cast<int>((sourceLocation).line()), __VA_ARGS__); } while(0)
 
 #define LOG_DEBUG_PLAIN(...) LOG_DEBUG(__VA_ARGS__)
 #define LOG_INFO_PLAIN(...)  LOG_INFO(__VA_ARGS__)

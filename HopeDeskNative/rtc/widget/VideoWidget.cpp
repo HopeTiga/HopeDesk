@@ -36,7 +36,7 @@ VideoWidget::VideoWidget(QWidget* parent)
     qputenv("QSG_RENDER_LOOP", "basic");
     qputenv("QT_QSG_NO_VSYNC", "1");
 
-    LOG_INFO("VideoWidget init (Dynamic texture mode)");
+    LOG_INFO("VideoWidget Init (Dynamic Texture Mode)");
 
     QIcon windowIcon(":/logo/res/hope.png");
     if (!windowIcon.isNull()) {
@@ -58,12 +58,12 @@ VideoWidget::VideoWidget(QWidget* parent)
     lastUniformData.params = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
     lastUniformData.uvScale = QVector2D(1.0f, 1.0f);
 
-    LOG_INFO("VideoWidget init finished");
+    LOG_INFO("VideoWidget Init Finished");
 }
 
 VideoWidget::~VideoWidget()
 {
-    LOG_INFO("VideoWidget destruction");
+    LOG_INFO("VideoWidget Destruction");
     std::shared_ptr<VideoFrame> dropped;
     while (frameQueue.try_dequeue(dropped)) {}   // 释放未渲染帧(shared_ptr 自动释放)
     lastRenderedFrame.reset();
@@ -73,14 +73,14 @@ VideoWidget::~VideoWidget()
 void VideoWidget::initialize(QRhiCommandBuffer* cb)
 {
     if (!QRhiWidget::rhi()) {
-        LOG_ERROR("RHI not initialized");
+        LOG_ERROR("RHI Not Initialized");
         return;
     }
 
     injectD3D11DeviceToManager();
 
     if (rhi != QRhiWidget::rhi()) {
-        LOG_INFO("RHI instance changed, recreating resources");
+        LOG_INFO("RHI Instance Changed, Recreating Resources");
         releaseResources();
         rhi = QRhiWidget::rhi();
         loadPipelineCache();
@@ -88,9 +88,9 @@ void VideoWidget::initialize(QRhiCommandBuffer* cb)
     }
 
     if (!resourcesInitialized) {
-        LOG_INFO("Starting video rendering resource initialization");
+        LOG_INFO("Starting Video Rendering Resource Initialization");
         if (!initializeResources(cb)) {
-            LOG_ERROR("Resource initialization failed");
+            LOG_ERROR("Resource Initialization Failed");
             return;
         }
         resourcesInitialized = true;
@@ -106,7 +106,7 @@ bool VideoWidget::initializeResources(QRhiCommandBuffer* cb)
         nv12RawRenderer = std::make_unique<D3D11Nv12Renderer>();
         if (!nv12RawRenderer->init(reinterpret_cast<ID3D11Device*>(nativeHandles->dev),
                                    reinterpret_cast<ID3D11DeviceContext*>(nativeHandles->context))) {
-            LOG_ERROR("D3D11Nv12Renderer init failed, Nv12Gpu frames will be dropped");
+            LOG_ERROR("D3D11Nv12Renderer Init Failed, Nv12Gpu Frames Will Be Dropped");
             nv12RawRenderer.reset();
         }
     }
@@ -162,7 +162,7 @@ void VideoWidget::createTextures(int width, int height)
 {
     if (!rhi) return;
 
-    LOG_INFO("Creating YUV textures: {}x{}", width, height);
+    LOG_INFO("Creating YUV Textures: {}X{}", width, height);
 
     videoTextureY.reset(rhi->newTexture(QRhiTexture::R8, QSize(width, height), 1));
     videoTextureY->create();
@@ -173,19 +173,19 @@ void VideoWidget::createTextures(int width, int height)
     // NV12 交错 UV 平面(RG8),与 I420 的 U/V 同尺寸
     videoTextureUV.reset(rhi->newTexture(QRhiTexture::RG8, QSize(chromaWidth, chromaHeight), 1));
     if (!videoTextureUV || !videoTextureUV->create()) {
-        LOG_ERROR("NV12: videoTextureUV(RG8 {}x{}) create failed", chromaWidth, chromaHeight);
+        LOG_ERROR("NV12: VideoTextureUV(RG8 {}X{}) Create Failed", chromaWidth, chromaHeight);
         videoTextureUV.reset();
     }
 
     // I420 拆三平面:Y 用上面的 videoTextureY,这里建 U、V 两个 R8 色度纹理。
     videoTextureU.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
     if (!videoTextureU || !videoTextureU->create()) {
-        LOG_ERROR("I420: videoTextureU(R8 {}x{}) create failed", chromaWidth, chromaHeight);
+        LOG_ERROR("I420: VideoTextureU(R8 {}X{}) Create Failed", chromaWidth, chromaHeight);
         videoTextureU.reset();
     }
     videoTextureV.reset(rhi->newTexture(QRhiTexture::R8, QSize(chromaWidth, chromaHeight), 1));
     if (!videoTextureV || !videoTextureV->create()) {
-        LOG_ERROR("I420: videoTextureV(R8 {}x{}) create failed", chromaWidth, chromaHeight);
+        LOG_ERROR("I420: VideoTextureV(R8 {}X{}) Create Failed", chromaWidth, chromaHeight);
         videoTextureV.reset();
     }
 
@@ -241,7 +241,7 @@ void VideoWidget::createShaderResourceBindings()
                 videoTextureUV.get(), sampler.get())
         });
         if (!nv12Srb->create()) {
-            LOG_ERROR("NV12: nv12Srb create failed");
+            LOG_ERROR("NV12: Nv12Srb Create Failed");
             nv12Srb.reset();
         }
     }
@@ -257,7 +257,7 @@ void VideoWidget::createPipeline()
     QShader fragShader = getShader(":/shaders/res/video.frag.qsb");
 
     if (!vertShader.isValid() || !fragShader.isValid()) {
-        LOG_ERROR("Invalid shaders");
+        LOG_ERROR("Invalid Shaders");
         return;
     }
 
@@ -296,11 +296,11 @@ void VideoWidget::createPipeline()
             nv12Pipeline->setDepthWrite(false);
             nv12Pipeline->setCullMode(QRhiGraphicsPipeline::None);
             if (!nv12Pipeline->create()) {
-                LOG_ERROR("NV12: nv12Pipeline create failed (video_nv12.frag.qsb 与当前 RHI 后端不兼容?)");
+                LOG_ERROR("NV12: Nv12Pipeline Create Failed (Video_nv12.Frag.Qsb 与当前 RHI 后端不兼容?)");
                 nv12Pipeline.reset();
             }
         } else {
-            LOG_ERROR("Invalid video_nv12.frag shader");
+            LOG_ERROR("Invalid Video_nv12.Frag Shader");
             nv12Pipeline.reset();
         }
     }
@@ -590,7 +590,7 @@ void VideoWidget::loadPipelineCache()
         QByteArray cacheData = cacheFile.readAll();
         if (!cacheData.isEmpty()) {
             rhi->setPipelineCacheData(cacheData);
-            LOG_INFO("Pipeline cache loaded: {} bytes", cacheData.size());
+            LOG_INFO("Pipeline Cache Loaded: {} Bytes", cacheData.size());
         }
     }
 }
@@ -681,7 +681,7 @@ void VideoWidget::enterFullScreen()
     isFullScreenMode = true;
     showFullScreen();   // 覆盖整个屏幕(含任务栏)
 
-    LOG_INFO("Entering full screen mode");
+    LOG_INFO("Entering Full Screen Mode");
 }
 
 void VideoWidget::exitFullScreen()
@@ -696,7 +696,7 @@ void VideoWidget::exitFullScreen()
         showNormal();
         setGeometry(normalGeometry);
     }
-    LOG_INFO("Exiting full screen mode");
+    LOG_INFO("Exiting Full Screen Mode");
 }
 
 void VideoWidget::onFullScreenClicked()

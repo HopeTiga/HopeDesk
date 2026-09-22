@@ -1,6 +1,7 @@
 #include "TcpAcceptor.h"
 
 #include "../utils/Utils.h"
+#include "../utils/CompletionHandle.h"
 
 namespace hope {
 
@@ -21,7 +22,7 @@ void TcpAcceptor::startAccept() {
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->acceptCoroutine();
         co_return;
-    }, boost::asio::detached);
+    }, hope::CompletionHandle{});
 }
 
 void TcpAcceptor::stopAccept() {
@@ -31,12 +32,12 @@ void TcpAcceptor::stopAccept() {
 
     acceptor.cancel(errorCode);
     if (errorCode) {
-        LOG_WARN("TcpAcceptor::stopAccept cancel failed: {}", errorCode.message().c_str());
+        LOG_WARN("TcpAcceptor::StopAccept Cancel Failed: {}", errorCode.message().c_str());
     }
 
     acceptor.close(errorCode);
     if (errorCode) {
-        LOG_WARN("TcpAcceptor::stopAccept close failed: {}", errorCode.message().c_str());
+        LOG_WARN("TcpAcceptor::StopAccept Close Failed: {}", errorCode.message().c_str());
     }
 }
 
@@ -54,12 +55,12 @@ boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
         }
         catch (const std::exception& e) {
             acceptRunning.store(false);
-            LOG_WARN("TcpAcceptor accept loop stopped: {}", e.what());
+            LOG_WARN("TcpAcceptor Accept Loop Stopped: {}", e.what());
             co_return;
         }
         catch (...) {
             acceptRunning.store(false);
-            LOG_WARN("TcpAcceptor accept loop stopped: unknown error");
+            LOG_WARN("TcpAcceptor Accept Loop Stopped: Unknown Error");
             co_return;
         }
 
@@ -74,7 +75,7 @@ boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
 
         currentTcpSocket = tcpSocket;
 
-        LOG_INFO("TcpAcceptor accepted a new tcpSocket");
+        LOG_INFO("TcpAcceptor Accepted A New TcpSocket");
 
         if (onAcceptHandle) {
             onAcceptHandle(tcpSocket);

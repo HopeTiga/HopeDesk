@@ -97,6 +97,7 @@ HEADERS += \
     utils/ConfigManager.h \
     utils/Options.h \
     utils/Utils.h \
+    utils/CompletionHandle.h \
     thirdParty/chromiumMedia/Av1Decoder.h \
     thirdParty/chromiumMedia/Av1Picture.h \
     thirdParty/chromiumShims/AbslCleanup.h \

@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "../utils/Utils.h"
+#include "../utils/CompletionHandle.h"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -51,7 +52,7 @@ WebSocket::~WebSocket() {
 boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const std::string& port, const std::string& path, const utils::Options& httpHeaders) {
 
     if (connecting.exchange(true)) {
-        LOG_WARN("WebSocket::connect: handshake already in progress, skip duplicate connect");
+        LOG_WARN("WebSocket::Connect: Handshake Already In Progress, Skip Duplicate Connect");
         co_return false;
     }
 
@@ -135,8 +136,8 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
                       errorCode == boost::asio::error::connection_aborted ||
                       errorCode == boost::asio::error::connection_reset;
         }
-        if (aborted) LOG_WARN("WebSocket::connect aborted: {}", e.what());
-        else LOG_ERROR("WebSocket::connect error: {}", e.what());
+        if (aborted) LOG_WARN("WebSocket::Connect Aborted: {}", e.what());
+        else LOG_ERROR("WebSocket::Connect Error: {}", e.what());
 
         if (onDisConnectHandle) {
 
@@ -150,7 +151,7 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
 
         connecting.store(false);
 
-        LOG_ERROR("WebSocket::connect unknown error");
+        LOG_ERROR("WebSocket::Connect Unknown Error");
 
         if (onDisConnectHandle) {
 
@@ -183,12 +184,12 @@ void WebSocket::asyncBoot() {
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->receiveCoroutine();
         co_return;
-    }, boost::asio::detached);
+    }, hope::CompletionHandle{});
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->writerCoroutine();
         co_return;
-    }, boost::asio::detached);
+    }, hope::CompletionHandle{});
 }
 
 boost::asio::awaitable<void> WebSocket::receiveCoroutine() {
@@ -213,13 +214,13 @@ boost::asio::awaitable<void> WebSocket::receiveCoroutine() {
     }
     catch (const std::exception& e) {
 
-        LOG_ERROR("WebSocket receiveCoroutine error: {}", e.what());
+        LOG_ERROR("WebSocket ReceiveCoroutine Error: {}", e.what());
 
         disConnectEvent();
     }
     catch (...) {
 
-        LOG_ERROR("WebSocket receiveCoroutine unknown error");
+        LOG_ERROR("WebSocket ReceiveCoroutine Unknown Error");
 
         disConnectEvent();
     }
@@ -249,13 +250,13 @@ boost::asio::awaitable<void> WebSocket::writerCoroutine() {
     }
     catch (const std::exception& e) {
 
-        LOG_ERROR("WebSocket writerCoroutine error: {}", e.what());
+        LOG_ERROR("WebSocket WriterCoroutine Error: {}", e.what());
 
         disConnectEvent();
     }
     catch (...) {
 
-        LOG_ERROR("WebSocket writerCoroutine unknown error");
+        LOG_ERROR("WebSocket WriterCoroutine Unknown Error");
 
         disConnectEvent();
     }
@@ -286,7 +287,7 @@ void WebSocket::closeWebSocket() {
 
     tcpSocket.cancel(errorCode);
     if (errorCode) {
-        LOG_WARN("WebSocket::closeSocket cancel failed: {}", errorCode.message().c_str());
+        LOG_WARN("WebSocket::CloseSocket Cancel Failed: {}", errorCode.message().c_str());
     }
 
     if (webSocket.is_open()) {
@@ -294,7 +295,7 @@ void WebSocket::closeWebSocket() {
             webSocket.close(boost::beast::websocket::close_code::normal, errorCode);
         }
         catch (const std::exception& e) {
-            LOG_ERROR("WebSocket::closeSocket close websocket failed: {}", e.what());
+            LOG_ERROR("WebSocket::CloseSocket Close Websocket Failed: {}", e.what());
         }
     }
 
@@ -303,11 +304,11 @@ void WebSocket::closeWebSocket() {
         tcpSocket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, errorCode);
         tcpSocket.close(errorCode);
         if (errorCode && errorCode != boost::asio::error::not_connected) {
-            LOG_ERROR("WebSocket::closeSocket close tcp failed: {}", errorCode.message().c_str());
+            LOG_ERROR("WebSocket::CloseSocket Close Tcp Failed: {}", errorCode.message().c_str());
         }
     }
 
-    LOG_INFO("WebSocket is closed");
+    LOG_INFO("WebSocket Is Closed");
 }
 
 bool WebSocket::asyncWrite(std::string packet) {

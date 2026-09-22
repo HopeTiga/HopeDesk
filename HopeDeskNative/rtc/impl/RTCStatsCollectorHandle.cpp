@@ -23,7 +23,7 @@ namespace hope {
             }
 
             if (selectedPairId.empty()) {
-                LOG_WARN("No selected candidate pair yet (Connection might not be ready).");
+                LOG_WARN("No Selected Candidate Pair Yet (Connection Might Not Be Ready).");
                 return;
             }
 

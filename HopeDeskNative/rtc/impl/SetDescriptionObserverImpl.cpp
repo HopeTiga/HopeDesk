@@ -10,7 +10,7 @@ namespace hope {
 		}
 
 		void SetLocalDescriptionObserver::OnFailure(webrtc::RTCError error) {
-            LOG_ERROR("SetLocalDescription failed: {}" , error.message());
+            LOG_ERROR("SetLocalDescription Failed: {}" , error.message());
 		}
 
 		// SetRemoteDescriptionObserver实现
@@ -18,7 +18,7 @@ namespace hope {
 		}
 
 		void SetRemoteDescriptionObserver::OnFailure(webrtc::RTCError error) {
-            LOG_ERROR("SetRemoteDescription failed: {}" , error.message());
+            LOG_ERROR("SetRemoteDescription Failed: {}" , error.message());
 		}
 
 	}

@@ -92,7 +92,7 @@ VideoChromaSampling GetAV1ChromaSampling(
     } else if (subsampling_x == 1u && subsampling_y == 1u) {
       return VideoChromaSampling::k420;
     } else {
-      LOG_WARN("Unknown chroma sampling format.");
+      LOG_WARN("Unknown Chroma Sampling Format.");
       return VideoChromaSampling::kUnknown;
     }
   }
@@ -159,7 +159,7 @@ AV1Decoder::~AV1Decoder() {
 
 bool AV1Decoder::Flush() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  LOG_DEBUG("AV1 decoder flush");
+  LOG_DEBUG("AV1 Decoder Flush");
   Reset();
   return true;
 }
@@ -248,7 +248,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::Decode() {
 AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!parser) {
-    LOG_WARN("Decode() is called before SetStream()");
+    LOG_WARN("Decode() Is Called Before SetStream()");
     return kRanOutOfStreamData;
   }
   while (parser->HasData() || currentFrameHeader) {
@@ -269,12 +269,12 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
     if (!currentFrameHeader) {
       libgav1::StatusCode status_code = parser->ParseOneFrame(&currentFrame);
       if (status_code != libgav1::kStatusOk) {
-        LOG_ERROR("[AV1Decoder] Failed to parse OBU: {}",
+        LOG_ERROR("[AV1Decoder] Failed To Parse OBU: {}",
                   libgav1::GetErrorString(status_code));
         return kDecodeError;
       }
       if (!currentFrame) {
-        LOG_WARN("No frame found. Skipping the current stream");
+        LOG_WARN("No Frame Found. Skipping The Current Stream");
         continue;
       }
 
@@ -284,7 +284,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
         if (IsSpatialLayerDecoding(
                 parser->sequence_header()
                     .operating_point_idc[kDefaultOperatingPoint])) {
-          LOG_ERROR("[AV1Decoder] Spatial layer decoding is not supported");
+          LOG_ERROR("[AV1Decoder] Spatial Layer Decoding Is Not Supported");
           return kDecodeError;
         }
 
@@ -297,7 +297,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
 
         if (chromaSampling != VideoChromaSampling::k420 &&
             chromaSampling != VideoChromaSampling::k444) {
-          LOG_ERROR("[AV1Decoder] Only YUV 4:2:0 and YUV 4:4:4 are supported (chroma={})",
+          LOG_ERROR("[AV1Decoder] Only YUV 4:2:0 And YUV 4:4:4 Are Supported (Chroma={})",
                     static_cast<int>(chromaSampling));
           return kDecodeError;
         }
@@ -307,7 +307,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
         const uint8_t newBitDepth = base::checked_cast<uint8_t>(
             currentSequenceHeader->color_config.bitdepth);
         if (!IsValidBitDepth(newBitDepth, newProfile)) {
-          LOG_ERROR("[AV1Decoder] Invalid bit depth={}, profile={}",
+          LOG_ERROR("[AV1Decoder] Invalid Bit Depth={}, Profile={}",
                     base::strict_cast<int>(newBitDepth),
                     GetProfileName(newProfile));
           return kDecodeError;
@@ -320,7 +320,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
             base::strict_cast<int>(currentFrameHeader->width),
             base::strict_cast<int>(currentFrameHeader->height));
         if (!gfx::Rect(newFrameSize).Contains(newVisibleRect)) {
-          LOG_DEBUG("Render size exceeds picture size. render size: {}, picture size: {}",
+          LOG_DEBUG("Render Size Exceeds Picture Size. Render Size: {}, Picture Size: {}",
                     newVisibleRect.ToString().c_str(), newFrameSize.ToString().c_str());
           newVisibleRect = gfx::Rect(newFrameSize);
         }
@@ -353,7 +353,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
         if (frameSize != newFrameSize ||
             visibleRect != newVisibleRect || profile != newProfile ||
             bitDepth != newBitDepth || isColorSpaceChange) {
-          LOG_DEBUG("New profile: {}, new resolution: {}, new visible rect: {}, new bit depth: {}, new color space: {}",
+          LOG_DEBUG("New Profile: {}, New Resolution: {}, New Visible Rect: {}, New Bit Depth: {}, New Color Space: {}",
                     GetProfileName(newProfile), newFrameSize.ToString().c_str(),
                     newVisibleRect.ToString().c_str(), base::strict_cast<int>(newBitDepth),
                     newColorSpace.ToString().c_str());
@@ -371,7 +371,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
     if (!currentSequenceHeader) {
       // Decoding is not doable because we haven't received a sequence header.
       // This occurs when seeking a video.
-      LOG_DEBUG("Discarded the current frame because no sequence header has been found yet");
+      LOG_DEBUG("Discarded The Current Frame Because No Sequence Header Has Been Found Yet");
       continue;
     }
 
@@ -380,20 +380,20 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
       const size_t frameToShow =
           base::checked_cast<size_t>(frameHeader.frame_to_show);
       if (!checkAndCleanUpReferenceFrames()) {
-        LOG_ERROR("[AV1Decoder] show_existing_frame: ref frames differ from state");
+        LOG_ERROR("[AV1Decoder] Show_existing_frame: Ref Frames Differ From State");
         return kDecodeError;
       }
 
       auto pic = refFrames[frameToShow];
       pic = pic->duplicate();
       if (!pic) {
-        LOG_ERROR("[AV1Decoder] show_existing_frame: Failed duplication");
+        LOG_ERROR("[AV1Decoder] Show_existing_frame: Failed Duplication");
         return kDecodeError;
       }
 
       pic->set_bitstream_id(streamId);
       if (!accelerator->outputPicture(*pic)) {
-        LOG_ERROR("[AV1Decoder] show_existing_frame: outputPicture failed");
+        LOG_ERROR("[AV1Decoder] Show_existing_frame: OutputPicture Failed");
         return kDecodeError;
       }
 
@@ -422,11 +422,11 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
     // the sequence header.
     // https://gitlab.com/AOMediaCodec/SVT-AV1/-/blob/master/Docs/Appendix-Reference-Scaling.md
     if (currentFrameSize != frameSize) {
-      LOG_DEBUG("Resolution change in the middle of video sequence. Frames encoded using reference frame scaling.");
+      LOG_DEBUG("Resolution Change In The Middle Of Video Sequence. Frames Encoded Using Reference Frame Scaling.");
     }
     if (currentFrameSize.width() !=
         base::strict_cast<int>(frameHeader.upscaled_width)) {
-      LOG_ERROR("[AV1Decoder] Super resolution is not supported");
+      LOG_ERROR("[AV1Decoder] Super Resolution Is Not Supported");
       return kDecodeError;
     }
 
@@ -439,7 +439,7 @@ AcceleratedVideoDecoder::DecodeResult AV1Decoder::decodeInternal() {
         base::strict_cast<int>(frameHeader.width),
         base::strict_cast<int>(frameHeader.height));
     if (current_visible_rect != visibleRect) {
-      LOG_DEBUG("Visible rectangle change in the middle of video sequence.");
+      LOG_DEBUG("Visible Rectangle Change In The Middle Of Video Sequence.");
       visibleRect = current_visible_rect;
     }
 
@@ -567,7 +567,7 @@ AV1Decoder::AV1Accelerator::Status AV1Decoder::decodeAndOutputPicture(
     const libgav1::Vector<libgav1::TileBuffer>& tileBuffers) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!checkAndCleanUpReferenceFrames()) {
-    LOG_ERROR("[AV1Decoder] decodeAndOutputPicture: ref frames differ from state");
+    LOG_ERROR("[AV1Decoder] DecodeAndOutputPicture: Ref Frames Differ From State");
     return AV1Accelerator::Status::kFail;
   }
   const AV1Accelerator::Status status =

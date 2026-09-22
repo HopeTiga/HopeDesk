@@ -19,19 +19,19 @@ bool De265Decoder::Configure(const Settings& settings) {
         Release();
     }
 
-    LOG_INFO("De265Decoder::Configure - Initializing libde265 context...");
+    LOG_INFO("De265Decoder::Configure - Initializing Libde265 Context...");
     decoderContext = de265_new_decoder(); //
     if (!decoderContext) {
-        LOG_ERROR("De265Decoder::Configure - Failed to allocate libde265 decoder context.");
+        LOG_ERROR("De265Decoder::Configure - Failed To Allocate Libde265 Decoder Context.");
         return false;
     }
 
     int numberOfThreads = std::clamp(settings.number_of_cores(), 2, kMaxDe265Threads);
-    LOG_INFO("De265Decoder::Configure - Starting worker threads: {}", numberOfThreads);
+    LOG_INFO("De265Decoder::Configure - Starting Worker Threads: {}", numberOfThreads);
     de265_error err = de265_start_worker_threads(decoderContext, numberOfThreads); //
 
     if (!de265_isOK(err)) { //
-        LOG_WARN("De265Decoder::Configure - Failed to start threads: {}", de265_get_error_text(err));
+        LOG_WARN("De265Decoder::Configure - Failed To Start Threads: {}", de265_get_error_text(err));
     }
 
     return true;
@@ -39,13 +39,13 @@ bool De265Decoder::Configure(const Settings& settings) {
 
 int32_t De265Decoder::RegisterDecodeCompleteCallback(
     webrtc::DecodedImageCallback* callback) {
-    LOG_INFO("De265Decoder::RegisterDecodeCompleteCallback called.");
+    LOG_INFO("De265Decoder::RegisterDecodeCompleteCallback Called.");
     decodeCompleteCallback = callback;
     return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int32_t De265Decoder::Release() {
-    LOG_INFO("De265Decoder::Release called.");
+    LOG_INFO("De265Decoder::Release Called.");
     if (decoderContext) {
         de265_free_decoder(decoderContext); //
         decoderContext = nullptr;
@@ -78,7 +78,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
         encodedImage.RtpTimestamp(), nullptr); //
 
     if (!de265_isOK(pushResult)) { //
-        LOG_ERROR("De265Decoder::Decode - push_data failed: {}", de265_get_error_text(pushResult));
+        LOG_ERROR("De265Decoder::Decode - Push_data Failed: {}", de265_get_error_text(pushResult));
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
 
@@ -99,7 +99,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
         while ((decodedImage = de265_get_next_picture(decoderContext)) != nullptr) { //
 
             if (de265_get_chroma_format(decodedImage) != de265_chroma_420) { //
-                LOG_ERROR("De265Decoder::Decode - Unhandled chroma format. Dropping frame.");
+                LOG_ERROR("De265Decoder::Decode - Unhandled Chroma Format. Dropping Frame.");
                 continue;
             }
 
@@ -112,7 +112,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
             const uint8_t* planeV = de265_get_image_plane(decodedImage, 2, &strideV); //
 
             if (!planeY || !planeU || !planeV) {
-                LOG_ERROR("De265Decoder::Decode - Failed to retrieve image planes. Dropping.");
+                LOG_ERROR("De265Decoder::Decode - Failed To Retrieve Image Planes. Dropping.");
                 continue;
             }
 
@@ -120,7 +120,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
                 width, height, planeY, strideY, planeU, strideU, planeV, strideV);
 
             if (!i420Buffer) {
-                LOG_ERROR("De265Decoder::Decode - Failed to allocate I420Buffer (OOM?). Return ERROR.");
+                LOG_ERROR("De265Decoder::Decode - Failed To Allocate I420Buffer (OOM?). Return ERROR.");
                 return WEBRTC_VIDEO_CODEC_MEMORY;
             }
 
@@ -144,7 +144,7 @@ int32_t De265Decoder::Decode(const webrtc::EncodedImage& encodedImage,
         // 5. 错误处理
         // 只要不是 OK 也不是 WAITING_FOR_INPUT_DATA，往往是致命错误或者严重警告
         if (!de265_isOK(decodeResult) && decodeResult != DE265_ERROR_WAITING_FOR_INPUT_DATA) { //
-            LOG_WARN("De265Decoder::Decode - Abnormal decode state: {}. Aborting this frame.",
+            LOG_WARN("De265Decoder::Decode - Abnormal Decode State: {}. Aborting This Frame.",
                         de265_get_error_text(decodeResult));
             // 重点看你的控制台有没有打印这行。如果是警告（如某些参数不受支持），可以尝试 return WEBRTC_VIDEO_CODEC_OK 强行跳过。
             return WEBRTC_VIDEO_CODEC_ERROR;

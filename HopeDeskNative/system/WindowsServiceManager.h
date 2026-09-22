@@ -15,7 +15,7 @@ public:
     static bool registerService(const std::string& serviceName, const std::string& exePath) {
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
         if (!serviceControlManager) {
-            LOG_ERROR("Failed to open service control manager: {}", GetLastError());
+            LOG_ERROR("Failed To Open Service Control Manager: {}", GetLastError());
             return false;
         }
 
@@ -40,7 +40,7 @@ public:
         if (!serviceHandle) {
             DWORD errorCode = GetLastError();
             if (errorCode == ERROR_SERVICE_EXISTS) {
-                LOG_INFO("Service already exists: {}", serviceName.c_str());
+                LOG_INFO("Service Already Exists: {}", serviceName.c_str());
                 // 尝试打开现有服务并修改配置
                 serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_ALL_ACCESS);
                 if (serviceHandle) {
@@ -55,11 +55,11 @@ public:
                 }
             }
             else {
-                LOG_ERROR("Failed to create service: {}", errorCode);
+                LOG_ERROR("Failed To Create Service: {}", errorCode);
             }
         }
         else {
-            LOG_INFO("Service registered successfully: {}", serviceName.c_str());
+            LOG_INFO("Service Registered Successfully: {}", serviceName.c_str());
 
             // 设置服务描述
             SERVICE_DESCRIPTION desc;
@@ -92,7 +92,7 @@ public:
     static bool serviceExists(const std::string& serviceName) {
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_CONNECT);
         if (!serviceControlManager) {
-            LOG_ERROR("Failed to open service control manager: {}", GetLastError());
+            LOG_ERROR("Failed To Open Service Control Manager: {}", GetLastError());
             return false;
         }
 
@@ -100,14 +100,14 @@ public:
         bool exists = (serviceHandle != nullptr);
 
         if (exists) {
-            LOG_INFO("Service exists: {}", serviceName.c_str());
+            LOG_INFO("Service Exists: {}", serviceName.c_str());
             CloseServiceHandle(serviceHandle);
         } else {
             DWORD errorCode = GetLastError();
             if (errorCode == ERROR_SERVICE_DOES_NOT_EXIST) {
-                LOG_INFO("Service does not exist: {}", serviceName.c_str());
+                LOG_INFO("Service Does Not Exist: {}", serviceName.c_str());
             } else {
-                LOG_ERROR("Failed to query service: {}, Error: {}", serviceName.c_str(), errorCode);
+                LOG_ERROR("Failed To Query Service: {}, Error: {}", serviceName.c_str(), errorCode);
             }
         }
 
@@ -119,13 +119,13 @@ public:
     static bool startService(const std::string& serviceName) {
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
         if (!serviceControlManager) {
-            LOG_ERROR("Failed to open service control manager: {}", GetLastError());
+            LOG_ERROR("Failed To Open Service Control Manager: {}", GetLastError());
             return false;
         }
 
         SC_HANDLE serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_ALL_ACCESS);
         if (!serviceHandle) {
-            LOG_ERROR("Failed to open service: {}, Error: {}", serviceName.c_str(), GetLastError());
+            LOG_ERROR("Failed To Open Service: {}, Error: {}", serviceName.c_str(), GetLastError());
             CloseServiceHandle(serviceControlManager);
             return false;
         }
@@ -134,16 +134,16 @@ public:
         // SCM 也会把服务名作为 ServiceMain 的 argv[0] 传入,此处无需再传额外参数。
         bool isSuccess = StartServiceA(serviceHandle, 0, nullptr);
         if (isSuccess) {
-            LOG_INFO("Service started successfully: {}", serviceName.c_str());
+            LOG_INFO("Service Started Successfully: {}", serviceName.c_str());
         }
         else {
             DWORD errorCode = GetLastError();
             if (errorCode == ERROR_SERVICE_ALREADY_RUNNING) {
-                LOG_INFO("Service is already running: {}", serviceName.c_str());
+                LOG_INFO("Service Is Already Running: {}", serviceName.c_str());
                 isSuccess = true;
             }
             else {
-                LOG_ERROR("Failed to start service: {}, Error: {}", serviceName.c_str(), errorCode);
+                LOG_ERROR("Failed To Start Service: {}, Error: {}", serviceName.c_str(), errorCode);
             }
         }
 
@@ -154,12 +154,12 @@ public:
 
     // 停止服务 - 强制杀死所有同名进程
     static bool stopService(const std::string& serviceName) {
-        LOG_INFO("Force killing all processes with name: {}", serviceName.c_str());
+        LOG_INFO("Force Killing All Processes With Name: {}", serviceName.c_str());
 
         // 获取进程快照
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE) {
-            LOG_ERROR("Failed to create process snapshot: {}", GetLastError());
+            LOG_ERROR("Failed To Create Process Snapshot: {}", GetLastError());
             return false;
         }
 
@@ -190,14 +190,14 @@ public:
                     if (processHandle) {
                         // 强制终止进程
                         if (TerminateProcess(processHandle, 0)) {
-                            LOG_INFO("Successfully killed process: {} (PID: {})", processNameBuffer, processEntry.th32ProcessID);
+                            LOG_INFO("Successfully Killed Process: {} (PID: {})", processNameBuffer, processEntry.th32ProcessID);
                             killedCount++;
                         } else {
-                            LOG_ERROR("Failed to terminate process PID {}: {}", processEntry.th32ProcessID, GetLastError());
+                            LOG_ERROR("Failed To Terminate Process PID {}: {}", processEntry.th32ProcessID, GetLastError());
                         }
                         CloseHandle(processHandle);
                     } else {
-                        LOG_ERROR("Failed to open process PID {}: {}", processEntry.th32ProcessID, GetLastError());
+                        LOG_ERROR("Failed To Open Process PID {}: {}", processEntry.th32ProcessID, GetLastError());
                     }
                 }
             } while (Process32NextW(snapshot, &processEntry));  // 使用宽字符版本
@@ -206,10 +206,10 @@ public:
         CloseHandle(snapshot);
 
         if (killedCount > 0) {
-            LOG_INFO("Total processes killed: {}", killedCount);
+            LOG_INFO("Total Processes Killed: {}", killedCount);
             return true;
         } else {
-            LOG_INFO("No processes found with name: {}", serviceName.c_str());
+            LOG_INFO("No Processes Found With Name: {}", serviceName.c_str());
             return true; // 没有找到进程也算成功
         }
     }
@@ -221,23 +221,23 @@ public:
 
         SC_HANDLE serviceControlManager = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
         if (!serviceControlManager) {
-            LOG_ERROR("Failed to open service control manager: {}", GetLastError());
+            LOG_ERROR("Failed To Open Service Control Manager: {}", GetLastError());
             return false;
         }
 
         SC_HANDLE serviceHandle = OpenServiceA(serviceControlManager, serviceName.c_str(), SERVICE_ALL_ACCESS);
         if (!serviceHandle) {
-            LOG_INFO("Service not found: {}", serviceName.c_str());
+            LOG_INFO("Service Not Found: {}", serviceName.c_str());
             CloseServiceHandle(serviceControlManager);
             return true; // 服务不存在也算成功
         }
 
         bool isSuccess = ::DeleteService(serviceHandle);
         if (isSuccess) {
-            LOG_INFO("Service deleted successfully: {}", serviceName.c_str());
+            LOG_INFO("Service Deleted Successfully: {}", serviceName.c_str());
         }
         else {
-            LOG_ERROR("Failed to delete service: {}, Error: {}", serviceName.c_str(), GetLastError());
+            LOG_ERROR("Failed To Delete Service: {}, Error: {}", serviceName.c_str(), GetLastError());
         }
 
         CloseServiceHandle(serviceHandle);
