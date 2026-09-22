@@ -36,7 +36,7 @@ namespace hope {
 			}
 			catch (...) {
 
-				LOG_ERROR_FROM(spawnLocation, "CoSpawn Exception: unknown exception");
+				LOG_ERROR_FROM(spawnLocation, "CoSpawn Exception: Unknown Exception");
 
 			}
 
