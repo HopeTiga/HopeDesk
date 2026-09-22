@@ -61,14 +61,14 @@ namespace hope {
 				winLogonSwitcher->SwitchToWinLogonDesktop();
 				desktopSwitchInProgress = true;
 				if (!initializeDXGI()) {
-					LOG_ERROR("Failed to initialize DXGI on WinLogon desktop");
+					LOG_ERROR("Failed To Initialize DXGI On WinLogon Desktop");
 					return false;
 				}
 			}
 
 			if (config.levels == CaptureLevels::PRO) {
 				if (!initializeProcessor()) {
-					LOG_WARN("PRO Converter init failed, falling back to GPU");
+					LOG_WARN("PRO Converter Init Failed, Falling Back To GPU");
 					config.levels = CaptureLevels::GPU;
 				}
 				else {
@@ -78,7 +78,7 @@ namespace hope {
 
 			if (config.levels == CaptureLevels::GPU) {
 				if (!initializeGPUConverter()) {
-					LOG_WARN("GPU Converter init failed, falling back to CPU BGRA");
+					LOG_WARN("GPU Converter Init Failed, Falling Back To CPU BGRA");
 					config.levels = CaptureLevels::CPU;
 					config.uselevels = CaptureLevels::CPU;
 				}
@@ -132,7 +132,7 @@ namespace hope {
 			Microsoft::WRL::ComPtr<IDXGIFactory1> dxgiFactory;
 			hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] CreateDXGIFactory1 失败, hr=0x{:08X}", hr);
+				LOG_ERROR("[ScreenCapture] CreateDXGIFactory1 失败, Hr=0x{:08X}", hr);
 				return false;
 			}
 
@@ -174,7 +174,7 @@ namespace hope {
 				}
 			}
 			else {
-				LOG_INFO("[ScreenCapture] gpuDataHandle 为空，跳过 NVIDIA 零拷贝检测");
+				LOG_INFO("[ScreenCapture] GpuDataHandle 为空，跳过 NVIDIA 零拷贝检测");
 			}
 
 			if (!targetAdapter) {
@@ -190,7 +190,7 @@ namespace hope {
 			}
 
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] D3D11Device 创建失败, hr=0x{:08X}", hr);
+				LOG_ERROR("[ScreenCapture] D3D11Device 创建失败, Hr=0x{:08X}", hr);
 				return false;
 			}
 
@@ -204,7 +204,7 @@ namespace hope {
 			Microsoft::WRL::ComPtr<IDXGIAdapter> tempAdapter;
 			hr = dxgiDevice->GetAdapter(&tempAdapter);
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] GetAdapter 失败, hr=0x{:08X}", hr);
+				LOG_ERROR("[ScreenCapture] GetAdapter 失败, Hr=0x{:08X}", hr);
 				return false;
 			}
 
@@ -219,7 +219,7 @@ namespace hope {
 
 			hr = tempAdapter->EnumOutputs(0, &dxgiOutput);
 			if (FAILED(hr) || !dxgiOutput) {
-				LOG_ERROR("[ScreenCapture] 当前显卡没有挂载显示器 (WinLogon可能会接管), hr=0x{:08X}", hr);
+				LOG_ERROR("[ScreenCapture] 当前显卡没有挂载显示器 (WinLogon可能会接管), Hr=0x{:08X}", hr);
 				return false;
 			}
 			dxgiAdapter = tempAdapter;
@@ -228,7 +228,7 @@ namespace hope {
 
 			hr = dxgiOutput1->DuplicateOutput(d3dDevice.Get(), &dxgiDuplication);
 			if (FAILED(hr)) {
-				LOG_ERROR("[ScreenCapture] DuplicateOutput 失败, hr=0x{:08X}", hr);
+				LOG_ERROR("[ScreenCapture] DuplicateOutput 失败, Hr=0x{:08X}", hr);
 				handleCaptureError(hr);
 				return false;
 			}
@@ -424,7 +424,7 @@ namespace hope {
 			HRESULT hr = D3DCompile(sharedSource.c_str(), strlen(sharedSource.c_str()), nullptr, nullptr, nullptr, "main", "cs_5_0", 0, 0, &shaderBlob, &errorBlob);
 			if (FAILED(hr)) {
 				if (errorBlob) {
-					LOG_ERROR("Shader compile error: {}", (char*)errorBlob->GetBufferPointer());
+					LOG_ERROR("Shader Compile Error: {}", (char*)errorBlob->GetBufferPointer());
 				}
 				return false;
 			}

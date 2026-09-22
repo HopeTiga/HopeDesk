@@ -20,7 +20,7 @@ namespace hope {
         {
             if (!format.IsCodecInList(GetSupportedFormats())) {
 
-                LOG_WARN("Trying to create decoder for unsupported format: {}", format.ToString().c_str());
+                LOG_WARN("Trying To Create Decoder For Unsupported Format: {}", format.ToString().c_str());
 
                 return nullptr;
             }
@@ -48,7 +48,7 @@ namespace hope {
             const webrtc::SdpVideoFormat& format,
             bool reference_scaling) const {
 
-            LOG_INFO("format Support:{}", format.name);
+            LOG_INFO("Format Support:{}", format.name);
 
             if (format.name == "H265" || format.name == "HEVC") {
 

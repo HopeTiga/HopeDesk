@@ -21,6 +21,7 @@
 #include <chrono>
 
 #include "../utils/PerfBoost.h"
+#include "../utils/CompletionHandle.h"
 
 
 namespace hope {
@@ -62,12 +63,12 @@ namespace hope {
             boost::asio::co_spawn(ioContext, [this]()-> boost::asio::awaitable<void> {
                 co_await tcpSocket->connect(19998);
                 co_return;
-            }, boost::asio::detached);
+            }, hope::CompletionHandle{});
 
             keyMouseSim = std::make_unique<KeyMouseSimulator>();
 
             if (!keyMouseSim->Initialize()) {
-                LOG_ERROR("KeyMouseSimulator initialization failed");
+                LOG_ERROR("KeyMouseSimulator Initialization Failed");
             }
 
         }
@@ -92,7 +93,7 @@ namespace hope {
 
         void WebrtcManager::processOffer(const std::string& sdp) {
             if (sdp.empty()) {
-                LOG_ERROR("Received empty SDP offer");
+                LOG_ERROR("Received Empty SDP Offer");
                 return;
             }
 
@@ -109,13 +110,13 @@ namespace hope {
                 peerConnection->CreateAnswer(createAnswerObserver.get(), options);
             }
             else {
-                LOG_ERROR("Failed to parse offer: {}", error.description);
+                LOG_ERROR("Failed To Parse Offer: {}", error.description);
             }
         }
 
         void WebrtcManager::processAnswer(const std::string& sdp) {
             if (sdp.empty()) {
-                LOG_ERROR("Received empty SDP answer");
+                LOG_ERROR("Received Empty SDP Answer");
                 return;
             }
 
@@ -128,7 +129,7 @@ namespace hope {
                     SetRemoteDescriptionObserver::Create().get(), desc.release());
             }
             else {
-                LOG_ERROR("Failed to parse answer: {}", error.description.c_str());
+                LOG_ERROR("Failed To Parse Answer: {}", error.description.c_str());
             }
         }
 
@@ -147,7 +148,7 @@ namespace hope {
                 peerConnection->AddIceCandidate(iceCandidate.release());
             }
             else {
-                LOG_ERROR("Failed to parse ICE candidate: {}", error.description.c_str());
+                LOG_ERROR("Failed To Parse ICE Candidate: {}", error.description.c_str());
             }
         }
 
@@ -185,7 +186,7 @@ namespace hope {
 
                 if (!networkThread) {
 
-                    LOG_ERROR("Failed to create network thread");
+                    LOG_ERROR("Failed To Create Network Thread");
 
                     return false;
 
@@ -194,7 +195,7 @@ namespace hope {
 
                 if (!networkThread->Start()) {
 
-                    LOG_ERROR("Failed to start network thread");
+                    LOG_ERROR("Failed To Start Network Thread");
 
                     return false;
 
@@ -204,7 +205,7 @@ namespace hope {
 
                 if (!workerThread) {
 
-                    LOG_ERROR("Failed to create worker thread");
+                    LOG_ERROR("Failed To Create Worker Thread");
 
                     return false;
                 }
@@ -212,7 +213,7 @@ namespace hope {
 
                 if (!workerThread->Start()) {
 
-                    LOG_ERROR("Failed to start worker thread");
+                    LOG_ERROR("Failed To Start Worker Thread");
 
                     return false;
                 }
@@ -221,7 +222,7 @@ namespace hope {
 
                 if (!signalingThread) {
 
-                    LOG_ERROR("Failed to create signaling thread");
+                    LOG_ERROR("Failed To Create Signaling Thread");
 
                     return false;
 
@@ -230,7 +231,7 @@ namespace hope {
 
                 if (!signalingThread->Start()) {
 
-                    LOG_ERROR("Failed to start signaling thread");
+                    LOG_ERROR("Failed To Start Signaling Thread");
 
                     return false;
 
@@ -272,7 +273,7 @@ namespace hope {
 
                 if (!peerConnectionFactory) {
 
-                    LOG_ERROR("Failed to create PeerConnectionFactory");
+                    LOG_ERROR("Failed To Create PeerConnectionFactory");
 
                     return false;
 
@@ -321,7 +322,7 @@ namespace hope {
 
             if (!pcResult.ok()) {
 
-                LOG_ERROR("Failed to create PeerConnection: {}", pcResult.error().message());
+                LOG_ERROR("Failed To Create PeerConnection: {}", pcResult.error().message());
 
                 return false;
 
@@ -335,7 +336,7 @@ namespace hope {
 
             if (!videoTrack) {
 
-                LOG_ERROR("Failed to create video track");
+                LOG_ERROR("Failed To Create Video Track");
 
                 return false;
 
@@ -391,7 +392,7 @@ namespace hope {
 
             if (!videoTrackResult.ok()) {
 
-                LOG_ERROR("Failed to add video track: {}", videoTrackResult.error().message());
+                LOG_ERROR("Failed To Add Video Track: {}", videoTrackResult.error().message());
 
                 return false;
 
@@ -412,7 +413,7 @@ namespace hope {
 
                     if (senderCapabilities.codecs.empty()) {
 
-                        LOG_WARN("No video codecs available from factory");
+                        LOG_WARN("No Video Codecs Available From Factory");
 
                         continue;
 
@@ -436,7 +437,7 @@ namespace hope {
 
                     }
 
-                    LOG_INFO("Attempting to prioritize codec: {}", priorityCodec.c_str());
+                    LOG_INFO("Attempting To Prioritize Codec: {}", priorityCodec.c_str());
 
                     // 首先添加优先编解码器
                     bool foundPriorityCodec = false;
@@ -449,7 +450,7 @@ namespace hope {
 
                             foundPriorityCodec = true;
 
-                            LOG_INFO("Found and prioritized codec: {}", codec.name.c_str());
+                            LOG_INFO("Found And Prioritized Codec: {}", codec.name.c_str());
 
                             break;
                         }
@@ -457,7 +458,7 @@ namespace hope {
 
                     if (!foundPriorityCodec) {
 
-                        LOG_WARN("Priority codec {} not found in available codecs", priorityCodec.c_str());
+                        LOG_WARN("Priority Codec {} Not Found In Available Codecs", priorityCodec.c_str());
 
                     }
 
@@ -468,7 +469,7 @@ namespace hope {
 
                             preferredCodecs.push_back(codec);
 
-                            LOG_INFO("Added additional codec: {}", codec.name.c_str());
+                            LOG_INFO("Added Additional Codec: {}", codec.name.c_str());
 
                         }
                     }
@@ -476,7 +477,7 @@ namespace hope {
                     // 验证是否有编解码器可设置
                     if (preferredCodecs.empty()) {
 
-                        LOG_ERROR("No valid codecs to set as preferences");
+                        LOG_ERROR("No Valid Codecs To Set As Preferences");
 
                         continue;
 
@@ -487,12 +488,12 @@ namespace hope {
 
                     if (result.ok()) {
 
-                        LOG_INFO("Successfully set codec preferences with {} codecs", preferredCodecs.size());
+                        LOG_INFO("Successfully Set Codec Preferences With {} Codecs", preferredCodecs.size());
 
                     }
                     else {
 
-                        LOG_ERROR("Failed to set codec preferences: {}", result.message());
+                        LOG_ERROR("Failed To Set Codec Preferences: {}", result.message());
 
                     }
                 }
@@ -514,7 +515,7 @@ namespace hope {
             auto setParamsResult = videoSender->SetParameters(parameters);
 
             if (!setParamsResult.ok()) {
-                LOG_ERROR("Failed to set RTP parameters: {}", setParamsResult.message());
+                LOG_ERROR("Failed To Set RTP Parameters: {}", setParamsResult.message());
                 return false;
             }
 
@@ -528,7 +529,7 @@ namespace hope {
 
                 if (!audioTrackResult.ok()) {
 
-                    LOG_ERROR("Failed to add video track: {}", audioTrackResult.error().message());
+                    LOG_ERROR("Failed To Add Video Track: {}", audioTrackResult.error().message());
 
                     return false;
 
@@ -546,7 +547,7 @@ namespace hope {
 
             if (!dataChannelResult.ok()) {
             
-                LOG_ERROR("Failed to add dataChannel: {}", dataChannelResult.error().message());
+                LOG_ERROR("Failed To Add DataChannel: {}", dataChannelResult.error().message());
 
                 return false;
 
@@ -571,7 +572,7 @@ namespace hope {
             // webrtcModulesType: 0=游戏模式(高性能 VDD) 1=办公模式(兼容 ScreenCapture)
             if (webrtcDeskSystemConfig.webrtcModulesType == 1) {
                 // === 兼容模式：ScreenCapture (DXGI 桌面采集)，CPU 传输，不用脏矩形 ===
-                LOG_INFO("webrtcModulesType=1 (办公模式): 兼容模式 (ScreenCapture)");
+                LOG_INFO("WebrtcModulesType=1 (办公模式): 兼容模式 (ScreenCapture)");
                 activeCaptureTech = "Desktop Duplication API";
                 auto sc = std::make_shared<ScreenCapture>();
                 ScreenCapture::CaptureConfig cfg;
@@ -638,12 +639,12 @@ namespace hope {
 
                 compatScreenCapture = sc;
                 if (!sc->initialize()) {
-                    LOG_ERROR("Failed to initialize ScreenCapture (compat mode)");
+                    LOG_ERROR("Failed To Initialize ScreenCapture (Compat Mode)");
                     compatScreenCapture.reset();
                     return false;
                 }
                 if (!sc->startCapture()) {
-                    LOG_ERROR("Failed to start ScreenCapture (compat mode)");
+                    LOG_ERROR("Failed To Start ScreenCapture (Compat Mode)");
                     compatScreenCapture.reset();
                     return false;
                 }
@@ -669,7 +670,7 @@ namespace hope {
                 config.removeOnDestroy = false;
 
                 if (webrtcDeskSystemConfig.webrtcEnableNvenc == 1) {
-                    LOG_INFO("webrtcEnableNvenc");
+                    LOG_INFO("WebrtcEnableNvenc");
                     config.cpuPath = false; // zero-copy GPU shared handle -> NVENC direct injection
 
                     screenCapture->setGpuDataHandle([this](HANDLE sharedHandle,
@@ -733,12 +734,12 @@ namespace hope {
                 screenCapture->setChannelSync(channelSync);
 
                 if (!screenCapture->initialize()) {
-                    LOG_ERROR("Failed to initialize screen capture");
+                    LOG_ERROR("Failed To Initialize Screen Capture");
                     return false;
                 }
 
                 if (!screenCapture->startCapture()) {
-                    LOG_ERROR("Failed to start screen capture");
+                    LOG_ERROR("Failed To Start Screen Capture");
                     return false;
                 }
 
@@ -795,7 +796,7 @@ namespace hope {
 
             }
 
-            if (!hAudioCatch->runEventLoop()) {
+            if (!hAudioCatch->asyncEvent()) {
 
                 LOG_ERROR("HAudioCatch Run Event Loop Failed!");
 
@@ -936,7 +937,7 @@ namespace hope {
                 json = boost::json::parse(message).as_object();
             }
             catch (const std::exception& e) {
-                LOG_ERROR("Json parse error: {}", e.what());
+                LOG_ERROR("Json Parse Error: {}", e.what());
                 return;
             }
 
@@ -1031,7 +1032,7 @@ namespace hope {
                             }
 
                             if (!initializePeerConnection()) {
-                                LOG_ERROR("Failed to initialize peer connection");
+                                LOG_ERROR("Failed To Initialize Peer Connection");
                                 return;
                             }
 
@@ -1064,13 +1065,13 @@ namespace hope {
                             }
 
                             if (!initializeScreenCapture()) {
-                                LOG_ERROR("Failed to initialize ScreenCapture");
+                                LOG_ERROR("Failed To Initialize ScreenCapture");
                                 return;
                             }
 
                             if (webrtcDeskSystemConfig.webrtcAudioEnable == 1) {
                                 if (!initializeHAudioCatch()) {
-                                    LOG_ERROR("Failed to initialize HAudioCatch");
+                                    LOG_ERROR("Failed To Initialize HAudioCatch");
                                     return;
                                 }
                             }
@@ -1199,7 +1200,7 @@ namespace hope {
             releaseSource();
 
             if (tcpSocket) {
-                tcpSocket->closeBoot();
+                tcpSocket->closeEvent();
             }
 
             if (ioContextWorkPtr) {
@@ -1254,7 +1255,7 @@ namespace hope {
 
             if (hAudioCatch) {
 
-                hAudioCatch->stopEventLoop();
+                hAudioCatch->closeEvent();
 
                 hAudioCatch.reset();
 

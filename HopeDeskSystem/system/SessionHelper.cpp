@@ -14,7 +14,7 @@ namespace hope {
             DWORD processId = GetCurrentProcessId();
 
             if (!ProcessIdToSessionId(processId, &currentSessionId)) {
-                LOG_ERROR("CheckActiveTerminalSession: ProcessIdToSessionId failed");
+                LOG_ERROR("CheckActiveTerminalSession: ProcessIdToSessionId Failed");
                 throw WinApiException("ProcessIdToSessionId");
             }
 
@@ -32,7 +32,7 @@ namespace hope {
                 // Step 1: Get System Token
                 systemToken = GetSystemToken();
                 if (!systemToken) {
-                    LOG_ERROR("CreateSystemProcessInUserSession: Failed to get System Token");
+                    LOG_ERROR("CreateSystemProcessInUserSession: Failed To Get System Token");
                     throw std::runtime_error("Failed to get System Token");
                 }
 
@@ -42,12 +42,12 @@ namespace hope {
                 // Step 3: Duplicate Token and set session ID
                 if (!DuplicateTokenEx(systemToken, MAXIMUM_ALLOWED, nullptr,
                     SecurityIdentification, TokenPrimary, &duplicatedToken)) {
-                    LOG_ERROR("CreateSystemProcessInUserSession: DuplicateTokenEx failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: DuplicateTokenEx Failed");
                     throw WinApiException("DuplicateTokenEx");
                 }
 
                 if (!SetTokenInformation(duplicatedToken, TokenSessionId, &sessionId, sizeof(sessionId))) {
-                    LOG_ERROR("CreateSystemProcessInUserSession: SetTokenInformation failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: SetTokenInformation Failed");
                     throw WinApiException("SetTokenInformation");
                 }
 
@@ -56,14 +56,14 @@ namespace hope {
 
                 // Step 5: Create environment block
                 if (!CreateEnvironmentBlock(&pEnv, duplicatedToken, TRUE)) {
-                    LOG_WARN("CreateSystemProcessInUserSession: CreateEnvironmentBlock failed, continuing");
+                    LOG_WARN("CreateSystemProcessInUserSession: CreateEnvironmentBlock Failed, Continuing");
                     pEnv = nullptr;
                 }
 
                 // Step 6: Get current process executable path
                 wchar_t exePath[MAX_PATH];
                 if (GetModuleFileName(nullptr, exePath, MAX_PATH) == 0) {
-                    LOG_ERROR("CreateSystemProcessInUserSession: GetModuleFileName failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: GetModuleFileName Failed");
                     throw WinApiException("GetModuleFileName");
                 }
 
@@ -101,7 +101,7 @@ namespace hope {
                     nullptr,
                     &startupInfo,
                     &processInformation)) {
-                    LOG_ERROR("CreateSystemProcessInUserSession: CreateProcessAsUserW failed");
+                    LOG_ERROR("CreateSystemProcessInUserSession: CreateProcessAsUserW Failed");
                     throw WinApiException("CreateProcessAsUserW");
                 }
 
@@ -113,14 +113,14 @@ namespace hope {
                 return hProcess;
             }
             catch (const std::exception& e) {
-                LOG_ERROR("CreateSystemProcessInUserSession: Caught exception - {}", e.what());
+                LOG_ERROR("CreateSystemProcessInUserSession: Caught Exception - {}", e.what());
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (duplicatedToken) CloseHandle(duplicatedToken);
                 if (systemToken) CloseHandle(systemToken);
                 throw;
             }
             catch (...) {
-                LOG_ERROR("CreateSystemProcessInUserSession: Caught unknown exception");
+                LOG_ERROR("CreateSystemProcessInUserSession: Caught Unknown Exception");
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (duplicatedToken) CloseHandle(duplicatedToken);
                 if (systemToken) CloseHandle(systemToken);
@@ -152,18 +152,18 @@ namespace hope {
                 // Method 2: System process
                 DWORD systemProcessId = FindSystemProcessId();
                 if (systemProcessId == 0) {
-                    LOG_ERROR("GetSystemToken: Failed to find System process");
+                    LOG_ERROR("GetSystemToken: Failed To Find System Process");
                     throw std::runtime_error("Cannot find System process");
                 }
 
                 processHandle = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, systemProcessId);
                 if (!processHandle) {
-                    LOG_ERROR("GetSystemToken: Failed to open System process");
+                    LOG_ERROR("GetSystemToken: Failed To Open System Process");
                     throw WinApiException("OpenProcess");
                 }
 
                 if (!OpenProcessToken(processHandle, TOKEN_DUPLICATE | TOKEN_QUERY, &tokenHandle)) {
-                    LOG_ERROR("GetSystemToken: Failed to get System process Token");
+                    LOG_ERROR("GetSystemToken: Failed To Get System Process Token");
                     throw WinApiException("OpenProcessToken");
                 }
 
@@ -200,7 +200,7 @@ namespace hope {
                 }
             }
 
-            LOG_WARN("FindSystemProcessId: System process not found");
+            LOG_WARN("FindSystemProcessId: System Process Not Found");
             return 0;
         }
 
@@ -309,18 +309,18 @@ namespace hope {
 
                 if (!WTSQueryUserToken(sessionId, &token)) {
                     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &token)) {
-                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: OpenProcessToken failed");
+                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: OpenProcessToken Failed");
                         throw WinApiException("OpenProcessToken");
                     }
 
                     if (!DuplicateTokenEx(token, MAXIMUM_ALLOWED, nullptr,
                         SecurityIdentification, TokenPrimary, &newToken)) {
-                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: DuplicateTokenEx failed");
+                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: DuplicateTokenEx Failed");
                         throw WinApiException("DuplicateTokenEx");
                     }
 
                     if (!SetTokenInformation(newToken, TokenSessionId, &sessionId, sizeof(sessionId))) {
-                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: SetTokenInformation failed");
+                        LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: SetTokenInformation Failed");
                         throw WinApiException("SetTokenInformation");
                     }
                 }
@@ -330,12 +330,12 @@ namespace hope {
                 }
 
                 if (!CreateEnvironmentBlock(&pEnv, newToken, TRUE)) {
-                    LOG_WARN("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock failed");
+                    LOG_WARN("RespawnInActiveTerminalSessionWithArgs: CreateEnvironmentBlock Failed");
                 }
 
                 wchar_t exePath[MAX_PATH];
                 if (GetModuleFileName(nullptr, exePath, MAX_PATH) == 0) {
-                    LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: GetModuleFileName failed");
+                    LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: GetModuleFileName Failed");
                     throw WinApiException("GetModuleFileName");
                 }
 
@@ -361,7 +361,7 @@ namespace hope {
                 if (!CreateProcessAsUserW(
                     newToken, nullptr, cmdLine.data(), nullptr, nullptr, FALSE,
                     creationFlags, pEnv, nullptr, &startupInfo, &processInformation)) {
-                    LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: CreateProcessAsUserW failed");
+                    LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: CreateProcessAsUserW Failed");
                     throw WinApiException("CreateProcessAsUserW");
                 }
 
@@ -371,14 +371,14 @@ namespace hope {
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
             }
             catch (const std::exception& e) {
-                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught exception - {}", e.what());
+                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught Exception - {}", e.what());
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (token) CloseHandle(token);
                 if (newToken && newToken != token) CloseHandle(newToken);
                 throw;
             }
             catch (...) {
-                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught unknown exception");
+                LOG_ERROR("RespawnInActiveTerminalSessionWithArgs: Caught Unknown Exception");
                 if (pEnv) DestroyEnvironmentBlock(pEnv);
                 if (token) CloseHandle(token);
                 if (newToken && newToken != token) CloseHandle(newToken);
@@ -394,24 +394,24 @@ namespace hope {
                 DWORD sessionId = GetActiveTerminalSessionId();
 
                 if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &token)) {
-                    LOG_ERROR("RespawnInActiveTerminalSession: OpenProcessToken failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: OpenProcessToken Failed");
                     throw WinApiException("OpenProcessToken");
                 }
 
                 if (!DuplicateTokenEx(token, MAXIMUM_ALLOWED, nullptr,
                     SecurityIdentification, TokenPrimary, &newToken)) {
-                    LOG_ERROR("RespawnInActiveTerminalSession: DuplicateTokenEx failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: DuplicateTokenEx Failed");
                     throw WinApiException("DuplicateTokenEx");
                 }
 
                 if (!SetTokenInformation(newToken, TokenSessionId, &sessionId, sizeof(sessionId))) {
-                    LOG_ERROR("RespawnInActiveTerminalSession: SetTokenInformation failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: SetTokenInformation Failed");
                     throw WinApiException("SetTokenInformation");
                 }
 
                 wchar_t exePath[MAX_PATH];
                 if (GetModuleFileName(nullptr, exePath, MAX_PATH) == 0) {
-                    LOG_ERROR("RespawnInActiveTerminalSession: GetModuleFileName failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: GetModuleFileName Failed");
                     throw WinApiException("GetModuleFileName");
                 }
 
@@ -424,7 +424,7 @@ namespace hope {
                 if (!CreateProcessAsUserW(
                     newToken, exePath, nullptr, nullptr, nullptr, false,
                     creationFlags, nullptr, nullptr, &startupInfo, &processInformation)) {
-                    LOG_ERROR("RespawnInActiveTerminalSession: CreateProcessAsUserW failed");
+                    LOG_ERROR("RespawnInActiveTerminalSession: CreateProcessAsUserW Failed");
                     throw WinApiException("CreateProcessAsUserW");
                 }
 
@@ -432,13 +432,13 @@ namespace hope {
                 CloseHandle(processInformation.hThread);
             }
             catch (const std::exception& e) {
-                LOG_ERROR("RespawnInActiveTerminalSession: Caught exception - {}", e.what());
+                LOG_ERROR("RespawnInActiveTerminalSession: Caught Exception - {}", e.what());
                 if (token) CloseHandle(token);
                 if (newToken) CloseHandle(newToken);
                 throw;
             }
             catch (...) {
-                LOG_ERROR("RespawnInActiveTerminalSession: Caught unknown exception");
+                LOG_ERROR("RespawnInActiveTerminalSession: Caught Unknown Exception");
                 if (token) CloseHandle(token);
                 if (newToken) CloseHandle(newToken);
                 throw;
@@ -451,7 +451,7 @@ namespace hope {
             DWORD sessionCount = 0;
 
             if (!WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionArray, &sessionCount)) {
-                LOG_ERROR("WTSEnumerateSessions failed");
+                LOG_ERROR("WTSEnumerateSessions Failed");
                 throw WinApiException("WTSEnumerateSessions");
             }
 
@@ -473,7 +473,7 @@ namespace hope {
             WTSFreeMemory(pSessionArray);
 
             if (targetId == 0) {
-                LOG_ERROR("No usable interactive session found");
+                LOG_ERROR("No Usable Interactive Session Found");
                 throw std::runtime_error("Could not find usable interactive session");
             }
             return targetId;

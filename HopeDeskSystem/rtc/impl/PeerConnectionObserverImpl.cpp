@@ -16,7 +16,7 @@ namespace hope {
         void PeerConnectionObserverImpl::OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState newState) {
             switch (newState) {
             case webrtc::PeerConnectionInterface::kClosed: {
-                LOG_INFO("Signaling state: kClosed");
+                LOG_INFO("Signaling State: KClosed");
                 break;
             }
             default:
@@ -30,19 +30,19 @@ namespace hope {
 
         void PeerConnectionObserverImpl::OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState newState) {
             if (newState == webrtc::PeerConnectionInterface::kIceGatheringComplete) {
-                LOG_INFO("ICE gathering complete");
+                LOG_INFO("ICE Gathering Complete");
             }
         }
 
         void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
             if (!candidate) {
-                LOG_ERROR("OnIceCandidate called with null candidate");
+                LOG_ERROR("OnIceCandidate Called With Null Candidate");
                 return;
             }
 
             std::string sdp;
             if (!candidate->ToString(&sdp)) {
-                LOG_ERROR("Failed to convert ICE candidate to string");
+                LOG_ERROR("Failed To Convert ICE Candidate To String");
                 return;
             }
 
@@ -61,7 +61,7 @@ namespace hope {
             webrtcManager->post([manager, newState]() {
                 switch (newState) {
                 case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
-                    LOG_INFO("ICE connection established");
+                    LOG_INFO("ICE Connection Established");
 
                     if (manager->peerConnection) {
                         auto localDesc = manager->peerConnection->local_description();
@@ -79,7 +79,7 @@ namespace hope {
                                         size_t slashPos = codecInfo.find('/');
                                         if (slashPos != std::string::npos) {
                                             std::string codecName = codecInfo.substr(0, slashPos);
-                                            LOG_INFO("=== Video codec actually being used: {} ===", codecName.c_str());
+                                            LOG_INFO("=== Video Codec Actually Being Used: {} ===", codecName.c_str());
                                             break;
                                         }
                                     }
@@ -110,10 +110,10 @@ namespace hope {
                 }
 
                 case webrtc::PeerConnectionInterface::kIceConnectionFailed:
-                    LOG_ERROR("ICE connection failed");
+                    LOG_ERROR("ICE Connection Failed");
                     break;
                 case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {
-                    LOG_INFO("ICE connection disconnected");
+                    LOG_INFO("ICE Connection Disconnected");
                     if (manager->closeHandle) {
                         manager->closeHandle();
                     }
@@ -128,10 +128,10 @@ namespace hope {
         void PeerConnectionObserverImpl::OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState newState) {
             switch (newState) {
             case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
-                LOG_INFO("Peer connection established");
+                LOG_INFO("Peer Connection Established");
                 break;
             case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
-                LOG_ERROR("Peer connection failed");
+                LOG_ERROR("Peer Connection Failed");
                 break;
             case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
                 break;
@@ -142,7 +142,7 @@ namespace hope {
 
         void PeerConnectionObserverImpl::OnIceCandidateError(const std::string& address, int port, const std::string& url,
             int errorCode, const std::string& errorText) {
-            LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: address={}, port={}, url={}, errorCode={}, errorText={}\n",
+            LOG_ERROR("PeerConnectionObserverImpl::OnIceCandidateError: Address={}, Port={}, Url={}, ErrorCode={}, ErrorText={}\n",
                 address.c_str(), port, url.c_str(), errorCode, errorText.c_str());
         }
 

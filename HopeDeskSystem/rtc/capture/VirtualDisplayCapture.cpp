@@ -749,7 +749,7 @@ namespace hope {
                         channelDown = false;
                         openBackoffMs = 0;
                         downLogCounter = 0;
-                        LOG_INFO("VirtualDisplayCapture frame channel recovered");
+                        LOG_INFO("VirtualDisplayCapture Frame Channel Recovered");
                     }
                     return true;
                 }
@@ -757,7 +757,7 @@ namespace hope {
                 if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
                 nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
                 if (++downLogCounter == 1 || downLogCounter % 30 == 0) {
-                    LOG_WARN("VirtualDisplayCapture frame channel down, retry in {} ms", openBackoffMs);
+                    LOG_WARN("VirtualDisplayCapture Frame Channel Down, Retry In {} Ms", openBackoffMs);
                 }
                 openBackoffMs *= 2;
                 if (openBackoffMs > kVddBackoffMaxMs) openBackoffMs = kVddBackoffMaxMs;
@@ -837,7 +837,7 @@ namespace hope {
                     }
                     else if (++probeFailCount >= probeFailRecoverThreshold) {
                         probeFailCount = 0;
-                        LOG_WARN("VirtualDisplayCapture driver stalled, reopening device to wake D0");
+                        LOG_WARN("VirtualDisplayCapture Driver Stalled, Reopening Device To Wake D0");
                         // 仅重开 device interface 触发 PnP 唤醒 D3→D0。D0Entry 里
                         // InitAdapter 后 OS 会自动重新 AssignSwapChain（monitor 还在），
                         // 无需 RELOAD_DRIVER —— 那会 DestroyAllMonitors 把 monitor 删掉。
@@ -872,7 +872,7 @@ namespace hope {
             // Best effort: if it fails, capture still runs but may include the cursor.
             if (!enableHardwareCursor()) {
 
-                LOG_WARN("enableHardwareCursor failed; captured frames may include the cursor");
+                LOG_WARN("EnableHardwareCursor Failed; Captured Frames May Include The Cursor");
 
             }
 
@@ -907,7 +907,7 @@ namespace hope {
                 // 启动期帧通道未就绪（设备 D3 / 懒建纹理）。不在信令线程上长阻塞：
                 // 唤醒一次 D0 后立即返回，通道交给采集线程后台退避重试（channelDown）。
                 // 否则 initialize 卡 33s，会拖垮 offer/answer 协商导致 encoder 不生成。
-                LOG_WARN("OpenFrameChannel not ready at startup, deferring to capture thread");
+                LOG_WARN("OpenFrameChannel Not Ready At Startup, Deferring To Capture Thread");
                 closeFrameChannel();
                 reopenDriver();
                 channelDown = true;
@@ -915,7 +915,7 @@ namespace hope {
                 nextOpenRetryAt = std::chrono::steady_clock::now();
             }
 
-            LOG_INFO("VirtualDisplayCapture::initialize Successful");
+            LOG_INFO("VirtualDisplayCapture::Initialize Successful");
 
             return true;
         }

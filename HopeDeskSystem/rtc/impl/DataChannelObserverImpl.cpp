@@ -34,14 +34,14 @@ namespace hope {
 
             if (buffer.size() == 0) {
 
-                LOG_ERROR("DataChannelObserverImpl::OnMessag webrtc::DataBuffer size : 0");
+                LOG_ERROR("DataChannelObserverImpl::OnMessag Webrtc::DataBuffer Size : 0");
 
                 return;
             }
 
             if (buffer.size() > 1024 * 1024) {
 
-                LOG_ERROR("DataChannelObserverImpl::OnMessag webrtc::DataBuffer Exceeds the size limit");
+                LOG_ERROR("DataChannelObserverImpl::OnMessag Webrtc::DataBuffer Exceeds The Size Limit");
 
                 return;
 

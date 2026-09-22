@@ -58,12 +58,12 @@ namespace hope {
             mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
 
             if (!mouseHook) {
-                LOG_ERROR("Failed to install mouse hook, error code: {}", std::to_string(GetLastError()).c_str());
+                LOG_ERROR("Failed To Install Mouse Hook, Error Code: {}", std::to_string(GetLastError()).c_str());
                 isRunning = false;
                 return;
             }
 
-            LOG_INFO("mouseHooks Installed");
+            LOG_INFO("MouseHooks Installed");
 
             // Message loop (required, otherwise hook won't work)
             MSG msg;
@@ -76,7 +76,7 @@ namespace hope {
             if (mouseHook) {
                 UnhookWindowsHookEx(mouseHook);
                 mouseHook = nullptr;
-                LOG_INFO("mouseHooks Uninstalled");
+                LOG_INFO("MouseHooks Uninstalled");
             }
         }
 
@@ -224,7 +224,7 @@ namespace hope {
 
                 // Bounds check
                 if (index >= cursorHotPos.size() || index >= cursorSizes.size()) {
-                    LOG_ERROR("Invalid cursor cache index: {}", index);
+                    LOG_ERROR("Invalid Cursor Cache Index: {}", index);
                     return;
                 }
 
@@ -282,7 +282,7 @@ namespace hope {
             }
 
             if (!GetIconInfo(hCursor, &iconInfo)) {
-                LOG_ERROR("GetIconInfo failed, error code: {}", std::to_string(GetLastError()).c_str());
+                LOG_ERROR("GetIconInfo Failed, Error Code: {}", std::to_string(GetLastError()).c_str());
                 return;
             }
 
@@ -301,7 +301,7 @@ namespace hope {
             height = hasColor ? bmColor.bmHeight : bmMask.bmHeight / 2;
 
             if (width <= 0 || height <= 0) {
-                LOG_WARN("Invalid cursor size: {}x{}", width, height);
+                LOG_WARN("Invalid Cursor Size: {}X{}", width, height);
                 goto cleanup;
             }
 
@@ -326,10 +326,10 @@ namespace hope {
                 if (hasColor) {
                     // Color cursor - Get original colors directly
                     if (GetDIBits(hdcMem, iconInfo.hbmColor, 0, height, data, &bmi, DIB_RGB_COLORS)) {
-                        LOG_DEBUG("Successfully got color cursor data (preserving original colors)");
+                        LOG_DEBUG("Successfully Got Color Cursor Data (Preserving Original Colors)");
                     }
                     else {
-                        LOG_ERROR("GetDIBits failed, error code: {}", std::to_string(GetLastError()).c_str());
+                        LOG_ERROR("GetDIBits Failed, Error Code: {}", std::to_string(GetLastError()).c_str());
                         delete[] data;
                         data = nullptr;
                         size = 0;

@@ -27,7 +27,7 @@ public:
 
     boost::asio::awaitable<bool> connect(unsigned short port);
 
-    void closeBoot();
+    void closeEvent();
 
     bool asyncWrite(std::shared_ptr<WriterData> writerData);
 

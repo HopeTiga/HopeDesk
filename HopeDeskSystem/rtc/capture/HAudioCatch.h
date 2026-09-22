@@ -19,17 +19,17 @@ namespace hope {
 
             bool initlize();
 
-            bool runEventLoop();
+            bool asyncEvent();
 
-            void stopEventLoop();
+            void closeEvent();
 
             void setDataHandle(std::function<void(unsigned char*, size_t)>);
 
         private:
 
-            std::thread eventLoopThread;
+            std::thread asyncEventThread;
 
-            std::atomic<bool> eventLoopRunning{ false };
+            std::atomic<bool> asyncEvents{ false };
 
             std::atomic<bool> initlized{ false };
 
