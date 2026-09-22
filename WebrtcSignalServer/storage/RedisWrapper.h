@@ -41,7 +41,7 @@ namespace hope {
 
 			RedisConfig redisConfig;
 
-			std::unique_ptr<boost::redis::connection> connection;
+			std::shared_ptr<boost::redis::connection> connection;
 
 		};
 

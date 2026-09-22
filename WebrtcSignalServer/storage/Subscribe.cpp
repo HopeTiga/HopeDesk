@@ -3,6 +3,8 @@
 #include <boost/asio/redirect_error.hpp>
 #include <boost/redis/push_parser.hpp>
 
+#include "../utils/Utils.h"
+
 namespace hope {
 
 	namespace storage {
@@ -43,14 +45,19 @@ namespace hope {
 					boost::asio::redirect_error(boost::asio::use_awaitable, errorCode));
 
 				if (errorCode) {
+
 					LOG_ERROR("Redis Subscribe Receive Stopped: {}", errorCode.message());
+
 					co_return;
 
 				}
 
 				if (!response.has_value()) {
+
 					LOG_ERROR("Redis Subscribe Response Error, Resetting");
+
 					response.emplace();
+
 					continue;
 
 				}
