@@ -1107,7 +1107,7 @@ caCertificateFile = redis.crt
 verifyPeer = 1                 ; useSsl=1 时才生效
 connectTimeoutSeconds = 10
 sslHandshakeTimeoutSeconds = 10
-healthCheckIntervalSeconds = 2
+healthCheckIntervalSeconds = 10
 reconnectWaitIntervalSeconds = 0
 maxReadSize = 0                ; 0=不限制(走 GetInt+手工夹取,不能用 GetSize)
 connectionSize = 1             ; 每个 channel 建几条连接(见 §9.3)
