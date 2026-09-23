@@ -22,17 +22,17 @@ namespace hope {
 
         static const wchar_t* kVddMonitorId = L"HPD"; // EDID manufacturer -> DeviceID contains "HPD"
 
-        // reopen/probe 的有界 open 重试（NOT_READY 每 500ms 一次）。启动仍用 30 次
-        // 等驱动懒建纹理；运行期通道维护最坏 1s 返回，配合退避不阻塞采集。
-        // 恢复期快速重试：0.3s→0.6s→1s 封顶，驱动 D0 重建完成后最多 ~2s 内重连。
         constexpr int kVddReopenMaxAttempts = 2;   // reopen：2×500ms ≈ 1s
-        constexpr int kVddProbeMaxAttempts = 2;    // 探测：2×500ms ≈ 1s
         constexpr int kVddStartupAttempts = 6;     // 启动：6×500ms ≈ 3s，快速失败交给采集线程后台重试
         constexpr int kVddBackoffStartMs = 300;    // 指数退避 0.3s→0.6s→1s 封顶
         constexpr int kVddBackoffMaxMs = 1000;
+        constexpr UINT32 kVddProbeIdleTicks = 8;        // 静止 8 圈（~0.8s）后开始探测
+        constexpr UINT32 kVddProbeMaxIdleTicks = 50;    // 探测间隔封顶 5s
+        constexpr int kVddNotReadyToleranceMs = 15000;  // NOT_READY 持续超时才判驱动僵死
+        constexpr UINT32 kVddMaxDimension = 16384;
 
-        // Deterministic GUID from a string (FNV-1a 64-bit, spread across the 16 bytes).
-        // Used so the same `id` (e.g. a systemService string) maps to the same identity.
+        constexpr DWORD kVddCaptureAcquireMs = 2;  // keyed-mutex 等待预算，超时丢帧不阻塞
+
         static void DeriveGuidFromString(const char* s, GUID& g)
         {
             uint64_t h = 1469598103934665603ULL;
@@ -50,12 +50,30 @@ namespace hope {
             std::memcpy(g.Data4, &combo, 8);
         }
 
+        // 生产者格式白名单，返回每像素字节数；0 = 不支持（与 vdd_capture_test 的判别一致）。
+        static UINT dxgiFormatBytesPerPixel(UINT32 format)
+        {
+            switch (format) {
+            case DXGI_FORMAT_B8G8R8A8_UNORM:
+            case DXGI_FORMAT_R8G8B8A8_UNORM:
+            case DXGI_FORMAT_R10G10B10A2_UNORM:
+                return 4;
+            case DXGI_FORMAT_R16G16B16A16_FLOAT:
+                return 8;
+            default:
+                return 0;
+            }
+        }
+
         VirtualDisplayCapture::VirtualDisplayCapture() = default;
 
         VirtualDisplayCapture::~VirtualDisplayCapture()
         {
             stopCapture();
             closeFrameChannel();
+            if (weCreated && config.removeOnDestroy && driverDevice != INVALID_HANDLE_VALUE) {
+                sendCommand(L"DESTROYMONITOR");
+            }
             if (driverDevice != INVALID_HANDLE_VALUE) {
                 CloseHandle(driverDevice);
                 driverDevice = INVALID_HANDLE_VALUE;
@@ -67,7 +85,6 @@ namespace hope {
         void VirtualDisplayCapture::setDataHandle(DataHandle h) { dataHandle = h; }
         void VirtualDisplayCapture::setChannelSync(std::shared_ptr<VddChannelSync> s) { channelSync = std::move(s); }
         GUID VirtualDisplayCapture::getMonitorGuid() const { return monitorGuid; }
-        LUID VirtualDisplayCapture::getAdapterLuid() const { return adapterLuid; }
 
         // ---------------------------------------------------------------------------
         // Driver / monitor management
@@ -115,10 +132,6 @@ namespace hope {
             return true;
         }
 
-        // 驱动进入 D3 / swap chain 丢失后，旧 device handle 不会自动唤醒设备。
-        // 重新 CreateFileW 打开 device interface 会触发 PnP 把驱动拉回 D0（驱动侧
-        // WdfDeviceLifecycle.cpp 注释：opening the interface PnP-wakes the driver
-        // back into D0 transparently）。
         bool VirtualDisplayCapture::reopenDriver()
         {
             if (driverDevice != INVALID_HANDLE_VALUE) {
@@ -138,11 +151,6 @@ namespace hope {
                 nullptr, 0, &br, nullptr) != FALSE;
         }
 
-        // Enable the driver's hardware cursor so the OS renders the pointer through
-        // the driver's out-of-band cursor channel (IddCx hardware cursor) instead of
-        // compositing it into the frame buffer. Without this, the cursor ends up in
-        // the captured frames. The setting is persisted in the registry and applied
-        // by the driver reload triggered by the command.
         bool VirtualDisplayCapture::enableHardwareCursor()
         {
             if (driverDevice == INVALID_HANDLE_VALUE) return false;
@@ -159,9 +167,6 @@ namespace hope {
                 reinterpret_cast<const BYTE*>(&one), sizeof(one));
             RegCloseKey(hKey);
 
-            // Applying the setting reloads driver settings and re-enumerates monitors
-            // so the next swap chain uses the hardware cursor. Best effort: if it
-            // fails the capture still runs, just with the cursor in the frames.
             return sendCommand(L"HARDWARECURSOR true");
         }
 
@@ -206,8 +211,6 @@ namespace hope {
             return TRUE;
         }
 
-        // After enumeration: in clone (duplicate) mode a physical display occupies the
-        // same screen rect as the VDD; in extend mode it does not.
         static void FinalizeScan(VddMonitorScan& scan)
         {
             if (scan.vddActive) {
@@ -280,20 +283,12 @@ namespace hope {
             }
             weCreated = true;
 
-            // Give the driver + PnP a short moment to connect; the frame-channel open
-            // already retries until the producer is ready.
             Sleep(1000);
             return true;
         }
 
-        // Activate the virtual display. With a physical monitor present and
-        // mirrorPrimary=true, the primary is cloned onto the VDD. On headless hosts the
-        // VDD becomes the only / primary display.
         bool VirtualDisplayCapture::applyTopology()
         {
-            // Check the CURRENT topology first. If the VDD is already an active display,
-            // it was set up by a previous session — re-applying EXTEND/CLONE would
-            // rearrange the desktop (screen flicker) for no reason.
             VddMonitorScan scan{};
             EnumDisplayMonitors(nullptr, nullptr, ScanVddMonitor, reinterpret_cast<LPARAM>(&scan));
             FinalizeScan(scan);
@@ -302,8 +297,6 @@ namespace hope {
             const bool isMirrored = scan.isMirrored;
 
             if (vddActive) {
-                // VDD already active. Only change if the mirror setting differs from the
-                // current state (want clone but currently extended).
                 if (config.mirrorPrimary && physicalActive && !isMirrored) {
                     LONG cloneErr = ERROR_INVALID_PARAMETER;
                     for (int a = 0; a < 10 && cloneErr != ERROR_SUCCESS; ++a) {
@@ -339,8 +332,6 @@ namespace hope {
                 Sleep(600);
             }
 
-            // Headless fallback: if the VDD is still not active (extend needs a primary),
-            // build an explicit topology with only the VDD path.
             if (!vddActive2) {
 
                 UINT32 np = 0, nm = 0;
@@ -445,8 +436,6 @@ namespace hope {
 
         bool VirtualDisplayCapture::openFrameChannel(int maxAttempts)
         {
-            // The producer creates its shared textures lazily on the first frame, so the
-            // channel may report NOT_READY for a short while after the monitor connects.
             for (int attempt = 0; attempt < maxAttempts; ++attempt) {
                 VDD_FRAME_CHANNEL_CAPS caps = {};
                 caps.Size = sizeof(caps);
@@ -513,13 +502,6 @@ namespace hope {
                     }
                 }
 
-                // Read the initial metadata to get the render adapter + format.
-                ZakoFrameMetadata meta{};
-                if (readStableMetadata(meta)) {
-                    adapterLuid.LowPart = meta.AdapterLuidLowPart;
-                    adapterLuid.HighPart = meta.AdapterLuidHighPart;
-                }
-
                 return true;
             }
 
@@ -538,10 +520,6 @@ namespace hope {
             slotCount = 0;
         }
 
-        // 驱动重建共享纹理（ChannelGeneration 变化）后，旧 slot handle 全部失效。
-        // 重新打开通道拿新 handle，让下游编码器（其 resourceCache 也已随
-        // generation 变化被清空）用新 handle 重新建立同步。
-        // 有界重试；失败静默返回，由采集线程的退避 + WARN 节流统一上报。
         bool VirtualDisplayCapture::reopenFrameChannel()
         {
             closeFrameChannel();
@@ -552,65 +530,61 @@ namespace hope {
             return true;
         }
 
-        // 非破坏性探测：临时开一次通道，只读生产者当前 ChannelGeneration 后即关。
-        // 不动现有通道状态、不 OpenSharedResource1 开槽纹理（探测只需读元数据）。
-        // 用于静止时检测"映射已冻结"的生产端重建（新 exporter 的 gen 更高）。
-        bool VirtualDisplayCapture::probeChannelGeneration(UINT16& outGen)
+        VirtualDisplayCapture::ProbeResult VirtualDisplayCapture::probeChannelGeneration(UINT16& outGen)
         {
-            for (int attempt = 0; attempt < kVddProbeMaxAttempts; ++attempt) {
-                VDD_FRAME_CHANNEL_OPEN_REQUEST req = {};
-                req.Size = sizeof(req);
-                req.Version = VDD_FRAME_CHANNEL_OPEN_VERSION;
-                req.MonitorIndex = 0;
-                req.RequiredFlags = 0;
-                req.TargetProcessId = GetCurrentProcessId();
-                req.DesiredSlots = 0;
-                req.AdapterLuidLowPart = adapterLuid.LowPart;
-                req.AdapterLuidHighPart = adapterLuid.HighPart;
+            VDD_FRAME_CHANNEL_OPEN_REQUEST req = {};
+            req.Size = sizeof(req);
+            req.Version = VDD_FRAME_CHANNEL_OPEN_VERSION;
+            req.MonitorIndex = 0;
+            req.RequiredFlags = 0;
+            req.TargetProcessId = GetCurrentProcessId();
+            req.DesiredSlots = 0;
+            req.AdapterLuidLowPart = adapterLuid.LowPart;
+            req.AdapterLuidHighPart = adapterLuid.HighPart;
 
-                VDD_FRAME_CHANNEL_OPEN_RESPONSE resp = {};
-                DWORD br = 0;
-                BOOL ok = DeviceIoControl(driverDevice, IOCTL_VDD_OPEN_FRAME_CHANNEL,
-                    &req, sizeof(req), &resp, sizeof(resp), &br, nullptr);
-                if (!ok) {
-                    if (GetLastError() == ERROR_NOT_READY) { Sleep(500); continue; }
-                    return false;
-                }
-                if (resp.SlotCount == 0 || resp.MetadataHandle == 0) return false;
-
-                HANDLE hEvent = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.FrameReadyEventHandle));
-                HANDLE hMeta = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.MetadataHandle));
-                if (hEvent) CloseHandle(hEvent);
-
-                auto* view = static_cast<const ZakoFrameMetadata*>(
-                    MapViewOfFile(hMeta, FILE_MAP_READ, 0, 0, sizeof(ZakoFrameMetadata)));
-                if (!view) { CloseHandle(hMeta); return false; }
-
-                // seqlock 读高 16 位 generation（与 readStableMetadata 同一模式）。
-                bool got = false;
-                UINT32 gen = 0;
-                for (int s = 0; s < 8; ++s) {
-                    UINT32 s1 = view->MetadataSequence;
-                    if (s1 & 1u) { std::this_thread::yield(); continue; } // producer mid-write
-                    UINT32 g = s1 >> 16;
-                    UINT32 s2 = view->MetadataSequence;
-                    if (s1 == s2 && !(s2 & 1u)) { gen = g; got = true; break; }
-                    std::this_thread::yield();
-                }
-
-                UnmapViewOfFile(view);
-                CloseHandle(hMeta);
-                // 响应里重复出来的槽句柄本探测用不到，必须关掉避免句柄泄漏。
-                for (UINT32 s = 0; s < resp.SlotCount; ++s) {
-                    HANDLE hSlot = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.Slots[s].TextureHandle));
-                    if (hSlot) CloseHandle(hSlot);
-                }
-
-                if (!got) return false;
-                outGen = static_cast<UINT16>(gen);
-                return true;
+            VDD_FRAME_CHANNEL_OPEN_RESPONSE resp = {};
+            DWORD br = 0;
+            BOOL ok = DeviceIoControl(driverDevice, IOCTL_VDD_OPEN_FRAME_CHANNEL,
+                &req, sizeof(req), &resp, sizeof(resp), &br, nullptr);
+            if (!ok) {
+                DWORD err = GetLastError();
+                if (err == ERROR_NOT_READY) return ProbeResult::NotReady;
+                lastProbeError = err;
+                return ProbeResult::Rejected;
             }
-            return false;
+            if (resp.SlotCount == 0 || resp.MetadataHandle == 0) return ProbeResult::NotReady;
+
+            HANDLE hEvent = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.FrameReadyEventHandle));
+            HANDLE hMeta = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.MetadataHandle));
+            if (hEvent) CloseHandle(hEvent);
+
+            auto* view = static_cast<const ZakoFrameMetadata*>(
+                MapViewOfFile(hMeta, FILE_MAP_READ, 0, 0, sizeof(ZakoFrameMetadata)));
+            if (!view) { CloseHandle(hMeta); return ProbeResult::NotReady; }
+
+            // seqlock 读高 16 位 generation（与 readStableMetadata 同一模式）。
+            bool got = false;
+            UINT32 gen = 0;
+            for (int s = 0; s < 8; ++s) {
+                UINT32 s1 = view->MetadataSequence;
+                if (s1 & 1u) { std::this_thread::yield(); continue; } // producer mid-write
+                UINT32 g = s1 >> 16;
+                UINT32 s2 = view->MetadataSequence;
+                if (s1 == s2 && !(s2 & 1u)) { gen = g; got = true; break; }
+                std::this_thread::yield();
+            }
+
+            UnmapViewOfFile(view);
+            CloseHandle(hMeta);
+            // 响应里重复出来的槽句柄本探测用不到，必须关掉避免句柄泄漏。
+            for (UINT32 s = 0; s < resp.SlotCount; ++s) {
+                HANDLE hSlot = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.Slots[s].TextureHandle));
+                if (hSlot) CloseHandle(hSlot);
+            }
+
+            if (!got) return ProbeResult::NotReady;
+            outGen = static_cast<UINT16>(gen);
+            return ProbeResult::Ready;
         }
 
         bool VirtualDisplayCapture::readStableMetadata(ZakoFrameMetadata& out)
@@ -627,9 +601,17 @@ namespace hope {
             return false;
         }
 
-        // ---------------------------------------------------------------------------
-        // Frame delivery
-        // ---------------------------------------------------------------------------
+        bool VirtualDisplayCapture::isMetadataValid(const ZakoFrameMetadata& meta) const
+        {
+            if (meta.Magic != 0x5A564446u) return false;
+            if (meta.Version != 1u) return false;
+            if (meta.MetadataSize != sizeof(ZakoFrameMetadata)) return false;
+            if (meta.SlotCount != slotCount) return false;
+            if (meta.SlotIndex >= slotCount) return false;
+            if (meta.Width == 0 || meta.Height == 0) return false;
+            if (meta.Width > kVddMaxDimension || meta.Height > kVddMaxDimension) return false;
+            return dxgiFormatBytesPerPixel(meta.DxgiFormat) != 0;
+        }
 
         bool VirtualDisplayCapture::deliverNewFrame(const ZakoFrameMetadata& meta)
         {
@@ -638,7 +620,7 @@ namespace hope {
 
             if (config.cpuPath && dataHandle) {
                 // CPU path: staging copy + map + deliver + cache for repeat.
-                HRESULT hr = slotKm[slot]->AcquireSync(1, 2000);
+                HRESULT hr = slotKm[slot]->AcquireSync(1, kVddCaptureAcquireMs);
                 if (hr != S_OK) return false;
 
                 D3D11_TEXTURE2D_DESC stagingDesc = {};
@@ -680,16 +662,11 @@ namespace hope {
                 return SUCCEEDED(hr);
             }
 
-            // GPU path: relay the producer's slot handle directly to the encoder. The
-            // capture does NOT touch the keyed mutex — the encoder is the consumer and
-            // syncs itself: AcquireSync(1) -> encode -> ReleaseSync(0). This never
-            // stalls: if the encoder is not ready (e.g. still initializing), the
-            // producer's 3-slot ring keeps republishing and reclaims unread slots, so
-            // the latest frame is always relayed once the encoder starts.
             if (!gpuDataHandle) return false;
 
             gpuDataHandle(slotHandles[slot], (int)meta.Width, (int)meta.Height,
-                meta.DxgiFormat, (UINT)(meta.Width * 4), meta.FrameCounter);
+                meta.DxgiFormat, (UINT)(meta.Width * dxgiFormatBytesPerPixel(meta.DxgiFormat)),
+                meta.FrameCounter);
             haveFrame = true;
             lastFrameId = meta.FrameCounter;
             return true;
@@ -697,10 +674,6 @@ namespace hope {
 
         void VirtualDisplayCapture::deliverRepeatFrame()
         {
-            // Repeat is only meaningful on the CPU path, where we cache the last frame.
-            // The GPU path hands the producer's slot to the encoder directly (Sunshine
-            // borrow); a producer slot cannot be safely re-delivered once the encoder
-            // has released it back to key 0.
             if (!haveFrame) return;
             if (config.cpuPath && dataHandle && !cpuCache.empty()) {
                 dataHandle(cpuCache.data(), cpuCacheW, cpuCacheH, cpuCachePitch, lastFrameId);
@@ -717,10 +690,11 @@ namespace hope {
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
             const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
-            const UINT32 idleReopenTicks = 8;   // 连续静止 8 圈（~0.8s）→ 非破坏性探测
-            const UINT32 probeFailRecoverThreshold = 2;  // 连续探测失败 2 次（~3s）→ 驱动重载
             UINT32 idleTicks = 0;
-            UINT32 probeFailCount = 0;
+            UINT32 probeIdleTicks = kVddProbeIdleTicks;
+            bool notReadyPending = false;
+            bool rejectedLogged = false;
+            std::chrono::steady_clock::time_point notReadySince{};
 
             // 建立 ChannelGeneration + 分辨率/格式基线，避免首圈误判通道已重建。
             if (pMeta) {
@@ -794,7 +768,7 @@ namespace hope {
                 if (wr == WAIT_OBJECT_0) {
                     // 与 Sunshine 一致：所有校验都在帧事件后做。
                     ZakoFrameMetadata meta{};
-                    if (!readStableMetadata(meta) || meta.Magic != 0x5A564446u || meta.SlotIndex >= slotCount) {
+                    if (!readStableMetadata(meta) || !isMetadataValid(meta)) {
                         reopenChannel();  // 元数据不可读 = 通道异常（Sunshine: → reinit）
                         continue;
                     }
@@ -814,7 +788,10 @@ namespace hope {
                     }
                     else {
                         deliverNewFrame(meta);
-                        idleTicks = 0;  // 有新帧，静止计数清零
+                        idleTicks = 0;                // 有新帧，静止计数清零
+                        probeIdleTicks = kVddProbeIdleTicks;
+                        notReadyPending = false;
+                        rejectedLogged = false;
                         continue;
                     }
                 }
@@ -822,31 +799,49 @@ namespace hope {
                     deliverRepeatFrame();
                 }
 
-                // 连续无新帧（帧事件在响但 FrameCounter 冻结，或事件超时）→ 非破坏性探测。
-                // probe 成功 = 通道可达（swap chain 活跃），gen 变则重开（重建场景）。
-                // probe 失败 = OpenFrameChannel NOT_READY（swap chain 丢失 / 设备 D3），
-                // 仅 reopen 无法恢复，必须驱动重载重建 swap chain。
-                if (pMeta && ++idleTicks >= idleReopenTicks) {
+                if (pMeta && ++idleTicks >= probeIdleTicks) {
                     idleTicks = 0;
                     UINT16 probeGen = 0;
-                    if (probeChannelGeneration(probeGen)) {
-                        probeFailCount = 0;
+                    switch (probeChannelGeneration(probeGen)) {
+                    case ProbeResult::Ready:
+                        notReadyPending = false;
                         if (probeGen != lastChannelGen) {
                             reopenChannel();
                         }
-                    }
-                    else if (++probeFailCount >= probeFailRecoverThreshold) {
-                        probeFailCount = 0;
-                        LOG_WARN("VirtualDisplayCapture Driver Stalled, Reopening Device To Wake D0");
-                        // 仅重开 device interface 触发 PnP 唤醒 D3→D0。D0Entry 里
-                        // InitAdapter 后 OS 会自动重新 AssignSwapChain（monitor 还在），
-                        // 无需 RELOAD_DRIVER —— 那会 DestroyAllMonitors 把 monitor 删掉。
-                        reopenDriver();
-                        closeFrameChannel();            // 旧帧通道失效，pMeta 置空
-                        channelDown = true;
-                        openBackoffMs = kVddBackoffStartMs;
-                        nextOpenRetryAt = std::chrono::steady_clock::now();
-                        continue;
+                        else if (probeIdleTicks < kVddProbeMaxIdleTicks) {
+                            probeIdleTicks *= 2;
+                            if (probeIdleTicks > kVddProbeMaxIdleTicks) probeIdleTicks = kVddProbeMaxIdleTicks;
+                        }
+                        break;
+                    case ProbeResult::NotReady:
+                        // 驱动在模式切换窗口内合法拒绝开通道，按墙上时钟容忍；只有持续
+                        // 超过容忍窗口才是真僵死（设备下到 D3 后 swap chain 一直没回来）。
+                        if (!notReadyPending) {
+                            notReadyPending = true;
+                            notReadySince = std::chrono::steady_clock::now();
+                            probeIdleTicks = kVddProbeIdleTicks;
+                        }
+                        else if (std::chrono::steady_clock::now() - notReadySince >=
+                                 std::chrono::milliseconds(kVddNotReadyToleranceMs)) {
+                            notReadyPending = false;
+                            LOG_WARN("VirtualDisplayCapture Driver Stalled, Reopening Device To Wake D0");
+                            reopenDriver();
+                            closeFrameChannel();        // 旧帧通道失效，pMeta 置空
+                            channelDown = true;
+                            openBackoffMs = kVddBackoffStartMs;
+                            nextOpenRetryAt = std::chrono::steady_clock::now();
+                            continue;
+                        }
+                        break;
+                    case ProbeResult::Rejected:
+                        // 请求被驱动拒绝（LUID 不符 / 参数非法），重载设备修不了，报一次即可。
+                        if (!rejectedLogged) {
+                            rejectedLogged = true;
+                            LOG_WARN("VirtualDisplayCapture Frame Channel Probe Rejected, Error {}",
+                                lastProbeError);
+                        }
+                        probeIdleTicks = kVddProbeMaxIdleTicks;
+                        break;
                     }
                 }
 
@@ -868,16 +863,11 @@ namespace hope {
 
             }
 
-            // Keep the OS cursor out of the captured frames (hardware cursor).
-            // Best effort: if it fails, capture still runs but may include the cursor.
             if (!enableHardwareCursor()) {
 
                 LOG_WARN("EnableHardwareCursor Failed; Captured Frames May Include The Cursor");
 
             }
-
-            frameIntervalMs = (config.refreshRate > 0) ? (1000 / config.refreshRate) : 16;
-            if (frameIntervalMs < 1) frameIntervalMs = 1;
 
             if (!ensureDisplay()) {
 
@@ -904,9 +894,6 @@ namespace hope {
             }
 
             if (!openFrameChannel(kVddStartupAttempts)) {
-                // 启动期帧通道未就绪（设备 D3 / 懒建纹理）。不在信令线程上长阻塞：
-                // 唤醒一次 D0 后立即返回，通道交给采集线程后台退避重试（channelDown）。
-                // 否则 initialize 卡 33s，会拖垮 offer/answer 协商导致 encoder 不生成。
                 LOG_WARN("OpenFrameChannel Not Ready At Startup, Deferring To Capture Thread");
                 closeFrameChannel();
                 reopenDriver();

@@ -1,26 +1,5 @@
 #pragma once
 
-// ============================================================================
-// VirtualDisplayCapture — capture backend for the ZakoVDD (HopeDesk) virtual
-// display driver. Drop-in replacement for the DXGI-based ScreenCapture and the
-// abandoned Alluno VDD backend.
-//
-// The driver creates a virtual monitor; DWM composites the desktop into its
-// swap chain and the driver re-publishes each frame as a keyed-mutex shared
-// GPU texture. This class opens the driver's frame channel and delivers frames:
-//   * gpuPath (cpuPath == false, default): hands a keyed-mutex shared handle to
-//     the consumer. The consumer (NVENC) opens it on the same render adapter and
-//     syncs: AcquireSync(1, INFINITE) -> encode -> ReleaseSync(0). The frame is
-//     first GPU-copied into a local persistent shared texture so the same image
-//     can be re-published on static desktops (repeat frame, 100 ms).
-//   * cpuPath == true: delivers a mapped BGRA CPU buffer (valid during the call).
-//
-// Headless hosts (no physical monitor) are supported: applyTopology() activates
-// the virtual display as the only/primary display. With a physical monitor the
-// primary is mirrored (cloned) onto the virtual display by default so the
-// captured frames show the host's main screen.
-// ============================================================================
-
 #include <windows.h>
 #include <d3d11.h>
 #include <d3d11_1.h>
@@ -39,8 +18,7 @@
 namespace hope {
 namespace rtc {
 
-// Producer-side metadata block. Must stay ABI-compatible with the driver's
-// SharedFrameMetadata (128 bytes). See ZakoVDD/Rendering/SharedFrameExporter.cpp.
+// Must stay ABI-compatible with the driver's SharedFrameMetadata (128 bytes).
 struct ZakoFrameMetadata {
     UINT32 Magic;                    // 'ZVDF' = 0x5A564446
     UINT32 Version;
@@ -73,26 +51,17 @@ public:
         int  width         = 1920;
         int  height        = 1080;
         int  refreshRate   = 144;    // Hz
-        UINT bitsPerChannel = 8;    // 8 / 10 / 12
-        UINT hdrMode       = 0;     // 0 = SDR, 1 = HDR10, 2 = HDR10+
         bool cpuPath       = false; // false = GPU shared handle, true = mapped CPU buffer
 
-        // true (default): mirror the physical primary onto the virtual display so
-        // the captured frames show the host's main screen. false: the virtual
-        // display is its own screen (Sunshine model). Ignored on headless hosts,
-        // where the virtual display always becomes the primary.
-        bool mirrorPrimary = true;
+        bool mirrorPrimary = true;   // 忽略于无物理显示器的主机
 
-        // Find-or-create identity. On initialize() an existing display whose
-        // device string matches "HPD" is reused; otherwise a new one is created.
         GUID        monitorGuid  = {};
         const char* id           = nullptr; // e.g. webrtcManagerConfig.systemService
         const char* name         = "HopeDesk Virtual Display";
         bool        removeOnDestroy = false; // remove a display we created on destruction
     };
 
-    // GPU path. sharedHandle is a keyed-mutex DXGI shared handle (published with
-    // key 1). Consumer syncs: AcquireSync(1, INFINITE) -> encode -> ReleaseSync(0).
+    // GPU path. Consumer syncs: AcquireSync(1, 100ms) -> encode -> ReleaseSync(0).
     using GpuDataHandle = std::function<void(
         HANDLE sharedHandle,
         int width, int height,
@@ -117,12 +86,9 @@ public:
     void setGpuDataHandle(GpuDataHandle h);
     void setDataHandle(DataHandle h);
 
-    // 与下游编码器共享的通道同步状态。下游在 keyed-mutex AcquireSync 失败
-    // 时置 reopenRequested；捕获线程在循环里消费该标志并重开帧通道。
     void setChannelSync(std::shared_ptr<VddChannelSync> s);
 
     GUID getMonitorGuid() const;
-    LUID getAdapterLuid() const;
 
 private:
     void captureThreadFunc();
@@ -135,9 +101,18 @@ private:
     bool openFrameChannel(int maxAttempts = 30);   // maxAttempts 限制 NOT_READY 重试时长（30×500ms 留给启动）
     void closeFrameChannel();
     bool reopenFrameChannel();  // close + open（必须在捕获线程执行，有界重试）
-    bool probeChannelGeneration(UINT16& outGen);  // 非破坏性：临时开通道读 gen，不碰现有通道
+
+    // 非破坏性探测的结果。驱动在模式切换窗口内会合法地对开通道请求回 NOT_READY，
+    // 那不是驱动僵死，不能据此重载设备。
+    enum class ProbeResult {
+        Ready,      // 读到 generation
+        NotReady,   // 驱动侧模式切换 / 纹理重建中，可恢复
+        Rejected,   // 请求被驱动拒绝（LUID 不符、参数非法），重载设备修不了
+    };
+    ProbeResult probeChannelGeneration(UINT16& outGen);
     bool initLocalDevice();
     bool readStableMetadata(ZakoFrameMetadata& out);
+    bool isMetadataValid(const ZakoFrameMetadata& meta) const;
     bool deliverNewFrame(const ZakoFrameMetadata& meta);
     void deliverRepeatFrame();
 
@@ -153,7 +128,6 @@ private:
     LUID adapterLuid{};
     GUID monitorGuid{};
     bool weCreated = false;
-    int frameIntervalMs = 16;
 
     // Local D3D11 device (CPU path), on the render adapter.
     Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
@@ -165,7 +139,6 @@ private:
     int cpuCacheW = 0, cpuCacheH = 0, cpuCachePitch = 0;
 
     UINT64 lastFrameId = 0;
-    UINT64 lastDeliverTick = 0;
     bool  haveFrame = false;
 
     Config config;
@@ -175,13 +148,8 @@ private:
     DataHandle dataHandle;
     std::shared_ptr<VddChannelSync> channelSync;
 
-    // 捕获线程主动检测驱动重建（ChannelGeneration，即 MetadataSequence 高 16 位）
-    // 时的基线。驱动重建后可能不再 signal 旧 frameReadyEvent，只靠事件等待会
-    // 静默定格（无日志），因此每圈轮询 metadata 对比该值。
     UINT16 lastChannelGen = 0;
 
-    // 帧校验基线：生产端重建 swap chain 换分辨率/格式时（generation 不变但宽高/
-    // 格式变），旧 slot 纹理尺寸已失效，须重开通道（Sunshine next_frame 同款检测）。
     int   lastWidth = 0;
     int   lastHeight = 0;
     UINT  lastFormat = 0;
@@ -191,6 +159,7 @@ private:
     std::chrono::steady_clock::time_point nextOpenRetryAt{};
     int  openBackoffMs = 0;
     int  downLogCounter = 0;
+    DWORD lastProbeError = 0;
 };
 
 } // namespace rtc
