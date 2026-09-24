@@ -37,6 +37,28 @@ namespace hope {
 
             }
 
+            std::size_t tryDequeueBulk(T* out, std::size_t maximum) {
+
+                std::size_t held = static_cast<std::size_t>(semaphore.try_acquire_many(static_cast<int>(maximum)));
+
+                if (held == 0) {
+
+                    return 0;
+
+                }
+
+                std::size_t count = queue.try_dequeue_bulk(out, held);
+
+                for (std::size_t index = count; index < held; ++index) {
+
+                    semaphore.release();
+
+                }
+
+                return count;
+
+            }
+
             boost::asio::awaitable<bool> awaitDequeue(T& out) {
 
                 co_await semaphore.async_acquire(boost::asio::use_awaitable);
@@ -88,7 +110,9 @@ namespace hope {
                 if (isClose.load(std::memory_order_acquire)) {
                     return false;
                 }
-                queue.enqueue(std::move(t));
+                if (!queue.enqueue(std::move(t))) {
+                    return false;
+                }
                 semaphore.release();
 
                 return true;

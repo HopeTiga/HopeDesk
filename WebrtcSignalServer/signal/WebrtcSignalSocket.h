@@ -1,9 +1,11 @@
 ﻿#pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cstdint>
 #include <memory>
+#include <exception>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/websocket/ssl.hpp> 
@@ -121,6 +123,8 @@ namespace hope {
 			boost::asio::awaitable<void> reviceCoroutine();
 
 			boost::asio::awaitable<void> writerCoroutine();
+
+			void handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error);
 
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
 				int idle = 0, int intvl = 10, int probes = 10);

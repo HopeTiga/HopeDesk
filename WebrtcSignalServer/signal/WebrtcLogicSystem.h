@@ -18,6 +18,13 @@
 #include <absl/functional/any_invocable.h>
 #include <absl/strings/str_format.h>
 
+#include "WebrtcSignalSocket.h"
+#include "WebrtcSignalPacket.h"
+
+#include "HttpFilters.h"
+
+#include "AwaitableTask.h"
+
 #include "../storage/MysqlConfig.h"
 #include "../storage/RedisConfig.h"
 #include "../storage/MysqlManagerPools.h"
@@ -25,14 +32,6 @@
 
 #include "../utils/CompletionHandle.h"
 #include "../utils/Utils.h"
-
-#include "AwaitableTask.h"
-
-#include "HttpFilters.h"
-
-#include "WebrtcSignalPacket.h"
-
-#include "WebrtcSignalSocket.h"
 
 namespace hope {
 
@@ -47,6 +46,14 @@ namespace hope {
 		using WebrtcValueHandler = absl::AnyInvocable<boost::asio::awaitable<boost::json::value>(hope::signal::WebrtcSignalPacket)>;
 
 		using HttpHandler = absl::AnyInvocable<boost::asio::awaitable<void>(std::shared_ptr<HttpSocket>, boost::beast::http::request<boost::beast::http::string_body>)>;
+
+		struct PostedTask {
+
+			std::shared_ptr<WebrtcSignalManager>* webrtcSignalManager = nullptr;
+
+			absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>&)> asyncHandle;
+
+		};
 
 		struct WebrtcLogicConfig {
 
@@ -67,7 +74,9 @@ namespace hope {
 
 		public:
 
-			WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, WebrtcLogicConfig logicConfig);
+			static constexpr std::size_t maximumTasksPerExecute = 8;
+
+			WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, WebrtcLogicConfig webrtcLogicConfig);
 
 			~WebrtcLogicSystem();
 
@@ -76,6 +85,8 @@ namespace hope {
 			void operator=(const WebrtcLogicSystem& logic) = delete;
 
 			void postTask(hope::signal::WebrtcSignalPacket webrtcSignalPacket);
+
+			bool postTask(PostedTask task);
 
 			template <typename CompletionToken = CompletionHandle>
 			typename boost::asio::async_result<std::decay_t<CompletionToken>, void(std::exception_ptr)>::return_type
@@ -97,72 +108,16 @@ namespace hope {
 
 							WebrtcHandler* func = iterator->second.get();
 
-							if (localTaskQueueSize.load() >= logicConfig.threshold && webrtcLogicHandlers[type]) {
+							boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
 
-								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
+								co_await(*func)(std::move(webrtcSignalPacket));
 
-								bool success = taskQueues.enqueue([type, func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
+								},
+								[this, completionHandlerPtr](std::exception_ptr exception) mutable {
 
-									try {
+									(*completionHandlerPtr)(exception);
 
-										co_await (*func)(std::move(webrtcSignalPacket));
-
-										(*completionHandlerPtr)(std::exception_ptr{});
-
-									}
-									catch (...) {
-
-										(*completionHandlerPtr)(std::current_exception());
-
-									}
-
-									co_return;
-
-									});
-
-								if (!success) {
-
-									WebrtcEnvelopeView env;
-
-									env.requestType = type;
-
-									env.state = 503;
-
-									env.message = "WebrtcSignalServer Busy, Please Retry Later";
-
-									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
-
-									boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
-
-										(*completionHandlerPtr)(std::exception_ptr{});
-
-										});
-
-								}
-
-							}
-							else {
-
-								localTaskQueueSize.fetch_add(1);
-
-								boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
-
-									co_await (*func)(std::move(webrtcSignalPacket));
-
-									},
-									[this, completionHandlerPtr](std::exception_ptr exception) mutable {
-
-										if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
-
-											asyncTaskExecute();
-
-										}
-
-										(*completionHandlerPtr)(exception);
-
-										});
-
-							}
+								});
 
 						}
 						else {
@@ -201,72 +156,16 @@ namespace hope {
 
 							WebrtcValueHandler* func = iterator->second.get();
 
-							if (localTaskQueueSize.load() >= logicConfig.threshold && webrtcValueLogicHandlers[type]) {
+							boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<boost::json::value> {
 
-								std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
+								co_return co_await(*func)(std::move(webrtcSignalPacket));
 
-								bool success = taskQueues.enqueue([type, func, webrtcSignalPacket = std::move(webrtcSignalPacket), completionHandlerPtr]()mutable -> boost::asio::awaitable<void> {
+								},
+								[this, completionHandlerPtr](std::exception_ptr exception, boost::json::value value = {}) mutable {
 
-									try {
+									(*completionHandlerPtr)(std::move(exception), std::move(value));
 
-										boost::json::value value = co_await (*func)(std::move(webrtcSignalPacket));
-
-										(*completionHandlerPtr)(std::exception_ptr{}, std::move(value));
-
-									}
-									catch (...) {
-
-										(*completionHandlerPtr)(std::current_exception(), boost::json::value{});
-
-									}
-
-									co_return;
-
-									});
-
-								if (!success) {
-
-									WebrtcEnvelopeView env;
-
-									env.requestType = type;
-
-									env.state = 503;
-
-									env.message = "WebrtcSignalServer Busy, Please Retry Later";
-
-									webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
-
-									boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
-
-										(*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error("WebrtcSignalServer Busy, Please Retry Later")), boost::json::value{});
-
-										});
-
-								}
-
-							}
-							else {
-
-								localTaskQueueSize.fetch_add(1);
-
-								boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<boost::json::value> {
-
-									co_return co_await (*func)(std::move(webrtcSignalPacket));
-
-									},
-									[this, completionHandlerPtr](std::exception_ptr exception, boost::json::value value = {}) mutable {
-
-										if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
-
-											asyncTaskExecute();
-
-										}
-
-										(*completionHandlerPtr)(std::move(exception), std::move(value));
-
-										});
-
-							}
+								});
 
 						}
 						else {
@@ -293,9 +192,13 @@ namespace hope {
 
 			void closeEvent();
 
+			void closeExecute();
+
 			void asyncTaskExecute();
 
 		private:
+
+			void asyncExecute();
 
 			void initHandlers();
 
@@ -319,10 +222,6 @@ namespace hope {
 
 			StringKeyedFlatMap<std::unique_ptr<HttpHandler>> httpHandlers;
 
-			boost::unordered_flat_map<int, bool> webrtcLogicHandlers;
-
-			boost::unordered_flat_map<int, bool> webrtcValueLogicHandlers;
-
 			StringKeyedFlatMap<bool> httpLogicHandlers;
 
 			HttpFilters httpFilters;
@@ -339,9 +238,13 @@ namespace hope {
 
 			TaskChannel& taskQueues;
 
+			AsioConcurrentQueue<PostedTask> executeQueue;
+
 			std::atomic<bool> asyncTaskExecutes{ false };
 
-			WebrtcLogicConfig logicConfig;
+			std::atomic<bool> asyncExecutes{ false };
+
+			WebrtcLogicConfig webrtcLogicConfig;
 
 		};
 

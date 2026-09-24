@@ -36,17 +36,18 @@ namespace hope {
 
         thread_local int threadChannelIndex = -1;
 
-        WebrtcLogicSystem::WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, WebrtcLogicConfig logicConfig)
+        WebrtcLogicSystem::WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, WebrtcLogicConfig webrtcLogicConfig)
             : ioContext(ioContext)
             , channelIndex(channelIndex)
             , taskQueues(taskQueues)
-            , logicConfig(logicConfig)
+            , executeQueue(ioContext.get_executor())
+            , webrtcLogicConfig(webrtcLogicConfig)
         {
-            mysqlManagerPools = std::make_shared<hope::storage::MysqlManagerPools>(ioContext, logicConfig.mysqlConfig);
+            mysqlManagerPools = std::make_shared<hope::storage::MysqlManagerPools>(ioContext, webrtcLogicConfig.mysqlConfig);
 
-            for (std::size_t index = 0; index < logicConfig.redisConfig.connectionSize; index++) {
+            for (std::size_t index = 0; index < webrtcLogicConfig.redisConfig.connectionSize; index++) {
 
-                redisWrappers.push_back(std::move(hope::storage::RedisWrapper(ioContext, logicConfig.redisConfig)));
+                redisWrappers.push_back(std::move(hope::storage::RedisWrapper(ioContext, webrtcLogicConfig.redisConfig)));
 
             }
 
@@ -88,82 +89,29 @@ namespace hope {
 
                 WebrtcHandler* func = iterator->second.get();
 
-                if (localTaskQueueSize.load() >= logicConfig.threshold && webrtcLogicHandlers[type]) {
+                boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
 
-                    std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
+                    co_await(*func)(std::move(webrtcSignalPacket));
 
-                    bool success = taskQueues.enqueue([type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]()mutable -> boost::asio::awaitable<void> {
+                    },
+                    [this](std::exception_ptr exception) mutable {
 
-                        try {
+                        if (exception) {
 
-                            co_await (*func)(std::move(webrtcSignalPacket));
+                            try {
 
-                        }
-                        catch (const std::exception& e) {
+                                std::rethrow_exception(exception);
 
-                            LOG_ERROR("PostTask Task Exception: {}", e.what());
+                            }
+                            catch (const std::exception& e) {
 
-                        }
-                        catch (...) {
-
-                            LOG_ERROR("PostTask Task Unknown Exception");
-
-                        }
-
-                        co_return;
-
-                        });
-
-                    if (!success) {
-
-                        WebrtcEnvelopeView env;
-
-                        env.requestType = type;
-
-                        env.state = 503;
-
-                        env.message = "WebrtcSignalServer Busy, Please Retry Later";
-
-                        webrtcSignalSocket->asyncWrite(struct_pack::serialize<std::string>(env));
-
-                    }
-
-                }
-                else {
-
-                    localTaskQueueSize.fetch_add(1);
-
-                    boost::asio::co_spawn(ioContext, [type, func, webrtcSignalPacket = std::move(webrtcSignalPacket)]() mutable -> boost::asio::awaitable<void> {
-
-                        co_await (*func)(std::move(webrtcSignalPacket));
-
-                        },
-                        [this](std::exception_ptr exception) mutable {
-
-                            if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
-
-                                asyncTaskExecute();
+                                LOG_ERROR("PostTask CoSpawn Exception: {}", e.what());
 
                             }
 
-                            if (exception) {
+                        }
 
-                                try {
-
-                                    std::rethrow_exception(exception);
-
-                                }
-                                catch (const std::exception& e) {
-
-                                    LOG_ERROR("PostTask CoSpawn Exception: {}", e.what());
-
-                                }
-
-                            }
-
-                        });
-
-                }
+                    });
 
             }
             else {
@@ -190,17 +138,33 @@ namespace hope {
 
             initHttpHandlers();
 
+            asyncExecute();
+
         }
 
         void WebrtcLogicSystem::closeEvent() {
 
             if (!asyncEvents.exchange(false)) return;
 
+            executeQueue.close();
+
             mysqlManagerPools.reset();
 
             webrtcHandlers.clear();
 
             httpHandlers.clear();
+
+        }
+
+        void WebrtcLogicSystem::closeExecute() {
+
+            executeQueue.close();
+
+        }
+
+        bool WebrtcLogicSystem::postTask(PostedTask task) {
+
+            return executeQueue.enqueue(std::move(task));
 
         }
 
@@ -236,15 +200,17 @@ namespace hope {
                                     }
                                 }
                                 });
+
                     }
 
-                    if (webrtcLogicSystem->localTaskQueueSize.load() >= webrtcLogicSystem->logicConfig.exitThreshold) {
+                    if (webrtcLogicSystem->localTaskQueueSize.load() >= webrtcLogicSystem->webrtcLogicConfig.exitThreshold) {
 
                         LOG_WARN("Local Queue Depth {} Exceeds Threshold, Switching To Local Processing", webrtcLogicSystem->localTaskQueueSize.load());
 
                         webrtcLogicSystem->asyncTaskExecutes.store(false);
 
                         break;
+
                     }
 
                     if (!webrtcLogicSystem->asyncEvents.load()) {
@@ -267,6 +233,76 @@ namespace hope {
 
         }
 
+        void WebrtcLogicSystem::asyncExecute() {
+
+            bool expected = false;
+
+            if (!asyncExecutes.compare_exchange_strong(expected, true)) return;
+
+            boost::asio::co_spawn(ioContext, [webrtcLogicSystem = shared_from_this()]()mutable->boost::asio::awaitable<void> {
+
+                PostedTask tasks[maximumTasksPerExecute];
+
+                while (webrtcLogicSystem->asyncEvents.load()) {
+
+                    std::size_t count = webrtcLogicSystem->executeQueue.tryDequeueBulk(tasks, maximumTasksPerExecute);
+
+                    if (count == 0) {
+
+                        if (!co_await webrtcLogicSystem->executeQueue.awaitDequeue(tasks[0])) break;
+
+                        count = 1;
+
+                    }
+
+                    for (std::size_t index = 0; index < count; ++index) {
+
+                        try {
+
+                            tasks[index].asyncHandle(*tasks[index].webrtcSignalManager);
+
+                        }
+                        catch (const std::exception& e) {
+
+                            LOG_ERROR("AsyncExecute Task Exception: {}", e.what());
+
+                        }
+
+                    }
+
+                }
+
+                webrtcLogicSystem->asyncExecutes.store(false);
+
+                LOG_INFO("AsyncExecute Close AsyncEvent");
+
+                co_return;
+
+                }, [webrtcLogicSystem = shared_from_this()](std::exception_ptr exception) {
+
+                    webrtcLogicSystem->asyncExecutes.store(false);
+
+                    if (exception) {
+
+                        try {
+
+                            std::rethrow_exception(exception);
+
+                        }
+                        catch (const std::exception& e) {
+
+                            LOG_ERROR("AsyncExecute Unhandled Exception: {}", e.what());
+
+                        }
+
+                    }
+
+                });
+
+            return;
+
+        }
+
         void WebrtcLogicSystem::postHttpTask(std::shared_ptr<HttpSocket> httpSocket, boost::beast::http::request<boost::beast::http::string_body> httpRequest)
         {
 
@@ -280,7 +316,7 @@ namespace hope {
 
                 HttpHandler* func = iterator->second.get();
 
-                if (localTaskQueueSize.load() >= logicConfig.threshold && httpLogicHandlers[targetUrl]) {
+                if (localTaskQueueSize.load() >= webrtcLogicConfig.threshold && httpLogicHandlers[targetUrl]) {
 
                     unsigned int version = httpRequest.version();
 
@@ -388,7 +424,7 @@ namespace hope {
 
                     }, [this, targetUrl](std::exception_ptr ptr) {
 
-                        if (localTaskQueueSize.fetch_sub(1) == logicConfig.asyncThreshold + 1) {
+                        if (localTaskQueueSize.fetch_sub(1) == webrtcLogicConfig.asyncThreshold + 1) {
 
                             asyncTaskExecute();
 
@@ -402,7 +438,7 @@ namespace hope {
                             }
                             catch (const std::exception& e) {
 
-                                LOG_ERROR("boost::asio::CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
+                                LOG_ERROR("CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
 
                             }
                         }
@@ -450,7 +486,7 @@ namespace hope {
                                 std::rethrow_exception(ptr);
                             }
                             catch (const std::exception& e) {
-                                LOG_ERROR("boost::asio::CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
+                                LOG_ERROR("CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
                             }
                         }
                         });
@@ -1099,21 +1135,9 @@ namespace hope {
 
                 });
 
-            webrtcLogicHandlers[1] = false;
-
-            webrtcLogicHandlers[3] = false;
-
-            webrtcLogicHandlers[6] = false;
-
-            webrtcLogicHandlers[7] = false;
-
-            webrtcLogicHandlers[9] = false;
-
             webrtcValueHandlers[10] = std::make_unique<WebrtcValueHandler>([this](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<boost::json::value> {
 				co_return 10;
 				});
-
-            webrtcValueLogicHandlers[10] = false;
 
         }
 

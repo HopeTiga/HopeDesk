@@ -358,6 +358,18 @@ namespace hope {
 
             taskQueues.close();
 
+            for (std::shared_ptr<WebrtcSignalManager>& webrtcSignalManager : webrtcSignalManagers) {
+
+                if (!webrtcSignalManager) continue;
+
+                std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem = webrtcSignalManager->getLogicSystem();
+
+                if (!webrtcLogicSystem) continue;
+
+                webrtcLogicSystem->closeExecute();
+
+            }
+
             std::latch closeLatch(webrtcSignalManagers.size());
 
             for (std::shared_ptr<WebrtcSignalManager>& webrtcSignalManager : webrtcSignalManagers) {
@@ -413,12 +425,15 @@ namespace hope {
                 return false;
             }
 
-            boost::asio::post(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
-                [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]()mutable -> void {
-                    asyncHandle(webrtcSignalManager);
-                });
+            std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem = webrtcSignalManager->getLogicSystem();
+            if (!webrtcLogicSystem) {
+                LOG_ERROR("WebrtcLogicSystem At Index {} Is Null", channelIndex);
+                return false;
+            }
 
-                return true;
+            PostedTask task{ &webrtcSignalManager, std::move(asyncHandle) };
+
+            return webrtcLogicSystem->postTask(std::move(task));
         }
 
         std::shared_ptr<WebrtcSignalManager> WebrtcSignalServer::loadBalanceWebrtcManger()

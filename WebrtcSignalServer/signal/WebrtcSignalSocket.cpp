@@ -214,38 +214,9 @@ namespace hope {
                 co_return;
 
                 }, [self = shared_from_this()](std::exception_ptr p) {
-                    if (p) {
 
-                        self->closeEvent();
+                    self->handleCoroutineExit("ReviceCoroutine", p);
 
-                        try {
-
-                            std::rethrow_exception(p);
-
-                        }
-                        catch (std::exception& e) {
-
-                            if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
-
-                                self->onDisConnectHandle(self->accountId, self->sessionId);
-
-                            }
-
-                            LOG_ERROR("ReviceCoroutine Error: {}", e.what());
-
-                        }
-                        catch (...) {
-
-                            if (self->onDisConnectHandle && !self->isHandleDisConnect.exchange(true)) {
-
-                                self->onDisConnectHandle(self->accountId, self->sessionId);
-
-                            }
-
-                            LOG_ERROR("ReviceCoroutine Error: Unknown");
-
-                        }
-                    }
                     });
 
                 boost::asio::co_spawn(ioContext, [this]()->boost::asio::awaitable<void> {
@@ -255,23 +226,9 @@ namespace hope {
                     co_return;
 
                     }, [self = shared_from_this()](std::exception_ptr p) {
-                        if (p) {
-                            try {
 
-                                std::rethrow_exception(p);
+                        self->handleCoroutineExit("WriterCoroutine", p);
 
-                            }
-                            catch (std::exception& e) {
-
-                                LOG_ERROR("WriterCoroutine Error: {}", e.what());
-
-                            }
-                            catch (...) {
-
-                                LOG_ERROR("WriterCoroutine Error: Unknown");
-
-                            }
-                        }
                         });
 
                 webSocket.set_option(boost::beast::websocket::stream_base::timeout::suggested(
@@ -290,6 +247,48 @@ namespace hope {
             asioConcurrentQueue.close();
 
             closeSocket();
+
+        }
+
+        void WebrtcSignalSocket::handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error) {
+
+            if (!asyncEvents.load(std::memory_order_acquire)) {
+
+                return;
+
+            }
+
+            closeEvent();
+
+            if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
+
+                onDisConnectHandle(accountId, sessionId);
+
+            }
+
+            if (!error) {
+
+                LOG_INFO("{} Exit: Peer Closed The Connection", coroutineName);
+
+                return;
+
+            }
+
+            try {
+
+                std::rethrow_exception(error);
+
+            }
+            catch (const std::exception& e) {
+
+                LOG_ERROR("{} Error: {}", coroutineName, e.what());
+
+            }
+            catch (...) {
+
+                LOG_ERROR("{} Error: Unknown", coroutineName);
+
+            }
 
         }
 
@@ -597,46 +596,33 @@ namespace hope {
 
         boost::asio::awaitable<void> WebrtcSignalSocket::writerCoroutine() {
 
-            std::vector<std::string> packets;
+            std::vector<std::string> packets(maximumFramesPerWrite);
 
             std::vector<boost::asio::const_buffer> segments;
-
-            packets.reserve(maximumFramesPerWrite);
 
             segments.reserve(maximumFramesPerWrite * 2);
 
             while (asyncEvents.load()) {
 
-                packets.clear();
+                packets.resize(maximumFramesPerWrite);
 
-                std::string packet;
+                std::size_t count = asioConcurrentQueue.tryDequeueBulk(packets.data(), maximumFramesPerWrite);
 
-                if (asioConcurrentQueue.tryDequeue(packet)) {
+                if (count == 0) {
 
-                    packets.push_back(std::move(packet));
-
-                    while (packets.size() < maximumFramesPerWrite && asioConcurrentQueue.tryDequeue(packet)) {
-
-                        packets.push_back(std::move(packet));
-
-                    }
-
-                }
-                else {
-
-                    if (!co_await asioConcurrentQueue.awaitDequeue(packet)) {
+                    if (!co_await asioConcurrentQueue.awaitDequeue(packets[0])) {
 
                         break;
 
                     }
 
-                    packets.push_back(std::move(packet));
+                    count = 1;
 
                 }
 
                 segments.clear();
 
-                for (std::size_t index = 0; index < packets.size(); ++index) {
+                for (std::size_t index = 0; index < count; ++index) {
 
                     char* frameHeader = frameHeaderScratch.data() + index * maximumFrameHeaderSize;
 
@@ -649,6 +635,8 @@ namespace hope {
                 }
 
                 co_await boost::asio::async_write(webSocket.next_layer(), segments, boost::asio::use_awaitable);
+
+                packets.resize(count);
 
             }
 

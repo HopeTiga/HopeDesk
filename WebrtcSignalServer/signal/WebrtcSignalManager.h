@@ -37,7 +37,6 @@ namespace hope {
 
 			int maxHttpKeepAliveTime = 300;   // 客户端 Keep-Alive 协商超时上限(s)
 
-			// 存储层连接参数，Manager 只过路，原样带给 Logic。
 			hope::storage::MysqlConfig mysqlConfig;
 
 			hope::storage::RedisConfig redisConfig;

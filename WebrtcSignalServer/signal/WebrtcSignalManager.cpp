@@ -39,9 +39,9 @@ namespace hope {
 
 #endif
 
-            hope::signal::WebrtcLogicConfig logicConfig{ channelConfig.threshold, channelConfig.exitThreshold, channelConfig.asyncThreshold, channelConfig.mysqlConfig, channelConfig.redisConfig };
+            hope::signal::WebrtcLogicConfig webrtcLogicConfig{ channelConfig.threshold, channelConfig.exitThreshold, channelConfig.asyncThreshold, channelConfig.mysqlConfig, channelConfig.redisConfig };
 
-            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(logicIoContext, channelIndex, taskQueues, logicConfig);
+            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(logicIoContext, channelIndex, taskQueues, webrtcLogicConfig);
 
             webrtcLogicSystem->asyncEvent();
 
