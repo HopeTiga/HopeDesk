@@ -74,8 +74,7 @@ WebrtcSignalServer/
 - **编译面**：只有 `utils/Utils.cpp` 一个 TU `#include <spdlog/spdlog.h>` 编译完整 spdlog；其余 TU 仅经 `Utils.h` 引入内置 `fmt`（`{}` 占位 + 编译期格式校验）与 `LOG_*` 宏。`SPDLOG_HEADER_ONLY` / `SPDLOG_ACTIVE_LEVEL` 由编译期定义。
 - **异步**：`spdlog::async_logger`（名 `webrtc-signal`），线程池在 `initLogger()` 用 `spdlog::init_thread_pool(queueSize, threadCount)` 创建（两值来自 `[Logger]` 段，须先经 `applyLoggerConfig` → `setLoggerAsyncConfig` 设定）；队列满策略 `overrun_oldest`——丢最旧不阻塞业务线程。
 - **双 sink**：
-  - 控制台 `LevelFilterConsoleSink`（自实现 `base_sink`）：按 `[Logger]` 的 `DEBUG/INFO/WARN/ERROR` 开关 + ANSI 着色。**四个级别一律受各自开关控制**（warn/error 没有豁免）。
-    - **屏幕的 info 建议一律关掉**（`[Logger] INFO = 0`，见 §12.1）：info 是量最大的级别，屏幕那份是**纯重复开销**——文件日志里有同一份，而屏幕输出是逐条 `fwrite` + `fflush(stdout)`（跑在 spdlog 异步线程上）。关掉只影响屏幕，文件日志仍由 `logToFile` 单独控制。
+  - 控制台 `LevelFilterConsoleSink`（自实现 `base_sink`）：按 `[Logger]` 的 `DEBUG/INFO/WARN/ERROR` 开关 + ANSI 着色。**四个级别一律受各自开关控制**（warn/error 没有豁免）。屏幕输出是逐条 `fwrite` + `fflush(stdout)`，跑在 spdlog 异步线程上；info 量最大，关掉屏幕那一份的推荐值见 §12.1（只关屏幕，文件日志由 `logToFile` 单独控制）。
   - 文件 `rotating_file_sink_mt`：`logs/webrtc-signal-server.log`，单文件 `maxFileSizeMB`、保留 `maxFiles` 个（默认 10MB × 5）；`logToFileEnabled=0` 时该 sink 直接 `level::off`。
 - **实时落盘**：`spdlog::flush_every(3s)` 周期 flush；`closeLogger()` 里 `logger->flush()` + `spdlog::shutdown()` 冲刷并停掉异步线程池。
 - **宏短路**：四个宏都在调用点先查 `consoleOutputLevels[本级] != 0 || logToFileEnabled != 0`——控制台与文件都不需要时**连 fmt 格式化都不做**。
@@ -230,13 +229,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
   - 取空即 `co_await` 挂起、不等配额，所以严格一问一答（window=1）时自动退化成一条一条，不会死锁。
 - 异常/断开 → `onDisConnectHandle(accountId, sessionId)` → `removeConnection`。
 
-**为什么不用 Beast 的读写接口**：Beast 的 `webSocket.async_read(dynamicBuffer)` 一次完成只产出一个消息（K=1）。读协程与写协程在同一条单线程 io_context 上严格交替，于是每个连接的写队列深度恒为 **1** —— 写者取走那一条、写出去、再看队列已空、挂起，然后才轮到下一个读完成。**写侧怎么改写都取不到第二条**。隔离台架实测：只改写侧 0.98×（无收益，window=1 时还慢 7%），只改读侧 1.33×，两侧都改 **6.16–6.73×**，两个修复是乘性的不是相加的。
-
-**真机 1000 连接**（sdp 1KB）：143k → 198k msgs/s（**1.38×**），带宽 140 → 193 MB/s。代价是**尾延迟变差**：p99 3.28 → 9.55/10.71ms、max 18 → 77ms（p50 基本不动，0.64 → 0.65ms）。这是批量的固有代价 —— 服务端一次最多推 32 条，某一条得在批量队列里多等，拆分指标「发出后在管道内」0.09 → 0.37ms 量的正是这一段。
-
-> **⚠️ 上面的 198k 是「无逻辑池」构建的上限，不是批量的真实潜力**：这一轮的 1.38× 测的是**未开 `HOPE_RTC_SIGNAL_SERVER_LOGIC`** 的构建，其特征状态（197,790 msgs/s / 193.15 MB/s / p99 9.55 / max 77.15 / 管道内 0.37ms）已逐项复现。同一个批量构建**加上逻辑池**（§11.2）后是 **1,021,819 msgs/s**（5.17×）。
->
-> **所以批量与逻辑线程不是两条独立收益，是同一条杠杆的两半**：写侧批量成立的前提是"一次读完成产出 K>1 条"，而这要求收发线程能**一直**攒批、凑批；只要派发/转发还压在同一个线程上，攒批就被打断。1.38× 是被压制后的数 —— 逻辑池把收发线程还给收发，批量的收益才兑现。算账时**不要把两者相乘**。
+**为什么不用 Beast 的读写接口**：Beast 的 `webSocket.async_read(dynamicBuffer)` 一次完成只产出一个消息（K=1）。读协程与写协程在同一条单线程 io_context 上严格交替，于是每个连接的写队列深度恒为 **1** —— 写者取走那一条、写出去、再看队列已空、挂起，然后才轮到下一个读完成。**写侧怎么改写都取不到第二条**：只有「一次读完成产出 K>1 条」才填得起队列，而 Beast 的 read API 做不到。所以读侧与写侧必须一起改，两边的收益是乘性的（实测数字见 §11.2）。
 
 **注意**：`webSocket.set_option(stream_base::timeout::suggested(server))` 设的空闲超时与 keep-alive ping 由 Beast 的读写操作驱动；自己读写 `next_layer()` 之后这两样**都不生效** —— 死连接不靠超时清理（TCP keepalive 仍在，但它只能发现对端主机消失，发现不了"连接活着但不说话"），客户端也收不到周期性 ping。
 
@@ -304,9 +297,9 @@ handler = WebrtcHandlers[requestType]
 - **一致性哈希 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射**在一个进程内**稳定（全仓库只有 `WebrtcSignalManager` 里那一个 `StringHasher` 成员被 5 处路由决策共用，所以各通道必然算出同一个桶）。`actorSocketMappingIndex`（targetId→{sessionId,channel}）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
   - hasher 的值**从不跨进程**：跨节点转发时 `forwardChannel` 恒为 0（`signal/WebrtcLogicSystem.cpp:1068`），接收端用自己的 hasher 重算桶。所以 hasher 必须跨实例可复现（见 §11）。
 - **两级缓存**：源 socket 的 `actorMappingIndex`（targetId→channel）就近缓存，home 的 `actorSocketMappingIndex` 全局索引。命中缓存省一跳；缓存命中这条是 1 跳的常见好路径。
-- **过期自愈**：缓存指向的通道查不到 socket（缓存过期）就重路由到 home 重新寻址；404 时清掉源 socket 上指向错误通道的缓存项，下次重新寻址。缓存失效多出的那一跳是缓存换来的代价——要消只能放弃缓存（每条都先跳 home）或给缓存加版本号，得不偿失。
+- **过期自愈**：缓存指向的通道查不到 socket（缓存过期）就重路由到 home 重新寻址；404 时清掉源 socket 上指向错误通道的缓存项，下次重新寻址。缓存失效多出的那一跳是缓存换来的代价。
 - **线程安全**：`webrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 各自只在所属通道的 io_context 线程上访问，跨通道读写一律先 `post` 到该线程再动表（`postTask` 的普通/协程两个重载；RPC handler 里是 `coro_io::post`），无锁。
-- **已到极限**：同一协程内同步连查的都是不同表（无重查）；跨通道跳进新协程后的查找是挂起后的全新查找（状态可能已变，不是冗余）。当前无死代码、无冗余自跳，剩余多跳是"状态按通道分片、单线程所有"的硬下限，再减要动数据模型（全局路由表/索引副本），不属于路径调优。
+- **跳数是硬下限**：同一协程内连查的都落在不同表上；挂起后跨通道的下一跳是状态可能已变的全新查找。要再减只能动数据模型（全局路由表 / 索引副本），不在路径调优的范围内。
 
 ### 5.6 转发图示（Mermaid）
 
@@ -572,18 +565,7 @@ else if (!result.value()) { /* RPC 业务失败 */ }
 else                      { RpcRequest& response = result.value().value(); /* 使用 response */ }
 ```
 
-**调用成员函数 handler**（服务端按 `registerHandler<&Class::method>(obj)` 注册）：
-```cpp
-ylt::expected<coro_rpc::rpc_result<RpcForwardResponse>, std::errc> result = co_await rpc->asyncRpcRequest(
-    "127.0.0.1:10018",
-    [](coro_rpc::coro_rpc_client& client)
-    -> async_simple::coro::Lazy<coro_rpc::rpc_result<RpcForwardResponse>> {
-        RpcForward rpcForward{ 0, R"({"accountId":"A","targetId":"B","requestType":1})" };
-        co_return co_await client.call<&CoroRpcHandleImpl::requestForward>(rpcForward);
-        // 成员指针只作编译期标识，服务端调用时传入事先注册的 this
-    });
-// 两层错误处理同上
-```
+调**成员函数 handler**（服务端按 `registerHandler<&Class::method>(obj)` 注册）的写法与上面只差 `client.call<...>` 那一处 —— 形如 `client.call<&CoroRpcHandleImpl::requestForward>(rpcForward)`：成员指针只作编译期标识，服务端调用时传入事先注册的 `this`（完整用例含两层错误处理见 §8.7 B）。
 
 **负载均衡版** `asyncLbRpcRequest(op)`：用 `createLoadBalancer` 配置的 host 列表轮询/加权分发，`op` 多一个 `string_view host` 参数告知本次选中的节点：
 ```cpp
@@ -652,14 +634,10 @@ void WebrtcSignalServer::registerRpcHandleImpl(std::unique_ptr<hope::rpc::CoroRp
 }
 ```
 
-- `coroRpc` 是**单例** `CoroRpc::getInstance()`，`initCoroRpc(config)` 初始化服务端、`asyncEvent()` 开始监听。
-- `coroRpcHandleInterfaces` 是 `WebrtcSignalServer` 的 `std::vector<std::unique_ptr<CoroRpcHandleInterface>>` 数组成员，`asyncEvent` 里逐个 `registerRpcHandle()` 自注册。
-- 对外接口 `registerRpcHandleImpl(std::unique_ptr<CoroRpcHandleInterface>)` 把 handler **move 进**数组，允许外部注册更多 RPC handler。
-- 默认 handler 由自由函数 `initCoroRpcHandleInterface(std::shared_ptr<WebrtcSignalServer>)`（声明在 `rpc/Rpc.h`，定义在 `rpc/Rpc.cpp`）创建并注册：`std::make_unique<CoroRpcHandleImpl>(*server)` 后 `server->registerRpcHandleImpl(std::move(...))`；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
+- 默认 handler 由自由函数 `initCoroRpcHandleInterface(std::shared_ptr<WebrtcSignalServer>)`（声明在 `rpc/Rpc.h`、定义在 `rpc/Rpc.cpp`）创建并注册；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
 - `closeEvent()` 中 `CoroRpc::getInstance()->closeEvent();` 停止 RPC 服务。
 
-**默认 RPC handler：`CoroRpcHandleImpl::requestForward`**  
-`CoroRpcHandleImpl` 继承抽象基类 `CoroRpcHandleInterface`（纯虚 `registerRpcHandle()`，基类持有 `WebrtcSignalServer&`）。`registerRpcHandle()` 通过 `CoroRpc::getInstance()->registerHandler<&CoroRpcHandleImpl::requestForward>(this)` 注册。  
+**默认 RPC handler：`CoroRpcHandleImpl::requestForward`**（注册方式见 §8.2）  
 其语义：接收一个 `RpcForward` 结构（包含 `forwardChannel` 和 `forwardPacket` 信令 JSON），在本节点内部按 §5.5 的三级寻址将信令转发到目标 `targetId` 所在的本地通道，并最终 `asyncWrite` 到目标 socket；它只查本节点，查不到就回 404，换哪个节点再发是调用方的事。  
 返回 `RpcForwardResponse{state, message}`：`200` 转发成功，`404` 目标未在本节点登记，`500` 入参/内部错误（`forwardChannel` 或第二跳带回的通道号越界、`post` 失败）。（`400 Forward Message Missing ForwardPacket` 不在这里产生，是 9 号 handler 在信封长度不够时回的——§8.7 B。）
 
@@ -685,13 +663,7 @@ sequenceDiagram
   participant B as 客户端 B
   Note over Srv,Impl: main.cpp 组合期
   Srv->>Impl: initCoroRpcHandleInterface(server) 建 CoroRpcHandleImpl,registerRpcHandleImpl() 入数组
-  Note over Srv,Impl: asyncEvent, enableRpc=1
-  Srv->>Rpc: CoroRpc::getInstance() + initCoroRpc(config)
-  Srv->>Rpc: createClientPools()
-  Srv->>Rpc: createLoadBalancer(hosts 空)
-  Srv->>Impl: 遍历数组 registerRpcHandle()
-  Impl->>Rpc: registerHandler<&CoroRpcHandleImpl::requestForward>(this)
-  Srv->>Rpc: asyncEvent() → async_start,监听 [CoroRpc].port
+  Note over Srv,Impl: asyncEvent,enableRpc=1（initCoroRpc → createClientPools → createLoadBalancer → registerRpcHandle → asyncEvent,顺序见 §8.5）
   Note over Cli,B: 运行期:要把信令送到 B,而 B 连在本节点
   Note over Cli: 现状:调用方就是本节点的 webrtcHandlers[9],targetHost 指向本机 RPC 端口
   Cli->>Rpc: call<&CoroRpcHandleImpl::requestForward>(RpcForward) over TLS
@@ -888,13 +860,15 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 
 ### 10.3 两级调度
 
-- **快路径（本地）**：`co_spawn` 到本通道 io，就地执行，低延迟。
-- **慢路径（全局）**：入 `TaskChannel`，由 `threadSize+1` 个排水协程跨线程消费，削峰填谷。
-- **背压**：全局队列满 → 直接回 503，保护服务不被拖垮。
+- **本通道执行队列**（`executeQueue`，装 `PostedTask`）：快路径，排水协程 `asyncExecute` 贴在连接所在的 logic 线程上跑（见 §11.2）。
+- **全局 `TaskChannel`**：局部队列深度超阈值时，可搬迁的 handler 改走它，由 `threadSize+1` 个排水协程跨线程消费，削峰填谷；队列满 → 向源 socket 回 503 背压。
+- 两级各自的入队条件与阈值见 §5.4 的派发伪代码。
 
 ---
 
 ## 11. 性能设计要点
+
+> **全文的性能数字只住在这一章**（§11.1 绑核、§11.2 逻辑池），其它章节提到吞吐/延迟只做引用、不复述数字 —— 新数出来只改一处。
 
 1. **io_context-per-thread proactor 池**（`SchedulerContext`），连接按通道分片，**单连接生命周期内绑定单线程，无锁**。
 2. **一致性哈希路由**（`accountId % threadSize`）+ 每 socket 路由缓存，跨通道寻址最多两跳，命中缓存一跳。
@@ -970,30 +944,15 @@ hope::executor::SchedulerContext::init(schedulerConfig);
 | **两池钉到同一批核** | `LOG_WARN` io and logic pools are pinned to the same K logical cpus, each of them carries two reactors sharing one core; set logicCpuAffinityOffset to `ioCpuAffinityOffset + threadSize` or more to keep the two pools apart |
 | 绑定失败 | `LOG_WARN` failed to bind thread i to cpu j |
 
-#### 12600KF 上的具体表现（举例）
+#### 该配多少（含 SMT 的取舍）
 
-该 CPU 是 6 P 核（带超线程，12 逻辑）+ 4 E 核（无超线程，4 逻辑）= **16 逻辑 / 10 物理**。逻辑编号惯例上是 P 核先占 `0..11`（兄弟成对 `(0,1) (2,3) (4,5) (6,7) (8,9) (10,11)`），E 核是 `12,13,14,15`；枚举取每个核编号最小的那个，排序后即 `0,2,4,6,8,10,12,13,14,15`。
+`threadSize = 0` 取的是 **`std::thread::hardware_concurrency()`，也就是逻辑 CPU 数**：开着超线程时它是 16 而物理核只有 10，`(offset + i) % cores.size()` 就让其中 6 个核各扛两个反应堆（正是上面那条 "some will carry two reactors" 警告）。这时"一个反应堆独占一个物理核"的设计落空 —— 两个反应堆在同一个核上抢 ALU / ROB / L1 / L2。更要命的是**哪条通道落在被抢的核上是不变的**：一致性哈希把 `accountId` 钉死在通道上、通道又钉死在线程上，于是同一批账号**永远**跑在抢核的通道上，拓扑差异直接暴露成**尾延迟**（p50 不动，p99 被那几条通道抬起来）。
 
-| `threadSize` | 超线程 | 结果 |
-|---|---|---|
-| `6` | 无所谓 | 6 个反应堆全落在 P 核，**各自独占一整个物理核**（推荐） |
-| `10` | 关 | 1:1 对满 10 个物理核，无重复；但仍是 6 P + 4 E |
-| `0`(auto) | 开 | auto 取到 16 > 10 物理核 → 6 个核各扛 2 个反应堆，且 4 个落在 E 核 |
-| `0`(auto) | 关 | auto 取到 10 = 物理核数，1:1 对齐绑核规则 |
+要确定性就**显式写死 `threadSize`，并让它 ≤ P 核数**：关掉超线程时 `hardware_concurrency()` 天然等于物理核数、`threadSize = 0` 自动对齐；不想动 BIOS 就直接写死 P 核数 —— 反应堆全落在 P 核上、各独占一整个物理核，顺带绕开 P/E 核的单核吞吐差异。代价是剩下的核与超线程兄弟全空着，留给 spdlog 异步线程、CoroRpc 线程池、MySQL 连接池这些**没有绑核**的线程。
 
-**两池都开绑核时的口径**：上表是**单个池**的。12600KF 只有 10 个物理核，两个池各 `threadSize` 线程要不抢核就得 `2 × threadSize ≤ 10`，而且两段偏移量不能重叠 —— 注意偏移量是**排序后物理核列表的下标**（不是 CPU 号），P 核在前，所以下标 0..5 才是 6 个 P 核，下标 6 起就是 E 核了。核数不够时的常见做法是**只给真正吃 CPU 的那个池开绑核**：要么钉 io 池（保握手/读写的确定性），要么钉 logic 池（保派发/转发的确定性），另一个池交给 OS 调度。
+**两池都开绑核时**必须 `2 × threadSize ≤ 物理核数`，且两段偏移量不重叠 —— 偏移量是**排序后物理核列表的下标**（不是 CPU 号），P 核在前。核不够时常见做法是**只给真正吃 CPU 的那个池开**：钉 io 池（保握手/读写确定性）或钉 logic 池（保派发/转发确定性），另一个池交给 OS 调度。
 
-#### 为什么建议关掉超线程
-
-`threadSize = 0` 的含义是"取 `std::thread::hardware_concurrency()`"，而它返回的是**逻辑** CPU 数。开着超线程时 12600KF 返回 **16**，但物理核只有 **10** —— 16 个反应堆铺在 10 个核上，`(offset + i) % cores.size()` 会让其中 6 个核各扛两个反应堆（正是上面那条 "some will carry two reactors" 警告的来源）。
-
-这时"一个反应堆独占一个物理核"的设计就落空了：这 6 个核上的两个反应堆互相抢执行单元（ALU / ROB / L1 / L2 全共享）。更要命的是**哪条通道落在被抢占的核上是不变的** —— 一致性哈希把 `accountId` 钉死在通道上，通道又钉死在线程上，于是同一批账号**永远**跑在抢核的通道上。CPU 拓扑的差异因此直接暴露成**尾延迟**：p50 不受影响，p99 被那几条抢核的通道抬起来。事件循环最怕这种非均匀的、固定的慢路径。
-
-关掉超线程时 `hardware_concurrency()` 就等于物理核数 10，`threadSize = 0` 自动取到 10，与绑核规则天然 1:1 对齐，不存在"谁和谁共用一核"的抽签，也不必为此手调 `threadSize`。
-
-> 不想动 BIOS 的话，**显式写死 `threadSize = 6`** 拿到的是同样的确定性，而且比关超线程更好：6 个反应堆全在 P 核上、每个独占一整个物理核，把 E 核和 P 核的单核吞吐差异也一并绕开了。代价是只用 6 个核，剩下的 **4 个 E 核整核 + 6 个 P 核的超线程兄弟（6 个逻辑 CPU）** 全空着，留给 spdlog 异步线程、CoroRpc 线程池、MySQL 连接池这些**没有绑核**的线程（它们仍会被 OS 调度到反应堆所在的物理核上，只是不会固定占用某个逻辑 CPU）。
-
-> **实测口径**：本机（12600KF，压测客户端与服务端同机）10 线程服务端下，**绑核与不绑核都能跑到 ~143k msgs/s**（p50 0.96 / p95 4.76 / p99 10.34 ms）。也就是说在当前核数下**绑核不是吞吐瓶颈** —— 它要解决的是尾延迟的**确定性**，不是把 QPS 顶上去。
+> **绑核不买吞吐**：实测（12600KF、10 线程服务端、客户端与服务端同机）**绑核与不绑核都能跑到 ~143k msgs/s**（p50 0.96 / p95 4.76 / p99 10.34 ms）。在当前核数下它不是吞吐瓶颈 —— 它买的是尾延迟的**确定性**，不是把 QPS 顶上去。
 
 ### 11.2 逻辑线程分池（`HOPE_RTC_SIGNAL_SERVER_LOGIC`）
 
@@ -1025,7 +984,9 @@ hope::executor::SchedulerContext::init(schedulerConfig);
 
 这节要记的结论就一句：**把派发/转发从 reactor 上摘出去，吞吐上 5 倍，而延迟没被拿去换**——p99 反而比不开还低，尾延迟仍在十毫秒量级。
 
-关掉那组的 197,790 msgs/s 就是 §5.2 量到的那一档：**批量在没有逻辑池的构建上只能到 198k**，加了逻辑池才兑现 —— 这两者是**同一条杠杆的两半**（收发线程专职收发，攒批才不被打断），不是两条独立收益。
+关掉那组的 197,790 msgs/s 就是**批量单独跑出来的那一档**：批量在没有逻辑池的构建上只能到 198k，加了逻辑池才兑现 —— 这两者是**同一条杠杆的两半**（收发线程专职收发，攒批才不被打断），**不是两条独立收益，算账时不要把两者相乘**。批量自己那一档的成绩单：真机 1000 连接（sdp 1KB）143k → 198k msgs/s（1.38×）、带宽 140 → 193 MB/s，代价是**尾延迟变差**（p99 3.28 → 9.55 ms、max 18 → 77 ms，p50 0.64 → 0.65 ms 基本不动）—— 服务端一次最多推 32 条，某一条得在批量队列里多等，拆分指标「发出后在管道内」0.09 → 0.37 ms 量的正是这一段。
+
+后来的**调用点批量**（`executeQueue.tryDequeueBulk` / `asioConcurrentQueue.tryDequeueBulk` + `try_acquire_many`，见 §5.2 / §10.1）在这之上再取 **1.10×**（93w → 102w msgs/s），与逻辑池那条杠杆各自独立。
 
 关掉那组 p50 反而更低（0.65 ms）**不代表它更快**：它自己的上限就在 20 万，压根没进入排队区。延迟只在**同一吞吐**下比较才有意义。
 
@@ -1034,8 +995,6 @@ hope::executor::SchedulerContext::init(schedulerConfig);
 | 收到的负载 | `管道内` | p50 / p99 | 状态 |
 |---|---|---|---|
 | **1,021,819 msgs/s** | 0.29 ms | 0.65 / 5.02 ms | **实测顶点** |
-
-即**实测顶点是 1,021,819 msgs/s，这个顶点上的尾延迟 p99 = 5.02 ms**。
 
 再往上加负载，超出的部分不是被拒，是**排队**——消息全到，只是晚到；排队跑法上打印的 `msgs/s` 是排空速率，不是服务速率。所以**判断有没有过载要看 `管道内`，不要看 `msgs/s`**。
 
@@ -1250,8 +1209,6 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 - makefile：`SRCS` 按子目录列出全部 cpp；对象落 `release-x64/<子目录>/`，编译规则用 `@mkdir -p $(dir $@)` 建子目录；无自动头依赖（头文件改动需 `make clean`）。`-Iinclude/coroRpc` 提供 ylt 头。`rpc/CoroRpcHandleImpl.cpp` 需确保在 `SRCS` 中。分发拷贝由 `MIMALLOC_SHARED/BOOST_SHARED` 按 `-l` 清单反推（`foreach`+`patsubst -l%,lib%.so*`+`wildcard`，仅有 `.a` 的库匹配不到即自动跳过），openssl 单独 `cp libcrypto.so.3 libssl.so.3`，链接规则里一条 `for` 循环统一拷入 `release-x64/`。**abseil 是静态链接的**，makefile 里没有 `ABSL_SHARED` 那一行（见 §12.2）。
 - **`DT_RUNPATH` 不传递**：`-Wl,-rpath,'$ORIGIN/../lib/xxx'` 只对主程序的**直接**依赖生效；`.so` 之间的**间接**依赖要用加载者自己的 RUNPATH。makefile 是从 `-l` 清单反推要拷哪些库的，所以**任何一个不被 `-l` 项直接引用的 `.so` 都会漏拷**（abseil 动态链接时期的 `libabsl_base_cpu_detect.so.0`、`libabsl_log_internal_fnmatch.so.0` 就是这么漏的）→ 运行时 `cannot open shared object file`。现在 abseil 走静态链接，没有这个问题；**给第三方库改动态链接时要按这一条检查它的依赖闭包**。
 - mimalloc 全局替换（`-lmimalloc` 首位 + ELF 符号抢占）：进程内 malloc/free 全走 mimalloc；`mimalloc-new-delete.h` 覆盖 C++ `new`/`delete`，Linux ELF 下对整进程（含第三方动态库）统一生效，无 Windows 侧跨模块堆错配问题——这正是它**不**放进 Windows Qt 客户端的原因（Windows 按 DLL 各自绑定，只覆盖 exe 会产生 Qt DLL ↔ exe 的 new/delete 错配崩溃）。
-- CoroRpc 在 `enableRpc=1` 时由 `WebrtcSignalServer::asyncEvent()` 拉起（见 §8.5）；ylt/coro_rpc 为头文件库，无需额外链接库。
-- HttpClient 由调用方自行使用，信令服务器启动流程当前未调用它（见 §7.2）。
 - MySQL 连接池每通道建好，handler 暂无 SQL 调用；`AsyncTransactionGuard` 析构不自动回滚，需显式 `commit()` / `asyncRollback()`。
 - `[Protect]` 段当前无代码消费。
 - `WebrtcLogicSystem` 的三个 handler 注册表（`webrtcHandlers` / `webrtcValueHandlers` / `httpHandlers`）是 **write-once**：只在 `initHandlers()` / `initHttpHandlers()`（`asyncEvent()` 期间）写。表内存 `std::unique_ptr<WebrtcHandler>`，派发时取 `.get()` 拿**裸指针**捕获进异步执行体——**不要捕获 `iterator->second` 的引用**（`AnyInvocable& func = iterator->second;` 再捕获 `&func`）：那个引用指向 **map 槽位内部**，一旦运行期注册触发扩容就立刻悬空。**同理不要在运行期注册 handler**：裸指针不怕扩容，但会引入新的生命周期问题（见 §4 关闭流程为什么必须先 `stop()` 再清表）。
