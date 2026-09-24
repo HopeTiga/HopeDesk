@@ -2,7 +2,7 @@
 
 基于 **WebRTC** 与现代信令架构构建的远程控制方案，充分发挥**WebSocket的广泛兼容性**与成熟生态，专为追求稳定连接、高清画质与系统级控制的专业场景而设计。（仅供学习与研究目的使用，下文所述功能均已由开发者个人测试验证）
 
-整个系统由三部分协同：**Native**（同一程序在两端各跑一个实例——控制端负责解码渲染与本地键鼠采集，支持 **NVDEC 硬件解码**；被控端实例作为宿主，收到控制请求后拉起 System 并经本地私有 TCP 桥接 Signal ↔ System 信令）、**System**（被控端核心服务，负责屏幕采集——Hope Virtual Display 虚拟显示器帧通道 / Desktop Duplication API 双后端、**NVENC 硬件编码**与驱动级输入注入，不直连信令服务器）、**Signal**（多通道协程化 WebSocket 信令服务器，承载会话管理与路由转发）。信令服务器内部架构（通道分片、三级寻址、过载保护、跨节点 RPC）详见 [`WebrtcSignalServer.md`](./WebrtcSignalServer.md)。
+整个系统由三部分协同：**Native**（同一程序在两端各跑一个实例——控制端负责解码渲染与本地键鼠采集，支持 **NVDEC 硬件解码**；被控端实例作为宿主，收到控制请求后拉起 System 并经本地私有 TCP 桥接 Signal ↔ System 信令）、**System**（被控端核心服务，负责屏幕采集——Hope Virtual Display 虚拟显示器帧通道 / Desktop Duplication API 双后端、**NVENC 硬件编码**与驱动级输入注入，不直连信令服务器）、**Signal**（多通道协程化 WebSocket 信令服务器，承载会话管理、三级寻址路由与跨节点 RPC 转发）。信令服务器内部架构（通道分片、三级寻址、过载保护、跨节点 RPC）详见 [`WebrtcSignalServer.md`](./WebrtcSignalServer.md)。
 
 ---
 
@@ -25,7 +25,7 @@ HopeDesk 运行时存在**两个 Native 实例**：控制端 Native 与被控端
 graph TD
     subgraph S [Signal —— WebrtcSignalServer]
         S1[WebSocket 信令通道 wss]
-        S2[会话管理 / 三级寻址转发]
+        S2[会话管理 / 三级寻址转发 / 跨节点 RPC 转发]
         S1 --- S2
     end
 
@@ -76,21 +76,21 @@ graph TD
 ```
 HopeDeskNative/
 ├── main.cpp / mainwindow.ui / res.qrc / config.ini / hope.ico
-├── rtc/                          # hope::rtc —— 主窗口与 WebRTC 会话
+├── rtc/                          # hope::rtc —— 主窗口与 WebRTC 会话（以下子目录同属 hope::rtc，不细分）
 │   ├── MainWindow.* / WebrtcManager.*
-│   ├── impl/                     # hope::rtc::impl     回调/Observer 实现
-│   ├── factory/                  # hope::rtc::factory  编码/解码器工厂
-│   ├── widget/                   # hope::rtc::widget   VideoWidget 渲染控件
-│   ├── audio/                    # hope::rtc::audio    音频采集
-│   └── codec/                    # hope::rtc::codec    D3D11/NVDEC 硬解 + 软解
+│   ├── impl/                     # 回调/Observer 实现
+│   ├── factory/                  # 编码/解码器工厂
+│   ├── widget/                   # VideoWidget 渲染控件（CustomDialogs.h 无命名空间）
+│   ├── audio/                    # 音频采集
+│   └── codec/                    # D3D11/NVDEC 硬解 + 软解（Nvdec.h 无命名空间）
 ├── net/                          # hope::net —— 网络层
 │   ├── WebSocket.*               # 信令 WebSocket 客户端（消息回调由封装类提供）
 │   ├── TcpAcceptor.*             # 本地 TCP 监听（127.0.0.1:19998，与连接分离）
 │   ├── TcpSocket.*               # 本地 TCP 单连接（accept/connect 双入口）
-│   ├── Socket.h              # 长度前缀帧（int64 网络序 + body）
+│   ├── Socket.h                  # 长度前缀帧（int64 网络序 + body）
 │   └── AsioConcurrentQueue.h     # 协程发送队列
 ├── system/                       # hope::system —— WindowsServiceManager / InterceptionHook
-└── utils/                        # 全局工具（LOG、ConfigManager、Options）
+└── utils/                        # 全局工具（LOG、ConfigManager、Options）—— hope / utils 混用
 ```
 
 ### System（HopeDeskSystem · MSVC）
@@ -98,10 +98,10 @@ HopeDeskNative/
 ```
 HopeDeskSystem/
 ├── main.cpp
-├── rtc/                          # hope::rtc（平铺）
+├── rtc/                          # hope::rtc —— 以下子目录同属 hope::rtc，不细分命名空间
 │   ├── WebrtcManager.* / HWebRTC.h
 │   ├── capture/                  # ScreenCapture / VirtualDisplayCapture / HAudioCatch
-│   ├── encoder/                  # Nvenc 系列 / X265Encoder
+│   ├── encoder/                  # Nvenc 系列 / X265Encoder（Nvenc.h 无命名空间）
 │   ├── input/                    # KeyMouseSimulator / CursorHooks
 │   ├── impl/                     # 回调/Observer 实现
 │   ├── factory/                  # 编码/解码器工厂
@@ -112,20 +112,43 @@ HopeDeskSystem/
 │   ├── Socket.h
 │   └── AsioConcurrentQueue.h
 ├── system/                       # hope::system —— WinLogon / SessionHelper
-└── utils/                        # 全局工具（LOG、并发队列）
+└── utils/                        # 全局工具（LOG、并发队列）—— hope / vendor moodycamel
 ```
 
 ### Signal（WebrtcSignalServer）
 
 ```
 WebrtcSignalServer/
-├── main.cpp / Ssl.* / config.ini / makefile
-├── signal/                       # WebSocket 信令 + HTTP 运维
-├── rpc/                          # CoroRpc 跨节点 RPC
-├── mysql/                        # boost::mysql 连接池
-├── iocp/                         # io_context 线程池
-├── ssl/                          # ssl context
-└── utils/                        # 全局工具
+├── main.cpp / config.ini / makefile / webrtc-signal-server.props / WebrtcSignalServer.vcxproj
+├── server.crt / server.key       # TLS 证书与私钥
+├── signal/                       # hope::signal —— WebSocket 信令 + HTTP 接口 + 逻辑调度
+│   ├── WebrtcSignalServer.*      # 服务器：按 threadSize 切通道、acceptor、postTask 派发
+│   ├── WebrtcSignalManager.*     # 单通道：连接注册表、全局路由索引、本通道 LogicSystem
+│   ├── WebrtcSignalSocket.*      # 单连接：握手、收协程、写协程（批量发送）、帧编解码
+│   ├── WebrtcLogicSystem.*       # 请求类型 handler 注册表、过载三级调度、HTTP 路由与过滤
+│   ├── WebrtcSignalPacket.*      # 投递单元：socket + 报文 + 信封视图 + 归属 manager / channel
+│   ├── WebrtcSignalConfig.h      # 配置结构体与 config.ini 加载
+│   ├── HttpSocket.*              # HTTP 连接（读 / 写协程）
+│   ├── HttpClient.*              # 出站 HTTP / HTTPS 客户端
+│   ├── HttpFilters.*             # HTTP 过滤链
+│   └── AwaitableTask.h / AsioConcurrentQueue.h    # 协程任务队列 / 发送队列
+├── rpc/                          # hope::rpc —— coro_rpc 跨节点 RPC
+│   ├── CoroRpc.*                 # 单例门面：服务端启动、handler 注册、客户端连接池与负载均衡
+│   ├── CoroRpcConfig.h           # 端口 / 线程数 / 双向 TLS 证书配置
+│   ├── CoroRpcHandleInterface.h / CoroRpcHandleImpl.*    # RPC handler 注册与跨实例转发实现
+│   └── Rpc.*                     # initCoroRpcHandleInterface 引导（全局函数）
+├── storage/                      # hope::storage —— 持久化与缓存接入
+│   ├── MysqlConfig.h / MysqlManagerPools.*    # boost::mysql 连接池与配置
+│   ├── AsyncTransactionGuard.h   # 协程化事务守卫（析构回滚）
+│   ├── RedisConfig.h / RedisWrapper.*         # boost::redis 客户端与配置
+│   └── Subscribe.*               # Redis 订阅（回调式）
+├── executor/                     # hope::executor —— 调度
+│   ├── SchedulerConfig.h         # threadSize 与 io / logic 绑核配置
+│   └── SchedulerContext.*        # io 与 logic 两套 io_context 线程池
+├── ssl/                          # Ssl.* —— 全局 SSL context（无命名空间）
+├── utils/                        # hope::utils —— 配置、日志与工具（vendored 队列为 hopeMoodycamel）
+├── include/                      # 第三方头：abseil-cpp / boost / coroRpc / mimalloc / openssl / spdlog
+└── lib/                          # 第三方静态库：abseil-cpp / boost / mimalloc / openssl
 ```
 
 ---
@@ -217,14 +240,15 @@ WebrtcSignalServer/
 - **统一会话管理**：清晰的上层业务逻辑与稳定的接口，为功能扩展和多平台支持奠定坚实基础。
 
 #### 📡 WebrtcSignalServer
-信令面中转服务，自研、协程化、SSL 可选，基于 boost::asio 协程 + WebSocket 承载信令转发、HTTP 承载运维查询：
+信令面中转服务，自研、协程化、SSL 可选，基于 boost::asio 协程 + WebSocket 承载信令转发、HTTP 承载运维查询，ylt/coro_rpc 承载跨节点转发：
 
-- **多通道分片**：启动按 `threadSize` 切出 N 个通道，每通道独占一个 `io_context` + 线程；连接 round-robin 分配，**单连接生命周期绑定单线程、无跨线程锁**。
-- **一致性哈希路由**：按 `accountId % threadSize` 定 home 通道，转发走「本通道直查 → socket 路由缓存 → home 通道寻址」三级寻址，跨通道最多两跳，命中缓存一跳；过期 404 自愈清缓存。
-- **过载保护**：本地协程派发 + 全局任务队列（moodycamel 无锁队列）两级调度，超阈值走全局队列削峰，满则回 503 背压，防雪崩。
-- **连接管理**：`accountId` 鉴权接入、踢旧连接、TCP keepalive 探活；关闭时 `linger{1,0}` 发 RST 强关，避免 TIME_WAIT 堆积。
-- **运维 HTTP**：`/api/v1/managers/overview`、`/stat` 提供通道与连接统计（Bearer token 鉴权）。
-- **可扩展**：预留 ylt/coro_rpc 跨节点 RPC（`requestForward` 把信令托付给持有 targetId 的节点）、Polaris 服务发现、MySQL 连接池（持久化层预留）。
+- **多通道分片**：启动按 `threadSize` 切出 N 个通道，每通道独占一个 `io_context` + 线程（`SchedulerContext`）；连接 round-robin 分配，**单连接生命周期绑定单线程、无跨线程锁**。
+- **一致性哈希路由**：按 `hasher(accountId) % 通道数` 定 home 通道，转发走「本通道直查 → 全局连接路由缓存 → home 通道寻址」三级寻址，跨通道最多两跳，命中缓存一跳；过期 404 自愈清缓存。
+- **过载保护**：本地协程派发 + 全局任务队列（moodycamel 无锁队列）两级调度，`threshold` / `exitThreshold` / `asyncThreshold` 三个水位决定本地直发还是进全局队列削峰，全局队列满则回 503 背压，防雪崩。
+- **连接管理**：握手要求 `Authorization`（或 `?authorization=`）携带 `accountId`，缺失直接 401 拒绝（accountId 即身份，不做额外凭据校验）；同账号重复接入踢掉旧连接并从全局路由索引摘除；TCP keepalive 探活，关闭时 `linger{1,0}` 发 RST 强关，避免 TIME_WAIT 堆积。
+- **运维 HTTP**：`/api/v1/managers/overview`、`/stat` 提供通道与连接统计（Bearer token 鉴权，token 固定写在代码里）。
+- **跨节点 RPC**：`rpc/` 基于 ylt/coro_rpc 实现 coro_rpc 服务端、客户端连接池与负载均衡、双向 TLS；信令可托付给持有目标连接的另一节点转发，调用点 `co_await` 等待对端结论，跨实例路径与本地路径共用同一套 handler。
+- **存储接入**：`storage/` 提供 MySQL 连接池与 Redis 客户端 / 订阅（随配置加载即建连）；持久化写入与 Redis 路由表为预留层。
 
 > 完整架构（线程模型、配置注入、转发时序、RPC 两层错误模型、任务队列阈值等）见 [`WebrtcSignalServer.md`](./WebrtcSignalServer.md)。
 
