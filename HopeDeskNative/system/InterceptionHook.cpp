@@ -86,6 +86,12 @@ bool InterceptionHook::startCapture()
     interception_set_filter(context, interception_is_keyboard, INTERCEPTION_FILTER_KEY_ALL);
     interception_set_filter(context, interception_is_mouse, INTERCEPTION_FILTER_MOUSE_ALL);
 
+    // 新会话从干净状态开始,避免上一次会话残留的按下标志让 F 被当成热键吃掉
+    ctrlDown = false;
+    altDown = false;
+    fullscreenHotkeyConsumed = false;
+    wasTargetForeground = false;
+
     initialized = true;
     running = true;
 
@@ -163,7 +169,17 @@ void InterceptionHook::captureThreadFunc()
             }
 
             HWND foregroundWnd = GetForegroundWindow();
-            if (foregroundWnd == targetHwnd || IsChild(targetHwnd, foregroundWnd)) {
+            bool targetForeground = (foregroundWnd == targetHwnd || IsChild(targetHwnd, foregroundWnd));
+
+            // 焦点在目标窗口与别处之间跳变:非前台时按键走下方透传分支(不进 processKeyboardEvent),
+            // 自跟踪的修饰键状态就不再更新 -> 抬起事件会丢。此处重同步并对远端补发释放。
+            // 全屏切换(showFullScreen/showMaximized)瞬间的前台变化正是触发点。
+            if (targetForeground != wasTargetForeground) {
+                wasTargetForeground = targetForeground;
+                resyncModifierState();
+            }
+
+            if (targetForeground) {
                 processKeyboardEvent(*keystroke);
                 continue;
             }
@@ -222,8 +238,15 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
     if(keystroke.code == 77 && (keystroke.state==2 || keystroke.state==3)) vkCode = VK_RIGHT;
 
     // 跟踪 Ctrl/Alt 物理按下状态(拦截后 OS 看不到,不能用 GetAsyncKeyState)
-    if (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL) ctrlDown = isPress;
-    if (vkCode == VK_MENU || vkCode == VK_LMENU || vkCode == VK_RMENU) altDown = isPress;
+    // 同时记下实际下发的 VK:焦点跳变时据此补发配对 keyup
+    if (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL) {
+        if (isPress) ctrlVk = vkCode;
+        ctrlDown = isPress;
+    }
+    if (vkCode == VK_MENU || vkCode == VK_LMENU || vkCode == VK_RMENU) {
+        if (isPress) altVk = vkCode;
+        altDown = isPress;
+    }
 
     // Ctrl+Alt+F:本地切换全屏,不转发对端(F 完全消费)
     if (vkCode == 'F' && targetWidget) {
@@ -345,6 +368,25 @@ char InterceptionHook::getCurrentModifiers()
 bool InterceptionHook::isNumLockOn()
 {
     return numLockState.load();
+}
+
+void InterceptionHook::resyncModifierState()
+{
+    // 焦点切走:自跟踪的修饰键状态已不可信(其抬起事件走了透传分支,不会被记录)。
+    // 若之前已把 down 转发给远端,这里必须补发配对的 keyup —— 否则远端 Ctrl/Alt 卡住,
+    // 之后每个键到了远端都变成 Ctrl+Alt+X,表现为远端 Ctrl/Alt "失灵"。
+    if (ctrlDown) {
+        sendKeyEvent(false, ctrlVk, 0);
+        LOG_INFO("Resync: release Ctrl(0x{:X}) to remote", ctrlVk);
+    }
+    if (altDown) {
+        sendKeyEvent(false, altVk, 0);
+        LOG_INFO("Resync: release Alt(0x{:X}) to remote", altVk);
+    }
+    ctrlDown = false;
+    altDown = false;
+    // 一并清掉热键消费标志:否则 F 卡在"已消费",下次 Ctrl+Alt+F 不再切换且 F 被吃掉
+    fullscreenHotkeyConsumed = false;
 }
 
 void InterceptionHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)

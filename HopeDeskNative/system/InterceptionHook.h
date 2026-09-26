@@ -65,6 +65,10 @@ private:
     // 发送事件到远程
     void sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers);
 
+    // 焦点切走时重同步修饰键状态:清自跟踪标志,并对已下发给远端的修饰键补发 keyup。
+    // 不补发的话远端认为 Ctrl/Alt 一直按着,之后每个键都变成 Ctrl+Alt+X(远端 Ctrl/Alt 失灵)。
+    void resyncModifierState();
+
     void sendMouseEvent(short type, short button, int x, int y);
 
     void sendMouseMoveEvent(int x, int y);
@@ -113,6 +117,11 @@ private:
     // Ctrl/Alt 物理按下状态(拦截后 OS 看不到,不能用 GetAsyncKeyState,自行跟踪)
     bool ctrlDown = false;
     bool altDown = false;
+    // 各自最后一次下发给远端的 VK(L/R 由 MAPVK_VSC_TO_VK_EX 区分):补发释放时用它,保证与 down 严格配对
+    DWORD ctrlVk = VK_LCONTROL;
+    DWORD altVk = VK_LMENU;
+    // 上一轮按键事件时目标窗口是否前台:用于检测焦点跳变(跳变时上面的状态已不可信)
+    bool wasTargetForeground = false;
     // Ctrl+Alt+F 全屏热键:按一次切一次,防止自动连按重复切换
     bool fullscreenHotkeyConsumed = false;
 
