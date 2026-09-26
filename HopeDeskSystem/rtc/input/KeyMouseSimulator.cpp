@@ -337,9 +337,7 @@ namespace hope {
         bool KeyMouseSimulator::IsExtendedKey(WORD scanCode) {
             switch (scanCode) {
             case 0x1C: // Enter (numpad)
-            case 0x1D: // Right Ctrl  
             case 0x35: // Divide (numpad)
-            case 0x38: // Right Alt
             case 0x47: // Home
             case 0x48: // Up
             case 0x49: // Page Up
