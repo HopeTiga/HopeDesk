@@ -660,8 +660,6 @@ namespace hope {
                 config.height = webrtcDeskSystemConfig.desktopHeight > 0 ? webrtcDeskSystemConfig.desktopHeight : 1080;
                 config.refreshRate = webrtcDeskSystemConfig.desktopRefreshRate > 0
                     ? webrtcDeskSystemConfig.desktopRefreshRate : 144;
-                config.bitsPerChannel = 8;
-                config.hdrMode = 0;
                 // Find-or-create a persistent display keyed by the systemService id:
                 // if a display for this service already exists, reuse it instead of adding one.
                 config.id = webrtcManagerConfig.systemService.empty()

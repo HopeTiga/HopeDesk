@@ -644,7 +644,8 @@ namespace hope {
 
 				Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;
 				if (SUCCEEDED(hwSharedTextures[hwIdx].As(&km))) {
-					if (km->AcquireSync(0, INFINITE) == S_OK) {
+					constexpr DWORD kHwSharedAcquireMs = 2;
+					if (km->AcquireSync(0, kHwSharedAcquireMs) == S_OK) {
 						d3dContext->CopyResource(hwSharedTextures[hwIdx].Get(), texture);
 
 						d3dContext->Flush();

@@ -690,6 +690,9 @@ namespace hope {
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
             const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
+            const int maxFps = config.refreshRate > 0 ? config.refreshRate : 0;
+            const std::chrono::nanoseconds frameInterval = std::chrono::nanoseconds(maxFps > 0 ? 1000000000LL / maxFps : 0);
+            std::chrono::steady_clock::time_point nextDeliverAt = std::chrono::steady_clock::now();
             UINT32 idleTicks = 0;
             UINT32 probeIdleTicks = kVddProbeIdleTicks;
             bool notReadyPending = false;
@@ -782,6 +785,15 @@ namespace hope {
                         // 生产端换了分辨率/格式（Sunshine: resolution/format changed → reinit）。
                         reopenChannel();
                         continue;
+                    }
+                    // 超出上限丢帧。deadline 按固定步长累加，平均帧率才等于上限（写成 = now + interval 会越丢越少）
+                    if (maxFps > 0) {
+                        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+                        if (now < nextDeliverAt) {
+                            continue;
+                        }
+                        nextDeliverAt += frameInterval;
+                        if (nextDeliverAt < now) nextDeliverAt = now;
                     }
                     if (meta.FrameCounter == lastFrameId && haveFrame) {
                         deliverRepeatFrame();  // 同一帧重发，落入下方静止探测
