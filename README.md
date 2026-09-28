@@ -226,7 +226,7 @@ WebrtcSignalServer/
   - 每次连接**按新设备重建解码器**，避免沿用上一连接已销毁的旧设备。
 - **渲染**：QRhiWidget + **取最新帧 + vsync 持续渲染**（render 内调 update，Qt 官方 vsync 节流模式），呈现对齐显示刷新率，无撕裂、无画面跳动，端到端 GPU 加速链路闭环。
 - **为游戏优化**：当前架构结合硬件编码加速，已实现对《英雄联盟》《黑神话：悟空》等大型游戏的远程流畅游玩，在保持高画质的同时稳定输出高帧率与低延迟，将远程游戏体验提升至全新高度。实测借助 **NVENC 硬编**远程游玩《黑神话：悟空》可高画质流畅通关 **黑风大王、黑熊精、杨戬** 等 Boss 战，并稳定运行《英雄联盟》等网游，操控响应接近本地。
-- **虚拟显示器高性能采集（Hope Virtual Display）**：System 默认通过自研 **Hope Virtual Display 虚拟显示器驱动**（IddCx Indirect Display）创建虚拟显示器，从驱动的共享帧通道直接捕获。GPU 共享纹理**零拷贝**直通 NVENC，完全绕开 Desktop Duplication API（桌面采集 API 的固有开销），延迟更低、吞吐更高、支持 HDR 元数据；驱动自动按客户端请求的分辨率/刷新率（最高 144Hz+）发布帧。
+- **虚拟显示器高性能采集（Hope Virtual Display）**：System 默认通过自研 **Hope Virtual Display 虚拟显示器驱动**（IddCx Indirect Display）创建虚拟显示器，从驱动的共享帧通道直接捕获。GPU 共享纹理**零拷贝**直通 NVENC，完全绕开 Desktop Duplication API（桌面采集 API 的固有开销），延迟更低、吞吐更高、支持 HDR 元数据；驱动自动按客户端请求的分辨率/刷新率（最高 144Hz+）发布帧。采集端以该刷新率为**出帧硬上限**——驱动出帧快于刷新率时，多余帧在采集线程直接丢弃（不交付、不进编码器、不上行）；该值为 **0** 时**不设上限**（驱动出多少帧就发多少帧，平均帧率不受限）。
 - **Desktop Duplication API 兼容采集（ScreenCapture）**：未安装或未使用虚拟显示器驱动时，System 自动退回 **Desktop Duplication API 桌面采集**，任何机器都能运行。提供 **CPU / GPU / PRO 三级传输**（由控制端"加速策略"指定）：CPU 走 BGRA 软转 I420；GPU 走计算着色器转 I420；PRO 走 D3D11 VideoProcessor 转 NV12。已关闭脏矩形，走全帧传输。
 - **采集模式自动切换**：控制端"模式"选择 **游戏模式** → System 使用 Hope Virtual Display 高性能采集；选择 **办公模式** → 使用 Desktop Duplication API 兼容采集。Hope Virtual Display 不可用（驱动未装/未加载）时也能优雅回退到 Desktop Duplication API，保证连接不中断。
 - **干净的采集画面**：System 每次会话自动开启虚拟显示器的**硬件光标**（`HARDWARECURSOR=1`），光标经 IddCx 带外通道渲染，不合成进帧缓冲，捕获帧不含系统光标。
