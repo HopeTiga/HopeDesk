@@ -41,7 +41,7 @@ void InterceptionHook::setTargetWidget(VideoWidget* widget)
     targetWidget = widget;
     if (widget) {
         targetHwnd = reinterpret_cast<HWND>(widget->winId());
-        LOG_INFO("Target Widget Set, HWND: {}", fmt::ptr(targetHwnd));
+        LOG_INFO("Target Widget Set, HWND: {}", fmt::ptr(targetHwnd.load()));
     }
 }
 
@@ -86,11 +86,11 @@ bool InterceptionHook::startCapture()
     interception_set_filter(context, interception_is_keyboard, INTERCEPTION_FILTER_KEY_ALL);
     interception_set_filter(context, interception_is_mouse, INTERCEPTION_FILTER_MOUSE_ALL);
 
-    // 新会话从干净状态开始,避免上一次会话残留的按下标志让 F 被当成热键吃掉
     ctrlDown = false;
     altDown = false;
     fullscreenHotkeyConsumed = false;
     wasTargetForeground = false;
+    cursorIsDefault = true;
 
     initialized = true;
     running = true;
@@ -129,7 +129,8 @@ void InterceptionHook::stopCapture()
 
 bool InterceptionHook::isInTargetWindow() const
 {
-    if (!targetHwnd) {
+    HWND hwnd = targetHwnd.load();
+    if (!hwnd) {
         return false;
     }
 
@@ -141,7 +142,7 @@ bool InterceptionHook::isInTargetWindow() const
     HWND hwndUnderCursor = WindowFromPoint(cursorPos);
 
     // Check if it's target window or its child
-    return (hwndUnderCursor == targetHwnd || IsChild(targetHwnd, hwndUnderCursor));
+    return (hwndUnderCursor == hwnd || IsChild(hwnd, hwndUnderCursor));
 }
 
 void InterceptionHook::captureThreadFunc()
@@ -158,6 +159,20 @@ void InterceptionHook::captureThreadFunc()
         if (device == 0) continue;
         if (interception_receive(context, device, &stroke, 1) <= 0) continue;
 
+        if (!IsWindow(targetHwnd.load())) {
+            refreshTargetHwnd();
+            wasTargetForeground = false;
+        }
+
+        HWND foregroundWnd = GetForegroundWindow();
+        bool targetForeground = (foregroundWnd == targetHwnd.load() || IsChild(targetHwnd.load(), foregroundWnd));
+
+        if (targetForeground != wasTargetForeground) {
+            wasTargetForeground = targetForeground;
+            resyncModifierState();
+            syncLocalCursor(!targetForeground);
+        }
+
         if (interception_is_keyboard(device)) {
             InterceptionKeyStroke* keystroke = reinterpret_cast<InterceptionKeyStroke*>(&stroke);
 
@@ -166,17 +181,6 @@ void InterceptionHook::captureThreadFunc()
             if (keystroke->code == 0x45 && isPress) {
                 numLockState = !numLockState.load();
                 LOG_INFO("NumLock Toggled To: {}", numLockState ? "ON" : "OFF");
-            }
-
-            HWND foregroundWnd = GetForegroundWindow();
-            bool targetForeground = (foregroundWnd == targetHwnd || IsChild(targetHwnd, foregroundWnd));
-
-            // 焦点在目标窗口与别处之间跳变:非前台时按键走下方透传分支(不进 processKeyboardEvent),
-            // 自跟踪的修饰键状态就不再更新 -> 抬起事件会丢。此处重同步并对远端补发释放。
-            // 全屏切换(showFullScreen/showMaximized)瞬间的前台变化正是触发点。
-            if (targetForeground != wasTargetForeground) {
-                wasTargetForeground = targetForeground;
-                resyncModifierState();
             }
 
             if (targetForeground) {
@@ -191,8 +195,12 @@ void InterceptionHook::captureThreadFunc()
             if (webrtcManager && webrtcManager->relativeMouseMode.load()) {
                 processMouseEvent(*mousestroke);
             }
-            else if (isInTargetWindow()) {
-                processMouseEvent(*mousestroke);
+            else {
+                bool inside = isInTargetWindow();
+                syncLocalCursor(!targetForeground || !inside);
+                if (inside) {
+                    processMouseEvent(*mousestroke);
+                }
             }
         }
 
@@ -237,8 +245,6 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
 
     if(keystroke.code == 77 && (keystroke.state==2 || keystroke.state==3)) vkCode = VK_RIGHT;
 
-    // 跟踪 Ctrl/Alt 物理按下状态(拦截后 OS 看不到,不能用 GetAsyncKeyState)
-    // 同时记下实际下发的 VK:焦点跳变时据此补发配对 keyup
     if (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL) {
         if (isPress) ctrlVk = vkCode;
         ctrlDown = isPress;
@@ -294,12 +300,13 @@ void InterceptionHook::processMouseEvent(InterceptionMouseStroke& mousestroke)
 
         // Convert to window client area coordinates
         POINT clientPt = cursorPos;
-        if (targetHwnd) {
-            ScreenToClient(targetHwnd, &clientPt);
+        HWND hwnd = targetHwnd.load();
+        if (hwnd) {
+            ScreenToClient(hwnd, &clientPt);
 
             // Get window client area size
             RECT clientRect;
-            GetClientRect(targetHwnd, &clientRect);
+            GetClientRect(hwnd, &clientRect);
             int windowWidth  = clientRect.right - clientRect.left;
             int windowHeight = clientRect.bottom - clientRect.top;
 
@@ -372,9 +379,6 @@ bool InterceptionHook::isNumLockOn()
 
 void InterceptionHook::resyncModifierState()
 {
-    // 焦点切走:自跟踪的修饰键状态已不可信(其抬起事件走了透传分支,不会被记录)。
-    // 若之前已把 down 转发给远端,这里必须补发配对的 keyup —— 否则远端 Ctrl/Alt 卡住,
-    // 之后每个键到了远端都变成 Ctrl+Alt+X,表现为远端 Ctrl/Alt "失灵"。
     if (ctrlDown) {
         sendKeyEvent(false, ctrlVk, 0);
         LOG_INFO("Resync: release Ctrl(0x{:X}) to remote", ctrlVk);
@@ -385,8 +389,34 @@ void InterceptionHook::resyncModifierState()
     }
     ctrlDown = false;
     altDown = false;
-    // 一并清掉热键消费标志:否则 F 卡在"已消费",下次 Ctrl+Alt+F 不再切换且 F 被吃掉
     fullscreenHotkeyConsumed = false;
+}
+
+void InterceptionHook::refreshTargetHwnd()
+{
+    if (hwndRefreshPending.exchange(true)) return;
+
+    QMetaObject::invokeMethod(this, [this]() {
+        hwndRefreshPending = false;
+        if (!targetWidget) return;
+        HWND hwnd = reinterpret_cast<HWND>(targetWidget->winId());
+        if (hwnd && hwnd != targetHwnd.load()) {
+            targetHwnd = hwnd;
+            LOG_INFO("Target HWND Refreshed: {}", fmt::ptr(hwnd));
+        }
+    }, Qt::QueuedConnection);
+}
+
+void InterceptionHook::syncLocalCursor(bool restore)
+{
+    if (cursorIsDefault == restore) return;
+    cursorIsDefault = restore;
+
+    QMetaObject::invokeMethod(this, [this, restore]() {
+        if (!webrtcManager) return;
+        if (restore) webrtcManager->restoreLocalCursor();
+        else webrtcManager->reapplyLocalCursor();
+    }, Qt::QueuedConnection);
 }
 
 void InterceptionHook::sendKeyEvent(bool isPress, DWORD windowsVK, char modifiers)
@@ -500,10 +530,11 @@ void InterceptionHook::sendWheelEvent(int delta)
 
 void InterceptionHook::convertClientToScreen(int& x, int& y)
 {
-    if (!targetHwnd) return;
+    HWND hwnd = targetHwnd.load();
+    if (!hwnd) return;
 
     RECT clientRect;
-    GetClientRect(targetHwnd, &clientRect);
+    GetClientRect(hwnd, &clientRect);
     int windowWidth = clientRect.right - clientRect.left;
     int windowHeight = clientRect.bottom - clientRect.top;
 

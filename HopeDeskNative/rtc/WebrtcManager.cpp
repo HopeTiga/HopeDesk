@@ -730,6 +730,37 @@ void WebrtcManager::requestCursorResync()
     writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(CursorResyncReq));
 }
 
+void WebrtcManager::applyHiddenCursor()
+{
+    static HCURSOR transparentCursor = nullptr;
+    if (!transparentCursor) {
+        unsigned char zero[4] = { 0, 0, 0, 0 }; // RGBA 全 0，alpha=0 -> 全透明
+        transparentCursor = CreateCursorFromRGBA(zero, 1, 1, 0, 0);
+    }
+    if (transparentCursor) {
+        // SetSystemCursor 会销毁传入的句柄，需每次拷贝一份
+        HCURSOR copy = CopyCursor(transparentCursor);
+        if (copy) {
+            SetSystemCursor(copy, 32512); // OCR_NORMAL
+        }
+    }
+}
+
+void WebrtcManager::restoreLocalCursor()
+{
+    if (onResetCursorHandle) onResetCursorHandle();
+    resetCursorCache();
+}
+
+void WebrtcManager::reapplyLocalCursor()
+{
+    if (relativeMouseMode.load()) {
+        applyHiddenCursor();
+    } else {
+        requestCursorResync();
+    }
+}
+
 void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 {
     static thread_local HCURSOR lastCursor = nullptr;
@@ -881,20 +912,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
 
     case 2: { // 隐藏光标 -> 进入相对鼠标模式(游戏视角)
         relativeMouseMode = true;
-
-        // 用 1x1 全透明光标替换系统普通光标，实现本地隐藏
-        static HCURSOR transparentCursor = nullptr;
-        if (!transparentCursor) {
-            unsigned char zero[4] = { 0, 0, 0, 0 }; // RGBA 全 0，alpha=0 -> 全透明
-            transparentCursor = CreateCursorFromRGBA(zero, 1, 1, 0, 0);
-        }
-        if (transparentCursor) {
-            // SetSystemCursor 会销毁传入的句柄，需每次拷贝一份
-            HCURSOR copy = CopyCursor(transparentCursor);
-            if (copy) {
-                SetSystemCursor(copy, 32512); // OCR_NORMAL
-            }
-        }
+        applyHiddenCursor();
         break;
     }
 

@@ -206,6 +206,10 @@ public:
 
     void requestCursorResync();
 
+    void restoreLocalCursor();
+
+    void reapplyLocalCursor();
+
     std::function<void(const std::string& codec, bool hardDecode)> onCodecStatusHandle;
 
     void connect(std::string ip);
@@ -288,6 +292,8 @@ private:
     void handleSystemMessage(std::string str);
 
     void handleSystemDisconnect();
+
+    void applyHiddenCursor();
 
 public:
 
