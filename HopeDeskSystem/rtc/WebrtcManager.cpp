@@ -655,11 +655,14 @@ namespace hope {
                 activeCaptureTech = "Hope Virtual Display";
 
                 hope::rtc::VirtualDisplayCapture::Config config;
-                // 分辨率/刷新率来自客户端配置(WebrtcDeskSystemConfig)，独立于 WebRTC 帧率。
                 config.width = webrtcDeskSystemConfig.desktopWidth > 0 ? webrtcDeskSystemConfig.desktopWidth : 1920;
                 config.height = webrtcDeskSystemConfig.desktopHeight > 0 ? webrtcDeskSystemConfig.desktopHeight : 1080;
                 config.refreshRate = webrtcDeskSystemConfig.desktopRefreshRate > 0
                     ? webrtcDeskSystemConfig.desktopRefreshRate : 144;
+                config.frameRate = webrtcDeskSystemConfig.localMaxFramerate >= webrtcDeskSystemConfig.requestMaxFramerate
+                    ? webrtcDeskSystemConfig.requestMaxFramerate : webrtcDeskSystemConfig.localMaxFramerate;
+                LOG_INFO("VddCapture Frame Rate Limit {} Fps, Display Refresh {} Hz",
+                    config.frameRate, config.refreshRate);
                 // Find-or-create a persistent display keyed by the systemService id:
                 // if a display for this service already exists, reuse it instead of adding one.
                 config.id = webrtcManagerConfig.systemService.empty()

@@ -80,7 +80,14 @@ namespace hope {
             }
         }
 
-        void VirtualDisplayCapture::setConfig(Config c) { config = c; }
+        void VirtualDisplayCapture::setConfig(Config c) {
+            config = c;
+            minFrameInterval = config.frameRate > 0
+                ? std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                      std::chrono::duration<double>(1.0 / config.frameRate))
+                : std::chrono::steady_clock::duration::zero();
+            nextDeliverAt = {};
+        }
         void VirtualDisplayCapture::setGpuDataHandle(GpuDataHandle h) { gpuDataHandle = h; }
         void VirtualDisplayCapture::setDataHandle(DataHandle h) { dataHandle = h; }
         void VirtualDisplayCapture::setChannelSync(std::shared_ptr<VddChannelSync> s) { channelSync = std::move(s); }
@@ -680,6 +687,26 @@ namespace hope {
             }
         }
 
+        bool VirtualDisplayCapture::frameRateGateAllows()
+        {
+            if (minFrameInterval.count() <= 0) return true;
+
+            const auto now = std::chrono::steady_clock::now();
+            if (!haveFrame || nextDeliverAt.time_since_epoch().count() == 0) {
+                nextDeliverAt = now + minFrameInterval;
+                return true;
+            }
+            if (now < nextDeliverAt) {
+                gateDropped++;
+                return false;
+            }
+
+            gateDelivered++;
+            nextDeliverAt += minFrameInterval;
+            if (nextDeliverAt < now) nextDeliverAt = now + minFrameInterval;
+            return true;
+        }
+
         // ---------------------------------------------------------------------------
         // Capture thread
         // ---------------------------------------------------------------------------
@@ -690,9 +717,6 @@ namespace hope {
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
             const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
-            const int maxFps = config.refreshRate > 0 ? config.refreshRate : 0;
-            const std::chrono::nanoseconds frameInterval = std::chrono::nanoseconds(maxFps > 0 ? 1000000000LL / maxFps : 0);
-            std::chrono::steady_clock::time_point nextDeliverAt = std::chrono::steady_clock::now();
             UINT32 idleTicks = 0;
             UINT32 probeIdleTicks = kVddProbeIdleTicks;
             bool notReadyPending = false;
@@ -786,21 +810,20 @@ namespace hope {
                         reopenChannel();
                         continue;
                     }
-                    // 超出上限丢帧。deadline 按固定步长累加，平均帧率才等于上限（写成 = now + interval 会越丢越少）
-                    if (maxFps > 0) {
-                        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-                        if (now < nextDeliverAt) {
-                            continue;
-                        }
-                        nextDeliverAt += frameInterval;
-                        if (nextDeliverAt < now) nextDeliverAt = now;
-                    }
                     if (meta.FrameCounter == lastFrameId && haveFrame) {
                         deliverRepeatFrame();  // 同一帧重发，落入下方静止探测
                     }
                     else {
-                        deliverNewFrame(meta);
-                        idleTicks = 0;                // 有新帧，静止计数清零
+                        if (frameRateGateAllows()) deliverNewFrame(meta);
+                        if (gateDropped &&
+                            std::chrono::steady_clock::now() - gateLogAt >= std::chrono::seconds(5)) {
+                            LOG_INFO("VddCapture Frame Rate Limit Active: TargetFps={} Delivered={} Gated={}",
+                                config.frameRate, gateDelivered, gateDropped);
+                            gateDelivered = 0;
+                            gateDropped = 0;
+                            gateLogAt = std::chrono::steady_clock::now();
+                        }
+                        idleTicks = 0;                // 通道是活的，静止计数清零
                         probeIdleTicks = kVddProbeIdleTicks;
                         notReadyPending = false;
                         rejectedLogged = false;

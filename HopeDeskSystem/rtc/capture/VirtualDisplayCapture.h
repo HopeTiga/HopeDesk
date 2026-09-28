@@ -51,6 +51,7 @@ public:
         int  width         = 1920;
         int  height        = 1080;
         int  refreshRate   = 144;    // Hz
+        int  frameRate     = 0;      // Hz，0 = 不限
         bool cpuPath       = false; // false = GPU shared handle, true = mapped CPU buffer
 
         bool mirrorPrimary = true;   // 忽略于无物理显示器的主机
@@ -115,6 +116,7 @@ private:
     bool isMetadataValid(const ZakoFrameMetadata& meta) const;
     bool deliverNewFrame(const ZakoFrameMetadata& meta);
     void deliverRepeatFrame();
+    bool frameRateGateAllows();
 
     // Driver / frame channel state
     HANDLE driverDevice = INVALID_HANDLE_VALUE;
@@ -140,6 +142,12 @@ private:
 
     UINT64 lastFrameId = 0;
     bool  haveFrame = false;
+
+    std::chrono::steady_clock::duration minFrameInterval{};
+    std::chrono::steady_clock::time_point nextDeliverAt{};
+    std::chrono::steady_clock::time_point gateLogAt{};
+    UINT64 gateDelivered = 0;
+    UINT64 gateDropped = 0;
 
     Config config;
     std::atomic<bool> capturing{ false };
