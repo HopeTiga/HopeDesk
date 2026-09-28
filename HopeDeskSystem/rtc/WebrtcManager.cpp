@@ -659,10 +659,7 @@ namespace hope {
                 config.height = webrtcDeskSystemConfig.desktopHeight > 0 ? webrtcDeskSystemConfig.desktopHeight : 1080;
                 config.refreshRate = webrtcDeskSystemConfig.desktopRefreshRate > 0
                     ? webrtcDeskSystemConfig.desktopRefreshRate : 144;
-                config.frameRate = webrtcDeskSystemConfig.localMaxFramerate >= webrtcDeskSystemConfig.requestMaxFramerate
-                    ? webrtcDeskSystemConfig.requestMaxFramerate : webrtcDeskSystemConfig.localMaxFramerate;
-                LOG_INFO("VddCapture Frame Rate Limit {} Fps, Display Refresh {} Hz",
-                    config.frameRate, config.refreshRate);
+                LOG_INFO("VddCapture Display Refresh {} Hz", config.refreshRate);
                 // Find-or-create a persistent display keyed by the systemService id:
                 // if a display for this service already exists, reuse it instead of adding one.
                 config.id = webrtcManagerConfig.systemService.empty()

@@ -82,11 +82,6 @@ namespace hope {
 
         void VirtualDisplayCapture::setConfig(Config c) {
             config = c;
-            minFrameInterval = config.frameRate > 0
-                ? std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                      std::chrono::duration<double>(1.0 / config.frameRate))
-                : std::chrono::steady_clock::duration::zero();
-            nextDeliverAt = {};
         }
         void VirtualDisplayCapture::setGpuDataHandle(GpuDataHandle h) { gpuDataHandle = h; }
         void VirtualDisplayCapture::setDataHandle(DataHandle h) { dataHandle = h; }
@@ -687,26 +682,6 @@ namespace hope {
             }
         }
 
-        bool VirtualDisplayCapture::frameRateGateAllows()
-        {
-            if (minFrameInterval.count() <= 0) return true;
-
-            const auto now = std::chrono::steady_clock::now();
-            if (!haveFrame || nextDeliverAt.time_since_epoch().count() == 0) {
-                nextDeliverAt = now + minFrameInterval;
-                return true;
-            }
-            if (now < nextDeliverAt) {
-                gateDropped++;
-                return false;
-            }
-
-            gateDelivered++;
-            nextDeliverAt += minFrameInterval;
-            if (nextDeliverAt < now) nextDeliverAt = now + minFrameInterval;
-            return true;
-        }
-
         // ---------------------------------------------------------------------------
         // Capture thread
         // ---------------------------------------------------------------------------
@@ -814,15 +789,7 @@ namespace hope {
                         deliverRepeatFrame();  // 同一帧重发，落入下方静止探测
                     }
                     else {
-                        if (frameRateGateAllows()) deliverNewFrame(meta);
-                        if (gateDropped &&
-                            std::chrono::steady_clock::now() - gateLogAt >= std::chrono::seconds(5)) {
-                            LOG_INFO("VddCapture Frame Rate Limit Active: TargetFps={} Delivered={} Gated={}",
-                                config.frameRate, gateDelivered, gateDropped);
-                            gateDelivered = 0;
-                            gateDropped = 0;
-                            gateLogAt = std::chrono::steady_clock::now();
-                        }
+                        deliverNewFrame(meta);
                         idleTicks = 0;                // 通道是活的，静止计数清零
                         probeIdleTicks = kVddProbeIdleTicks;
                         notReadyPending = false;

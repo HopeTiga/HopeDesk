@@ -15,8 +15,6 @@ namespace hope {
 
         constexpr DWORD kVddAcquireTimeoutMs = 100;
 
-        constexpr uint64_t kVpSampleEvery = 30;
-
         NvencAV1Encoder::NvencAV1Encoder() {
         }
         NvencAV1Encoder::~NvencAV1Encoder() { Release(); }
@@ -132,8 +130,6 @@ namespace hope {
             initParams.darHeight = height;
             initParams.frameRateNum = maxFramerate ? maxFramerate : 60;
             initParams.frameRateDen = 1;
-            LOG_INFO("[NVENC-AV1 Timing] Init {}x{} BitrateBps={} MaxFramerate={} FrameRateNum={}",
-                width, height, bitrateBps, maxFramerate, initParams.frameRateNum);
             initParams.enablePTD = 1;
             initParams.enableEncodeAsync = 0;  // 同步模式
             initParams.splitEncodeMode = NV_ENC_SPLIT_AUTO_MODE;
@@ -185,12 +181,6 @@ namespace hope {
             encodeConfig.encodeCodecConfig.av1Config.maxNumRefFramesInDPB = 1;
             encodeConfig.encodeCodecConfig.av1Config.inputBitDepth = NV_ENC_BIT_DEPTH_8;
             encodeConfig.encodeCodecConfig.av1Config.outputBitDepth = NV_ENC_BIT_DEPTH_8;
-
-            LOG_INFO("[NVENC-AV1 Timing] Cfg MultiPass={} EnableAQ={} ZeroReorderDelay={} LowDelayKeyFrameScale={} Vbv={} Lookahead={} Split={}",
-                (int)encodeConfig.rcParams.multiPass, (int)encodeConfig.rcParams.enableAQ,
-                (int)encodeConfig.rcParams.zeroReorderDelay, (int)encodeConfig.rcParams.lowDelayKeyFrameScale,
-                encodeConfig.rcParams.vbvBufferSize, (int)encodeConfig.rcParams.enableLookahead,
-                (int)initParams.splitEncodeMode);
 
             initParams.encodeConfig = &encodeConfig;
 
@@ -249,40 +239,6 @@ namespace hope {
             std::lock_guard<std::mutex> lock(nvencApiMutex);
             if (!nvencSession) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 
-            const auto timingNow = std::chrono::steady_clock::now();
-            if (timingLastFrameAt.time_since_epoch().count()) {
-                timingGapMsSum += std::chrono::duration<double, std::milli>(timingNow - timingLastFrameAt).count();
-            }
-            timingLastFrameAt = timingNow;
-            if (!timingWindowStart.time_since_epoch().count()) timingWindowStart = timingNow;
-            timingFrames++;
-            timingWindowFrames++;
-            if (timingWindowFrames > 1 &&
-                std::chrono::duration_cast<std::chrono::milliseconds>(timingNow - timingWindowStart).count() >= 2000) {
-                const double n = (double)(timingWindowFrames - 1);
-                LOG_INFO("[NVENC-AV1 Timing] Frames={} GapMs={:.2f} AcquireMs={:.2f}/{:.2f} HoldMs={:.2f} BlitGpuMs={:.2f} EncodeMs={:.2f}/{:.2f} TailMs={:.2f} Queued={}/{} LockBusy={} BitrateBps={} BlitSamples={}",
-                    timingWindowFrames, timingGapMsSum / n, timingAcquireMsSum / n, timingAcquireMsMax,
-                    timingHoldMsSum / n,
-                    timingBlitSamples ? (timingBlitGpuUsSum / (double)timingBlitSamples / 1000.0) : 0.0,
-                    timingEncodeMsSum / n, timingEncodeMsMax, timingTailMsSum / n,
-                    buffersQueued, timingQueuedMax,
-                    timingLockBusy, encodeConfig.rcParams.averageBitRate, timingBlitSamples);
-                timingWindowFrames = 0;
-                timingGapMsSum = 0.0;
-                timingAcquireMsSum = 0.0;
-                timingAcquireMsMax = 0.0;
-                timingHoldMsSum = 0.0;
-                timingEncodeMsSum = 0.0;
-                timingEncodeMsMax = 0.0;
-                timingTailMsSum = 0.0;
-                timingQueuedMax = 0;
-                timingLockBusy = 0;
-                timingBlitGpuUsSum = 0.0;
-                timingBlitSamples = 0;
-                timingWindowStart = timingNow;
-            }
-            if (buffersQueued > timingQueuedMax) timingQueuedMax = buffersQueued;
-
             auto buffer = frame.video_frame_buffer();
             uint32_t idx = nextBitstream;
 
@@ -334,38 +290,14 @@ namespace hope {
                     }
                 }
 
-                const auto timingAcquireStart = std::chrono::steady_clock::now();
                 HRESULT hr = cached.km ? cached.km->AcquireSync(1, kVddAcquireTimeoutMs) : static_cast<HRESULT>(E_FAIL);
-                const double timingAcquireMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timingAcquireStart).count();
-                timingAcquireMsSum += timingAcquireMs;
-                if (timingAcquireMs > timingAcquireMsMax) timingAcquireMsMax = timingAcquireMs;
                 if (hr == S_OK) {
                     // DXVA VP：固定功能视频引擎转 BGRA -> NV12（无矩形参数，全图转换）
                     D3D11_VIDEO_PROCESSOR_STREAM stream = {};
                     stream.Enable = TRUE;
                     stream.OutputIndex = 0;
                     stream.pInputSurface = cached.vpInputView.Get();
-                    const bool timingSampleGpu = (timingFrames % kVpSampleEvery) == 0;
-                    if (timingSampleGpu && !vpTimestampStart) {
-                        D3D11_QUERY_DESC timingQueryDesc = {};
-                        timingQueryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-                        d3dDevice->CreateQuery(&timingQueryDesc, &vpTimestampDisjoint);
-                        timingQueryDesc.Query = D3D11_QUERY_TIMESTAMP;
-                        d3dDevice->CreateQuery(&timingQueryDesc, &vpTimestampStart);
-                        d3dDevice->CreateQuery(&timingQueryDesc, &vpTimestampEnd);
-                    }
-                    const bool timingGpuOk = timingSampleGpu && vpTimestampDisjoint && vpTimestampStart && vpTimestampEnd;
-                    const auto timingHoldStart = std::chrono::steady_clock::now();
-                    if (timingGpuOk) {
-                        d3dContext->Begin(vpTimestampDisjoint.Get());
-                        d3dContext->End(vpTimestampStart.Get());
-                        d3dContext->Flush();
-                    }
                     HRESULT vbr = videoContext->VideoProcessorBlt(videoProcessor.Get(), inputPool[idx].vpOutputView.Get(), 0, 1, &stream);
-                    if (timingGpuOk) {
-                        d3dContext->End(vpTimestampEnd.Get());
-                        d3dContext->End(vpTimestampDisjoint.Get());
-                    }
                     // Flush 确保 VP 读完共享纹理后再还锁，避免撕裂
                     d3dContext->Flush();
                     if (FAILED(vbr)) {
@@ -377,7 +309,6 @@ namespace hope {
 
                     // VP 已把数据搬进 NV12 池槽，共享纹理立即归还
                     cached.km->ReleaseSync(0);
-                    timingHoldMsSum += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timingHoldStart).count();
                     d3dBuffer->FreeSharedSlot();
 
                     // 映射 NV12 池槽给 NVENC 编码（不再直注共享纹理）
@@ -437,11 +368,7 @@ namespace hope {
                 pendingInputs[idx].isShared = false;
             }
 
-            const auto timingEncodeStart = std::chrono::steady_clock::now();
             NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
-            const double timingEncodeMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timingEncodeStart).count();
-            timingEncodeMsSum += timingEncodeMs;
-            if (timingEncodeMs > timingEncodeMsMax) timingEncodeMsMax = timingEncodeMs;
             if (err == NV_ENC_SUCCESS) {
                 dtsList.push_back(frame.render_time_ms());
                 buffersQueued++;
@@ -456,33 +383,13 @@ namespace hope {
                     nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffers[idx]);
                     swInputBuffers[idx] = nullptr;
                 }
-                LOG_INFO("[NVENC] 驱动返回 NEED_MORE_INPUT，本帧未产出码流 (Slot {})", idx);
                 return WEBRTC_VIDEO_CODEC_OK;
             }
             else {
                 return WEBRTC_VIDEO_CODEC_ERROR;
             }
 
-            const auto timingTailStart = std::chrono::steady_clock::now();
             GetEncodedPacket(false);
-            timingTailMsSum += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timingTailStart).count();
-
-            if (buffer->type() == webrtc::VideoFrameBuffer::Type::kNative && (timingFrames % kVpSampleEvery) == 0 &&
-                vpTimestampDisjoint && vpTimestampStart && vpTimestampEnd) {
-                D3D11_QUERY_DATA_TIMESTAMP_DISJOINT timingDisjoint = {};
-                UINT64 timingTsStart = 0, timingTsEnd = 0;
-                if (d3dContext->GetData(vpTimestampDisjoint.Get(), &timingDisjoint, sizeof(timingDisjoint), 0) == S_OK &&
-                    !timingDisjoint.Disjoint && timingDisjoint.Frequency &&
-                    d3dContext->GetData(vpTimestampStart.Get(), &timingTsStart, sizeof(timingTsStart), 0) == S_OK &&
-                    d3dContext->GetData(vpTimestampEnd.Get(), &timingTsEnd, sizeof(timingTsEnd), 0) == S_OK &&
-                    timingTsEnd >= timingTsStart) {
-                    timingBlitGpuUsSum += (double)(timingTsEnd - timingTsStart) * 1000000.0 / (double)timingDisjoint.Frequency;
-                    timingBlitSamples++;
-                    if (timingFrames == kVpSampleEvery) {
-                        LOG_INFO("[NVENC-AV1 Timing] Probe Raw Freq={} Delta={} Disjoint={}", timingDisjoint.Frequency, timingTsEnd - timingTsStart, (int)timingDisjoint.Disjoint);
-                    }
-                }
-            }
 
             return WEBRTC_VIDEO_CODEC_OK;
         }
@@ -498,7 +405,6 @@ namespace hope {
                 lock.doNotWait = false;
 
                 NVENCSTATUS lockStatus = nvencFuncs.nvEncLockBitstream(nvencSession, &lock);
-                if (lockStatus == NV_ENC_ERR_LOCK_BUSY) timingLockBusy++;
                 if (lockStatus == NV_ENC_SUCCESS) {
                     webrtc::EncodedImage image;
                     image.SetEncodedData(webrtc::EncodedImageBuffer::Create((uint8_t*)lock.bitstreamBufferPtr, lock.bitstreamSizeInBytes));

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "api/video_codecs/video_encoder.h"
 #include "api/video/video_frame_buffer.h"
@@ -88,17 +88,6 @@ namespace hope {
 
             std::chrono::steady_clock::time_point lastRateChangeTime;
 
-            uint64_t timingFrames = 0;
-            uint64_t timingWindowFrames = 0;
-            double   timingGapMsSum = 0.0;
-            double   timingAcquireMsSum = 0.0, timingAcquireMsMax = 0.0;
-            double   timingHoldMsSum = 0.0;
-            double   timingEncodeMsSum = 0.0, timingEncodeMsMax = 0.0;
-            double   timingTailMsSum = 0.0;
-            uint32_t timingQueuedMax = 0;
-            uint64_t timingLockBusy = 0;
-            std::chrono::steady_clock::time_point timingLastFrameAt{};
-            std::chrono::steady_clock::time_point timingWindowStart{};
         };
     }
 }
