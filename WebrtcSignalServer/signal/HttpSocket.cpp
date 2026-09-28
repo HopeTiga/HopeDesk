@@ -83,11 +83,18 @@ namespace hope {
 
 			try {
 
-				boost::beast::http::request<boost::beast::http::string_body> httpRequest = co_await asyncRead();
+				HttpReadResult readResult = co_await asyncRead();
 
-				webrtcSignalManager->getLogicSystem()->postHttpTask(shared_from_this(), httpRequest);
+				if (!readResult.succeeded) {
 
-				asyncReadKeepAlive(httpRequest);
+					closeSocket();
+
+					co_return;
+				}
+
+				webrtcSignalManager->getLogicSystem()->postHttpTask(shared_from_this(), readResult.httpRequest);
+
+				asyncReadKeepAlive(readResult.httpRequest);
 
 			}
 			catch (std::exception& e) {
@@ -154,10 +161,10 @@ namespace hope {
 			co_return true;
 		}
 
-		boost::asio::awaitable<boost::beast::http::request<boost::beast::http::string_body>> HttpSocket::asyncRead()
+		boost::asio::awaitable<HttpReadResult> HttpSocket::asyncRead()
 		{
 			boost::beast::flat_buffer buffer;
-			boost::beast::http::request<boost::beast::http::string_body> httpRequest;
+			HttpReadResult readResult;
 			boost::system::error_code ec;
 
 #ifdef WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL
@@ -173,13 +180,13 @@ namespace hope {
 				}
 			});
 
-			co_await boost::beast::http::async_read(tcpStream, buffer, httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+			co_await boost::beast::http::async_read(tcpStream, buffer, readResult.httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
 			readTimer.cancel();
 
 			if (isTimeout || ec) {
 				LOG_ERROR("AsyncRead Failed: {}", ec.message().c_str());
-				throw std::runtime_error("HttpSocket AsyncRead Failed");
+				co_return readResult;
 			}
 
 #else
@@ -195,18 +202,20 @@ namespace hope {
 				}
 			});
 
-			co_await boost::beast::http::async_read(sslStream, buffer, httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+			co_await boost::beast::http::async_read(sslStream, buffer, readResult.httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
 			readTimer.cancel();
 
 			if (isTimeout || ec) {
 				LOG_ERROR("SSL AsyncRead Failed: {}", ec.message().c_str());
-				throw std::runtime_error("HttpSocket SSL AsyncRead Failed");
+				co_return readResult;
 			}
 
 #endif
 
-			co_return httpRequest;
+			readResult.succeeded = true;
+
+			co_return readResult;
 
 		}
 
@@ -232,7 +241,6 @@ namespace hope {
 					try {
 						int sec = std::stoi(value.substr(pos, end - pos));
 						if (sec > 0) {
-							// 封顶,防止客户端通过 Keep-Alive 把读/空闲超时顶到任意大
 							timeoutSec = std::chrono::seconds((maxHttpKeepAliveTimeSec > 0 && sec > maxHttpKeepAliveTimeSec) ? maxHttpKeepAliveTimeSec : sec);
 						}
 					}
@@ -253,7 +261,7 @@ namespace hope {
 					std::chrono::steady_clock::time_point lastTime = self->lastKeepAliveTime;
 
 					while (self->isKeepAlive) {
-						self->keepTimer.expires_at(lastTime);  // 锟饺达拷锟斤拷锟斤拷锟斤拷时锟斤拷锟?
+						self->keepTimer.expires_at(lastTime); 
 						boost::system::error_code ec;
 						co_await self->keepTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
@@ -296,11 +304,18 @@ namespace hope {
 
 				try {
 
-					boost::beast::http::request<boost::beast::http::string_body> httpRequest = co_await self->asyncRead();
+					HttpReadResult readResult = co_await self->asyncRead();
 
-					self->webrtcSignalManager->getLogicSystem()->postHttpTask(self->shared_from_this(), httpRequest);
+					if (!readResult.succeeded) {
 
-					self->asyncReadKeepAlive(httpRequest);
+						self->closeSocket();
+
+						co_return;
+					}
+
+					self->webrtcSignalManager->getLogicSystem()->postHttpTask(self->shared_from_this(), readResult.httpRequest);
+
+					self->asyncReadKeepAlive(readResult.httpRequest);
 
 				}
 				catch (std::exception& e) {

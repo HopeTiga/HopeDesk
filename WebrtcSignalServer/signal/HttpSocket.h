@@ -13,6 +13,14 @@ namespace hope {
 
 		class WebrtcSignalManager;
 
+		struct HttpReadResult {
+
+			boost::beast::http::request<boost::beast::http::string_body> httpRequest;
+
+			bool succeeded = false;
+
+		};
+
 		class HttpSocket : public std::enable_shared_from_this<HttpSocket>
 		{
 		public:
@@ -29,7 +37,7 @@ namespace hope {
 
 			boost::asio::awaitable<bool> asyncWrite(boost::beast::http::response<boost::beast::http::string_body> httpResponse);
 
-			boost::asio::awaitable<boost::beast::http::request<boost::beast::http::string_body>> asyncRead();
+			boost::asio::awaitable<HttpReadResult> asyncRead();
 
 			void asyncReadKeepAlive(boost::beast::http::request<boost::beast::http::string_body>& httpRequest);
 
