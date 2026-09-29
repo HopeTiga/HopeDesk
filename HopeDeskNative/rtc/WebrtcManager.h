@@ -210,6 +210,8 @@ public:
 
     void reapplyLocalCursor();
 
+    void setLocalCursorRestored(bool restore);
+
     std::function<void(const std::string& codec, bool hardDecode)> onCodecStatusHandle;
 
     void connect(std::string ip);
@@ -295,9 +297,13 @@ private:
 
     void applyHiddenCursor();
 
+    void restoreSystemCursor();
+
 public:
 
     std::atomic<bool> relativeMouseMode{false};
+
+    std::atomic<bool> localCursorRestored{true};
 
 private:
 

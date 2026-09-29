@@ -360,7 +360,7 @@ void WebrtcManager::post(std::function<void()> task)
 
 void WebrtcManager::disConnectRemote()
 {
-    if(onResetCursorHandle) onResetCursorHandle();
+    restoreSystemCursor();
 
     boost::asio::post(ioContext, [self = shared_from_this()]() {
         self->cancelRequestTimeout();
@@ -391,7 +391,7 @@ void WebrtcManager::requestStats()
 
 void WebrtcManager::disConnectRemoteHandler()
 {
-    if(onResetCursorHandle) onResetCursorHandle();
+    restoreSystemCursor();
 
     boost::asio::post(ioContext, [self = shared_from_this()]() {
 
@@ -666,7 +666,7 @@ void WebrtcManager::handleSignalServerDisconnect()
 void WebrtcManager::disConnectHandle()
 {
 
-    if(onResetCursorHandle) onResetCursorHandle();
+    restoreSystemCursor();
 
     closeTcpSocket();
 
@@ -710,6 +710,7 @@ void WebrtcManager::resetCursorCache()
     cursorArray.clear();
     cursorCacheDirty = true;  // handleCursor 首次执行时据此重置 lastCursor
     cursorResyncRequested = false;  // 新连接:重置节流,允许按需重同步
+    localCursorRestored = true;
 }
 
 void WebrtcManager::requestCursorResync()
@@ -730,6 +731,12 @@ void WebrtcManager::requestCursorResync()
     writerRemote(reinterpret_cast<unsigned char*>(pkt), sizeof(CursorResyncReq));
 }
 
+void WebrtcManager::restoreSystemCursor()
+{
+    if (onResetCursorHandle) onResetCursorHandle();
+    localCursorRestored = true;
+}
+
 void WebrtcManager::applyHiddenCursor()
 {
     static HCURSOR transparentCursor = nullptr;
@@ -742,14 +749,15 @@ void WebrtcManager::applyHiddenCursor()
         HCURSOR copy = CopyCursor(transparentCursor);
         if (copy) {
             SetSystemCursor(copy, 32512); // OCR_NORMAL
+            localCursorRestored = false;
         }
     }
 }
 
 void WebrtcManager::restoreLocalCursor()
 {
-    if (onResetCursorHandle) onResetCursorHandle();
-    resetCursorCache();
+    restoreSystemCursor();
+    cursorCacheDirty = true;
 }
 
 void WebrtcManager::reapplyLocalCursor()
@@ -759,6 +767,14 @@ void WebrtcManager::reapplyLocalCursor()
     } else {
         requestCursorResync();
     }
+}
+
+void WebrtcManager::setLocalCursorRestored(bool restore)
+{
+    if (localCursorRestored.load() == restore) return;
+
+    if (restore) restoreLocalCursor();
+    else reapplyLocalCursor();
 }
 
 void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
@@ -835,6 +851,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
             lastCursor = CopyCursor(cursor);
             SetSystemCursor(lastCursor, 32512);
             DestroyCursor(cursor); // Clean up the temporary cursor
+            localCursorRestored = false;
             cursorResyncRequested = false;  // 已成功应用,重同步完成,允许下次再请求
         }
         break;
@@ -905,6 +922,7 @@ void WebrtcManager::handleCursor(const unsigned char *data, size_t size)
             lastCursor = CopyCursor(cursor);
             SetSystemCursor(lastCursor, 32512);
             DestroyCursor(cursor); // Clean up the temporary cursor
+            localCursorRestored = false;
             cursorResyncRequested = false;  // 已成功存储并应用,重同步完成
         }
         break;
@@ -1013,7 +1031,7 @@ void WebrtcManager::handleSystemAccept()
 
 void WebrtcManager::handleSystemDisconnect()
 {
-    if (onResetCursorHandle) onResetCursorHandle();
+    restoreSystemCursor();
 
     cancelRequestTimeout();  // 本地 System 断开:取消挂起的看门狗
 

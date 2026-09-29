@@ -90,7 +90,6 @@ bool InterceptionHook::startCapture()
     altDown = false;
     fullscreenHotkeyConsumed = false;
     wasTargetForeground = false;
-    cursorIsDefault = true;
 
     initialized = true;
     running = true;
@@ -159,15 +158,20 @@ void InterceptionHook::captureThreadFunc()
         if (device == 0) continue;
         if (interception_receive(context, device, &stroke, 1) <= 0) continue;
 
+        bool hwndRefreshed = false;
         if (!IsWindow(targetHwnd.load())) {
             refreshTargetHwnd();
-            wasTargetForeground = false;
+            hwndRefreshed = true;
         }
 
         HWND foregroundWnd = GetForegroundWindow();
         bool targetForeground = (foregroundWnd == targetHwnd.load() || IsChild(targetHwnd.load(), foregroundWnd));
 
-        if (targetForeground != wasTargetForeground) {
+        if (hwndRefreshed) {
+            resyncModifierState();
+            wasTargetForeground = targetForeground;
+        }
+        else if (targetForeground != wasTargetForeground) {
             wasTargetForeground = targetForeground;
             resyncModifierState();
             syncLocalCursor(!targetForeground);
@@ -190,10 +194,12 @@ void InterceptionHook::captureThreadFunc()
         }
         else if (interception_is_mouse(device)) {
             InterceptionMouseStroke* mousestroke = reinterpret_cast<InterceptionMouseStroke*>(&stroke);
-            // 相对模式(游戏视角)：本地光标已隐藏且会漂移甚至离开窗口，
-            // 不能再用 isInTargetWindow() 做门控，否则视角会卡死
             if (webrtcManager && webrtcManager->relativeMouseMode.load()) {
-                processMouseEvent(*mousestroke);
+                bool fullScreen = targetWidget && targetWidget->isInFullScreenMode();
+                syncLocalCursor(!targetForeground || (!fullScreen && !isInTargetWindow()));
+                if (targetForeground) {
+                    processMouseEvent(*mousestroke);
+                }
             }
             else {
                 bool inside = isInTargetWindow();
@@ -260,9 +266,18 @@ void InterceptionHook::processKeyboardEvent(InterceptionKeyStroke& keystroke)
             if (!fullscreenHotkeyConsumed) {
                 fullscreenHotkeyConsumed = true;
                 VideoWidget* w = targetWidget;
-                QMetaObject::invokeMethod(w, [w]() {
-                    if (w->isInFullScreenMode()) w->exitFullScreen();
-                    else w->enterFullScreen();
+                std::shared_ptr<WebrtcManager> manager = webrtcManager;
+                QMetaObject::invokeMethod(w, [w, manager]() {
+                    if (w->isInFullScreenMode()) {
+                        w->exitFullScreen();
+                        if (manager) manager->setLocalCursorRestored(true);
+                    }
+                    else {
+                        w->enterFullScreen();
+                        if (manager && manager->relativeMouseMode.load()) {
+                            manager->setLocalCursorRestored(false);
+                        }
+                    }
                 }, Qt::QueuedConnection);
             }
             return;  // 不转发 F
@@ -409,13 +424,12 @@ void InterceptionHook::refreshTargetHwnd()
 
 void InterceptionHook::syncLocalCursor(bool restore)
 {
-    if (cursorIsDefault == restore) return;
-    cursorIsDefault = restore;
+    if (!webrtcManager) return;
+    if (webrtcManager->localCursorRestored.load() == restore) return;
 
     QMetaObject::invokeMethod(this, [this, restore]() {
         if (!webrtcManager) return;
-        if (restore) webrtcManager->restoreLocalCursor();
-        else webrtcManager->reapplyLocalCursor();
+        webrtcManager->setLocalCursorRestored(restore);
     }, Qt::QueuedConnection);
 }
 

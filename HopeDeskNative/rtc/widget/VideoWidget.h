@@ -125,7 +125,7 @@ private:
     std::atomic<bool> fpsEnabled{false};
     std::atomic<bool> hasVideo{false};
 
-    bool isFullScreenMode = false;
+    std::atomic<bool> isFullScreenMode = false;
     QRect normalGeometry;
     Qt::WindowStates normalWindowState = Qt::WindowNoState;
 

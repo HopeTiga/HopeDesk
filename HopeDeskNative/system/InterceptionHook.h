@@ -122,7 +122,6 @@ private:
     DWORD altVk = VK_LMENU;
     bool wasTargetForeground = false;
     bool fullscreenHotkeyConsumed = false;
-    bool cursorIsDefault = true;
     std::atomic<bool> hwndRefreshPending{false};
 
 };
