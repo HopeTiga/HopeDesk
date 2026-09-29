@@ -24,22 +24,22 @@ namespace hope {
         int NvencH265Encoder::InitEncode(const webrtc::VideoCodec* codecSettings,
             const webrtc::VideoEncoder::Settings& settings) {
             if (!codecSettings || codecSettings->codecType != webrtc::kVideoCodecH265) {
-                LOG_ERROR("[NVENC] Invalid Codec Settings Or Not H265.");
+                LOG_ERROR("Invalid Codec Settings Or Not H265.");
                 return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
             }
             widths = codecSettings->width;
             heights = codecSettings->height;
 
             if (!InitD3D11()) {
-                LOG_ERROR("[NVENC] InitD3D11 Failed.");
+                LOG_ERROR("InitD3D11 Failed.");
                 return WEBRTC_VIDEO_CODEC_ERROR;
             }
             if (!InitNvenc(widths, heights, codecSettings->startBitrate * 10000, codecSettings->maxFramerate)) {
-                LOG_ERROR("[NVENC] InitNvenc Failed.");
+                LOG_ERROR("InitNvenc Failed.");
                 return WEBRTC_VIDEO_CODEC_ERROR;
             }
 
-            LOG_INFO("[NVENC] InitEncode Success. Width: {}, Height: {}, BufCount: {}", widths, heights, bufCount);
+            LOG_INFO("InitEncode Success. Width: {}, Height: {}, BufCount: {}", widths, heights, bufCount);
             return WEBRTC_VIDEO_CODEC_OK;
         }
 
@@ -59,7 +59,7 @@ namespace hope {
                 nullptr, 0, D3D11_SDK_VERSION,
                 &d3dDevice, nullptr, &d3dContext);
             if (FAILED(hr)) {
-                LOG_ERROR("[NVENC] D3D11CreateDevice Failed: 0x{:X}", hr);
+                LOG_ERROR("D3D11CreateDevice Failed: 0x{:X}", hr);
             }
 
             // 降低设备级延迟:GPU 线程优先级 + 最大帧延迟(进程 GPU 调度优先级已在首台设备设置)
@@ -71,7 +71,7 @@ namespace hope {
         bool NvencH265Encoder::InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate) {
             nvVideoCodecHandle = LoadLibrary(TEXT("nvEncodeAPI64.dll"));
             if (!nvVideoCodecHandle) {
-                LOG_ERROR("[NVENC] Failed To Load nvEncodeAPI64.dll");
+                LOG_ERROR("Failed To Load nvEncodeAPI64.dll");
                 return false;
             }
             auto createIdx = (PNVENCODEAPICREATEINSTANCE)GetProcAddress(
@@ -87,7 +87,7 @@ namespace hope {
             sessionParams.apiVersion = NVENCAPI_VERSION;
             if (nvencFuncs.nvEncOpenEncodeSessionEx(&sessionParams, &nvencSession) !=
                 NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] NvEncOpenEncodeSessionEx Failed.");
+                LOG_ERROR("NvEncOpenEncodeSessionEx Failed.");
                 return false;
             }
 
@@ -102,7 +102,6 @@ namespace hope {
             initParams.frameRateNum = maxFramerate ? maxFramerate : 60;
             initParams.frameRateDen = 1;
             initParams.enablePTD = 1;
-            initParams.enableEncodeAsync = 0;  // 同步模式
 
             NV_ENC_PRESET_CONFIG presetConfig;
             memset(&presetConfig, 0, sizeof(presetConfig));
@@ -112,7 +111,7 @@ namespace hope {
                 nvencSession, initParams.encodeGUID, initParams.presetGUID,
                 initParams.tuningInfo, &presetConfig);
             if (presetStatus != NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] Obtain Preset Config Failed: {}", static_cast<int>(presetStatus));
+                LOG_ERROR("Obtain Preset Config Failed: {}", static_cast<int>(presetStatus));
                 return false;
             }
             encodeConfig = presetConfig.presetCfg;
@@ -148,7 +147,7 @@ namespace hope {
 
             NVENCSTATUS initStatus = nvencFuncs.nvEncInitializeEncoder(nvencSession, &initParams);
             if (initStatus != NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] NvEncInitializeEncoder Failed! ErrorCode: {}", static_cast<int>(initStatus));
+                LOG_ERROR("NvEncInitializeEncoder Failed! ErrorCode: {}", static_cast<int>(initStatus));
                 return false;
             }
 
@@ -158,7 +157,7 @@ namespace hope {
             pendingInputs.resize(bufCount);
 
             if (!InitVideoProcessor(width, height)) {
-                LOG_ERROR("[NVENC-H265] VideoProcessor 初始化失败，无法走 NV12 输入路径");
+                LOG_ERROR("VideoProcessor 初始化失败，无法走 NV12 输入路径");
                 return false;
             }
 
@@ -192,7 +191,7 @@ namespace hope {
                 ovDesc.Texture2D.MipSlice = 0;
                 HRESULT ovr = videoDevice->CreateVideoProcessorOutputView(it.tex.Get(), vpEnumerator.Get(), &ovDesc, &it.vpOutputView);
                 if (FAILED(ovr) || !it.vpOutputView) {
-                    LOG_ERROR("[NVENC-H265] CreateVideoProcessorOutputView(Slot {}) 失败 Hr=0x{:08X}", i, (unsigned)ovr);
+                    LOG_ERROR("CreateVideoProcessorOutputView(Slot {}) 失败 Hr=0x{:08X}", i, (unsigned)ovr);
                     return false;
                 }
                 inputPool.push_back(it);
@@ -202,8 +201,7 @@ namespace hope {
             curBitstream = 0;
             buffersQueued = 0;
 
-            LOG_INFO("[NVENC-H265] InitNvenc Success. BufCount={}, Async={}", bufCount,
-                (int)initParams.enableEncodeAsync);
+            LOG_INFO("InitNvenc Success. BufCount={}", bufCount);
             return true;
         }
 
@@ -212,12 +210,12 @@ namespace hope {
 
             HRESULT hr = d3dDevice.As(&videoDevice);
             if (FAILED(hr) || !videoDevice) {
-                LOG_ERROR("[NVENC-H265] ID3D11VideoDevice 不可用 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("ID3D11VideoDevice 不可用 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
             hr = d3dContext.As(&videoContext);
             if (FAILED(hr) || !videoContext) {
-                LOG_ERROR("[NVENC-H265] ID3D11VideoContext 不可用 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("ID3D11VideoContext 不可用 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
 
@@ -231,12 +229,12 @@ namespace hope {
 
             hr = videoDevice->CreateVideoProcessorEnumerator(&desc, &vpEnumerator);
             if (FAILED(hr) || !vpEnumerator) {
-                LOG_ERROR("[NVENC-H265] CreateVideoProcessorEnumerator 失败 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("CreateVideoProcessorEnumerator 失败 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
             hr = videoDevice->CreateVideoProcessor(vpEnumerator.Get(), 0, &videoProcessor);
             if (FAILED(hr) || !videoProcessor) {
-                LOG_ERROR("[NVENC-H265] CreateVideoProcessor 失败 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("CreateVideoProcessor 失败 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
 
@@ -295,7 +293,7 @@ namespace hope {
                     HRESULT oh = d3dDevice.As(&dev1);
                     if (SUCCEEDED(oh)) oh = dev1->OpenSharedResource1(h, IID_PPV_ARGS(&cached.tex));
                     if (FAILED(oh) || !cached.tex) {
-                        LOG_ERROR("[NVENC-H265] OpenSharedResource1 Failed Hr=0x{:08X}", (unsigned)oh);
+                        LOG_ERROR("OpenSharedResource1 Failed Hr=0x{:08X}", (unsigned)oh);
                         return WEBRTC_VIDEO_CODEC_ERROR;
                     }
                     cached.tex.As(&cached.km);
@@ -306,7 +304,7 @@ namespace hope {
                     ivDesc.Texture2D.MipSlice = 0;
                     HRESULT ivr = videoDevice->CreateVideoProcessorInputView(cached.tex.Get(), vpEnumerator.Get(), &ivDesc, &cached.vpInputView);
                     if (FAILED(ivr) || !cached.vpInputView) {
-                        LOG_ERROR("[NVENC-H265] CreateVideoProcessorInputView 失败 Hr=0x{:08X}", (unsigned)ivr);
+                        LOG_ERROR("CreateVideoProcessorInputView 失败 Hr=0x{:08X}", (unsigned)ivr);
                         return WEBRTC_VIDEO_CODEC_ERROR;
                     }
                 }
@@ -322,7 +320,7 @@ namespace hope {
                     // Flush 确保 VP 读完共享纹理后再还锁，避免撕裂
                     d3dContext->Flush();
                     if (FAILED(vbr)) {
-                        LOG_ERROR("[NVENC-H265] VideoProcessorBlt 失败 Hr=0x{:08X}", (unsigned)vbr);
+                        LOG_ERROR("VideoProcessorBlt 失败 Hr=0x{:08X}", (unsigned)vbr);
                         cached.km->ReleaseSync(0);
                         d3dBuffer->FreeSharedSlot();
                         return WEBRTC_VIDEO_CODEC_ERROR;
@@ -346,7 +344,7 @@ namespace hope {
                     return WEBRTC_VIDEO_CODEC_OK;
                 }
                 else {
-                    LOG_ERROR("[NVENC] D3D AcquireSync Failed. Handle={} Hr=0x{:08X}", fmt::ptr(h), (unsigned)hr);
+                    LOG_ERROR("D3D AcquireSync Failed. Handle={} Hr=0x{:08X}", fmt::ptr(h), (unsigned)hr);
                     // keyed mutex 失效：请求重开
                     resourceCache.erase(h);
                     if (channelSync) {
@@ -413,7 +411,7 @@ namespace hope {
                 return WEBRTC_VIDEO_CODEC_OK;
             }
             else {
-                LOG_ERROR("[NVENC] EncodePicture Failed: {}", static_cast<int>(err));
+                LOG_ERROR("EncodePicture Failed: {}", static_cast<int>(err));
                 return WEBRTC_VIDEO_CODEC_ERROR;
             }
 
@@ -429,7 +427,6 @@ namespace hope {
             for (uint32_t i = 0; i < count; i++) {
                 NV_ENC_LOCK_BITSTREAM lock = { NV_ENC_LOCK_BITSTREAM_VER };
                 lock.outputBitstream = bitstreams[curBitstream].ptr;
-                lock.doNotWait = false;
 
                 const NVENCSTATUS lockStatus = nvencFuncs.nvEncLockBitstream(nvencSession, &lock);
                 if (lockStatus == NV_ENC_SUCCESS) {
@@ -480,6 +477,7 @@ namespace hope {
                     buffersQueued--;
                 }
                 else {
+                    LOG_WARN("LockBitstream Not Ready Status={}, Keep It Queued", static_cast<int>(lockStatus));
                     break;
                 }
             }
@@ -581,7 +579,7 @@ namespace hope {
 
             NVENCSTATUS status = nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfig);
             if (status != NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] ReconfigureEncoder Failed: {}", static_cast<int>(status));
+                LOG_ERROR("ReconfigureEncoder Failed: {}", static_cast<int>(status));
                 return;
             }
             lastRateChangeTime = now;

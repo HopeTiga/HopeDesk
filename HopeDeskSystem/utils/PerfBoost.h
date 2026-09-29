@@ -14,6 +14,7 @@
 #include <wrl/client.h>
 #include <mutex>
 #include <atomic>
+#include "Utils.h"
 
 #pragma comment(lib, "winmm.lib")
 
@@ -69,6 +70,11 @@ namespace hope {
         typedef NTSTATUS(WINAPI* PD3DKMTQueryAdapterInfo)(D3DKMT_QUERYADAPTERINFO*);
         typedef NTSTATUS(WINAPI* PD3DKMTCloseAdapter)(D3DKMT_CLOSEADAPTER*);
 
+        // HAGS 开着时是否仍用 REALTIME。语义抄 Sunshine 的 nvenc_realtime_hags（默认 true）。
+        // 驱动有一条未修的 bug：REALTIME + HAGS + DX12 + 显存接近打满 会导致编码卡死甚至驱动崩溃
+        // （Sunshine display_base.cpp:800-805 的注释）。中招就把这里改成 false 退到 HIGH。
+        constexpr bool kRealtimeWithHags = true;
+
         inline std::atomic<bool>& boostedFlag() {
             static std::atomic<bool> boosted = false;
             return boosted;
@@ -98,6 +104,22 @@ namespace hope {
 
             static std::once_flag gpuPriorityOnceFlag;
             std::call_once(gpuPriorityOnceFlag, [&]() {
+                // D3DKMTSetProcessSchedulingPriorityClass 需要 SeIncreaseBasePriorityPrivilege，
+                // 不显式启用会失败，而返回值以前被丢掉了 —— 失败也看不出来。
+                // 照 Sunshine display_base.cpp:751-765。
+                HANDLE processToken = nullptr;
+                if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &processToken)) {
+                    LUID privilegeLuid = {};
+                    if (LookupPrivilegeValue(NULL, SE_INC_BASE_PRIORITY_NAME, &privilegeLuid)) {
+                        TOKEN_PRIVILEGES privileges = {};
+                        privileges.PrivilegeCount = 1;
+                        privileges.Privileges[0].Luid = privilegeLuid;
+                        privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                        AdjustTokenPrivileges(processToken, FALSE, &privileges, sizeof(privileges), NULL, NULL);
+                    }
+                    CloseHandle(processToken);
+                }
+
                 HMODULE gdi32 = GetModuleHandleA("GDI32");
                 if (!gdi32) return;
 
@@ -111,13 +133,13 @@ namespace hope {
                 auto priority = D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME;
 
                 // 取当前适配器的 VendorId + HAGS 状态,判断是否需要避开 REALTIME
+                bool hagsEnabled = false;
                 Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
                 if (SUCCEEDED(device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice))) {
                     Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
                     if (SUCCEEDED(dxgiDevice->GetAdapter(&adapter))) {
                         DXGI_ADAPTER_DESC desc{};
                         if (SUCCEEDED(adapter->GetDesc(&desc))) {
-                            bool hagsEnabled = false;
                             if (desc.VendorId == 0x10DE && d3dkmtOpenAdapter && d3dkmtQueryAdapterInfo && d3dkmtCloseAdapter) {
                                 D3DKMT_OPENADAPTERFROMLUID openAdapter{ desc.AdapterLuid };
                                 if (SUCCEEDED(d3dkmtOpenAdapter(&openAdapter))) {
@@ -135,14 +157,29 @@ namespace hope {
                                 }
                             }
 
-                            if (desc.VendorId == 0x10DE && hagsEnabled) {
+                            // 照 Sunshine display_base.cpp:803：默认 REALTIME，只有显式关掉
+                            // kRealtimeWithHags 才退 HIGH。原来这里是「NVIDIA + HAGS 就无条件降 HIGH」，
+                            // 等于把 Sunshine 的默认档位砍掉了。
+                            if (desc.VendorId == 0x10DE && hagsEnabled && !kRealtimeWithHags) {
                                 priority = D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH;
                             }
                         }
                     }
                 }
 
-                d3dkmtSetProcessPriority(GetCurrentProcess(), priority);
+                const bool realtimePriority = priority == D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME;
+                const NTSTATUS priorityStatus = d3dkmtSetProcessPriority(GetCurrentProcess(), priority);
+                if (FAILED(priorityStatus)) {
+                    LOG_WARN("Gpu Scheduling Priority Set Failed: Status=0x{:X} HAGS={} Priority={} (Needs SeIncreaseBasePriorityPrivilege)",
+                        static_cast<unsigned int>(priorityStatus),
+                        hagsEnabled ? "Enabled" : "Disabled",
+                        realtimePriority ? "Realtime" : "High");
+                }
+                else {
+                    LOG_INFO("Gpu Scheduling Priority Applied: HAGS={} Priority={}",
+                        hagsEnabled ? "Enabled" : "Disabled",
+                        realtimePriority ? "Realtime" : "High");
+                }
             });
 
             Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;

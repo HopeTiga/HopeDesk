@@ -54,12 +54,12 @@ namespace hope {
             // D3D11_CREATE_DEVICE_VIDEO_SUPPORT 已保证 d3dDevice 可查询视频接口
             HRESULT hr = d3dDevice.As(&videoDevice);
             if (FAILED(hr) || !videoDevice) {
-                LOG_ERROR("[NVENC] ID3D11VideoDevice 不可用 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("ID3D11VideoDevice 不可用 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
             hr = d3dContext.As(&videoContext);
             if (FAILED(hr) || !videoContext) {
-                LOG_ERROR("[NVENC] ID3D11VideoContext 不可用 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("ID3D11VideoContext 不可用 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
 
@@ -73,12 +73,12 @@ namespace hope {
 
             hr = videoDevice->CreateVideoProcessorEnumerator(&desc, &vpEnumerator);
             if (FAILED(hr) || !vpEnumerator) {
-                LOG_ERROR("[NVENC] CreateVideoProcessorEnumerator 失败 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("CreateVideoProcessorEnumerator 失败 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
             hr = videoDevice->CreateVideoProcessor(vpEnumerator.Get(), 0, &videoProcessor);
             if (FAILED(hr) || !videoProcessor) {
-                LOG_ERROR("[NVENC] CreateVideoProcessor 失败 Hr=0x{:08X}", (unsigned)hr);
+                LOG_ERROR("CreateVideoProcessor 失败 Hr=0x{:08X}", (unsigned)hr);
                 return false;
             }
 
@@ -100,9 +100,9 @@ namespace hope {
         bool NvencAV1Encoder::InitNvenc(int width, int height, uint32_t bitrateBps, uint32_t maxFramerate) {
 
             nvVideoCodecHandle = LoadLibrary(TEXT("nvEncodeAPI64.dll"));
-            if (!nvVideoCodecHandle) { LOG_ERROR("[NVENC] nvEncodeAPI64.dll Not Found"); return false; }
+            if (!nvVideoCodecHandle) { LOG_ERROR("nvEncodeAPI64.dll Not Found"); return false; }
             auto createIdx = (PNVENCODEAPICREATEINSTANCE)GetProcAddress(nvVideoCodecHandle, "NvEncodeAPICreateInstance");
-            if (!createIdx) { LOG_ERROR("[NVENC] NvEncodeAPICreateInstance Not Found"); return false; }
+            if (!createIdx) { LOG_ERROR("NvEncodeAPICreateInstance Not Found"); return false; }
 
             memset(&nvencFuncs, 0, sizeof(nvencFuncs));
             nvencFuncs.version = NV_ENCODE_API_FUNCTION_LIST_VER;
@@ -131,7 +131,6 @@ namespace hope {
             initParams.frameRateNum = maxFramerate ? maxFramerate : 60;
             initParams.frameRateDen = 1;
             initParams.enablePTD = 1;
-            initParams.enableEncodeAsync = 0;  // 同步模式
             initParams.splitEncodeMode = NV_ENC_SPLIT_AUTO_MODE;
 
             NV_ENC_PRESET_CONFIG presetConfig;
@@ -142,7 +141,7 @@ namespace hope {
             NVENCSTATUS presetStatus = nvencFuncs.nvEncGetEncodePresetConfigEx(nvencSession, initParams.encodeGUID, initParams.presetGUID, initParams.tuningInfo, &presetConfig);
 
             if (presetStatus != NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] 获取预设参数失败！错误码: {}", static_cast<int>(presetStatus));
+                LOG_ERROR("获取预设参数失败！错误码: {}", static_cast<int>(presetStatus));
                 return false;
             }
 
@@ -186,7 +185,7 @@ namespace hope {
 
             NVENCSTATUS initStatus = nvencFuncs.nvEncInitializeEncoder(nvencSession, &initParams);
             if (initStatus != NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] NvEncInitializeEncoder 惨遭失败, 错误码: {}", static_cast<int>(initStatus));
+                LOG_ERROR("NvEncInitializeEncoder 惨遭失败, 错误码: {}", static_cast<int>(initStatus));
                 return false;
             }
 
@@ -197,7 +196,7 @@ namespace hope {
             pendingInputs.resize(bufCount);
 
             if (!InitVideoProcessor(width, height)) {
-                LOG_ERROR("[NVENC] VideoProcessor 初始化失败，无法走 NV12 输入路径");
+                LOG_ERROR("VideoProcessor 初始化失败，无法走 NV12 输入路径");
                 return false;
             }
 
@@ -227,7 +226,7 @@ namespace hope {
                 ovDesc.Texture2D.MipSlice = 0;
                 HRESULT ovr = videoDevice->CreateVideoProcessorOutputView(it.tex.Get(), vpEnumerator.Get(), &ovDesc, &it.vpOutputView);
                 if (FAILED(ovr) || !it.vpOutputView) {
-                    LOG_ERROR("[NVENC] CreateVideoProcessorOutputView(Slot {}) 失败 Hr=0x{:08X}", i, (unsigned)ovr);
+                    LOG_ERROR("CreateVideoProcessorOutputView(Slot {}) 失败 Hr=0x{:08X}", i, (unsigned)ovr);
                     return false;
                 }
                 inputPool.push_back(it);
@@ -285,7 +284,7 @@ namespace hope {
                     ivDesc.Texture2D.MipSlice = 0;
                     HRESULT ivr = videoDevice->CreateVideoProcessorInputView(cached.tex.Get(), vpEnumerator.Get(), &ivDesc, &cached.vpInputView);
                     if (FAILED(ivr) || !cached.vpInputView) {
-                        LOG_ERROR("[NVENC] CreateVideoProcessorInputView 失败 Hr=0x{:08X}", (unsigned)ivr);
+                        LOG_ERROR("CreateVideoProcessorInputView 失败 Hr=0x{:08X}", (unsigned)ivr);
                         return WEBRTC_VIDEO_CODEC_ERROR;
                     }
                 }
@@ -301,7 +300,7 @@ namespace hope {
                     // Flush 确保 VP 读完共享纹理后再还锁，避免撕裂
                     d3dContext->Flush();
                     if (FAILED(vbr)) {
-                        LOG_ERROR("[NVENC] VideoProcessorBlt 失败 Hr=0x{:08X}", (unsigned)vbr);
+                        LOG_ERROR("VideoProcessorBlt 失败 Hr=0x{:08X}", (unsigned)vbr);
                         cached.km->ReleaseSync(0);
                         d3dBuffer->FreeSharedSlot();
                         return WEBRTC_VIDEO_CODEC_ERROR;
@@ -325,7 +324,7 @@ namespace hope {
                     return WEBRTC_VIDEO_CODEC_OK;
                 }
                 else {
-                    LOG_ERROR("[NVENC] D3D AcquireSync Failed. Handle={} Hr=0x{:08X}", fmt::ptr(h), (unsigned)hr);
+                    LOG_ERROR("D3D AcquireSync Failed. Handle={} Hr=0x{:08X}", fmt::ptr(h), (unsigned)hr);
                     // keyed mutex 失效：请求重开
                     resourceCache.erase(h);
                     if (channelSync) {
@@ -402,7 +401,6 @@ namespace hope {
             for (uint32_t i = 0; i < count; i++) {
                 NV_ENC_LOCK_BITSTREAM lock = { NV_ENC_LOCK_BITSTREAM_VER };
                 lock.outputBitstream = bitstreams[curBitstream].ptr;
-                lock.doNotWait = false;
 
                 NVENCSTATUS lockStatus = nvencFuncs.nvEncLockBitstream(nvencSession, &lock);
                 if (lockStatus == NV_ENC_SUCCESS) {
@@ -453,6 +451,7 @@ namespace hope {
                     buffersQueued--;
                 }
                 else {
+                    LOG_WARN("LockBitstream Not Ready Status={}, Keep It Queued", static_cast<int>(lockStatus));
                     break;
                 }
             }
@@ -545,7 +544,7 @@ namespace hope {
 
             NVENCSTATUS status = nvencFuncs.nvEncReconfigureEncoder(nvencSession, &reconfigParams);
             if (status != NV_ENC_SUCCESS) {
-                LOG_ERROR("[NVENC] 码率重配置失败: {}", static_cast<int>(status));
+                LOG_ERROR("码率重配置失败: {}", static_cast<int>(status));
                 return;
             }
 
