@@ -24,11 +24,15 @@ namespace hope {
 
         constexpr int kVddReopenMaxAttempts = 2;   // reopen：2×500ms ≈ 1s
         constexpr int kVddStartupAttempts = 6;     // 启动：6×500ms ≈ 3s，快速失败交给采集线程后台重试
+        constexpr int kVddStartupProbeAttempts = 1;
         constexpr int kVddBackoffStartMs = 300;    // 指数退避 0.3s→0.6s→1s 封顶
         constexpr int kVddBackoffMaxMs = 1000;
         constexpr UINT32 kVddProbeIdleTicks = 8;        // 静止 8 圈（~0.8s）后开始探测
         constexpr UINT32 kVddProbeMaxIdleTicks = 50;    // 探测间隔封顶 5s
         constexpr int kVddNotReadyToleranceMs = 15000;  // NOT_READY 持续超时才判驱动僵死
+        constexpr UINT32 kVddStaleFastTicks = 3;        // 停顿后先按 3 圈（~300ms）快节奏重挂
+        constexpr int kVddStaleFastAttempts = 3;        // 快挂 3 次不成就让位给 15s 重档
+        constexpr int kVddRepaintAttempts = 5;          // 通道开不出来时前 5 次各逼一次全屏重绘
         constexpr UINT32 kVddMaxDimension = 16384;
 
         constexpr DWORD kVddCaptureAcquireMs = 2;  // keyed-mutex 等待预算，超时丢帧不阻塞
@@ -160,14 +164,23 @@ namespace hope {
             HKEY hKey = nullptr;
             DWORD keyDisposition = 0;
             if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\ZakoTech\\ZakoDisplayAdapter",
-                    0, nullptr, 0, KEY_SET_VALUE, nullptr, &hKey, &keyDisposition) != ERROR_SUCCESS)
+                    0, nullptr, 0, KEY_QUERY_VALUE | KEY_SET_VALUE, nullptr, &hKey, &keyDisposition) != ERROR_SUCCESS)
             {
                 return false;
             }
+            DWORD priorValue = 0;
+            DWORD priorSize = sizeof(priorValue);
+            DWORD priorType = 0;
+            const bool alreadyEnabled =
+                RegQueryValueExW(hKey, L"HARDWARECURSOR", nullptr, &priorType,
+                    reinterpret_cast<LPBYTE>(&priorValue), &priorSize) == ERROR_SUCCESS &&
+                priorType == REG_DWORD && priorValue == 1;
             DWORD one = 1;
             RegSetValueExW(hKey, L"HARDWARECURSOR", 0, REG_DWORD,
                 reinterpret_cast<const BYTE*>(&one), sizeof(one));
             RegCloseKey(hKey);
+
+            if (alreadyEnabled) return true;
 
             return sendCommand(L"HARDWARECURSOR true");
         }
@@ -259,12 +272,12 @@ namespace hope {
                 (int)curMode.dmPelsHeight == wantH &&
                 (int)curMode.dmDisplayFrequency == wantR;
 
-            if (exists && modeMatches) {
+            LOG_INFO("VirtualDisplayCapture Vdd Monitor Exists {}, Mode Matches {}", exists, modeMatches);
 
-                // Re-issue CREATEMONITOR so the driver's in-memory mode list matches.
-                wchar_t cmd[128];
-                swprintf_s(cmd, L"CREATEMONITOR %d %d %d", wantW, wantH, wantR);
-                sendCommand(cmd);
+            if (exists && modeMatches) {
+                wchar_t sameCmd[128];
+                swprintf_s(sameCmd, L"CREATEMONITOR %d %d %d", wantW, wantH, wantR);
+                sendCommand(sameCmd);
                 return true;
             }
 
@@ -438,6 +451,7 @@ namespace hope {
 
         bool VirtualDisplayCapture::openFrameChannel(int maxAttempts)
         {
+            lastProbeError = 0;
             for (int attempt = 0; attempt < maxAttempts; ++attempt) {
                 VDD_FRAME_CHANNEL_CAPS caps = {};
                 caps.Size = sizeof(caps);
@@ -445,7 +459,7 @@ namespace hope {
                 BOOL ok = DeviceIoControl(driverDevice, IOCTL_VDD_QUERY_FRAME_CHANNEL_CAPS,
                     nullptr, 0, &caps, sizeof(caps), &br, nullptr);
                 if (!ok || caps.Version != VDD_FRAME_CHANNEL_CAPS_VERSION) {
-
+                    lastProbeError = ok ? 0xFFFFFFFFu : GetLastError();
                     return false;
                 }
 
@@ -469,39 +483,59 @@ namespace hope {
                         continue; // producer not ready yet
                     }
 
+                    lastProbeError = err;
                     return false;
                 }
-                if (resp.SlotCount == 0 || resp.SlotCount > VDD_FRAME_CHANNEL_MAX_SLOTS) {
-
-                    return false;
-                }
-
-                slotCount = resp.SlotCount;
+                // 照 Sunshine attach_sealed_channel 的 fail lambda：响应里的句柄是驱动重复进
+                // 本进程的，只有我们关得掉。先把它们全部收进成员，后面每条失败路径统一走
+                // closeFrameChannel()，不会留下半边状态，也不会漏关句柄。
                 frameReadyEvent = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.FrameReadyEventHandle));
-                HANDLE hMeta = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.MetadataHandle));
-                metaMapping = hMeta;
-                pMeta = static_cast<ZakoFrameMetadata*>(MapViewOfFile(hMeta, FILE_MAP_READ, 0, 0, sizeof(ZakoFrameMetadata)));
-                if (!pMeta) {
-
-                    return false;
+                metaMapping = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.MetadataHandle));
+                slotHandles.assign(VDD_FRAME_CHANNEL_MAX_SLOTS, nullptr);
+                for (UINT32 s = 0; s < VDD_FRAME_CHANNEL_MAX_SLOTS; ++s) {
+                    slotHandles[s] = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.Slots[s].TextureHandle));
                 }
 
-                slotHandles.resize(slotCount);
+                if (resp.SlotCount == 0 || resp.SlotCount > VDD_FRAME_CHANNEL_MAX_SLOTS) {
+                    closeFrameChannel();  // 槽位数不合法：关掉驱动重复出来的全部句柄
+                    Sleep(500);
+                    continue;
+                }
+
+                for (UINT32 s = resp.SlotCount; s < VDD_FRAME_CHANNEL_MAX_SLOTS; ++s) {
+                    if (slotHandles[s]) { CloseHandle(slotHandles[s]); }
+                }
+                slotHandles.resize(resp.SlotCount);
+                slotCount = resp.SlotCount;
                 slotTex.assign(slotCount, {});
                 slotKm.assign(slotCount, {});
-                for (UINT32 s = 0; s < slotCount; ++s) {
-                    slotHandles[s] = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(resp.Slots[s].TextureHandle));
+
+                pMeta = static_cast<ZakoFrameMetadata*>(MapViewOfFile(metaMapping, FILE_MAP_READ, 0, 0, sizeof(ZakoFrameMetadata)));
+                if (!pMeta) {
+                    closeFrameChannel();
+                    Sleep(500);
+                    continue;
+                }
+
+                bool retryAttempt = false;
+                for (UINT32 s = 0; s < slotCount && !retryAttempt; ++s) {
                     HRESULT hr = d3dDevice1->OpenSharedResource1(slotHandles[s], __uuidof(ID3D11Texture2D),
                         reinterpret_cast<void**>(slotTex[s].GetAddressOf()));
                     if (FAILED(hr) || !slotTex[s]) {
-
-                        return false;
+                        retryAttempt = true;
                     }
-                    slotTex[s].As(&slotKm[s]);
-                    if (!slotKm[s]) {
-
-                        return false;
+                    else {
+                        slotTex[s].As(&slotKm[s]);
+                        if (!slotKm[s]) {
+                            retryAttempt = true;
+                        }
                     }
+                }
+                if (retryAttempt) {
+                    // 驱动侧纹理正在重建时会走到这里：关干净再退避重试，别带着半边状态往下走。
+                    closeFrameChannel();
+                    Sleep(500);
+                    continue;
                 }
 
                 return true;
@@ -525,6 +559,10 @@ namespace hope {
         bool VirtualDisplayCapture::reopenFrameChannel()
         {
             closeFrameChannel();
+            if (driverDevice == INVALID_HANDLE_VALUE && !openDriver()) {
+                lastProbeError = GetLastError();
+                return false;
+            }
             if (!openFrameChannel(kVddReopenMaxAttempts)) {
                 return false;
             }
@@ -586,6 +624,26 @@ namespace hope {
 
             if (!got) return ProbeResult::NotReady;
             outGen = static_cast<UINT16>(gen);
+            return ProbeResult::Ready;
+        }
+
+        VirtualDisplayCapture::ProbeResult VirtualDisplayCapture::probeLiveChannel(UINT16& outGen)
+        {
+            ZakoFrameMetadata live{};
+            if (!readStableMetadata(live)) return ProbeResult::NotReady;
+
+            const bool advanced =
+                live.FrameCounter != liveFrameCounter ||
+                live.LastPublishQpc != livePublishQpc ||
+                live.MetadataSequence != liveMetadataSequence;
+
+            liveFrameCounter = live.FrameCounter;
+            livePublishQpc = live.LastPublishQpc;
+            liveMetadataSequence = live.MetadataSequence;
+
+            if (!advanced) return ProbeResult::NotReady;
+
+            outGen = static_cast<UINT16>(live.MetadataSequence >> 16);
             return ProbeResult::Ready;
         }
 
@@ -671,6 +729,7 @@ namespace hope {
                 meta.FrameCounter);
             haveFrame = true;
             lastFrameId = meta.FrameCounter;
+            lastSlot = slot;
             return true;
         }
 
@@ -679,6 +738,10 @@ namespace hope {
             if (!haveFrame) return;
             if (config.cpuPath && dataHandle && !cpuCache.empty()) {
                 dataHandle(cpuCache.data(), cpuCacheW, cpuCacheH, cpuCachePitch, lastFrameId);
+            }
+            else if (gpuDataHandle && lastSlot < slotHandles.size() && slotHandles[lastSlot]) {
+                gpuDataHandle(slotHandles[lastSlot], lastWidth, lastHeight,
+                    lastFormat, (UINT)(lastWidth * dxgiFormatBytesPerPixel(lastFormat)), lastFrameId);
             }
         }
 
@@ -718,6 +781,9 @@ namespace hope {
                         lastHeight = (int)meta.Height;
                         lastFormat = meta.DxgiFormat;
                     }
+                    liveFrameCounter = 0;
+                    livePublishQpc = 0;
+                    liveMetadataSequence = 0;
                     if (channelSync) {
                         channelSync->generation.fetch_add(1, std::memory_order_release);
                     }
@@ -733,7 +799,7 @@ namespace hope {
                 if (openBackoffMs == 0) openBackoffMs = kVddBackoffStartMs;
                 nextOpenRetryAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(openBackoffMs);
                 if (++downLogCounter == 1 || downLogCounter % 30 == 0) {
-                    LOG_WARN("VirtualDisplayCapture Frame Channel Down, Retry In {} Ms", openBackoffMs);
+                    LOG_WARN("VirtualDisplayCapture Frame Channel Down, Retry In {} Ms, Error {}", openBackoffMs, lastProbeError);
                 }
                 openBackoffMs *= 2;
                 if (openBackoffMs > kVddBackoffMaxMs) openBackoffMs = kVddBackoffMaxMs;
@@ -742,6 +808,13 @@ namespace hope {
 
             while (capturing.load()) {
 
+                if (!channelDown && pMeta && !haveFrame) {
+                    ZakoFrameMetadata meta{};
+                    if (readStableMetadata(meta) && isMetadataValid(meta)) {
+                        deliverNewFrame(meta);
+                    }
+                }
+
                 // 通道未建立或已 down：退避期外才尝试 open，退避期内休眠。
                 if (channelDown || !pMeta) {
                     if (channelDown && std::chrono::steady_clock::now() < nextOpenRetryAt) {
@@ -749,6 +822,17 @@ namespace hope {
                         continue;
                     }
                     reopenChannel();
+                    if (channelDown) {
+                        if (++repaintTries <= kVddRepaintAttempts || repaintTries % 30 == 0) {
+                            if (repaintTries == 1) {
+                                LOG_INFO("VirtualDisplayCapture Forcing Desktop Repaint To Rebuild Producer");
+                            }
+                            RedrawWindow(nullptr, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+                        }
+                    }
+                    else {
+                        repaintTries = 0;
+                    }
                     continue;
                 }
 
@@ -804,9 +888,31 @@ namespace hope {
                 if (pMeta && ++idleTicks >= probeIdleTicks) {
                     idleTicks = 0;
                     UINT16 probeGen = 0;
-                    switch (probeChannelGeneration(probeGen)) {
+                    const ProbeResult probe = probeLiveChannel(probeGen);
+                    if (probe == ProbeResult::NotReady && ++staleFastAttempts <= kVddStaleFastAttempts) {
+                        probeIdleTicks = kVddStaleFastTicks;
+                        RECT staleRc{};
+                        DEVMODEW staleMode{};
+                        bool staleHasMode = false;
+                        if (!FindVddMonitor(staleRc, staleMode, staleHasMode)) {
+                            LOG_WARN("VirtualDisplayCapture Vdd Dropped From Active Topology, Reapplying");
+                            reopenDriver();
+                            applyTopology();
+                            closeFrameChannel();
+                            channelDown = true;
+                            openBackoffMs = kVddBackoffStartMs;
+                            nextOpenRetryAt = std::chrono::steady_clock::now();
+                        }
+                        else {
+                            LOG_INFO("VirtualDisplayCapture Frame Channel Stale, Reattaching");
+                            reopenFrameChannel();
+                        }
+                        continue;
+                    }
+                    switch (probe) {
                     case ProbeResult::Ready:
                         notReadyPending = false;
+                        staleFastAttempts = 0;
                         if (probeGen != lastChannelGen) {
                             reopenChannel();
                         }
@@ -828,6 +934,8 @@ namespace hope {
                             notReadyPending = false;
                             LOG_WARN("VirtualDisplayCapture Driver Stalled, Reopening Device To Wake D0");
                             reopenDriver();
+                            LOG_INFO("VirtualDisplayCapture Reapplying Vdd Topology");
+                            applyTopology();
                             closeFrameChannel();        // 旧帧通道失效，pMeta 置空
                             channelDown = true;
                             openBackoffMs = kVddBackoffStartMs;
@@ -895,10 +1003,9 @@ namespace hope {
 
             }
 
-            if (!openFrameChannel(kVddStartupAttempts)) {
+            if (!openFrameChannel(kVddStartupProbeAttempts)) {
                 LOG_WARN("OpenFrameChannel Not Ready At Startup, Deferring To Capture Thread");
                 closeFrameChannel();
-                reopenDriver();
                 channelDown = true;
                 openBackoffMs = kVddBackoffStartMs;
                 nextOpenRetryAt = std::chrono::steady_clock::now();
@@ -912,9 +1019,6 @@ namespace hope {
         bool VirtualDisplayCapture::startCapture()
         {
             if (capturing.load()) return true;
-            if (driverDevice == INVALID_HANDLE_VALUE) {
-                return false;
-            }
             capturing = true;
             captureThread = std::thread([this]() { captureThreadFunc(); });
             return true;

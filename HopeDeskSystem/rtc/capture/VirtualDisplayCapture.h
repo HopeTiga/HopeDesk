@@ -110,6 +110,7 @@ private:
         Rejected,   // 请求被驱动拒绝（LUID 不符、参数非法），重载设备修不了
     };
     ProbeResult probeChannelGeneration(UINT16& outGen);
+    ProbeResult probeLiveChannel(UINT16& outGen);
     bool initLocalDevice();
     bool readStableMetadata(ZakoFrameMetadata& out);
     bool isMetadataValid(const ZakoFrameMetadata& meta) const;
@@ -140,6 +141,12 @@ private:
 
     UINT64 lastFrameId = 0;
     bool  haveFrame = false;
+    UINT  lastSlot = 0;
+
+    UINT64 liveFrameCounter = 0;
+    UINT64 livePublishQpc = 0;
+    UINT32 liveMetadataSequence = 0;
+    int    staleFastAttempts = 0;
 
     Config config;
     std::atomic<bool> capturing{ false };
@@ -159,6 +166,7 @@ private:
     std::chrono::steady_clock::time_point nextOpenRetryAt{};
     int  openBackoffMs = 0;
     int  downLogCounter = 0;
+    int  repaintTries = 0;
     DWORD lastProbeError = 0;
 };
 
