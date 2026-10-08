@@ -238,7 +238,7 @@ namespace hope {
 
 			TaskChannel& taskQueues;
 
-			AsioConcurrentQueue<PostedTask> executeQueue;
+			AwaitableQueue<PostedTask> executeQueue;
 
 			std::atomic<bool> asyncTaskExecutes{ false };
 

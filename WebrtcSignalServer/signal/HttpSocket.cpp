@@ -9,6 +9,7 @@
 #include "WebrtcSignalSocket.h"
 
 #include "../utils/Utils.h"
+#include "../utils/CompletionHandle.h"
 
 namespace hope {
 
@@ -294,7 +295,7 @@ namespace hope {
 
 					self->closeSocket();
 
-					}, boost::asio::detached);
+					}, CompletionHandle{});
 
 				LOG_INFO("Keep-Alive Started With Timeout: {} Seconds", timeoutSec.count());
 
@@ -326,7 +327,7 @@ namespace hope {
 
 				};
 
-				}, boost::asio::detached);
+				}, CompletionHandle{});
 
 		}
 

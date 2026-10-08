@@ -33,7 +33,7 @@
 #include "../utils/StringHasher.h"
 #include <absl/functional/any_invocable.h>
 
-#include "AsioConcurrentQueue.h"
+#include "AwaitableQueue.h"
 
 namespace hope {
 
@@ -167,7 +167,7 @@ namespace hope {
 
 			boost::asio::ip::tcp::resolver resolver;
 
-			AsioConcurrentQueue<std::string> asioConcurrentQueue;
+			AwaitableQueue<std::string> awaitableQueue;
 
 			std::atomic<bool> asyncEvents{ false };
 

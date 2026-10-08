@@ -18,19 +18,19 @@ namespace hope {
 
 		struct RedisConfig {
 
-			std::string host{"127.0.0.1"};
+			std::string host{ "127.0.0.1" };
 
-			std::string port{"6379"};
+			std::string port{ "6379" };
 
-			std::string username{"default"};
+			std::string username{ "default" };
 
 			std::string password;
 
-			std::string clientName{"Boost.Redis"};
+			std::string clientName{ "Boost.Redis" };
 
-			int databaseIndex{0};
+			int databaseIndex{ 0 };
 
-			bool useSsl{false};               // 关掉就是明文 TCP，下面四项都不用配
+			bool useSsl{ false };               // 关掉就是明文 TCP，下面四项都不用配
 
 			std::string caCertificateFile;
 
@@ -38,23 +38,25 @@ namespace hope {
 
 			std::string privateKeyFile;
 
-			bool verifyPeer{true};
+			bool verifyPeer{ true };
 
-			int connectTimeoutSeconds{10};
+			int connectTimeoutSeconds{ 10 };
 
-			int sslHandshakeTimeoutSeconds{10};
+			int sslHandshakeTimeoutSeconds{ 10 };
 
-			int healthCheckIntervalSeconds{2};
+			int healthCheckIntervalSeconds{ 2 };
 
-			int reconnectWaitIntervalSeconds{1};
+			int reconnectWaitIntervalSeconds{ 1 };
 
-			std::size_t maxReadSize{0};       // 0 = 不限制
+			std::size_t maxReadSize{ 0 };       // 0 = 不限制
 
-			std::size_t connectionSize{1};   // 每个 channel 连几条
+			std::size_t connectionSize{ 1 };   // 每个 channel 连几条
 
-			bool enableLog{false};
+			bool enableLog{ false };
 
-			std::string logLevel{"info"};    // disabled/emerg/alert/crit/err/warning/notice/info/debug
+			std::string logLevel{ "info" };    // disabled/emerg/alert/crit/err/warning/notice/info/debug
+
+			bool isRestart{ false };
 
 		};
 
@@ -75,7 +77,7 @@ namespace hope {
 			redisConfig.sslHandshakeTimeoutSeconds = configManager.GetInt("Redis.sslHandshakeTimeoutSeconds", redisConfig.sslHandshakeTimeoutSeconds);
 			redisConfig.healthCheckIntervalSeconds = configManager.GetInt("Redis.healthCheckIntervalSeconds", redisConfig.healthCheckIntervalSeconds);
 			redisConfig.reconnectWaitIntervalSeconds = configManager.GetInt("Redis.reconnectWaitIntervalSeconds", redisConfig.reconnectWaitIntervalSeconds);
-
+			redisConfig.isRestart = configManager.GetBool("Redis.isRestart", redisConfig.isRestart);
 			// 不能用 GetSize:它把 <= 0 当"回退到核数"
 			int maxReadSize = configManager.GetInt("Redis.maxReadSize", 0);
 			redisConfig.maxReadSize = (maxReadSize > 0) ? static_cast<std::size_t>(maxReadSize) : 0;

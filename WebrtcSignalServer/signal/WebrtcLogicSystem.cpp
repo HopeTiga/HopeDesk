@@ -29,6 +29,8 @@
 
 #include "../utils/Utils.h"
 
+#include "../utils/CompletionHandle.h"
+
 namespace hope {
 
     namespace signal
@@ -227,7 +229,7 @@ namespace hope {
 
                 co_return;
 
-                }, boost::asio::detached);
+                }, CompletionHandle{});
 
             return;
 

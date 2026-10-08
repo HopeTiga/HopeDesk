@@ -11,6 +11,7 @@
 #include "../executor/SchedulerContext.h"
 
 #include "../utils/Utils.h"
+#include "../utils/CompletionHandle.h"
 
 namespace hope {
 
@@ -339,7 +340,7 @@ namespace hope {
 
                         }
 
-                        }, boost::asio::detached);
+                        }, CompletionHandle{});
 
 
                 }
@@ -426,7 +427,7 @@ namespace hope {
 
                                 co_return;
 
-                                }, boost::asio::detached);
+                                }, CompletionHandle{});
 
                         }
 

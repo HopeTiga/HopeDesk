@@ -16,6 +16,8 @@
 
 #include "../rpc/CoroRpc.h"
 
+#include "../utils/CompletionHandle.h"
+
 namespace hope {
 
     namespace signal {
@@ -191,7 +193,7 @@ namespace hope {
 
                         }
 
-                        }, boost::asio::detached);
+                        }, CompletionHandle{});
 
                 }
 
@@ -269,7 +271,7 @@ namespace hope {
 
                             co_return;
 
-                            }, boost::asio::detached);
+                            }, CompletionHandle{});
 
                     }
 
@@ -329,7 +331,7 @@ namespace hope {
 
                 co_return;
 
-                }, boost::asio::detached);
+                }, CompletionHandle{});
 
             for (int i = 0; i < webrtcSignalConfig.threadSize; i++) {
 

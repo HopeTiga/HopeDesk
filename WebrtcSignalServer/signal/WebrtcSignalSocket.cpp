@@ -31,7 +31,7 @@ namespace hope {
             , webSocket(ioContext, getSslContext())
 #endif
             , webrtcSignalManager(webrtcSignalManager)
-            , asioConcurrentQueue(ioContext.get_executor())
+            , awaitableQueue(ioContext.get_executor())
             , handshakeTimeout(maxTlsHandShakeTime) {
 
             boost::uuids::random_generator gen;
@@ -244,7 +244,7 @@ namespace hope {
 
             }
 
-            asioConcurrentQueue.close();
+            awaitableQueue.close();
 
             closeSocket();
 
@@ -606,11 +606,11 @@ namespace hope {
 
                 packets.resize(maximumFramesPerWrite);
 
-                std::size_t count = asioConcurrentQueue.tryDequeueBulk(packets.data(), maximumFramesPerWrite);
+                std::size_t count = awaitableQueue.tryDequeueBulk(packets.data(), maximumFramesPerWrite);
 
                 if (count == 0) {
 
-                    if (!co_await asioConcurrentQueue.awaitDequeue(packets[0])) {
+                    if (!co_await awaitableQueue.awaitDequeue(packets[0])) {
 
                         break;
 
@@ -674,7 +674,7 @@ namespace hope {
 
         void WebrtcSignalSocket::asyncWrite(std::string packet) {
 
-            asioConcurrentQueue.enqueue(std::move(packet));
+            awaitableQueue.enqueue(std::move(packet));
 
         }
 

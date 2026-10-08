@@ -16,7 +16,7 @@ namespace hope {
 
 			boost::redis::config boostRedisConfig = makeBoostRedisConfig(this->redisConfig);
 
-			boost::asio::co_spawn(ioContext, [connection = this->connection, boostRedisConfig]()mutable -> boost::asio::awaitable<void> {
+			boost::asio::co_spawn(ioContext, [connection = this->connection, boostRedisConfig, redisConfig = this->redisConfig]()mutable -> boost::asio::awaitable<void> {
 
 				for (;;) {
 
@@ -31,12 +31,22 @@ namespace hope {
 
 					}
 
-					LOG_ERROR("RedisWrapper async_run Exited: {} ; Restart In 1s", runErrorCode.message());
+					if (!redisConfig.isRestart) {
+
+						LOG_WARN("RedisWapper AsyncRun IsReStart: {} Quit", redisConfig.isRestart);
+
+						break;
+
+					}
+
+					LOG_ERROR("RedisWrapper AsyncRun Exited: {} ; Restart In 1s", runErrorCode.message());
 
 					boost::asio::steady_timer retryTimer(co_await boost::asio::this_coro::executor);
+
 					retryTimer.expires_after(std::chrono::seconds{ 1 });
 
 					boost::system::error_code waitErrorCode;
+
 					co_await retryTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, waitErrorCode));
 
 				}

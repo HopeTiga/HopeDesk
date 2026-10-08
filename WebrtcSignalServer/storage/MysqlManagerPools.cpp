@@ -2,6 +2,7 @@
 #include "MysqlManagerPools.h"
 #include "MysqlConfig.h"
 #include "../utils/Utils.h"
+#include "../utils/CompletionHandle.h"
 
 
 namespace hope {
@@ -40,7 +41,7 @@ namespace hope {
 					catch (const std::exception& e) {
 						LOG_ERROR("MySQL ConnectionPool AsyncRun Exited: {}", e.what());
 					}
-				}, boost::asio::detached);
+				}, CompletionHandle{});
 
 			LOG_DEBUG("MySQL ConnectionPool Created (Initial={}, Max={}) On IoContext {}",
 				params.initial_size, params.max_size, static_cast<void*>(&ioContext));
