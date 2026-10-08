@@ -88,7 +88,7 @@ HopeDeskNative/
 │   ├── TcpAcceptor.*             # 本地 TCP 监听（127.0.0.1:19998，与连接分离）
 │   ├── TcpSocket.*               # 本地 TCP 单连接（accept/connect 双入口）
 │   ├── Socket.h                  # 长度前缀帧（int64 网络序 + body）
-│   └── AsioConcurrentQueue.h     # 协程发送队列
+│   └── AwaitableQueue.h          # 协程发送队列
 ├── system/                       # hope::system —— WindowsServiceManager / InterceptionHook
 └── utils/                        # 全局工具（LOG、ConfigManager、Options）—— hope / utils 混用
 ```
@@ -110,7 +110,7 @@ HopeDeskSystem/
 ├── net/                          # hope::net（与 Native 同套）
 │   ├── TcpSocket.*               # 本地 TCP 连接（connect 侧，连 127.0.0.1:19998）
 │   ├── Socket.h
-│   └── AsioConcurrentQueue.h
+│   └── AwaitableQueue.h
 ├── system/                       # hope::system —— WinLogon / SessionHelper
 └── utils/                        # 全局工具（LOG、并发队列）—— hope / vendor moodycamel
 ```
@@ -131,7 +131,7 @@ WebrtcSignalServer/
 │   ├── HttpSocket.*              # HTTP 连接（读 / 写协程）
 │   ├── HttpClient.*              # 出站 HTTP / HTTPS 客户端
 │   ├── HttpFilters.*             # HTTP 过滤链
-│   └── AwaitableTask.h / AsioConcurrentQueue.h    # 协程任务队列 / 发送队列
+│   └── AwaitableTask.h / AwaitableQueue.h         # 协程任务队列 / 发送队列
 ├── rpc/                          # hope::rpc —— coro_rpc 跨节点 RPC
 │   ├── CoroRpc.*                 # 单例门面：服务端启动、handler 注册、客户端连接池与负载均衡
 │   ├── CoroRpcConfig.h           # 端口 / 线程数 / 双向 TLS 证书配置
@@ -203,9 +203,16 @@ WebrtcSignalServer/
     [Render]
     ; 垂直同步开关：1=开启（锁定显示器刷新率），0=关闭（渲染不再被刷新率锁帧） 关闭垂直同步可能导致画面撕裂
     VSync=false
+
+    [VitrualDisplay]
+    ; Hope Virtual Display 虚拟显示器的分辨率与刷新率（连接时下发给 System，见「虚拟显示器高性能采集」）
+    DesktopWidth=1920
+    DesktopHeight=1080
+    ; 采集端出帧硬上限：驱动出帧快于此值时多余帧在采集线程直接丢弃；0=不设上限
+    DesktopRefreshRate=144
     ```
 
-    > 以上配置也可在程序内 **「设置 → 系统设置」** 标签页可视化修改并即时生效：垂直同步在下次远程连接时生效；信号服务器 / STUN / TURN / WebRTC 程序 / 服务名等在**未连接**时可修改，服务名或可执行路径变更时会自动处理已注册系统服务的删除与重新注册。
+    > 以上配置也可在程序内 **「设置 → 系统设置」** 标签页可视化修改并即时生效：垂直同步在下次远程连接时生效；信号服务器 / STUN / TURN / WebRTC 程序 / 服务名 / 虚拟显示器分辨率与刷新率等在**未连接**时可修改，服务名或可执行路径变更时会自动处理已注册系统服务的删除与重新注册。
     >
     > **注意**：请确保 `SystemServiceExe` 指向的路径在您的系统中真实有效。STUN/TURN 及信令服务器配置为示例，请根据实际可用服务进行替换。
 
