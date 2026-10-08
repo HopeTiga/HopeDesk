@@ -42,7 +42,7 @@ WebrtcSignalServer/
 │   ├── HttpSocket.*              # HTTPS 连接:握手、keep-alive、读写
 │   ├── HttpClient.*              # 出站 HTTP 客户端(对接 Polaris 等服务发现)
 │   ├── HttpFilters.*             # HTTP 鉴权:放行规则(addRule)+全局过滤器(addFilter)
-│   ├── AsioConcurrentQueue.h     # moodycamel 队列 + sam 信号量 的 awaitable 封装
+│   ├── AwaitableQueue.h          # moodycamel 队列 + sam 信号量 的 awaitable 封装
 │   └── AwaitableTask.h           # TaskChannel:全局任务队列(concurrent_channel + moodycamel)
 ├── rpc/
 │   ├── CoroRpcConfig.h                # RPC 参数结构体 + loadCoroRpcConfig(读 [CoroRpc] 段)
@@ -224,7 +224,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
     | 能收下的最大净荷 | 16376 字节 | 65528 字节 |
 
     最大净荷 = 缓冲区上限 − 帧头 4 − 掩码键 4。超过即断连（`Frame Larger Than The Maximum Receive Buffer` / `Message Larger Than The Maximum Message Size` → `throw` → RST）。这是**会挡住正常连接的硬线，不是只防攻击者的护栏**；64KB 那一档的依据是线上 SDP（webrtc-native）实测最大 5KB 出头，留约 12× 余量。
-- **writer**：从 `AsioConcurrentQueue<std::string>`（moodycamel + sam 信号量）**批量** dequeue（取到空或取到 32 条为止）→ `encodeFrameHeader` 给每条拼一个帧头 → 以「帧头 + 净荷」两段做 scatter/gather，**一批一次 `async_write`**，无逐条 memcpy。`asyncWrite(packet)` 入队。
+- **writer**：从 `AwaitableQueue<std::string>`（moodycamel + sam 信号量）**批量** dequeue（取到空或取到 32 条为止）→ `encodeFrameHeader` 给每条拼一个帧头 → 以「帧头 + 净荷」两段做 scatter/gather，**一批一次 `async_write`**，无逐条 memcpy。`asyncWrite(packet)` 入队。
   - 上限 32 条来自 asio 在 Windows 上 64 段的 writev 上限（每消息两段）。
   - 取空即 `co_await` 挂起、不等配额，所以严格一问一答（window=1）时自动退化成一条一条，不会死锁。
 - 异常/断开 → `onDisConnectHandle(accountId, sessionId)` → `removeConnection`。
@@ -847,7 +847,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 - `TaskChannel`（`AwaitableTask.h`）：`concurrent_channel<void(error_code)>`（awaitable 信号）+ `hopeMoodycamel::ConcurrentQueue<AwaitableTask>`（无锁队列）+ `atomic<ptrdiff_t> queueSize` + `maxCapacity`。
   - `enqueue`：先 `fetch_add` 比容量，超限回滚返回 false（背压）；否则入队 + `channel.try_send` 唤醒。
   - `dequeue`：先 `try_dequeue`，拿不到则 `async_receive` 挂起；channel 关闭则排空并返回 `nullopt`。
-- `AsioConcurrentQueue<T>`（`AsioConcurrentQueue.h`）：同样的 moodycamel + `boost::sam::basic_semaphore`，给 socket 写队列用。
+- `AwaitableQueue<T>`（`AwaitableQueue.h`）：同样的 moodycamel + `boost::sam::basic_semaphore`，给 socket 写队列用。
 
 ### 10.2 阈值（注入，来自 `WebrtcSignalConfig`）
 
@@ -986,7 +986,7 @@ hope::executor::SchedulerContext::init(schedulerConfig);
 
 关掉那组的 197,790 msgs/s 就是**批量单独跑出来的那一档**：批量在没有逻辑池的构建上只能到 198k，加了逻辑池才兑现 —— 这两者是**同一条杠杆的两半**（收发线程专职收发，攒批才不被打断），**不是两条独立收益，算账时不要把两者相乘**。批量自己那一档的成绩单：真机 1000 连接（sdp 1KB）143k → 198k msgs/s（1.38×）、带宽 140 → 193 MB/s，代价是**尾延迟变差**（p99 3.28 → 9.55 ms、max 18 → 77 ms，p50 0.64 → 0.65 ms 基本不动）—— 服务端一次最多推 32 条，某一条得在批量队列里多等，拆分指标「发出后在管道内」0.09 → 0.37 ms 量的正是这一段。
 
-后来的**调用点批量**（`executeQueue.tryDequeueBulk` / `asioConcurrentQueue.tryDequeueBulk` + `try_acquire_many`，见 §5.2 / §10.1）在这之上再取 **1.10×**（93w → 102w msgs/s），与逻辑池那条杠杆各自独立。
+后来的**调用点批量**（`executeQueue.tryDequeueBulk` / `awaitableQueue.tryDequeueBulk` + `try_acquire_many`，见 §5.2 / §10.1）在这之上再取 **1.10×**（93w → 102w msgs/s），与逻辑池那条杠杆各自独立。
 
 关掉那组 p50 反而更低（0.65 ms）**不代表它更快**：它自己的上限就在 20 万，压根没进入排队区。延迟只在**同一吞吐**下比较才有意义。
 
@@ -1036,7 +1036,7 @@ queueSize = 8192         ; spdlog 异步线程池队列长度
 threadCount = 1          ; 异步消费线程数
 DEBUG = 0                ; 控制台日志级别(四个级别各自独立,见 §2.1)
 INFO = 0                 ; 推荐一律关掉:只关屏幕,文件日志仍由 logToFile 控制
-WARN = 1
+WARN = 0
 ERROR = 0                ; 0 只关屏幕;日志文件仍收 error(logToFile=1)
 
 [Mysql]
@@ -1072,6 +1072,7 @@ maxReadSize = 0                ; 0=不限制(走 GetInt+手工夹取,不能用 G
 connectionSize = 1             ; 每个 channel 建几条连接(见 §9.3)
 enableLog = 0                  ; boost::redis 自己的日志
 logLevel = info                ; disabled/emerg/alert/crit/err/warning/notice/info/debug
+isRestart = false              ; async_run 异常退出后是否 1s 后重连(0=直接退出,见 §9.3)
 
 [CoroRpc]
 enableRpc = 0            ; 1 才启用 RPC(节点间转发 requestForward 用)
@@ -1186,7 +1187,7 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 | `WebrtcSignalPacket` | `WebrtcSignalPacket.h` | 信令包（socket + 整帧 packet + `WebrtcEnvelopeView` 信封头） |
 | `WebrtcEnvelopeView` | `WebrtcSignalPacket.h` | struct_pack 信封头（`requestType/state/message/accountId/targetId`，string_view 零拷贝视图） |
 | `TaskChannel` | `AwaitableTask.h` | 全局任务队列 |
-| `AsioConcurrentQueue<T>` | `AsioConcurrentQueue.h` | socket 写队列 |
+| `AwaitableQueue<T>` | `AwaitableQueue.h` | socket 写队列 |
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
 | `ActorMapping` | `WebrtcSignalManager.h` | `{sessionId, channelIndex}` |
 | `StringHasher` | `utils/StringHasher.h` | 透明 string hasher（收 `string_view`，`boost::hash<string_view>`，**无种子**：接收端自己重算桶号，跨实例必须可复现） |
