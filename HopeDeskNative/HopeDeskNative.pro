@@ -1,4 +1,4 @@
-QT += core gui widgets gui-private
+QT += core gui widgets gui-private svg
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 CONFIG += c++20 no_keywords
 
@@ -67,7 +67,7 @@ SOURCES += \
 
 # 头文件(按包分目录,目录名与命名空间一致)
 HEADERS += \
-    net/AsioConcurrentQueue.h \
+    net/AwaitableQueue.h \
     net/TcpSocket.h \
     net/TcpAcceptor.h \
     net/WebSocket.h \
@@ -91,6 +91,7 @@ HEADERS += \
     rtc/impl/SetDescriptionObserverImpl.h \
     rtc/impl/VideoTrackSinkImpl.h \
     rtc/widget/CustomDialogs.h \
+    rtc/widget/Theme.h \
     rtc/widget/VideoWidget.h \
     system/InterceptionHook.h \
     system/WindowsServiceManager.h \

@@ -1,6 +1,7 @@
 #include <mimalloc/mimalloc.h>
 
 #include "rtc/MainWindow.h"
+#include "widget/Theme.h"
 #include <QApplication>
 #include <QSurfaceFormat>
 #include "utils/ConfigManager.h"
@@ -41,6 +42,11 @@ int main(int argc, char *argv[])
         LOG_WARN("无法加载全局应用程序图标：:/logo/res/hope.jpg");
         LOG_WARN("请检查资源文件是否正确添加到项目中");
     }
+    QFont appFont = app.font();
+    appFont.setFamilies({ QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Segoe UI") });
+    app.setFont(appFont);
+    app.setStyleSheet(hope::rtc::theme::loadStyleSheet(QStringLiteral(":/styles/theme.qss")));
+
     setbuf(stdout, NULL);
     hope::rtc::MainWindow w;
     w.show();

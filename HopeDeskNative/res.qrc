@@ -11,6 +11,22 @@
     <qresource prefix="/icons">
         <file>res/arrow-up.png</file>
         <file>res/arrow-down.png</file>
+        <file alias="copy.svg">res/icons/copy.svg</file>
+        <file alias="check.svg">res/icons/check.svg</file>
+        <file alias="check-white.svg">res/icons/check-white.svg</file>
+        <file alias="trash.svg">res/icons/trash-2.svg</file>
+        <file alias="star.svg">res/icons/star.svg</file>
+        <file alias="clock.svg">res/icons/clock.svg</file>
+        <file alias="monitor.svg">res/icons/monitor.svg</file>
+        <file alias="settings.svg">res/icons/settings.svg</file>
+        <file alias="user.svg">res/icons/user.svg</file>
+        <file alias="plus.svg">res/icons/plus.svg</file>
+        <file alias="close.svg">res/icons/x.svg</file>
+        <file alias="chevron-down.svg">res/icons/chevron-down.svg</file>
+        <file alias="link.svg">res/icons/link.svg</file>
+        <file alias="camera.svg">res/icons/camera.svg</file>
     </qresource>
-    <qresource prefix="/new/prefix1"/>
+    <qresource prefix="/styles">
+        <file alias="theme.qss">res/theme.qss</file>
+    </qresource>
 </RCC>
