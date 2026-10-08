@@ -55,7 +55,7 @@ WebrtcManager::WebrtcManager()
     }));
 }
 
-void WebrtcManager::asyncBoot(){
+void WebrtcManager::asyncEvent(){
 
     if (tcpAcceptor) return;
 
@@ -158,6 +158,7 @@ WebrtcManager::~WebrtcManager()
         onRemoteFailedHandle = nullptr;
         onResetCursorHandle = nullptr;
         onRTCStatsCollectorHandle = nullptr;
+        onSessionInfoHandle = nullptr;
 
         if (webSocket) {
             webSocket->closeEvent();
@@ -480,6 +481,8 @@ void WebrtcManager::handleSignalMessage(std::string str)
                     if (type == "request") {
 
                         targetId = std::string(json["accountId"].as_string().c_str());
+
+                        sessionRole = 2;
 
                         json["localMaxBitrateBps"] = webrtcDeskConfig.localMaxBitrateBps;
 
@@ -965,6 +968,8 @@ void WebrtcManager::handleSystemMessage(std::string str)
 
         isRemote = true;
 
+        pushSessionInfo();
+
         return;
     }
 
@@ -1135,6 +1140,14 @@ void WebrtcManager::releaseSource()
 
     WindowsServiceManager::stopService(webrtcManagerConfig.systemService);  // ← 也可能在这里阻塞
 
+    sessionRole = 0;
+}
+
+void WebrtcManager::pushSessionInfo()
+{
+    if (!onSessionInfoHandle) return;
+    int role = (sessionRole.load() == 2) ? 2 : 1;
+    onSessionInfoHandle(role, targetId);
 }
 
 std::string WebrtcManager::getAccountId() const
@@ -1295,6 +1308,8 @@ std::string WebrtcManager::getTargetId() const
 void WebrtcManager::setTargetId(const std::string &newTargetId)
 {
     targetId = newTargetId;
+
+    sessionRole = 1;
 }
 
 void WebrtcManager::setWebrtcDeskConfig(const WebrtcDeskConfig &config)

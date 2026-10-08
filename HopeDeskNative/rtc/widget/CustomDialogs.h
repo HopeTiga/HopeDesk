@@ -11,6 +11,7 @@
 #include <QEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include "Theme.h"
 
 // 辅助函数：创建高质量圆形头像
 inline QPixmap createCircularAvatar(const QPixmap& source, int size) {
@@ -44,51 +45,7 @@ public:
         setWindowTitle(title);
         setFixedSize(420, 240);
         setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
-
-        setStyleSheet(R"(
-            QDialog {
-                background-color: #FFFFFF;
-                border: 1px solid #E1E8ED;
-                border-radius: 12px;
-            }
-            QLabel#title {
-                color: #2C3E50;
-                font-size: 17px;
-                font-weight: bold;
-            }
-            QLabel#message {
-                color: #5A6C7D;
-                font-size: 14px;
-            }
-            QPushButton#btnConfirm {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0072FF, stop:1 #00B4FF);
-                color: white;
-                border-radius: 8px;
-                padding: 10px;
-                font-weight: bold;
-                font-size: 14px;
-                border: none;
-            }
-            QPushButton#btnConfirm:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #338CFF, stop:1 #33C3FF);
-            }
-            QPushButton#btnConfirm:pressed {
-                background: #0056CC;
-            }
-            QPushButton#btnCancel {
-                background-color: transparent;
-                color: #5A6C7D;
-                border: 1px solid #D6E3F0;
-                border-radius: 8px;
-                padding: 10px;
-                font-size: 14px;
-            }
-            QPushButton#btnCancel:hover {
-                color: #0072FF;
-                border-color: #0072FF;
-                background-color: rgba(0, 114, 255, 0.05);
-            }
-        )");
+        setObjectName("confirmDialog");
 
         QVBoxLayout* mainLayout = new QVBoxLayout(this);
         mainLayout->setContentsMargins(30, 28, 30, 28);
@@ -100,7 +57,7 @@ public:
 
         QFrame* line = new QFrame(this);
         line->setFrameShape(QFrame::HLine);
-        line->setStyleSheet("background-color: #E1E8ED; max-height: 1px; margin: 2px 0 6px 0;");
+        line->setObjectName("dialogDivider");
         mainLayout->addWidget(line);
 
         QLabel* messageLabel = new QLabel(message, this);
@@ -146,76 +103,20 @@ public:
         setWindowTitle("添加设备");
         setFixedSize(400, 340);
         setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
-
-        setStyleSheet(R"(
-            QDialog {
-                background-color: #FFFFFF;
-                border: 1px solid #E1E8ED;
-                border-radius: 12px;
-            }
-            QLabel {
-                color: #2C3E50;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QLineEdit {
-                background-color: #F5F7FA;
-                border: 1px solid #D6E3F0;
-                border-radius: 8px;
-                color: #333333;
-                padding: 10px;
-                font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #0072FF;
-                background-color: #FFFFFF;
-            }
-            QLineEdit:hover {
-                background-color: #FFFFFF;
-            }
-            QPushButton#btnSave {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0072FF, stop:1 #00B4FF);
-                color: white;
-                border-radius: 8px;
-                padding: 10px;
-                font-weight: bold;
-                font-size: 14px;
-                border: none;
-            }
-            QPushButton#btnSave:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #338CFF, stop:1 #33C3FF);
-            }
-            QPushButton#btnSave:pressed {
-                background: #0056CC;
-            }
-            QPushButton#btnCancel {
-                background-color: transparent;
-                color: #5A6C7D;
-                border: 1px solid #D6E3F0;
-                border-radius: 8px;
-                padding: 10px;
-                font-size: 14px;
-            }
-            QPushButton#btnCancel:hover {
-                color: #0072FF;
-                border-color: #0072FF;
-                background-color: rgba(0, 114, 255, 0.05);
-            }
-        )");
+        setObjectName("addDeviceDialog");
 
         QVBoxLayout *mainLayout = new QVBoxLayout(this);
         mainLayout->setContentsMargins(30, 30, 30, 30);
         mainLayout->setSpacing(15);
 
         QLabel *title = new QLabel("添加新设备", this);
-        title->setStyleSheet("font-size: 18px; color: #0072FF; margin-bottom: 5px;");
+        title->setObjectName("dlgTitle");
         title->setAlignment(Qt::AlignCenter);
         mainLayout->addWidget(title);
 
-        // 分隔线
         QFrame *line = new QFrame(this);
         line->setFrameShape(QFrame::HLine);
-        line->setStyleSheet("background-color: #E1E8ED; max-height: 1px; margin: 5px 0;");
+        line->setObjectName("dialogDivider");
         mainLayout->addWidget(line);
 
         mainLayout->addSpacing(10);
@@ -278,104 +179,35 @@ public:
     LoginDialog(QWidget *parent = nullptr, bool isEditMode = false) : QDialog(parent) {
         setFixedSize(420, isEditMode ? 650 : 600);
         setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
-
-        setStyleSheet(R"(
-            QDialog {
-                background-color: #FFFFFF;
-                border: 1px solid #E1E8ED;
-                border-radius: 12px;
-            }
-            QLabel {
-                color: #5A6C7D;
-                font-size: 13px;
-                margin-bottom: 2px;
-            }
-            QLineEdit {
-                background-color: #F5F7FA;
-                border: 1px solid #D6E3F0;
-                border-radius: 8px;
-                color: #333333;
-                padding: 10px;
-                font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #0072FF;
-                background-color: #FFFFFF;
-            }
-            QLineEdit:hover {
-                background-color: #FFFFFF;
-            }
-            QLineEdit:read-only {
-                color: #8C9AA8;
-                background: #F0F4F8;
-                border: 1px solid #E1E8ED;
-            }
-            QPushButton#btnConfirm {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0072FF, stop:1 #00B4FF);
-                color: white;
-                border-radius: 20px;
-                font-weight: bold;
-                font-size: 15px;
-                border: none;
-            }
-            QPushButton#btnConfirm:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #338CFF, stop:1 #33C3FF);
-            }
-            QPushButton#btnConfirm:pressed {
-                background: #0056CC;
-            }
-            QPushButton#btnClose {
-                background: transparent;
-                color: #8C9AA8;
-                font-size: 20px;
-                border: none;
-                padding: 0;
-                min-width: 30px;
-                min-height: 30px;
-            }
-            QPushButton#btnClose:hover {
-                color: #FF4D4F;
-                background-color: rgba(255, 77, 79, 0.1);
-                border-radius: 15px;
-            }
-            QPushButton#btnLogout {
-                background: transparent;
-                color: #FF4D4F;
-                border: 1px solid #FF4D4F;
-                border-radius: 20px;
-            }
-            QPushButton#btnLogout:hover {
-                background: rgba(255, 77, 79, 0.1);
-            }
-        )");
+        setObjectName("loginDialog");
 
         QVBoxLayout *mainLayout = new QVBoxLayout(this);
         mainLayout->setContentsMargins(30, 20, 30, 30);
         mainLayout->setSpacing(12);
 
-        // 顶部栏
         QHBoxLayout *topLayout = new QHBoxLayout();
         QLabel *title = new QLabel(isEditMode ? "个人信息" : "欢迎登录", this);
-        title->setStyleSheet("font-size: 20px; font-weight: bold; color: #2C3E50;");
+        title->setObjectName("loginTitle");
         topLayout->addWidget(title);
         topLayout->addStretch();
-        QPushButton *btnClose = new QPushButton("×", this);
+        QPushButton *btnClose = new QPushButton(this);
         btnClose->setObjectName("btnClose");
+        btnClose->setIconSize(QSize(14, 14));
+        btnClose->setIcon(hope::rtc::theme::icon(QStringLiteral(":/icons/close.svg"), hope::rtc::theme::color("textFaint"), 14));
         btnClose->setCursor(Qt::PointingHandCursor);
         connect(btnClose, &QPushButton::clicked, this, &QDialog::reject);
         topLayout->addWidget(btnClose);
         mainLayout->addLayout(topLayout);
 
-        // 分隔线
         QFrame *line = new QFrame(this);
         line->setFrameShape(QFrame::HLine);
-        line->setStyleSheet("background-color: #E1E8ED; max-height: 1px; margin: 5px 0 15px 0;");
+        line->setObjectName("dialogDivider");
         mainLayout->addWidget(line);
 
-        // 头像
         QHBoxLayout *avatarLayout = new QHBoxLayout();
         avatarLayout->addStretch();
         avatarDisplayLabel = new QLabel(this);
+        avatarDisplayLabel->setObjectName("avatarDrop");
         avatarDisplayLabel->setFixedSize(100, 100);
         avatarDisplayLabel->setAlignment(Qt::AlignCenter);
         avatarDisplayLabel->setCursor(Qt::PointingHandCursor);
@@ -386,8 +218,8 @@ public:
         mainLayout->addLayout(avatarLayout);
 
         QLabel *tip = new QLabel("点击更换头像", this);
+        tip->setObjectName("avatarTip");
         tip->setAlignment(Qt::AlignCenter);
-        tip->setStyleSheet("color: #0072FF; font-size: 12px; margin-bottom: 10px;");
         mainLayout->addWidget(tip);
 
         // 表单
@@ -432,14 +264,9 @@ public:
     }
 
     void resetAvatarStyle() {
-        avatarDisplayLabel->setText("📷");
-        avatarDisplayLabel->setStyleSheet(R"(
-            background-color: #F5F7FA;
-            border: 2px dashed #D6E3F0;
-            border-radius: 50px;
-            color: #0072FF;
-            font-size: 24px;
-        )");
+        avatarDisplayLabel->setText("");
+        avatarDisplayLabel->setPixmap(hope::rtc::theme::icon(QStringLiteral(":/icons/camera.svg"), hope::rtc::theme::color("primary"), 28).pixmap(28, 28));
+        hope::rtc::theme::setState(avatarDisplayLabel, "state", QStringLiteral("empty"));
     }
 
     bool eventFilter(QObject *obj, QEvent *event) override {
@@ -453,7 +280,7 @@ public:
                     customAvatarPath = QString::fromLatin1(bytes.toBase64());
 
                     avatarDisplayLabel->setPixmap(createCircularAvatar(p, 50));
-                    avatarDisplayLabel->setStyleSheet("background: transparent; border: none;");
+                    hope::rtc::theme::setState(avatarDisplayLabel, "state", QStringLiteral("image"));
                     avatarDisplayLabel->setText("");
                 }
             }
@@ -471,7 +298,7 @@ public:
             QPixmap p; p.loadFromData(QByteArray::fromBase64(avatar.toLatin1()));
             if(!p.isNull()) {
                 avatarDisplayLabel->setPixmap(createCircularAvatar(p, 50));
-                avatarDisplayLabel->setStyleSheet("background: transparent; border: none;");
+                hope::rtc::theme::setState(avatarDisplayLabel, "state", QStringLiteral("image"));
                 avatarDisplayLabel->setText("");
             }
         }

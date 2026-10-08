@@ -190,7 +190,7 @@ public:
 
 public:
 
-    void asyncBoot();
+    void asyncEvent();
 
     void closeEvent();
 
@@ -266,6 +266,9 @@ public:
 
     std::function<void(const std::string& codec, bool hardEncode, const std::string& captureTech)> onEncodeStatusHandle;
 
+    // 会话信息推送(myRole: 1=本端操控对端 2=本端被对端操控;peerId: 对端 accountId),按值推送避免跨线程读 targetId
+    std::function<void(int myRole, const std::string& peerId)> onSessionInfoHandle;
+
     void requestStats();
 
     void disConnectHandle();
@@ -277,6 +280,8 @@ private:
     bool initializePeerConnection();
 
     void releaseSource();
+
+    void pushSessionInfo();
 
     void closeTcpSocket();
 
@@ -310,6 +315,9 @@ private:
     std::string accountId;
 
     std::string targetId;
+
+    // 0=None / 1=Caller / 2=Callee
+    std::atomic<int> sessionRole {0};
 
     std::unique_ptr<webrtc::Thread> networkThread;
 

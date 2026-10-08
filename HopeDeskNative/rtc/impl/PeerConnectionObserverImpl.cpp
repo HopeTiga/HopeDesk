@@ -103,6 +103,7 @@ void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInt
             if (manager->onRemoteSuccessFulHandle) {
                 manager->onRemoteSuccessFulHandle();
             }
+            manager->pushSessionInfo();
             break;
         }
         case webrtc::PeerConnectionInterface::kIceConnectionFailed:

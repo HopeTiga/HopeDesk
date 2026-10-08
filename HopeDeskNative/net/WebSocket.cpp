@@ -34,7 +34,7 @@ WebSocket::WebSocket(boost::asio::io_context& ioContext)
     , sslContext(boost::asio::ssl::context::tlsv12_client)
     , resolver(ioContext)
     , webSocket(ioContext, sslContext)
-    , asioConcurrentQueue(ioContext.get_executor()) {
+    , awaitableQueue(ioContext.get_executor()) {
 
     sslContext.set_options(
         boost::asio::ssl::context::default_workarounds |
@@ -106,15 +106,13 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
 
         webSocket.binary(true);   // 信令帧统一按二进制发出(struct_pack 编码)
 
-        asioConcurrentQueue.reset();
+        awaitableQueue.reset();
 
         setTcpKeepAlive(webSocket.next_layer().next_layer());
 
-        asyncBoots.store(true);
-
         connecting.store(false);
 
-        asyncBoot();
+        asyncEvent();
 
         if (onConnectHandle) {
 
@@ -165,64 +163,48 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
 
 void WebSocket::closeEvent() {
 
-    if (!asyncBoots.exchange(false)) {
+    if (!asyncEvents.exchange(false)) return;
 
-        asioConcurrentQueue.close();
-
-        closeWebSocket();
-
-        return;
-    }
-
-    asioConcurrentQueue.close();
+    awaitableQueue.close();
 
     closeWebSocket();
 }
 
-void WebSocket::asyncBoot() {
+void WebSocket::asyncEvent() {
+
+    if (asyncEvents.exchange(true)) return;
+
+    isHandleDisConnect.store(false);
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->receiveCoroutine();
         co_return;
-    }, hope::CompletionHandle{});
+    }, [self = shared_from_this()](std::exception_ptr error) {
+        self->handleCoroutineExit("ReceiveCoroutine", error);
+    });
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->writerCoroutine();
         co_return;
-    }, hope::CompletionHandle{});
+    }, [self = shared_from_this()](std::exception_ptr error) {
+        self->handleCoroutineExit("WriterCoroutine", error);
+    });
 }
 
 boost::asio::awaitable<void> WebSocket::receiveCoroutine() {
 
-    try {
+    while (asyncEvents.load()) {
 
-        while (asyncBoots.load()) {
+        co_await webSocket.async_read(readBuffer, boost::asio::use_awaitable);
 
-            boost::beast::flat_buffer buffer;
+        std::string str = boost::beast::buffers_to_string(readBuffer.data());
 
-            co_await webSocket.async_read(buffer, boost::asio::use_awaitable);
+        readBuffer.consume(readBuffer.size());
 
-            std::string str = boost::beast::buffers_to_string(buffer.data());
+        if (onMessageHandle) {
 
-            buffer.consume(buffer.size());
-
-            if (onMessageHandle) {
-
-                onMessageHandle(std::move(str));
-            }
+            onMessageHandle(std::move(str));
         }
-    }
-    catch (const std::exception& e) {
-
-        LOG_ERROR("WebSocket ReceiveCoroutine Error: {}", e.what());
-
-        disConnectEvent();
-    }
-    catch (...) {
-
-        LOG_ERROR("WebSocket ReceiveCoroutine Unknown Error");
-
-        disConnectEvent();
     }
 
     co_return;
@@ -230,52 +212,66 @@ boost::asio::awaitable<void> WebSocket::receiveCoroutine() {
 
 boost::asio::awaitable<void> WebSocket::writerCoroutine() {
 
-    try {
+    std::vector<std::string> packets(maximumFramesPerWrite);
 
-        while (asyncBoots.load()) {
+    std::vector<boost::asio::const_buffer> segments;
 
-            std::optional<std::string> optional = co_await asioConcurrentQueue.dequeue();
+    segments.reserve(maximumFramesPerWrite);
 
-            if (optional.has_value()) {
+    while (asyncEvents.load()) {
 
-                std::string str = std::move(optional.value());
+        std::size_t count = awaitableQueue.tryDequeueBulk(packets.data(), maximumFramesPerWrite);
 
-                co_await webSocket.async_write(boost::asio::buffer(str), boost::asio::use_awaitable);
-            }
-            else break;
+        if (count == 0) {
 
-            if (!asyncBoots.load()) break;
+            if (!co_await awaitableQueue.awaitDequeue(packets[0])) break;
 
+            count = 1;
         }
-    }
-    catch (const std::exception& e) {
 
-        LOG_ERROR("WebSocket WriterCoroutine Error: {}", e.what());
+        segments.clear();
 
-        disConnectEvent();
-    }
-    catch (...) {
+        for (std::size_t index = 0; index < count; ++index) {
 
-        LOG_ERROR("WebSocket WriterCoroutine Unknown Error");
+            segments.emplace_back(boost::asio::buffer(packets[index]));
+        }
 
-        disConnectEvent();
+        co_await webSocket.async_write(segments, boost::asio::use_awaitable);
     }
 
     co_return;
 }
 
-void WebSocket::disConnectEvent() {
+void WebSocket::handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error) {
 
-    if (!asyncBoots.exchange(false)) return;
+    if (!asyncEvents.load(std::memory_order_acquire)) return;
 
-    asioConcurrentQueue.close();
+    closeEvent();
 
-    closeWebSocket();
-
-    if (onDisConnectHandle) {
+    if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
 
         onDisConnectHandle();
 
+    }
+
+    if (!error) {
+
+        LOG_INFO("{} Exit: Peer Closed The Connection", coroutineName);
+
+        return;
+    }
+
+    try {
+
+        std::rethrow_exception(error);
+    }
+    catch (const std::exception& e) {
+
+        LOG_ERROR("{} Error: {}", coroutineName, e.what());
+    }
+    catch (...) {
+
+        LOG_ERROR("{} Error: Unknown", coroutineName);
     }
 }
 
@@ -313,13 +309,13 @@ void WebSocket::closeWebSocket() {
 
 bool WebSocket::asyncWrite(std::string packet) {
 
-    if (!asyncBoots.load()) {
+    if (!asyncEvents.load()) {
 
         return false;
 
     }
 
-    return asioConcurrentQueue.enqueue(std::move(packet));
+    return awaitableQueue.enqueue(std::move(packet));
 }
 
 bool WebSocket::isOpen() const {

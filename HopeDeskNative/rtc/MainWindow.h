@@ -99,11 +99,17 @@ private:
 
     void loadHistoryData();
     void loadFavoritesData();
-    void addToHistory(const QString& id, const QString& name = "未知设备");
+    void addToHistory(const QString& id, const QString& name = QString());
 
     void updateRecentListUI();
     void updateDeviceListUI(bool showFavorites);
+
+    static QString normalizeDeviceId(const QString& id);
+    QString displayNameFor(const DeviceInfo& device) const;
+    QString nameFromFavorites(const QString& id) const;
     void updateStatusUI(const QString& status, const QString& styleClass);
+    void showPeerCard(int myRole, const QString& peerId);
+    void hidePeerCard();
     void updateNetworkTypeUI(int type, double rttMs);
     void refreshNetworkBadge();  // 用缓存的类型/RTT 重绘徽章(开关切换时调用)
     void hideNetworkBadge();     // 断开/超时时统一隐藏徽章并清空 RTT 缓存

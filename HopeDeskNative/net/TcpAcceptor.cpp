@@ -1,5 +1,7 @@
 #include "TcpAcceptor.h"
 
+#include <exception>
+
 #include "../utils/Utils.h"
 #include "../utils/CompletionHandle.h"
 
@@ -22,7 +24,22 @@ void TcpAcceptor::startAccept() {
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->acceptCoroutine();
         co_return;
-    }, hope::CompletionHandle{});
+    }, [self = shared_from_this()](std::exception_ptr error) {
+        self->acceptRunning.store(false);
+        if (!error) {
+            LOG_INFO("AcceptCoroutine Exit");
+            return;
+        }
+        try {
+            std::rethrow_exception(error);
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR("AcceptCoroutine Error: {}", e.what());
+        }
+        catch (...) {
+            LOG_ERROR("AcceptCoroutine Error: Unknown");
+        }
+    });
 }
 
 void TcpAcceptor::stopAccept() {
@@ -54,20 +71,17 @@ boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
             co_await acceptor.async_accept(tcpSocket->tcpSocket, boost::asio::use_awaitable);
         }
         catch (const std::exception& e) {
-            acceptRunning.store(false);
             LOG_WARN("TcpAcceptor Accept Loop Stopped: {}", e.what());
-            co_return;
+            break;
         }
         catch (...) {
-            acceptRunning.store(false);
             LOG_WARN("TcpAcceptor Accept Loop Stopped: Unknown Error");
-            co_return;
+            break;
         }
 
-        tcpSocket->asioConcurrentQueue.reset();
+        tcpSocket->awaitableQueue.reset();
         tcpSocket->setTcpKeepAlive(tcpSocket->tcpSocket);
-        tcpSocket->asyncBoots.store(true);
-        tcpSocket->startCoroutines();
+        tcpSocket->asyncEvent();
 
         if (currentTcpSocket) {
             currentTcpSocket->closeEvent();

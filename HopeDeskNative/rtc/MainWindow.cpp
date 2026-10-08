@@ -2,6 +2,7 @@
 #include "../utils/Utils.h"
 #include "ui_mainwindow.h"
 #include "widget/VideoWidget.h"
+#include "widget/Theme.h"
 #include "WebrtcManager.h"
 #include "../utils/ConfigManager.h"
 #include <QApplication>
@@ -48,7 +49,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     webrtcManager = std::make_shared<WebrtcManager>();
 
-    webrtcManager->asyncBoot();
+    webrtcManager->asyncEvent();
 
     // 操控端:解码状态 -> label(只显示解码;编码状态在被控端 Native 显示)
     webrtcManager->onCodecStatusHandle = [this](const std::string& codec, bool hardDecode) {
@@ -110,9 +111,10 @@ MainWindow::MainWindow(QWidget* parent)
                     ui->btnStartControl->setText("立即连接");
                     ui->btnSendCtrlAltF->setEnabled(false);
                     ui->remoteStatusLabel->setText("远程连接已结束");
-                    ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
+                    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("ended"));
                     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
                     if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
+                    hidePeerCard();
                     stopFpsDisplay();
 
                     if(webrtcManager && videoWidget){
@@ -152,8 +154,8 @@ MainWindow::MainWindow(QWidget* parent)
             ui->btnStartControl->setText("控制中...");
             ui->btnStartControl->setEnabled(false);
             ui->btnSendCtrlAltF->setEnabled(true);
-            ui->remoteStatusLabel->setText("🟢 远程连接已建立");
-            ui->remoteStatusLabel->setStyleSheet("color: #10B981;");
+            ui->remoteStatusLabel->setText("远程连接已建立");
+            theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("success"));
             addToHistory(ui->remoteIdEdit->text());
 
             // 开始周期刷新 RTT,并立即拉一次(仅在设置开启时)
@@ -174,8 +176,16 @@ MainWindow::MainWindow(QWidget* parent)
             if (remoteConnectionTimer) remoteConnectionTimer->stop();
             ui->btnStartControl->setEnabled(true);
             ui->btnStartControl->setText("立即连接");
-            ui->remoteStatusLabel->setText("🔴 连接失败：对方不在线或拒绝");
-            ui->remoteStatusLabel->setStyleSheet("color: #EF4444;");
+            ui->remoteStatusLabel->setText("连接失败：对方不在线或拒绝");
+            theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("danger"));
+            hidePeerCard();
+        }, Qt::QueuedConnection);
+    };
+
+    webrtcManager->onSessionInfoHandle = [this](int myRole, const std::string& peerId) {
+        QString idQ = QString::fromStdString(peerId);
+        QMetaObject::invokeMethod(this, [this, myRole, idQ]() {
+            showPeerCard(myRole, idQ);
         }, Qt::QueuedConnection);
     };
 
@@ -354,12 +364,14 @@ void MainWindow::updateLocalAccountUI() {
         ui->myDeviceCodeLabel->setText("--- --- ---");
         ui->userNameLabel->setText("未登录");
         ui->userStatusLabel->setText("● 离线 (点击登录)");
-        ui->userStatusLabel->setStyleSheet("color: #6B7280;"); // 灰色
+        theme::setState(ui->userStatusLabel, "state", QStringLiteral("offline"));
 
-        // 默认头像
         ui->userAvatar->setPixmap(QPixmap());
         ui->userAvatar->setText("?");
-        ui->userAvatar->setStyleSheet("background-color: #374151; border-radius: 19px; color: #9CA3AF; font-weight: bold; font-size: 16px;");
+        theme::setState(ui->userAvatar, "state", QStringLiteral("empty"));
+
+        updateRecentListUI();
+        if(ui->deviceGroupList->currentRow() == 1) updateDeviceListUI(false);
         return;
     }
 
@@ -370,9 +382,8 @@ void MainWindow::updateLocalAccountUI() {
 
     ui->userNameLabel->setText(currentUserName);
     ui->userStatusLabel->setText("● 在线 (点击编辑)");
-    ui->userStatusLabel->setStyleSheet("color: #10B981;"); // 绿色
+    theme::setState(ui->userStatusLabel, "state", QStringLiteral("online"));
 
-    // 设置头像
     if(!customAvatarPath.isEmpty()) {
         QPixmap pixmap;
         QByteArray byteArray = QByteArray::fromBase64(customAvatarPath.toLatin1());
@@ -382,19 +393,21 @@ void MainWindow::updateLocalAccountUI() {
             QPixmap circular = createCircularAvatar(pixmap, 38);
             ui->userAvatar->setPixmap(circular);
             ui->userAvatar->setText("");
-            ui->userAvatar->setStyleSheet("background-color: transparent; border: none;");
+            theme::setState(ui->userAvatar, "state", QStringLiteral("image"));
         } else {
-            // 图片坏了，回退到文字
             ui->userAvatar->setPixmap(QPixmap());
             ui->userAvatar->setText(currentUserName.left(1).toUpper());
-            ui->userAvatar->setStyleSheet("background-color: #337AFF; border-radius: 19px; color: white; font-weight: bold; font-size: 14px;");
+            theme::setState(ui->userAvatar, "state", QStringLiteral("letter"));
         }
     } else {
-        // 无图片，显示文字
         ui->userAvatar->setPixmap(QPixmap());
         ui->userAvatar->setText(currentUserName.left(1).toUpper());
-        ui->userAvatar->setStyleSheet("background-color: #337AFF; border-radius: 19px; color: white; font-weight: bold; font-size: 14px;");
+        theme::setState(ui->userAvatar, "state", QStringLiteral("letter"));
     }
+
+    // 本机识别码变了,「本机」标记要跟着重算
+    updateRecentListUI();
+    if(ui->deviceGroupList->currentRow() == 1) updateDeviceListUI(false);
 }
 
 // 点击头像 -> 登录或编辑
@@ -444,9 +457,57 @@ void MainWindow::setupUI()
     QIcon appIcon(":/logo/res/hope.jpg");
     setWindowIcon(appIcon);
 
+    ui->sideBar->setAttribute(Qt::WA_StyledBackground, true);
+    ui->containerMyDevice->setAttribute(Qt::WA_StyledBackground, true);
+    ui->containerRemote->setAttribute(Qt::WA_StyledBackground, true);
+    ui->containerHistory->setAttribute(Qt::WA_StyledBackground, true);
+
+    ui->btnNavHome->setIconSize(QSize(18, 18));
+    ui->btnNavDevices->setIconSize(QSize(18, 18));
+    ui->btnNavSettings->setIconSize(QSize(18, 18));
+
     connect(ui->btnNavHome, &QPushButton::clicked, this, &MainWindow::onNavHomeClicked);
     connect(ui->btnNavDevices, &QPushButton::clicked, this, &MainWindow::onNavDevicesClicked);
     connect(ui->btnNavSettings, &QPushButton::clicked, this, &MainWindow::onNavSettingsClicked);
+
+    connect(ui->btnNavHome, &QPushButton::toggled, this, [this](bool checked) {
+        ui->btnNavHome->setIcon(theme::icon(QStringLiteral(":/icons/monitor.svg"),
+            checked ? theme::color("primary") : theme::color("textSub"), 18));
+    });
+    connect(ui->btnNavDevices, &QPushButton::toggled, this, [this](bool checked) {
+        ui->btnNavDevices->setIcon(theme::icon(QStringLiteral(":/icons/link.svg"),
+            checked ? theme::color("primary") : theme::color("textSub"), 18));
+    });
+    connect(ui->btnNavSettings, &QPushButton::toggled, this, [this](bool checked) {
+        ui->btnNavSettings->setIcon(theme::icon(QStringLiteral(":/icons/settings.svg"),
+            checked ? theme::color("primary") : theme::color("textSub"), 18));
+    });
+
+    ui->btnNavHome->setIcon(theme::icon(QStringLiteral(":/icons/monitor.svg"), theme::color("primary"), 18));
+    ui->btnNavDevices->setIcon(theme::icon(QStringLiteral(":/icons/link.svg"), theme::color("textSub"), 18));
+    ui->btnNavSettings->setIcon(theme::icon(QStringLiteral(":/icons/settings.svg"), theme::color("textSub"), 18));
+
+    ui->deviceGroupList->setIconSize(QSize(16, 16));
+    if (ui->deviceGroupList->item(0)) {
+        ui->deviceGroupList->item(0)->setIcon(theme::icon(QStringLiteral(":/icons/star.svg"), theme::color("textSub"), 16));
+    }
+    if (ui->deviceGroupList->item(1)) {
+        ui->deviceGroupList->item(1)->setIcon(theme::icon(QStringLiteral(":/icons/clock.svg"), theme::color("textSub"), 16));
+    }
+
+    ui->btnCopyCode->setIconSize(QSize(14, 14));
+    ui->btnCopyCode->setIcon(theme::icon(QStringLiteral(":/icons/copy.svg"), theme::color("textFaint"), 14));
+    ui->btnClearHistory->setIconSize(QSize(14, 14));
+    ui->btnClearHistory->setIcon(theme::icon(QStringLiteral(":/icons/trash.svg"), theme::color("textFaint"), 14));
+    ui->btnAddDevice->setIconSize(QSize(14, 14));
+    ui->btnAddDevice->setIcon(theme::icon(QStringLiteral(":/icons/plus.svg"), theme::color("primary"), 14));
+    ui->btnCopyPeerId->setIconSize(QSize(14, 14));
+    ui->btnCopyPeerId->setIcon(theme::icon(QStringLiteral(":/icons/copy.svg"), theme::color("textFaint"), 14));
+
+    ui->containerPeer->setVisible(false);
+    theme::setState(ui->peerRoleBadge, "role", QStringLiteral("controller"));
+    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("idle"));
+    theme::setState(ui->connectionStatusLabel, "state", QStringLiteral("normal"));
 
     ui->userFrame->installEventFilter(this);
 
@@ -497,10 +558,14 @@ void MainWindow::loadFavoritesData() {
 
 void MainWindow::addToHistory(const QString& id, const QString& name) {
     if(!settings) return;
+    QString deviceName = name;
+    if(deviceName.isEmpty()) deviceName = nameFromFavorites(id);
+
     bool found = false;
     for(int i=0; i<historyList.size(); ++i) {
-        if(historyList[i].id == id) {
+        if(normalizeDeviceId(historyList[i].id) == normalizeDeviceId(id)) {
             historyList[i].lastAccess = QDateTime::currentMSecsSinceEpoch();
+            if(!deviceName.isEmpty()) historyList[i].name = deviceName;
             historyList.move(i, 0);
             found = true;
             break;
@@ -509,10 +574,7 @@ void MainWindow::addToHistory(const QString& id, const QString& name) {
     if (!found) {
         DeviceInfo info;
         info.id = id;
-        info.name = name;
-        for(const auto& fav : favoritesList) {
-            if(fav.id == id) { info.name = fav.name; break; }
-        }
+        info.name = deviceName.isEmpty() ? QStringLiteral("未知设备") : deviceName;
         info.lastAccess = QDateTime::currentMSecsSinceEpoch();
         historyList.insert(0, info);
         if(historyList.size() > 20) historyList.removeLast();
@@ -528,13 +590,43 @@ void MainWindow::addToHistory(const QString& id, const QString& name) {
 
 // ---------------- UI 更新 ----------------
 
+// 本机识别码显示时插了空格(9131 40924@qq.com),历史里存的是用户手输的原样,比对前统一去掉空白
+QString MainWindow::normalizeDeviceId(const QString& id) {
+    QString normalized;
+    normalized.reserve(id.size());
+    for (const QChar& ch : id) {
+        if (!ch.isSpace()) normalized.append(ch);
+    }
+    return normalized;
+}
+
+QString MainWindow::displayNameFor(const DeviceInfo& device) const {
+    if (!currentDeviceId.isEmpty() && normalizeDeviceId(device.id) == normalizeDeviceId(currentDeviceId)) {
+        return QStringLiteral("本机");
+    }
+    if (device.name.isEmpty() || device.name == QStringLiteral("未知设备")) {
+        const QString favoriteName = nameFromFavorites(device.id);
+        if (!favoriteName.isEmpty()) return favoriteName;
+    }
+    return device.name;
+}
+
+QString MainWindow::nameFromFavorites(const QString& id) const {
+    const QString normalized = normalizeDeviceId(id);
+    for (const DeviceInfo& favorite : favoritesList) {
+        if (normalizeDeviceId(favorite.id) == normalized) return favorite.name;
+    }
+    return QString();
+}
+
 void MainWindow::updateRecentListUI() {
     ui->recentListWidget->clear();
     if (historyList.isEmpty()) return;
 
     for(const auto& dev : historyList) {
-        QString text = QString("%1\n%2").arg(dev.id).arg(dev.name);
-        QListWidgetItem* item = new QListWidgetItem(QIcon(":/logo/res/hope.jpg"), text);
+        QString text = QString("%1\n%2").arg(dev.id).arg(displayNameFor(dev));
+        QListWidgetItem* item = new QListWidgetItem(
+            theme::icon(QStringLiteral(":/icons/clock.svg"), theme::color("textFaint"), 18), text);
         item->setSizeHint(QSize(160, 60));
         item->setTextAlignment(Qt::AlignCenter);
         item->setData(Qt::UserRole, dev.id);
@@ -547,8 +639,9 @@ void MainWindow::updateDeviceListUI(bool showFavorites) {
     const QList<DeviceInfo>& list = showFavorites ? favoritesList : historyList;
 
     for(const auto& dev : list) {
-        QString text = QString("%1 - %2").arg(dev.name).arg(dev.id);
-        QListWidgetItem* item = new QListWidgetItem(QIcon(":/logo/res/hope.jpg"), text);
+        QString text = QString("%1 - %2").arg(displayNameFor(dev)).arg(dev.id);
+        QListWidgetItem* item = new QListWidgetItem(
+            theme::icon(QStringLiteral(":/icons/monitor.svg"), theme::color("textSub"), 18), text);
         item->setData(Qt::UserRole, dev.id);
         QString dateStr = QDateTime::fromMSecsSinceEpoch(dev.lastAccess).toString("yyyy-MM-dd HH:mm");
         item->setToolTip(QString("ID: %1\n上次访问: %2").arg(dev.id).arg(dateStr));
@@ -645,6 +738,17 @@ void MainWindow::setupSignalSlots()
 {
     connect(ui->btnStartControl, &QPushButton::clicked, this, &MainWindow::onBtnConnectClicked);
     connect(ui->btnCopyCode, &QPushButton::clicked, this, &MainWindow::onBtnCopyCodeClicked);
+    connect(ui->btnCopyPeerId, &QPushButton::clicked, this, [this]() {
+        const QString peerId = ui->peerIdLabel->text();
+        if (peerId.isEmpty()) return;
+        QApplication::clipboard()->setText(peerId);
+        ui->btnCopyPeerId->setText("已复制");
+        ui->btnCopyPeerId->setIcon(theme::icon(QStringLiteral(":/icons/check.svg"), theme::color("success"), 14));
+        QTimer::singleShot(2000, this, [this]() {
+            ui->btnCopyPeerId->setText("复制");
+            ui->btnCopyPeerId->setIcon(theme::icon(QStringLiteral(":/icons/copy.svg"), theme::color("textFaint"), 14));
+        });
+    });
     connect(ui->recentListWidget, &QListWidget::itemClicked, this, &MainWindow::onDeviceItemClicked);
     connect(ui->btnClearHistory, &QPushButton::clicked, this, &MainWindow::onClearHistoryClicked);
 
@@ -780,6 +884,7 @@ void MainWindow::onAddDeviceClicked() {
             QJsonArray array; for(const auto& d : favoritesList) array.append(d.toJson());
             settings->setValue("favoritesList", QJsonDocument(array).toJson());
 
+            updateRecentListUI();
             if(ui->deviceGroupList->currentRow() == 0) updateDeviceListUI(true);
         }
     }
@@ -892,95 +997,18 @@ void MainWindow::stopFpsDisplay()
 void MainWindow::buildSystemSettingsTab()
 {
     settingsTabWidget = new QTabWidget(ui->pageSettings);
+    settingsTabWidget->setObjectName("settingsTabWidget");
     // documentMode 去掉默认厚重边框;显式继承设置页字体,避免 QTabWidget 自带字体影响内容
     settingsTabWidget->setDocumentMode(true);
     settingsTabWidget->setFont(ui->pageSettings->font());
-    settingsTabWidget->setStyleSheet(R"(
-        QTabWidget::pane {
-            border: none;
-            background: transparent;
-        }
-        QTabBar {
-            background: transparent;
-        }
-        QTabBar::tab {
-            background: transparent;
-            color: #8C9AA8;
-            padding: 8px 22px;
-            font-size: 14px;
-            border: none;
-            border-bottom: 2px solid transparent;
-            margin-right: 4px;
-        }
-        QTabBar::tab:selected {
-            color: #0072FF;
-            border-bottom: 2px solid #0072FF;
-            font-weight: bold;
-        }
-        QTabBar::tab:hover:!selected {
-            color: #338CFF;
-        }
-    )");
 
     // 「通用设置」tab:把现有滚动区整体移入(addTab 会自动 reparent,并从原布局移除)
     settingsTabWidget->addTab(ui->scrollAreaSettings, tr("通用设置"));
 
     // 「系统设置」tab
     QWidget* systemTab = new QWidget(settingsTabWidget);
-    systemTab->setStyleSheet(R"(
-        QLabel { color: #5A6C7D; font-size: 14px; }
-        QLineEdit, QSpinBox {
-            background-color: #F5F7FA;
-            border: 1px solid #D6E3F0;
-            border-radius: 8px;
-            padding: 8px 10px;
-            color: #333333;
-            font-size: 14px;
-        }
-        QLineEdit:focus, QSpinBox:focus {
-            border: 1px solid #0072FF;
-            background-color: #FFFFFF;
-        }
-        QLineEdit:hover, QSpinBox:hover {
-            background-color: #FFFFFF;
-        }
-        QSpinBox::up-button, QSpinBox::down-button {
-            width: 20px;
-            border: none;
-            border-left: 1px solid #E1E8ED;
-            background: transparent;
-        }
-        QSpinBox::up-button { border-top-right-radius: 8px; subcontrol-position: top right; }
-        QSpinBox::down-button { border-bottom-right-radius: 8px; subcontrol-position: bottom right; }
-        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-            background: #E6F8FF;
-        }
-        QSpinBox::up-arrow {
-            image: url(:/icons/res/arrow-up.png);
-            width: 12px; height: 12px;
-        }
-        QSpinBox::down-arrow {
-            image: url(:/icons/res/arrow-down.png);
-            width: 12px; height: 12px;
-        }
-        QCheckBox {
-            color: #5A6C7D;
-            font-size: 14px;
-            spacing: 8px;
-        }
-        QPushButton#browseButton {
-            background-color: #FFFFFF;
-            color: #0072FF;
-            border: 1px solid #D6E3F0;
-            border-radius: 8px;
-            padding: 8px 14px;
-            font-size: 14px;
-        }
-        QPushButton#browseButton:hover {
-            border-color: #0072FF;
-            background-color: rgba(0, 114, 255, 0.05);
-        }
-    )");
+    systemTab->setObjectName("systemTab");
+    systemTab->setAttribute(Qt::WA_StyledBackground, true);
     QVBoxLayout* systemLayout = new QVBoxLayout(systemTab);
     systemLayout->setSpacing(12);
     systemLayout->setContentsMargins(20, 20, 20, 20);
@@ -1034,7 +1062,7 @@ void MainWindow::buildSystemSettingsTab()
 
     // ===== 虚拟显示器设置(驱动名称写死,只能看不能改) =====
     labelVddNameValue = new QLabel(tr("Hope Vitrual Display"), systemTab);
-    labelVddNameValue->setStyleSheet("font-weight: bold; color: #0072FF;");
+    labelVddNameValue->setObjectName("labelVddNameValue");
     systemFormLayout->addRow(tr("虚拟显示器"), labelVddNameValue);
 
     spinDesktopWidth = new QSpinBox(systemTab);
@@ -1059,13 +1087,6 @@ void MainWindow::buildSystemSettingsTab()
     QPushButton* applyButton = new QPushButton(tr("应用系统设置"), systemTab);
     applyButton->setObjectName("applyButton");
     applyButton->setCursor(Qt::PointingHandCursor);
-    applyButton->setStyleSheet(
-        "QPushButton#applyButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-        "stop:0 #0072FF, stop:1 #00B4FF); color: white; border: none; border-radius: 8px; "
-        "padding: 10px 22px; font-weight: bold; font-size: 14px; }"
-        "QPushButton#applyButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-        "stop:0 #338CFF, stop:1 #33C3FF); }"
-        "QPushButton#applyButton:pressed { background: #0056CC; }");
     connect(applyButton, &QPushButton::clicked, this, &MainWindow::onApplySystemSettings);
     systemLayout->addWidget(applyButton, 0, Qt::AlignLeft);
     systemLayout->addStretch();
@@ -1262,10 +1283,10 @@ void MainWindow::onBtnConnectClicked()
         ui->btnStartControl->setText("立即连接");
         ui->btnSendCtrlAltF->setEnabled(false);   // 手动断开:禁用
         ui->remoteStatusLabel->setText("远程连接已结束");
-        ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
-        // 手动断开也清空编码/采集状态,避免残留上一会话
+        theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("ended"));
         if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
         if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
+        hidePeerCard();
 
         this->showNormal();
         this->activateWindow();
@@ -1291,7 +1312,7 @@ void MainWindow::onBtnConnectClicked()
     }
 
     ui->remoteStatusLabel->setText("正在建立安全连接...");
-    ui->remoteStatusLabel->setStyleSheet("color: #F59E0B;");
+    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("connecting"));
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("连接中...");
 
@@ -1317,8 +1338,12 @@ void MainWindow::onBtnCopyCodeClicked()
     if(currentDeviceId.isEmpty()) return;
     QClipboard *clipboard = QApplication::clipboard();
     clipboard->setText(currentDeviceId);
-    ui->btnCopyCode->setText("✅ 已复制");
-    QTimer::singleShot(2000, [this](){ ui->btnCopyCode->setText("📋 复制"); });
+    ui->btnCopyCode->setText("已复制");
+    ui->btnCopyCode->setIcon(theme::icon(QStringLiteral(":/icons/check.svg"), theme::color("success"), 14));
+    QTimer::singleShot(2000, [this](){
+        ui->btnCopyCode->setText("复制");
+        ui->btnCopyCode->setIcon(theme::icon(QStringLiteral(":/icons/copy.svg"), theme::color("textFaint"), 14));
+    });
 }
 
 void MainWindow::onRemoteControlStarted()
@@ -1327,9 +1352,8 @@ void MainWindow::onRemoteControlStarted()
     isRemoteConnected = true;
     ui->btnStartControl->setText("断开连接");
     ui->btnStartControl->setEnabled(true);
-    ui->remoteStatusLabel->setText("⚠️ 正在被远程控制中");
-    ui->remoteStatusLabel->setStyleSheet("color: #EF4444; font-weight: bold;");
-    // 被控端不发 Ctrl+Alt+F(那是操控端发给被控端的),禁用按钮
+    ui->remoteStatusLabel->setText("正在被远程控制中");
+    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("danger"));
     ui->btnSendCtrlAltF->setEnabled(false);
     // 编码状态由 System 经本地 TCP(ENCODE_STATUS)上报后写入 label,这里不重复设置
 }
@@ -1342,7 +1366,8 @@ void MainWindow::onRemoteDisconnectedByPeer()
     ui->btnStartControl->setText("立即连接");
     ui->btnSendCtrlAltF->setEnabled(false);   // 断开:无连接可发,禁用
     ui->remoteStatusLabel->setText("远程连接已结束");
-    ui->remoteStatusLabel->setStyleSheet("color: #9CA3AF;");
+    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("ended"));
+    hidePeerCard();
     // 断开清空状态:编/解码 + 采集 label + VideoWidget 显示状态(避免残留上一帧/旧状态)
     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
     if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
@@ -1378,18 +1403,40 @@ void MainWindow::onRemoteConnectionTimeout()
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
     ui->remoteStatusLabel->setText("连接请求超时");
-    ui->remoteStatusLabel->setStyleSheet("color: #EF4444;");
+    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("danger"));
+    hidePeerCard();
+}
+
+void MainWindow::showPeerCard(int myRole, const QString& peerId)
+{
+    if (!ui || !ui->containerPeer || peerId.isEmpty()) return;
+    ui->peerIdLabel->setText(peerId);
+    if (myRole == 1) {
+        ui->peerRoleBadge->setText("被控端");
+        theme::setState(ui->peerRoleBadge, "role", QStringLiteral("controlled"));
+    } else {
+        ui->peerRoleBadge->setText("操控端");
+        theme::setState(ui->peerRoleBadge, "role", QStringLiteral("controller"));
+    }
+    ui->containerPeer->setVisible(true);
+}
+
+void MainWindow::hidePeerCard()
+{
+    if (!ui || !ui->containerPeer) return;
+    ui->containerPeer->setVisible(false);
+    ui->peerIdLabel->setText("");
 }
 
 void MainWindow::updateStatusUI(const QString& status, const QString& styleClass)
 {
     ui->connectionStatusLabel->setText(status);
-    if(styleClass == "success") {
-        ui->connectionStatusLabel->setStyleSheet("color: #10B981; font-size: 12px; background: rgba(16, 185, 129, 0.1); padding: 4px 8px; border-radius: 4px;");
+    if (styleClass == "success") {
+        theme::setState(ui->connectionStatusLabel, "state", QStringLiteral("success"));
     } else if (styleClass == "error") {
-        ui->connectionStatusLabel->setStyleSheet("color: #EF4444; font-size: 12px; background: rgba(239, 68, 68, 0.1); padding: 4px 8px; border-radius: 4px;");
+        theme::setState(ui->connectionStatusLabel, "state", QStringLiteral("error"));
     } else {
-        ui->connectionStatusLabel->setStyleSheet("color: #9CA3AF; font-size: 12px; background: rgba(156, 163, 175, 0.1); padding: 4px 8px; border-radius: 4px;");
+        theme::setState(ui->connectionStatusLabel, "state", QStringLiteral("normal"));
     }
 }
 
@@ -1402,6 +1449,10 @@ void MainWindow::onLogoutClicked() {
     if (webrtcManager) webrtcManager->disConnect();
     isSignalConnected = false;
     isRemoteConnected = false;
+    hidePeerCard();
+    hideNetworkBadge();
+    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("idle"));
+    ui->remoteStatusLabel->setText("安全加密传输 | 支持剪贴板 | 无感低延迟");
 
     if (videoWidget) {
         stopFpsDisplay();

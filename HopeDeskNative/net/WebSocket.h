@@ -2,9 +2,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -16,7 +19,7 @@
 #include <boost/beast/ssl.hpp>
 #include <boost/json.hpp>
 
-#include "AsioConcurrentQueue.h"
+#include "AwaitableQueue.h"
 #include "../utils/Options.h"
 
 namespace hope {
@@ -55,13 +58,13 @@ public:
 
 private:
 
-    void asyncBoot();
+    void asyncEvent();
 
     boost::asio::awaitable<void> receiveCoroutine();
 
     boost::asio::awaitable<void> writerCoroutine();
 
-    void disConnectEvent();
+    void handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error);
 
     void closeWebSocket();
 
@@ -75,11 +78,13 @@ private:
 
     WebSocketStream webSocket;
 
-    AsioConcurrentQueue<std::string> asioConcurrentQueue;
+    AwaitableQueue<std::string> awaitableQueue;
 
-    std::atomic<bool> asyncBoots{ false };
+    std::atomic<bool> asyncEvents{ false };
 
     std::atomic<bool> connecting{ false };
+
+    std::atomic<bool> isHandleDisConnect{ false };
 
     std::function<void(std::string)> onMessageHandle;
 
@@ -87,7 +92,11 @@ private:
 
     std::function<void()> onDisConnectHandle;
 
+    boost::beast::flat_buffer readBuffer;
+
     static constexpr std::chrono::seconds connectTimeout{ 5 };
+
+    static constexpr std::size_t maximumFramesPerWrite{ 32 };
 };
 
 }
