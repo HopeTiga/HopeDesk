@@ -3,6 +3,7 @@
 #include <array>
 #include <cstring>
 #include <optional>
+#include <stdexcept>
 
 #include "../utils/Utils.h"
 #include "../utils/CompletionHandle.h"
@@ -33,7 +34,8 @@ namespace net {
 TcpSocket::TcpSocket(boost::asio::io_context& ioContext)
     : ioContext(ioContext)
     , tcpSocket(ioContext)
-    , asioConcurrentQueue(ioContext.get_executor()) {
+    , awaitableQueue(ioContext.get_executor()) {
+    receiveBuffer.resize(receiveBufferInitialSize);
 }
 
 TcpSocket::~TcpSocket() {
@@ -54,15 +56,13 @@ boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
 
         co_await boost::asio::async_connect(tcpSocket, std::array{ endpoint }, boost::asio::use_awaitable);
 
-        asioConcurrentQueue.reset();
+        awaitableQueue.reset();
 
         setTcpKeepAlive(tcpSocket);
 
-        asyncEvents.store(true);
-
         connecting.store(false);
 
-        startCoroutines();
+        asyncEvent();
 
         LOG_INFO("TcpSocket Connected To 127.0.0.1:{}", static_cast<unsigned int>(port));
 
@@ -82,28 +82,36 @@ boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
     }
 }
 
-void TcpSocket::startCoroutines() {
+void TcpSocket::asyncEvent() {
+    if (asyncEvents.exchange(true)) return;
+
+    isHandleDisConnect.store(false);
+
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->receiveCoroutine();
         co_return;
-    }, hope::CompletionHandle{});
+    }, [self = shared_from_this()](std::exception_ptr error) {
+        self->handleCoroutineExit("ReceiveCoroutine", error);
+    });
 
     boost::asio::co_spawn(ioContext, [self = shared_from_this()]() -> boost::asio::awaitable<void> {
         co_await self->writerCoroutine();
         co_return;
-    }, hope::CompletionHandle{});
+    }, [self = shared_from_this()](std::exception_ptr error) {
+        self->handleCoroutineExit("WriterCoroutine", error);
+    });
 }
 
 void TcpSocket::closeEvent() {
-    asyncEvents.store(false);
-    asioConcurrentQueue.close();
+    if (!asyncEvents.exchange(false)) return;
+    awaitableQueue.close();
     closeSocket();
 }
 
 bool TcpSocket::asyncWrite(std::shared_ptr<WriterData> writerData) {
     if (writerData == nullptr) return false;
     if (!asyncEvents.load()) return false;
-    return asioConcurrentQueue.enqueue(std::move(writerData));
+    return awaitableQueue.enqueue(std::move(writerData));
 }
 
 bool TcpSocket::isOpen() const {
@@ -119,113 +127,120 @@ void TcpSocket::setOnDisConnectHandle(std::function<void()> handle) {
 }
 
 boost::asio::awaitable<void> TcpSocket::receiveCoroutine() {
-    char headerBuffer[8];
-    const size_t headerSize = sizeof(int64_t);
+    while (asyncEvents.load()) {
 
-    try {
-        while (asyncEvents.load()) {
+        if (receiveHeldBytes == receiveBuffer.size()) {
 
-            std::memset(headerBuffer, 0, headerSize);
-
-            size_t headerRead = 0;
-            while (headerRead < headerSize) {
-                size_t n = co_await tcpSocket.async_read_some(
-                    boost::asio::buffer(headerBuffer + headerRead, headerSize - headerRead),
-                    boost::asio::use_awaitable);
-
-                if (n == 0) co_return;
-
-                headerRead += n;
+            if (receiveBuffer.size() >= receiveBufferMaximumSize) {
+                throw std::runtime_error("Frame Larger Than The Maximum Receive Buffer");
             }
+
+            std::size_t grownSize = receiveBuffer.size() * 2;
+
+            if (grownSize > receiveBufferMaximumSize) grownSize = receiveBufferMaximumSize;
+
+            receiveBuffer.resize(grownSize);
+        }
+
+        const std::size_t receivedBytes = co_await tcpSocket.async_read_some(
+            boost::asio::buffer(receiveBuffer.data() + receiveHeldBytes,
+                                receiveBuffer.size() - receiveHeldBytes),
+            boost::asio::use_awaitable);
+
+        if (receivedBytes == 0) co_return;
+
+        const std::size_t totalBytes = receiveHeldBytes + receivedBytes;
+
+        std::size_t offset = 0;
+
+        while (totalBytes - offset >= headerSize) {
 
             int64_t rawBodyLength = 0;
-            std::memcpy(&rawBodyLength, headerBuffer, sizeof(int64_t));
+            std::memcpy(&rawBodyLength, receiveBuffer.data() + offset, sizeof(int64_t));
+
             int64_t bodyLength = boost::asio::detail::socket_ops::network_to_host_long(rawBodyLength);
 
-            if (bodyLength <= 0 || bodyLength > 10 * 1024 * 1024) {
+            if (bodyLength <= 0 || bodyLength > static_cast<int64_t>(maximumBodySize)) {
                 LOG_ERROR("TcpSocket ReceiveCoroutine Invalid Body Length: {}", static_cast<int>(bodyLength));
-                co_return;
+                throw std::runtime_error("Invalid Body Length");
             }
 
-            const size_t bodySize = static_cast<size_t>(bodyLength);
+            const std::size_t bodySize = static_cast<std::size_t>(bodyLength);
 
-            std::unique_ptr<char[]> bodyBuffer(new char[bodySize + 1]);
-            if (!bodyBuffer) {
-                LOG_ERROR("TcpSocket ReceiveCoroutine Failed To Allocate Body Buffer");
-                co_return;
-            }
-            std::memset(bodyBuffer.get(), 0, bodySize + 1);
+            if (totalBytes - offset - headerSize < bodySize) break;
 
-            size_t bodyRead = 0;
-            while (bodyRead < bodySize) {
-                size_t n = co_await tcpSocket.async_read_some(
-                    boost::asio::buffer(bodyBuffer.get() + bodyRead, bodySize - bodyRead),
-                    boost::asio::use_awaitable);
+            std::string bodyStr(receiveBuffer.data() + offset + headerSize, bodySize);
 
-                if (n == 0) co_return;
-
-                bodyRead += n;
-            }
-
-            std::string bodyStr(bodyBuffer.get(), bodySize);
+            offset += headerSize + bodySize;
 
             if (onMessageHandle) {
                 onMessageHandle(std::move(bodyStr));
             }
         }
-    }
-    catch (const std::exception& e) {
-        LOG_ERROR("TcpSocket ReceiveCoroutine Error: {}", e.what());
-        disconnectEvent();
-    }
-    catch (...) {
-        LOG_ERROR("TcpSocket ReceiveCoroutine Unknown Error");
-        disconnectEvent();
+
+        receiveHeldBytes = totalBytes - offset;
+
+        if (receiveHeldBytes > 0 && offset > 0) {
+            std::memmove(receiveBuffer.data(), receiveBuffer.data() + offset, receiveHeldBytes);
+        }
     }
 
     co_return;
 }
 
 boost::asio::awaitable<void> TcpSocket::writerCoroutine() {
-    try {
-        while (asyncEvents.load()) {
 
-            std::optional<std::shared_ptr<WriterData>> optional = co_await asioConcurrentQueue.dequeue();
+    std::vector<std::shared_ptr<WriterData>> packets(maximumFramesPerWrite);
 
-            if (optional.has_value()) {
-                std::shared_ptr<WriterData> writeData = optional.value();
+    std::vector<boost::asio::const_buffer> segments;
 
-                co_await boost::asio::async_write(
-                    tcpSocket,
-                    boost::asio::buffer(writeData->data, writeData->size),
-                    boost::asio::use_awaitable);
-            }
-            else break;
+    segments.reserve(maximumFramesPerWrite);
 
-            if (!asyncEvents.load()) break;
+    while (asyncEvents.load()) {
+
+        std::size_t count = awaitableQueue.tryDequeueBulk(packets.data(), maximumFramesPerWrite);
+
+        if (count == 0) {
+
+            if (!co_await awaitableQueue.awaitDequeue(packets[0])) break;
+
+            count = 1;
         }
-    }
-    catch (const std::exception& e) {
-        LOG_ERROR("TcpSocket WriterCoroutine Error: {}", e.what());
-        disconnectEvent();
-    }
-    catch (...) {
-        LOG_ERROR("TcpSocket WriterCoroutine Unknown Error");
-        disconnectEvent();
+
+        segments.clear();
+
+        for (std::size_t index = 0; index < count; ++index) {
+            segments.emplace_back(boost::asio::buffer(packets[index]->data, packets[index]->size));
+        }
+
+        co_await boost::asio::async_write(tcpSocket, segments, boost::asio::use_awaitable);
     }
 
     co_return;
 }
 
-void TcpSocket::disconnectEvent() {
-    if (!asyncEvents.exchange(false)) return;
+void TcpSocket::handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error) {
+    if (!asyncEvents.load(std::memory_order_acquire)) return;
 
-    asioConcurrentQueue.close();
+    closeEvent();
 
-    closeSocket();
-
-    if (onDisConnectHandle) {
+    if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
         onDisConnectHandle();
+    }
+
+    if (!error) {
+        LOG_INFO("{} Exit: Peer Closed The Connection", coroutineName);
+        return;
+    }
+
+    try {
+        std::rethrow_exception(error);
+    }
+    catch (const std::exception& e) {
+        LOG_ERROR("{} Error: {}", coroutineName, e.what());
+    }
+    catch (...) {
+        LOG_ERROR("{} Error: Unknown", coroutineName);
     }
 }
 

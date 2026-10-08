@@ -1,14 +1,18 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <boost/asio.hpp>
 
-#include "AsioConcurrentQueue.h"
+#include "AwaitableQueue.h"
 #include "Socket.h"
 
 namespace hope {
@@ -38,13 +42,13 @@ public:
     void setOnDisConnectHandle(std::function<void()> handle);
 
 private:
-    void startCoroutines();
+    void asyncEvent();
 
     boost::asio::awaitable<void> receiveCoroutine();
 
     boost::asio::awaitable<void> writerCoroutine();
 
-    void disconnectEvent();
+    void handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error);
 
     void closeSocket();
 
@@ -54,15 +58,31 @@ private:
 
     boost::asio::ip::tcp::socket tcpSocket;
 
-    AsioConcurrentQueue<std::shared_ptr<WriterData>> asioConcurrentQueue;
+    AwaitableQueue<std::shared_ptr<WriterData>> awaitableQueue;
 
     std::atomic<bool> asyncEvents{ false };
 
     std::atomic<bool> connecting{ false };
 
+    std::atomic<bool> isHandleDisConnect{ false };
+
     std::function<void(std::string)> onMessageHandle;
 
     std::function<void()> onDisConnectHandle;
+
+    std::vector<char> receiveBuffer;
+
+    std::size_t receiveHeldBytes{ 0 };
+
+    static constexpr std::size_t headerSize{ sizeof(int64_t) };
+
+    static constexpr std::size_t maximumBodySize{ 10 * 1024 * 1024 };
+
+    static constexpr std::size_t receiveBufferInitialSize{ 8192 };
+
+    static constexpr std::size_t receiveBufferMaximumSize{ maximumBodySize + headerSize };
+
+    static constexpr std::size_t maximumFramesPerWrite{ 32 };
 };
 
 }

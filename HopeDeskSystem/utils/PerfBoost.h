@@ -73,7 +73,9 @@ namespace hope {
         // HAGS 开着时是否仍用 REALTIME。语义抄 Sunshine 的 nvenc_realtime_hags（默认 true）。
         // 驱动有一条未修的 bug：REALTIME + HAGS + DX12 + 显存接近打满 会导致编码卡死甚至驱动崩溃
         // （Sunshine display_base.cpp:800-805 的注释）。中招就把这里改成 false 退到 HIGH。
-        constexpr bool kRealtimeWithHags = true;
+        // 2026-09-30 实测：日志确认 REALTIME 已生效（HAGS=Enabled）但串流仍锁在 71fps，
+        // 按上面那条规避退到 HIGH，验证是不是踩在这个已知 bug 上。
+        constexpr bool kRealtimeWithHags = false;
 
         inline std::atomic<bool>& boostedFlag() {
             static std::atomic<bool> boosted = false;
@@ -116,6 +118,11 @@ namespace hope {
                         privileges.Privileges[0].Luid = privilegeLuid;
                         privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
                         AdjustTokenPrivileges(processToken, FALSE, &privileges, sizeof(privileges), NULL, NULL);
+                        // AdjustTokenPrivileges 只能启用令牌里已有的特权；令牌里没有时它仍返回 TRUE，
+                        // 只把 GetLastError 设成 ERROR_NOT_ALL_ASSIGNED —— 原代码没查这一层，看不到。
+                        if (GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
+                            LOG_WARN("SeIncreaseBasePriorityPrivilege Not Held By Token (Not Elevated?); Gpu Scheduling Priority Will Likely Fail");
+                        }
                     }
                     CloseHandle(processToken);
                 }
