@@ -80,13 +80,13 @@ HopeDeskNative/
 │   ├── MainWindow.* / WebrtcManager.*
 │   ├── impl/                     # 回调/Observer 实现
 │   ├── factory/                  # 编码/解码器工厂
-│   ├── widget/                   # VideoWidget 渲染控件（CustomDialogs.h 无命名空间）
+│   ├── widget/                   # VideoWidget 渲染控件 · FramelessWindowAgent 无边框窗口（CustomDialogs.h 无命名空间）
 │   ├── audio/                    # 音频采集
 │   └── codec/                    # D3D11/NVDEC 硬解 + 软解（Nvdec.h 无命名空间）
 ├── net/                          # hope::net —— 网络层
-│   ├── WebSocket.*               # 信令 WebSocket 客户端（消息回调由封装类提供）
+│   ├── WebSocket.*               # 信令 WebSocket 客户端（消息回调由封装类提供，协程生命周期归口 + 批量写）
 │   ├── TcpAcceptor.*             # 本地 TCP 监听（127.0.0.1:19998，与连接分离）
-│   ├── TcpSocket.*               # 本地 TCP 单连接（accept/connect 双入口）
+│   ├── TcpSocket.*               # 本地 TCP 单连接（accept/connect 双入口，协程生命周期归口 + 批量收发）
 │   ├── Socket.h                  # 长度前缀帧（int64 网络序 + body）
 │   └── AwaitableQueue.h          # 协程发送队列
 ├── system/                       # hope::system —— WindowsServiceManager / InterceptionHook
@@ -108,7 +108,7 @@ HopeDeskSystem/
 │   ├── buffer/                   # Webrtc I420/NV12/D3D11 帧缓冲
 │   └── audio/                    # 音频采集
 ├── net/                          # hope::net（与 Native 同套）
-│   ├── TcpSocket.*               # 本地 TCP 连接（connect 侧，连 127.0.0.1:19998）
+│   ├── TcpSocket.*               # 本地 TCP 连接（connect 侧，连 127.0.0.1:19998，协程生命周期归口 + 批量收发）
 │   ├── Socket.h
 │   └── AwaitableQueue.h
 ├── system/                       # hope::system —— WinLogon / SessionHelper
@@ -226,7 +226,7 @@ WebrtcSignalServer/
 
 ### 🖥️ 画质与性能
 - **高清自适应编码**：采用高效率的AV1软件编码器，在有限带宽下提供更佳画质。支持动态调整帧率与分辨率，适应复杂网络。
-- **硬件编码支持**：**已集成基于NVIDIA NVENC的硬件编码**，能够利用GPU进行编码加速，大幅降低大型应用（如3A游戏、视频编辑软件）远程运行时的CPU占用，实现更高帧率、更低延迟与更佳画质，是**远程高品质游戏与专业应用体验的关键保障**。
+- **硬件编码支持**：**已集成基于NVIDIA NVENC的硬件编码**，能够利用GPU进行编码加速，大幅降低大型应用（如3A游戏、视频编辑软件）远程运行时的CPU占用，实现更高帧率、更低延迟与更佳画质，是**远程高品质游戏与专业应用体验的关键保障**。NVENC 不可用（初始化失败、运行中持续编码失败，如驱动重置）时**自动回退同编码器软编**（H265 → X265，AV1 → libwebrtc 内置），强制一个关键帧，采集**同步切到 CPU 帧路径**（零拷贝共享纹理帧软编消费不了），画面不中断；回退**单向**，本会话不再切回硬编。
 - **硬件解码支持**：操控端 Native 集成 **D3D11(DXVA) 与 NVDEC(CUVID) 双硬件解码**：
   - **AV1 硬解**走 **D3D11 DXVA**，默认**零拷贝**（解码直写共享纹理、渲染端免上传直接采样）；若驱动不支持/解码失败（GPU 移除、共享纹理解码崩溃），**自动切换到 VideoProcessor 拷贝路径**（解码进私有纹理 → VideoProcessorBlt 拷到共享纹理，绕开驱动不支持的零拷贝），仍失败则运行时回退软解（dav1d）。
   - **H264/H265 硬解**走 **NVDEC(CUVID)**；H265 软解走 libde265。
