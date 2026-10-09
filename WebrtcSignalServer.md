@@ -477,7 +477,7 @@ boost::asio::co_spawn(ioc, [client, token]() mutable -> boost::asio::awaitable<v
 
     HttpClient::Response resp = co_await client->asyncRequest("127.0.0.1:8090", req);
     // Discover / Heartbeat / DeregisterInstance 同理,换 target + body
-}, boost::asio::detached);
+}, CompletionHandle{});
 ```
 
 > HttpClient 由调用方自行使用；信令服务器启动流程当前未调用它。
