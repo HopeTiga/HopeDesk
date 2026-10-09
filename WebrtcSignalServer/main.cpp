@@ -34,7 +34,7 @@ int main() {
 
     hope::utils::ConfigManager& configManager = hope::utils::ConfigManager::Instance();
 
-    configManager.Load("config.ini", hope::utils::ConfigManager::Format::Ini);
+    const bool configLoaded = configManager.Load("config.ini", hope::utils::ConfigManager::Format::Ini);
 
     hope::utils::MimallocConfig mimallocConfig;
     hope::utils::loadMimallocConfig(mimallocConfig, configManager);
@@ -43,6 +43,12 @@ int main() {
     hope::utils::LoggerConfig loggerConfig;
     hope::utils::loadLoggerConfig(loggerConfig, configManager);
     hope::utils::applyLoggerConfig(loggerConfig);
+
+    if (!configLoaded) {
+
+        LOG_WARN("Config Load Failed: config.ini Missing Or Unreadable, All Settings Fall Back To Defaults");
+
+    }
 
     hope::executor::SchedulerConfig schedulerConfig;
     hope::executor::loadSchedulerConfig(schedulerConfig, configManager);

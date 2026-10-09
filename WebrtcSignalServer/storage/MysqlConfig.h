@@ -39,7 +39,6 @@ namespace hope {
 
 			mysqlConfig.host = configManager.GetString("Mysql.host", mysqlConfig.host);
 
-			// 越界会截断成合法但错误的端口
 			const int port = configManager.GetInt("Mysql.port", static_cast<int>(mysqlConfig.port));
 			mysqlConfig.port = (port > 0 && port <= 65535) ? static_cast<unsigned short>(port) : mysqlConfig.port;
 
@@ -48,7 +47,6 @@ namespace hope {
 			mysqlConfig.database = configManager.GetString("Mysql.database", mysqlConfig.database);
 			mysqlConfig.multiQueries = configManager.GetBool("Mysql.multiQueries", mysqlConfig.multiQueries);
 
-			// 不能用 GetSize:它把 <= 0 当"回退到核数"
 			const int poolInitialSize = configManager.GetInt("Mysql.poolInitialSize", static_cast<int>(mysqlConfig.poolInitialSize));
 			mysqlConfig.poolInitialSize = (poolInitialSize > 0) ? static_cast<std::size_t>(poolInitialSize) : 1;
 

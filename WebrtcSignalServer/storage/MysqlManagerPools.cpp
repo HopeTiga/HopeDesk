@@ -43,8 +43,8 @@ namespace hope {
 					}
 				}, CompletionHandle{});
 
-			LOG_DEBUG("MySQL ConnectionPool Created (Initial={}, Max={}) On IoContext {}",
-				params.initial_size, params.max_size, static_cast<void*>(&ioContext));
+			LOG_INFO("MySQL ConnectionPool Created (Host={}, Port={}, Initial={}, Max={}) On IoContext {}",
+				this->mysqlConfig.host, this->mysqlConfig.port, params.initial_size, params.max_size, static_cast<void*>(&ioContext));
 		}
 
 		MysqlManagerPools::~MysqlManagerPools() {

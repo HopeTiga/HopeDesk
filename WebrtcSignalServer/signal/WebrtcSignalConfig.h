@@ -14,11 +14,11 @@ namespace hope {
 
         struct WebrtcSignalConfig {
 
-            size_t signalPort = 8088;
+            unsigned short signalPort = 8088;
 
             size_t enableHttp = 0;
 
-            size_t httpPort = 9099;
+            unsigned short httpPort = 9099;
 
             size_t enablePublicPort = 1;
 
@@ -54,11 +54,13 @@ namespace hope {
 
         inline void loadWebrtcSignalConfig(WebrtcSignalConfig& webrtcSignalConfig, const hope::utils::ConfigManager& configManager) {
 
-            webrtcSignalConfig.signalPort = static_cast<size_t>(configManager.GetInt("WebrtcSignalServer.port", static_cast<int>(webrtcSignalConfig.signalPort)));
+            const int signalPort = configManager.GetInt("WebrtcSignalServer.port", static_cast<int>(webrtcSignalConfig.signalPort));
+            webrtcSignalConfig.signalPort = (signalPort > 0 && signalPort <= 65535) ? static_cast<unsigned short>(signalPort) : webrtcSignalConfig.signalPort;
 
             webrtcSignalConfig.enableHttp = static_cast<size_t>(configManager.GetInt("WebrtcSignalServer.enableHttp", static_cast<int>(webrtcSignalConfig.enableHttp)));
 
-            webrtcSignalConfig.httpPort = static_cast<size_t>(configManager.GetInt("WebrtcSignalServer.httpPort", static_cast<int>(webrtcSignalConfig.httpPort)));
+            const int httpPort = configManager.GetInt("WebrtcSignalServer.httpPort", static_cast<int>(webrtcSignalConfig.httpPort));
+            webrtcSignalConfig.httpPort = (httpPort > 0 && httpPort <= 65535) ? static_cast<unsigned short>(httpPort) : webrtcSignalConfig.httpPort;
 
             webrtcSignalConfig.enablePublicPort = static_cast<size_t>(configManager.GetInt("WebrtcSignalServer.enablePublicPort", static_cast<int>(webrtcSignalConfig.enablePublicPort)));
 

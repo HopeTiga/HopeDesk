@@ -170,6 +170,8 @@ namespace hope {
 
                 setAccountId(accountId);
 
+                LOG_INFO("User Register Successful (HandShake): {} (ChannelIndex: {})", accountId.c_str(), webrtcSignalManager->getChannelIndex());
+
 #ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
                 boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getIoCompletionPorts();
@@ -185,9 +187,6 @@ namespace hope {
                 webrtcSignalManager->registerSocket(accountId, shared_from_this());
 
 #endif
-
-
-                LOG_INFO("User Register Successful (HandShake): {} (ChannelIndex: {})", accountId.c_str(), webrtcSignalManager->getChannelIndex());
 
             }
             catch (const boost::system::system_error& se) {

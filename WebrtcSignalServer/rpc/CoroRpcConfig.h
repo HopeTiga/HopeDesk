@@ -11,7 +11,7 @@ namespace hope {
 
 		struct CoroRpcServerConfig {
 
-			size_t port = 10011;
+			unsigned short port = 10011;
 
 			size_t threadSize = 2;
 
@@ -37,7 +37,8 @@ namespace hope {
 
 		inline void loadCoroRpcConfig(CoroRpcServerConfig& coroRpcServerConfig, const hope::utils::ConfigManager& configManager) {
 
-			coroRpcServerConfig.port = configManager.GetSize("CoroRpc.port", coroRpcServerConfig.port);
+			const int port = configManager.GetInt("CoroRpc.port", static_cast<int>(coroRpcServerConfig.port));
+			coroRpcServerConfig.port = (port > 0 && port <= 65535) ? static_cast<unsigned short>(port) : coroRpcServerConfig.port;
 
 			coroRpcServerConfig.threadSize = configManager.GetSize("CoroRpc.threadSize", coroRpcServerConfig.threadSize);
 
