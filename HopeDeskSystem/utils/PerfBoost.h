@@ -70,12 +70,7 @@ namespace hope {
         typedef NTSTATUS(WINAPI* PD3DKMTQueryAdapterInfo)(D3DKMT_QUERYADAPTERINFO*);
         typedef NTSTATUS(WINAPI* PD3DKMTCloseAdapter)(D3DKMT_CLOSEADAPTER*);
 
-        // HAGS 开着时是否仍用 REALTIME。语义抄 Sunshine 的 nvenc_realtime_hags（默认 true）。
-        // 驱动有一条未修的 bug：REALTIME + HAGS + DX12 + 显存接近打满 会导致编码卡死甚至驱动崩溃
-        // （Sunshine display_base.cpp:800-805 的注释）。中招就把这里改成 false 退到 HIGH。
-        // 2026-09-30 实测：日志确认 REALTIME 已生效（HAGS=Enabled）但串流仍锁在 71fps，
-        // 按上面那条规避退到 HIGH，验证是不是踩在这个已知 bug 上。
-        constexpr bool kRealtimeWithHags = false;
+        constexpr bool kRealtimeWithHags = true;
 
         inline std::atomic<bool>& boostedFlag() {
             static std::atomic<bool> boosted = false;
