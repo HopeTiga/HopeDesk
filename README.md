@@ -201,14 +201,14 @@ WebrtcSignalServer/
     Port=8088
 
     [Render]
-    ; 垂直同步开关：1=开启（锁定显示器刷新率），0=关闭（渲染不再被刷新率锁帧） 关闭垂直同步可能导致画面撕裂
+    ; 垂直同步开关：true=开启（锁定显示器刷新率），false=关闭（渲染不再被刷新率锁帧） 关闭垂直同步可能导致画面撕裂
     VSync=false
 
     [VitrualDisplay]
     ; Hope Virtual Display 虚拟显示器的分辨率与刷新率（连接时下发给 System，见「虚拟显示器高性能采集」）
     DesktopWidth=1920
     DesktopHeight=1080
-    ; 采集端出帧硬上限：驱动出帧快于此值时多余帧在采集线程直接丢弃；0=不设上限
+    ; 虚拟显示器刷新率（Hz）：连接时作为显示器模式下发，程序内可调范围 24–240
     DesktopRefreshRate=144
     ```
 
@@ -290,6 +290,23 @@ HopeDesk 采用以 WebSocket 为核心的稳健信令架构，旨在各类生产
 - **Windows 桌面操控端**：✅ 完整支持（基于Qt，通过WebSocket信令连接，支持**D3D11(DXVA)/NVDEC 硬件解码**）
 - **Linux / macOS 被控端**：🗓️ 规划中（将基于统一的架构进行扩展）
 - **移动端（App）**：🗓️ 规划中
+
+---
+
+## ⚙️ GPU 调度优先级：REALTIME 必须保持开启
+
+被控端 System 启动时会向 Windows 申请 **REALTIME 级 GPU 调度优先级**（`D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME`），由 `utils/PerfBoost.h` 的 `constexpr bool kRealtimeWithHags` 控制（语义对齐 Sunshine 的 `nvenc_realtime_hags`：NVIDIA + HAGS 时是否仍用 REALTIME）。
+
+**这一行必须保持 `true`。改成 `false`（退到 HIGH）时，串流帧率会立刻从 120–140 掉到 ~60。**
+
+| 实测（2026-10-09，单变量 A/B，其余全不动，HAGS 全程 Enabled） | 串流帧率 |
+| :--- | :--- |
+| `Gpu Scheduling Priority Applied: HAGS=Enabled Priority=Realtime` | **120–140** |
+| `Gpu Scheduling Priority Applied: HAGS=Enabled Priority=High` | **立刻 ~60** |
+
+**如何确认当次真的生效**：看服务端日志 `C:\Windows\System32\logs\HopeDeskSystem.log` 里的 `PerfBoost.h Gpu Scheduling Priority Applied: HAGS=? Priority=?` —— 只有 `Priority=Realtime` 才是要的档位（行号随注释增删变动，认文本，别认行号）。若出现 `Gpu Scheduling Priority Set Failed: ... (Needs SeIncreaseBasePriorityPrivilege)`，说明进程没有 `SeIncreaseBasePriorityPrivilege`，**两个档位都没生效**，得先解决特权。
+
+> ⚠️ **边界**：上游 Sunshine 文档指出，NVIDIA 驱动在 **HAGS 开启 + 使用 REALTIME + 显存接近占满** 三者同时成立时，可能**冻结编码器**；`kRealtimeWithHags` 就是为此保留的逃生门。本机游戏态显存占用约 74%，尚未触发。**若出现编码卡死或码流中断，第一嫌疑即在此处** —— 届时才回退为 `false`，并记录当时的显存占用。
 
 ---
 
