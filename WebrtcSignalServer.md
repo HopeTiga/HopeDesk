@@ -150,7 +150,9 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 三处刻意的不机械，都是兼容既有 `config.ini` 或单一所有权：① `WebrtcSignalConfig::threadSize` 由 `loadSchedulerConfig` 唯一读一次（通道数 = 每个池的线程数）；② `WebrtcSignalConfig::enableRpc` 的键在 `[CoroRpc]` 段（`CoroRpc.enableRpc`），由 `loadWebrtcSignalConfig` 跨段读；③ `[Logger]` 的级别键是大写的（`Logger.DEBUG`），成员名小写。
 
-**已知陷阱：`ConfigManager::GetSize` 把 `<= 0` 当"回退到核数"**（默认退到 `std::thread::hardware_concurrency()`）。所以语义上 0 就是 0 的键一律走 `GetInt` + 手工夹取，不能走 `GetSize`：`Redis.maxReadSize`/`Redis.connectionSize`、`SchedulerConfig` 的两个绑核偏移量、`WebrtcSignalConfig` 的端口与开关（`enableHttp`/`enablePublicPort` 关掉的 0 会被 `GetSize` 换成兜底值）。
+**已知陷阱：`ConfigManager::GetSize` 把 `<= 0` 当"回退到核数"**（默认退到 `std::thread::hardware_concurrency()`）。所以语义上 0 就是 0 的键一律走 `GetInt` + 手工夹取，不能走 `GetSize`：`Redis.maxReadSize`/`Redis.connectionSize`、`SchedulerConfig` 的两个绑核偏移量、`WebrtcSignalConfig` 的端口与开关（`enableHttp`/`enablePublicPort` 关掉的 0 会被 `GetSize` 换成兜底值）、`CoroRpc.port`。
+
+**端口字段一律 `unsigned short` + `(0 < port <= 65535)` 夹取**（`signalPort`/`httpPort`/`CoroRpcServerConfig::port`/`MysqlConfig::port`），越界回落结构体默认值：消费端 `tcp::endpoint`、`coro_rpc_server`、`host_and_port` 收的都是 16 位，留 `size_t` 会静默收窄。`Redis.port` 是字符串，不走这条。
 
 ---
 
@@ -160,9 +162,9 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 1. 设置控制台 UTF-8（Windows `SetConsoleOutputCP(CP_UTF8)` + `SetConsoleCP(CP_UTF8)`，Linux `setlocale(LC_ALL, "C.UTF-8")`）——日志全链路 UTF-8 的一半前提在这里，另一半在构建宏（见 §2.1）。
 2. `mi_version()`（强制引用 mimalloc 符号，保证动态库装载）。
-3. `ConfigManager.Load("config.ini")`。
+3. `ConfigManager.Load("config.ini")`（返回值留到第 5 步 logger 就绪后用；失败则整棵树为空，全键回落结构体默认值）。
 4. 读 `[Mimalloc]` 段（`loadMimallocConfig`）→ `applyMimallocConfig` 逐项 `mi_option_set`（编译期注入，等价 Windows 侧 `MIMALLOC_*` 环境变量，编进产物，运行时无需再设）。
-5. 读 `[Logger]` 段（`loadLoggerConfig`）→ `applyLoggerConfig`：`setLoggerAsyncConfig(queueSize, threadCount)` 建 spdlog 异步线程池 → `setFileLoggingConfig(logToFile/logDirectory/maxFileSizeMB/maxFiles)` → `initLogger()`（控制台 + rotating 文件 sink，`spdlog::flush_every(3s)` 实时落盘）→ `setConsoleOutputLevels(DEBUG/INFO/WARN/ERROR)`。
+5. 读 `[Logger]` 段（`loadLoggerConfig`）→ `applyLoggerConfig`：`setLoggerAsyncConfig(queueSize, threadCount)` 建 spdlog 异步线程池 → `setFileLoggingConfig(logToFile/logDirectory/maxFileSizeMB/maxFiles)` → `initLogger()`（控制台 + rotating 文件 sink，`spdlog::flush_every(3s)` 实时落盘）→ `setConsoleOutputLevels(DEBUG/INFO/WARN/ERROR)`；随后若第 3 步 `Load` 失败补一条 `LOG_WARN`（`Logger.ERROR` 默认 0，不用 ERROR）。
 6. 读 `[WebrtcSignalServer]` 的 `threadSize` 与两对绑核开关（`loadSchedulerConfig`）→ `SchedulerContext::init(schedulerConfig)` 启动 worker 线程池。
 7. `loadWebrtcSignalConfig` 填 `WebrtcSignalConfig`（port/httpPort/enableHttp/enablePublicPort/overload/threshold/exitThreshold/asyncThreshold/maxTls*/maxHttpKeepAliveTime/certificateFile/privateKeyFile），再 `loadCoroRpcConfig` / `loadMysqlConfig` / `loadRedisConfig` 三行填完它的三份子配置；`threadSize` 取第 6 步的值（同一个 ini 键只读一次）。
 8. `initSslContext(webrtcSignalConfig.certificateFile, webrtcSignalConfig.privateKeyFile)`（主 WebSocket/HTTP 的 SSL 上下文）。
@@ -1008,8 +1010,8 @@ hope::executor::SchedulerContext::init(schedulerConfig);
 
 ```ini
 [WebrtcSignalServer]
-port = 8088              ; WebSocket 信令端口
-httpPort = 9099          ; HTTP 运维端口
+port = 8088              ; WebSocket 信令端口(取值见 §3)
+httpPort = 9099          ; HTTP 运维端口(取值见 §3)
 enableHttp = 1           ; 是否开 HTTP
 enablePublicPort = 1     ; 1=监听 0.0.0.0,0=仅 127.0.0.1
 threadSize = 0           ; 通道数,0=硬件并发数(取 hardware_concurrency)
@@ -1041,7 +1043,7 @@ ERROR = 0                ; 0 只关屏幕;日志文件仍收 error(logToFile=1)
 
 [Mysql]
 host = 127.0.0.1
-port = 3306
+port = 3306              ; 取值见 §3
 username = root
 password = root
 database = mysql
@@ -1076,7 +1078,7 @@ isRestart = false              ; async_run 异常退出后是否 1s 后重连(0=
 
 [CoroRpc]
 enableRpc = 0            ; 1 才启用 RPC(节点间转发 requestForward 用)
-port = 10018
+port = 10018             ; 取值见 §3
 threadSize = 2
 enableSsl = 1            ; 0=明文,1=单向 TLS
 basePath = .             ; 证书目录,=当前工作目录
