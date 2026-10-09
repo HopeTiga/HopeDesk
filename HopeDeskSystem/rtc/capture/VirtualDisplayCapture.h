@@ -88,6 +88,10 @@ public:
 
     void setChannelSync(std::shared_ptr<VddChannelSync> s);
 
+    // 编码器硬编失败回退软编时调用:置位后采集改走 CPU 帧路径
+    // (软编消费不了零拷贝共享纹理帧)。
+    void forceCpuPath();
+
     GUID getMonitorGuid() const;
 
 private:
@@ -149,6 +153,7 @@ private:
     int    staleFastAttempts = 0;
 
     Config config;
+    std::atomic<bool> cpuPathOverride{ false };
     std::atomic<bool> capturing{ false };
     std::thread captureThread;
     GpuDataHandle gpuDataHandle;

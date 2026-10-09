@@ -90,6 +90,11 @@ namespace hope {
         void VirtualDisplayCapture::setGpuDataHandle(GpuDataHandle h) { gpuDataHandle = h; }
         void VirtualDisplayCapture::setDataHandle(DataHandle h) { dataHandle = h; }
         void VirtualDisplayCapture::setChannelSync(std::shared_ptr<VddChannelSync> s) { channelSync = std::move(s); }
+
+        void VirtualDisplayCapture::forceCpuPath() {
+            cpuPathOverride.store(true, std::memory_order_release);
+        }
+
         GUID VirtualDisplayCapture::getMonitorGuid() const { return monitorGuid; }
 
         // ---------------------------------------------------------------------------
@@ -678,7 +683,7 @@ namespace hope {
             const UINT slot = meta.SlotIndex;
             if (slot >= slotCount || !slotKm[slot]) return false;
 
-            if (config.cpuPath && dataHandle) {
+            if ((config.cpuPath || cpuPathOverride.load(std::memory_order_acquire)) && dataHandle) {
                 // CPU path: staging copy + map + deliver + cache for repeat.
                 HRESULT hr = slotKm[slot]->AcquireSync(1, kVddCaptureAcquireMs);
                 if (hr != S_OK) return false;
@@ -736,7 +741,7 @@ namespace hope {
         void VirtualDisplayCapture::deliverRepeatFrame()
         {
             if (!haveFrame) return;
-            if (config.cpuPath && dataHandle && !cpuCache.empty()) {
+            if ((config.cpuPath || cpuPathOverride.load(std::memory_order_acquire)) && dataHandle && !cpuCache.empty()) {
                 dataHandle(cpuCache.data(), cpuCacheW, cpuCacheH, cpuCachePitch, lastFrameId);
             }
             else if (gpuDataHandle && lastSlot < slotHandles.size() && slotHandles[lastSlot]) {

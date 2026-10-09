@@ -698,8 +698,10 @@ namespace hope {
                 }
                 else {
                     config.cpuPath = true; // mapped BGRA CPU buffer -> libyuv ARGBToI420
+                }
 
-                    screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, int stride, UINT64 frameId) {
+                // 两个句柄都装上:硬编失败回退软编时 forceCpuPath() 一置位就切到 CPU 帧路径
+                screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, int stride, UINT64 frameId) {
 
                         if (!videoTrackSourceImpl || !data) {
                             return;
@@ -723,7 +725,6 @@ namespace hope {
 
                         videoTrackSourceImpl->PushFrame(frame);
                     });
-                }
 
                 screenCapture->setConfig(config);
 
@@ -1043,6 +1044,10 @@ namespace hope {
 
                                 webrtcVideoEncoderFactory->onEncoderStatusHandle =
                                     [this](const std::string& codec, bool hardEncode) {
+                                    // 编码器回退软编:采集同步切回 CPU 帧路径(零拷贝帧软编消费不了)
+                                    if (!hardEncode && screenCapture) {
+                                        screenCapture->forceCpuPath();
+                                    }
                                     boost::json::object o;
                                     o["requestType"] = static_cast<int64_t>(WebrtcRequestState::ENCODE_STATUS);
                                     o["codec"] = codec;
