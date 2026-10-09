@@ -126,7 +126,7 @@ QWidget#sideBar QPushButton:checked {
 }
 
 QLabel#logoLabel {
-    padding-left: 24px;
+    padding-left: 30px;
     font-size: 22px;
     font-weight: 900;
     color: {{primaryInk}};

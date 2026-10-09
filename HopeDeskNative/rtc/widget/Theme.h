@@ -38,7 +38,7 @@ inline const QHash<QString, QString>& tokens()
         { QStringLiteral("navActive"),         QStringLiteral("#F3F9FE") },
         { QStringLiteral("navHover"),          QStringLiteral("rgba(140, 190, 244, 0.14)") },
 
-        { QStringLiteral("border"),            QStringLiteral("#EDF0F5") },
+        { QStringLiteral("border"),            QStringLiteral("#E2E7F0") },
         { QStringLiteral("borderStrong"),      QStringLiteral("#DFE5EE") },
 
         { QStringLiteral("text"),              QStringLiteral("#1F2A37") },

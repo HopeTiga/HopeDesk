@@ -381,7 +381,7 @@ void MainWindow::checkLoginStatus() {
 // 此函数只负责刷新 UI，不负责读 Settings，避免状态不同步
 void MainWindow::updateLocalAccountUI() {
     if (currentDeviceId.isEmpty()) {
-        ui->myDeviceCodeLabel->setText("--- --- ---");
+        ui->myDeviceCodeLabel->setText("---------");
         ui->userNameLabel->setText("未登录");
         ui->userStatusLabel->setText("● 离线 (点击登录)");
         theme::setState(ui->userStatusLabel, "state", QStringLiteral("offline"));
@@ -396,9 +396,7 @@ void MainWindow::updateLocalAccountUI() {
     }
 
     // 已登录状态
-    QString displayCode = currentDeviceId;
-    if(displayCode.length() > 6) displayCode.insert(4, " ");
-    ui->myDeviceCodeLabel->setText(displayCode);
+    ui->myDeviceCodeLabel->setText(currentDeviceId);
 
     ui->userNameLabel->setText(currentUserName);
     ui->userStatusLabel->setText("● 在线 (点击编辑)");
@@ -625,7 +623,7 @@ void MainWindow::addToHistory(const QString& id, const QString& name) {
 
 // ---------------- UI 更新 ----------------
 
-// 本机识别码显示时插了空格(9131 40924@qq.com),历史里存的是用户手输的原样,比对前统一去掉空白
+// 识别码可能带空白(手输或粘贴),比对前去掉
 QString MainWindow::normalizeDeviceId(const QString& id) {
     QString normalized;
     normalized.reserve(id.size());
