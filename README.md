@@ -299,7 +299,7 @@ HopeDesk 采用以 WebSocket 为核心的稳健信令架构，旨在各类生产
 
 **这一行必须保持 `true`。改成 `false`（退到 HIGH）时，串流帧率会立刻从 120–140 掉到 ~60。**
 
-| 实测（2026-10-09，单变量 A/B，其余全不动，HAGS 全程 Enabled） | 串流帧率 |
+| 实测（单变量 A/B，其余全不动，HAGS 全程 Enabled） | 串流帧率 |
 | :--- | :--- |
 | `Gpu Scheduling Priority Applied: HAGS=Enabled Priority=Realtime` | **120–140** |
 | `Gpu Scheduling Priority Applied: HAGS=Enabled Priority=High` | **立刻 ~60** |
