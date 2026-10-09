@@ -3,6 +3,7 @@
 #include "ui_mainwindow.h"
 #include "widget/VideoWidget.h"
 #include "widget/Theme.h"
+#include "widget/FramelessWindowAgent.h"
 #include "WebrtcManager.h"
 #include "../utils/ConfigManager.h"
 #include <QApplication>
@@ -228,10 +229,29 @@ MainWindow::~MainWindow()
 
 void MainWindow::showEvent(QShowEvent* event) {
     QMainWindow::showEvent(event);
+    // 托盘恢复时平台窗口会重建,重新挂上无边框窗口的事件过滤器
+    if (windowAgent) windowAgent->attachToWindow();
     // 只有已登录才自动连接
     if (!isSignalConnected && !currentDeviceId.isEmpty()) {
         QTimer::singleShot(200, this, &MainWindow::startSignalServerConnection);
     }
+}
+
+void MainWindow::changeEvent(QEvent* event) {
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange) updateWindowButtons();
+}
+
+void MainWindow::toggleMaximize() {
+    if (isMaximized()) showNormal();
+    else showMaximized();
+}
+
+void MainWindow::updateWindowButtons() {
+    if (!ui || !ui->btnWinMax) return;
+    ui->btnWinMin->setText(QStringLiteral("\uE921"));
+    ui->btnWinMax->setText(isMaximized() ? QStringLiteral("\uE923") : QStringLiteral("\uE922"));
+    ui->btnWinClose->setText(QStringLiteral("\uE8BB"));
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
@@ -454,9 +474,24 @@ void MainWindow::onUserAvatarClicked() {
 
 void MainWindow::setupUI()
 {
+    setWindowFlag(Qt::FramelessWindowHint, true);
+
+    windowAgent = new FramelessWindowAgent(this, this);
+    windowAgent->addDraggableArea(ui->titleBar);
+    windowAgent->addInteractiveWidget(ui->btnWinMin);
+    windowAgent->addInteractiveWidget(ui->btnWinMax);
+    windowAgent->addInteractiveWidget(ui->btnWinClose);
+
+    connect(ui->btnWinMin, &QPushButton::clicked, this, &QWidget::showMinimized);
+    connect(ui->btnWinMax, &QPushButton::clicked, this, &MainWindow::toggleMaximize);
+    connect(ui->btnWinClose, &QPushButton::clicked, this, &QWidget::close);
+
+    updateWindowButtons();
+
     QIcon appIcon(":/logo/res/hope.jpg");
     setWindowIcon(appIcon);
 
+    ui->titleBar->setAttribute(Qt::WA_StyledBackground, true);
     ui->sideBar->setAttribute(Qt::WA_StyledBackground, true);
     ui->containerMyDevice->setAttribute(Qt::WA_StyledBackground, true);
     ui->containerRemote->setAttribute(Qt::WA_StyledBackground, true);

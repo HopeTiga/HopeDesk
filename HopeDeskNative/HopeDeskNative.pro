@@ -56,6 +56,7 @@ SOURCES += \
     rtc/impl/RTCStatsCollectorHandle.cpp \
     rtc/impl/SetDescriptionObserverImpl.cpp \
     rtc/impl/VideoTrackSinkImpl.cpp \
+    rtc/widget/FramelessWindowAgent.cpp \
     rtc/widget/VideoWidget.cpp \
     net/TcpSocket.cpp \
     net/TcpAcceptor.cpp \
@@ -91,6 +92,7 @@ HEADERS += \
     rtc/impl/SetDescriptionObserverImpl.h \
     rtc/impl/VideoTrackSinkImpl.h \
     rtc/widget/CustomDialogs.h \
+    rtc/widget/FramelessWindowAgent.h \
     rtc/widget/Theme.h \
     rtc/widget/VideoWidget.h \
     system/InterceptionHook.h \

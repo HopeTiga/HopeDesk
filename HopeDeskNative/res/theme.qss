@@ -68,6 +68,33 @@ QToolTip {
     border-radius: {{radiusPill}};
 }
 
+/* ===== 标题栏 ===== */
+
+QWidget#titleBar {
+    background: {{bgSideBar}};
+}
+
+QPushButton#btnWinMin, QPushButton#btnWinMax, QPushButton#btnWinClose {
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-width: 46px;
+    min-height: 40px;
+    font-family: "Segoe MDL2 Assets";
+    font-size: 10px;
+    color: {{textSub}};
+}
+
+QPushButton#btnWinMin:hover, QPushButton#btnWinMax:hover {
+    background-color: {{navHover}};
+    color: {{text}};
+}
+
+QPushButton#btnWinClose:hover {
+    background-color: {{danger}};
+    color: #FFFFFF;
+}
+
 /* ===== 侧边栏 ===== */
 
 QWidget#sideBar {

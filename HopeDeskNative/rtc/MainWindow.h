@@ -25,6 +25,7 @@ namespace rtc{
 
 class VideoWidget;
 class WebrtcManager;
+class FramelessWindowAgent;
 
 struct DeviceInfo {
     QString name;
@@ -45,6 +46,7 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    void changeEvent(QEvent* event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private Q_SLOTS:
@@ -117,8 +119,11 @@ private:
     void syncConfigToManager();  // 把当前全部桌面配置同步到 WebrtcManager(RESTART 等内部复用路径需要)
 
     void moveToCenter();
+    void toggleMaximize();
+    void updateWindowButtons();
 private:
     Ui::MainWindow *ui;
+    FramelessWindowAgent* windowAgent = nullptr;
     VideoWidget* videoWidget;
     std::shared_ptr<WebrtcManager> webrtcManager;
     QSettings* settings;
