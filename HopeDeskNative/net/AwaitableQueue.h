@@ -60,7 +60,7 @@ public:
 
     boost::asio::awaitable<bool> awaitDequeue(T& out) {
 
-        co_await semaphore.async_acquire(boost::asio::use_awaitable);
+        co_await semaphore.async_acquire(boost::asio::deferred);
 
         if (queue.try_dequeue(out)) {
 

@@ -68,7 +68,7 @@ boost::asio::awaitable<void> TcpAcceptor::acceptCoroutine() {
         std::shared_ptr<TcpSocket> tcpSocket = std::make_shared<TcpSocket>(ioContext);
 
         try {
-            co_await acceptor.async_accept(tcpSocket->tcpSocket, boost::asio::use_awaitable);
+            co_await acceptor.async_accept(tcpSocket->tcpSocket, boost::asio::deferred);
         }
         catch (const std::exception& e) {
             LOG_WARN("TcpAcceptor Accept Loop Stopped: {}", e.what());

@@ -1187,7 +1187,7 @@ void WebrtcManager::armRequestTimeout(WebrtcRole role)
 
         boost::system::error_code ec;
 
-        co_await timer->async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        co_await timer->async_wait(boost::asio::redirect_error(boost::asio::deferred, ec));
 
         if (ec == boost::asio::error::operation_aborted) co_return;  // 被新一轮请求刷新/取消
 

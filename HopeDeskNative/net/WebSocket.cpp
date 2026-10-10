@@ -60,7 +60,7 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
 
         boost::asio::ip::tcp::resolver::results_type results = co_await resolver.async_resolve(
             host, port,
-            boost::asio::cancel_after(connectTimeout, boost::asio::use_awaitable)
+            boost::asio::cancel_after(connectTimeout, boost::asio::deferred)
             );
 
         if (results.empty()) {
@@ -70,12 +70,12 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
         co_await boost::asio::async_connect(
             webSocket.next_layer().next_layer(),
             results,
-            boost::asio::cancel_after(connectTimeout, boost::asio::use_awaitable)
+            boost::asio::cancel_after(connectTimeout, boost::asio::deferred)
             );
 
         co_await webSocket.next_layer().async_handshake(
             boost::asio::ssl::stream_base::client,
-            boost::asio::cancel_after(connectTimeout, boost::asio::use_awaitable)
+            boost::asio::cancel_after(connectTimeout, boost::asio::deferred)
             );
 
         if (!httpHeaders.raw().empty()) {
@@ -101,7 +101,7 @@ boost::asio::awaitable<bool> WebSocket::connect(const std::string& host, const s
 
         co_await webSocket.async_handshake(
             host, path,
-            boost::asio::cancel_after(connectTimeout, boost::asio::use_awaitable)
+            boost::asio::cancel_after(connectTimeout, boost::asio::deferred)
             );
 
         webSocket.binary(true);   // 信令帧统一按二进制发出(struct_pack 编码)
@@ -195,7 +195,7 @@ boost::asio::awaitable<void> WebSocket::receiveCoroutine() {
 
     while (asyncEvents.load()) {
 
-        co_await webSocket.async_read(readBuffer, boost::asio::use_awaitable);
+        co_await webSocket.async_read(readBuffer, boost::asio::deferred);
 
         std::string str = boost::beast::buffers_to_string(readBuffer.data());
 
@@ -236,7 +236,7 @@ boost::asio::awaitable<void> WebSocket::writerCoroutine() {
             segments.emplace_back(boost::asio::buffer(packets[index]));
         }
 
-        co_await webSocket.async_write(segments, boost::asio::use_awaitable);
+        co_await webSocket.async_write(segments, boost::asio::deferred);
     }
 
     co_return;
