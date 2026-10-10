@@ -114,9 +114,9 @@ flowchart TB
 
 - **连接绑定通道**：accept 后 `loadBalanceWebrtcManger()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
 - **跨通道通信**：两个原语（`WebrtcSignalServer::postTask` 按 `handler` 返回类型重载），都把活儿派到 `channelIndex` 通道的 io_context 上跑、lambda 收到 `shared_ptr<WebrtcSignalManager>`，区别在协程/非协程与完成令牌：
-  - `postTask(channelIndex, handler, token = CompletionHandle)`——**协程 + completion-token 版**（`handler` 返回 `awaitable<T>(shared_ptr<M>)`）。内部 `async_initiate` + `co_spawn`。默认令牌 `CompletionHandle` = fire-and-forget + 异常落日志（返回 `void`）；传 `boost::asio::use_awaitable` 即可 `co_await` 拿返回值（`handler` 返回 `awaitable<json>` 则直接得到 `json`），续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认 → `void`，`use_awaitable` → `awaitable<T>`。
+  - `postTask(channelIndex, handler, token = CompletionHandle)`——**协程 + completion-token 版**（`handler` 返回 `awaitable<T>(shared_ptr<M>)`）。内部 `async_initiate` + `co_spawn`。默认令牌 `CompletionHandle` = fire-and-forget + 异常落日志（返回 `void`）；传 `boost::asio::deferred` 即可 `co_await` 拿返回值（`handler` 返回 `awaitable<json>` 则直接得到 `json`），续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认 → `void`，`deferred` → `awaitable<T>`。
   - `postTask(channelIndex, handler)`——**普通 post 版**（`handler` 是 `void(shared_ptr<M>)` 的可调用对象）。内部 `boost::asio::post`，**不建协程、无协程帧开销**，返回 `bool`（校验 channelIndex）。给"纯同步活儿、不需要 `co_await`、不需要异常语义"的 fire-and-forget 跳用（如回写/清缓存）。轻量优先用普通重载；要 `co_await` 或要跨通道协程语义才用协程重载。
-  - 入参非法（channelIndex 越界/manager 为空）时：普通 `postTask` 直接 `LOG_ERROR` + 返回 `false`；协程 `postTask` 走 async 契约——通过令牌完成一个 `runtime_error` 异常（默认令牌打日志、`use_awaitable` 在调用方 `co_await` 处抛出），不 `co_spawn`，避免 `use_awaitable` 调用方挂死。
+  - 入参非法（channelIndex 越界/manager 为空）时：普通 `postTask` 直接 `LOG_ERROR` + 返回 `false`；协程 `postTask` 走 async 契约——通过令牌完成一个 `runtime_error` 异常（默认令牌打日志、`deferred` 在调用方 `co_await` 处抛出），不 `co_spawn`，避免 `deferred` 调用方挂死。
   - 路由转发的线程跳转用这两个重载完成（forward 路径已确认无死代码、无冗余查找、无冗余自跳，到极限）。
 - **条件编译**：
   - `__linux__`：accept 走每通道 `SO_REUSEPORT` 多 acceptor（`WebrtcSignalManager::asyncAccept`），Linux 专用路径。
@@ -244,7 +244,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 消息派发原语，`revice` 每帧调用一次。两个重载，共用同一套派发/削峰逻辑：
 
 - `postTask(packet)`——**普通 fire-and-forget 版**，revice 热路径实际走它。没有 completion-token 全套机制（无 `make_shared<handler>`、无 `async_initiate`、无 `associated_executor` 搬运），handler 抛出的异常就地 LOG。
-- `postTask(packet, token)`——**completion-token 版**（模板）。token 无默认实参、必须显式传（传 `boost::asio::use_awaitable` 可 `co_await` 拿完成/异常），内部保留 `async_initiate` 等机制。当前无调用方，为将来需要协程语义的派发预留。
+- `postTask(packet, token)`——**completion-token 版**（模板）。token 无默认实参、必须显式传（传 `boost::asio::deferred` 可 `co_await` 拿完成/异常），内部保留 `async_initiate` 等机制。当前无调用方，为将来需要协程语义的派发预留。
 
 派发逻辑（两版一致）：
 
@@ -825,7 +825,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 
 `hope::storage::RedisWrapper` = 一条 `boost::redis::connection` + 一份 `RedisConfig` + 一个 `boost::asio::io_context&`（连接跑在该通道的 io_context 上）。
 
-- **构造即连，没有"启动"这一步**：构造函数里直接 `co_spawn` 起 `connection->async_run(boostRedisConfig, use_awaitable)`（`storage/RedisWrapper.cpp:19-23`），令牌是 `CompletionHandle{}`。所以对象一建出来就是"连接/重连中"，重试间隔由 `Redis.reconnectWaitIntervalSeconds` 决定，`health_check_interval` 由 `Redis.healthCheckIntervalSeconds` 决定。析构只调 `connection->cancel()`，协程自己收尾。
+- **构造即连，没有"启动"这一步**：构造函数里直接 `co_spawn` 起 `connection->async_run(boostRedisConfig, deferred)`（`storage/RedisWrapper.cpp:19-23`），令牌是 `CompletionHandle{}`。所以对象一建出来就是"连接/重连中"，重试间隔由 `Redis.reconnectWaitIntervalSeconds` 决定，`health_check_interval` 由 `Redis.healthCheckIntervalSeconds` 决定。析构只调 `connection->cancel()`，协程自己收尾。
 - **参数翻译**：`RedisConfig.h` 里四个纯函数——`loadRedisConfig`（ini → `RedisConfig`）、`makeBoostRedisConfig`（→ `boost::redis::config`）、`makeRedisSslContext`、`makeRedisLogger`。SSL context 只能从构造函数进去，`useSsl=false` 时 context 建了但不用（真正决定握不握手的是 `config.use_ssl`）；`verifyPeer=false` 会给 `verify_none`。日志用 boost::redis 自己的 logger：`enableLog=false` → `level::disabled`；`logLevel` 写了个不认识的名字按 `info` 处理，**不静默成 disabled**——配置写错要看得见。
 - **不是连接池**：`WebrtcLogicSystem::redisWrappers` 是 `std::vector<RedisWrapper>`（值语义，move-only），`Redis.connectionSize` = 这个通道建几条，默认 1。与 `MysqlManagerPools` 的"一份池、池内多连接"是两种模型。
 - **两个取用口**（都在 `WebrtcLogicSystem`）：
