@@ -40,7 +40,7 @@ namespace hope {
                     }
                     boost::system::error_code ec;
                     co_await channel.async_receive(
-                        boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+                        boost::asio::redirect_error(boost::asio::deferred, ec));
                     if (ec == boost::asio::experimental::error::channel_closed) {
                         while (queue.try_dequeue(task)) {
                             queueSize.fetch_sub(1);

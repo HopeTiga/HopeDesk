@@ -125,7 +125,7 @@ namespace hope {
 
                     try {
 
-                        co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::use_awaitable);
+                        co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::deferred);
 
                     }
                     catch (const boost::system::system_error& e) {
@@ -157,7 +157,7 @@ namespace hope {
 
                         backoffTimer.expires_after(std::chrono::milliseconds(100));
 
-                        co_await backoffTimer.async_wait(boost::asio::use_awaitable);
+                        co_await backoffTimer.async_wait(boost::asio::deferred);
 
                         continue;
 
@@ -227,7 +227,7 @@ namespace hope {
 
                         try {
 
-                            co_await httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::use_awaitable);
+                            co_await httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::deferred);
 
                         }
                         catch (const boost::system::system_error& e) {
@@ -259,7 +259,7 @@ namespace hope {
 
                             backoffTimer.expires_after(std::chrono::milliseconds(100));
 
-                            co_await backoffTimer.async_wait(boost::asio::use_awaitable);
+                            co_await backoffTimer.async_wait(boost::asio::deferred);
 
                             continue;
 

@@ -69,7 +69,7 @@ namespace hope {
 
 					boost::system::error_code ec;
 
-					co_await sslStream.async_shutdown(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+					co_await sslStream.async_shutdown(boost::asio::redirect_error(boost::asio::deferred, ec));
 
 					if (ec) LOG_ERROR("SSL AsyncShutdown Failed: {}", ec.message().c_str());
 
@@ -134,7 +134,7 @@ namespace hope {
 
 				std::tuple<boost::system::error_code> op = co_await sslStream.async_handshake(
 					boost::asio::ssl::stream_base::server,
-					boost::asio::as_tuple(boost::asio::use_awaitable)
+					boost::asio::as_tuple(boost::asio::deferred)
 				);
 
 				timer.cancel();
@@ -181,7 +181,7 @@ namespace hope {
 				}
 			});
 
-			co_await boost::beast::http::async_read(tcpStream, buffer, readResult.httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+			co_await boost::beast::http::async_read(tcpStream, buffer, readResult.httpRequest, boost::asio::redirect_error(boost::asio::deferred, ec));
 
 			readTimer.cancel();
 
@@ -203,7 +203,7 @@ namespace hope {
 				}
 			});
 
-			co_await boost::beast::http::async_read(sslStream, buffer, readResult.httpRequest, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+			co_await boost::beast::http::async_read(sslStream, buffer, readResult.httpRequest, boost::asio::redirect_error(boost::asio::deferred, ec));
 
 			readTimer.cancel();
 
@@ -264,7 +264,7 @@ namespace hope {
 					while (self->isKeepAlive) {
 						self->keepTimer.expires_at(lastTime); 
 						boost::system::error_code ec;
-						co_await self->keepTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+						co_await self->keepTimer.async_wait(boost::asio::redirect_error(boost::asio::deferred, ec));
 
 						if (ec == boost::asio::error::operation_aborted) {
 							lastTime = self->lastKeepAliveTime;
@@ -287,7 +287,7 @@ namespace hope {
 
 					if (self->enableSsl) {
 						boost::system::error_code ec;
-						co_await self->sslStream.async_shutdown(boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+						co_await self->sslStream.async_shutdown(boost::asio::redirect_error(boost::asio::deferred, ec));
 						if (ec) LOG_ERROR("SSL AsyncShutdown Failed: {}", ec.message().c_str());
 					}
 
@@ -350,7 +350,7 @@ namespace hope {
 
 #ifdef WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL
 
-			co_await boost::beast::http::async_write(tcpStream, httpResponse, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+			co_await boost::beast::http::async_write(tcpStream, httpResponse, boost::asio::redirect_error(boost::asio::deferred, ec));
 
 			if (ec) {
 				LOG_ERROR("Async_write Failed: {}", ec.message().c_str());
@@ -359,7 +359,7 @@ namespace hope {
 
 #else
 
-			co_await boost::beast::http::async_write(sslStream, httpResponse, boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+			co_await boost::beast::http::async_write(sslStream, httpResponse, boost::asio::redirect_error(boost::asio::deferred, ec));
 
 			if (ec) {
 				LOG_ERROR("SSL AsyncWrite Failed: {}", ec.message().c_str());

@@ -31,7 +31,7 @@ namespace hope {
 			subscribeRequest.subscribe({ channel });
 
 			co_await redisWrapper.getRedisConnection().async_exec(
-				subscribeRequest, boost::redis::ignore, boost::asio::use_awaitable);
+				subscribeRequest, boost::redis::ignore, boost::asio::deferred);
 
 		}
 
@@ -42,7 +42,7 @@ namespace hope {
 				boost::system::error_code errorCode;
 
 				co_await redisWrapper.getRedisConnection().async_receive2(
-					boost::asio::redirect_error(boost::asio::use_awaitable, errorCode));
+					boost::asio::redirect_error(boost::asio::deferred, errorCode));
 
 				if (errorCode) {
 

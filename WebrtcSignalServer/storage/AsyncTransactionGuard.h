@@ -1,7 +1,7 @@
 #pragma once
 
 #include <boost/mysql/any_connection.hpp>
-#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/deferred.hpp>
 #include <memory>
 
 namespace hope::storage {
@@ -19,7 +19,7 @@ namespace hope::storage {
             boost::mysql::results r;
 
             co_await conn->async_execute("START TRANSACTION", r,
-                boost::asio::use_awaitable);
+                boost::asio::deferred);
 
             co_return AsyncTransactionGuard(std::move(conn));
         }
@@ -31,7 +31,7 @@ namespace hope::storage {
             boost::mysql::results r;
 
             co_await conn->async_execute("COMMIT", r,
-                boost::asio::use_awaitable);
+                boost::asio::deferred);
 
             committed = true;
         }
@@ -47,7 +47,7 @@ namespace hope::storage {
             boost::mysql::results r;
 
             co_await conn->async_execute("ROLLBACK", r,
-                boost::asio::use_awaitable);
+                boost::asio::deferred);
 
             committed = true; // 标记为已处理
         }

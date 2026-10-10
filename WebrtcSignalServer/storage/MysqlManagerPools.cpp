@@ -36,7 +36,7 @@ namespace hope {
 			boost::asio::co_spawn(ioContext,
 				[pool = this->pool]() -> boost::asio::awaitable<void> {
 					try {
-						co_await pool->async_run(boost::asio::use_awaitable);
+						co_await pool->async_run(boost::asio::deferred);
 					}
 					catch (const std::exception& e) {
 						LOG_ERROR("MySQL ConnectionPool AsyncRun Exited: {}", e.what());
@@ -63,7 +63,7 @@ namespace hope {
 			boost::mysql::pooled_connection pooledConn;
 
 			try {
-				pooledConn = co_await pool->async_get_connection(boost::asio::use_awaitable);
+				pooledConn = co_await pool->async_get_connection(boost::asio::deferred);
 			}
 			catch (const std::exception& e) {
 				LOG_ERROR("Failed: {}", e.what());

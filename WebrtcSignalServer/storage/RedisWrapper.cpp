@@ -23,7 +23,7 @@ namespace hope {
 					boost::system::error_code runErrorCode;
 
 					co_await connection->async_run(boostRedisConfig,
-						boost::asio::redirect_error(boost::asio::use_awaitable, runErrorCode));
+						boost::asio::redirect_error(boost::asio::deferred, runErrorCode));
 
 					if (runErrorCode == boost::asio::error::operation_aborted) {
 
@@ -47,7 +47,7 @@ namespace hope {
 
 					boost::system::error_code waitErrorCode;
 
-					co_await retryTimer.async_wait(boost::asio::redirect_error(boost::asio::use_awaitable, waitErrorCode));
+					co_await retryTimer.async_wait(boost::asio::redirect_error(boost::asio::deferred, waitErrorCode));
 
 				}
 

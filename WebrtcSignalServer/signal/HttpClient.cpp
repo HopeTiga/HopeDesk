@@ -40,21 +40,21 @@ namespace hope {
         }
 
         boost::asio::awaitable<void> HttpClient::connect(const std::string& host, const std::string& port) {
-            boost::asio::ip::tcp::resolver::results_type results = co_await resolver.async_resolve(host, port, boost::asio::use_awaitable);
+            boost::asio::ip::tcp::resolver::results_type results = co_await resolver.async_resolve(host, port, boost::asio::deferred);
 
             if (enableSsl) {
                 if (!sslStream) {
                     sslStream = std::make_unique<boost::beast::ssl_stream<boost::asio::ip::tcp::socket>>(
                         ioContext, getSslContext());
                 }
-                co_await boost::asio::async_connect(sslStream->next_layer(), results, boost::asio::use_awaitable);
-                co_await sslStream->async_handshake(boost::asio::ssl::stream_base::client, boost::asio::use_awaitable);
+                co_await boost::asio::async_connect(sslStream->next_layer(), results, boost::asio::deferred);
+                co_await sslStream->async_handshake(boost::asio::ssl::stream_base::client, boost::asio::deferred);
             }
             else {
                 if (!tcpStream) {
                     tcpStream = std::make_unique<boost::beast::tcp_stream>(ioContext);
                 }
-                co_await boost::asio::async_connect(tcpStream->socket(), results, boost::asio::use_awaitable);
+                co_await boost::asio::async_connect(tcpStream->socket(), results, boost::asio::deferred);
             }
 
             connectedHost = host;
@@ -122,12 +122,12 @@ namespace hope {
             try {
                 Response response;
                 if (enableSsl) {
-                    co_await boost::beast::http::async_write(*sslStream, request, boost::asio::use_awaitable);
-                    co_await boost::beast::http::async_read(*sslStream, buffer, response, boost::asio::use_awaitable);
+                    co_await boost::beast::http::async_write(*sslStream, request, boost::asio::deferred);
+                    co_await boost::beast::http::async_read(*sslStream, buffer, response, boost::asio::deferred);
                 }
                 else {
-                    co_await boost::beast::http::async_write(*tcpStream, request, boost::asio::use_awaitable);
-                    co_await boost::beast::http::async_read(*tcpStream, buffer, response, boost::asio::use_awaitable);
+                    co_await boost::beast::http::async_write(*tcpStream, request, boost::asio::deferred);
+                    co_await boost::beast::http::async_read(*tcpStream, buffer, response, boost::asio::deferred);
                 }
 
                 // ----- 6. 检查 keep-alive -----

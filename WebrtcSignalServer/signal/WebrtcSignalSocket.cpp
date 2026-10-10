@@ -98,12 +98,12 @@ namespace hope {
 
                 co_await webSocket.next_layer().async_handshake(
                     boost::asio::ssl::stream_base::server,
-                    boost::asio::cancel_after(handshakeTimeout, boost::asio::use_awaitable));
+                    boost::asio::cancel_after(handshakeTimeout, boost::asio::deferred));
 
 #endif
 
                 co_await boost::beast::http::async_read(webSocket.next_layer(), buffer, req,
-                    boost::asio::cancel_after(handshakeTimeout, boost::asio::use_awaitable));
+                    boost::asio::cancel_after(handshakeTimeout, boost::asio::deferred));
 
                 std::string accountId;
 
@@ -152,7 +152,7 @@ namespace hope {
 
                     res.prepare_payload();
 
-                    co_await boost::beast::http::async_write(webSocket.next_layer(), res, boost::asio::cancel_after(handshakeTimeout, boost::asio::use_awaitable));
+                    co_await boost::beast::http::async_write(webSocket.next_layer(), res, boost::asio::cancel_after(handshakeTimeout, boost::asio::deferred));
 
                     closeSocket();
 
@@ -160,7 +160,7 @@ namespace hope {
 
                 }
 
-                co_await webSocket.async_accept(req, boost::asio::use_awaitable);
+                co_await webSocket.async_accept(req, boost::asio::deferred);
 
                 webSocket.binary(true);
 
@@ -498,7 +498,7 @@ namespace hope {
 
                 const std::size_t receivedBytes = co_await webSocket.next_layer().async_read_some(
                     boost::asio::buffer(receiveBuffer.data() + receiveHeldBytes, receiveBuffer.size() - receiveHeldBytes),
-                    boost::asio::use_awaitable);
+                    boost::asio::deferred);
 
                 const std::size_t totalBytes = receiveHeldBytes + receivedBytes;
 
@@ -633,7 +633,7 @@ namespace hope {
 
                 }
 
-                co_await boost::asio::async_write(webSocket.next_layer(), segments, boost::asio::use_awaitable);
+                co_await boost::asio::async_write(webSocket.next_layer(), segments, boost::asio::deferred);
 
                 packets.resize(count);
 
