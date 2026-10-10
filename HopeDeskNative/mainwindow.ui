@@ -164,6 +164,9 @@
          <property name="text">
           <string>HopeDesk</string>
          </property>
+         <property name="alignment">
+          <set>Qt::AlignmentFlag::AlignCenter</set>
+         </property>
         </widget>
        </item>
        <item>
