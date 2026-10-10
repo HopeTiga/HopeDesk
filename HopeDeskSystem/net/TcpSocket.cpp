@@ -54,7 +54,7 @@ boost::asio::awaitable<bool> TcpSocket::connect(unsigned short port) {
 
         boost::asio::ip::tcp::endpoint endpoint(address, port);
 
-        co_await boost::asio::async_connect(tcpSocket, std::array{ endpoint }, boost::asio::use_awaitable);
+        co_await boost::asio::async_connect(tcpSocket, std::array{ endpoint }, boost::asio::deferred);
 
         awaitableQueue.reset();
 
@@ -145,7 +145,7 @@ boost::asio::awaitable<void> TcpSocket::receiveCoroutine() {
         const std::size_t receivedBytes = co_await tcpSocket.async_read_some(
             boost::asio::buffer(receiveBuffer.data() + receiveHeldBytes,
                                 receiveBuffer.size() - receiveHeldBytes),
-            boost::asio::use_awaitable);
+            boost::asio::deferred);
 
         if (receivedBytes == 0) co_return;
 
@@ -213,7 +213,7 @@ boost::asio::awaitable<void> TcpSocket::writerCoroutine() {
             segments.emplace_back(boost::asio::buffer(packets[index]->data, packets[index]->size));
         }
 
-        co_await boost::asio::async_write(tcpSocket, segments, boost::asio::use_awaitable);
+        co_await boost::asio::async_write(tcpSocket, segments, boost::asio::deferred);
     }
 
     co_return;
