@@ -262,7 +262,7 @@ namespace hope {
 		SchedulerContext::SchedulerContext(size_t size, const std::vector<size_t>& cpuIndexes)
 			: size(size)
 			, ioContexts(size)
-			, works(size)
+			, executorWorkGuards(size)
 			, threads(size)
 			, ioPressures(size) {
 
@@ -270,11 +270,11 @@ namespace hope {
 
 				ioContexts[i] = std::make_unique<boost::asio::io_context>(1);
 
-				std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+				std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> executorWorkGuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
 					boost::asio::make_work_guard(*ioContexts[i].get())
 				);
 
-				works[i] = std::move(work);
+				executorWorkGuards[i] = std::move(executorWorkGuard);
 
 				const bool bindCpuAffinity = static_cast<size_t>(i) < cpuIndexes.size();
 				const size_t cpuIndex = bindCpuAffinity ? cpuIndexes[i] : 0;
@@ -294,10 +294,10 @@ namespace hope {
 		}
 
 		void SchedulerContext::releaseWork() {
-			for (std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>& work : works) {
+			for (std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>& executorWorkGuard : executorWorkGuards) {
 
-				if (work) {
-					work.reset();
+				if (executorWorkGuard) {
+					executorWorkGuard.reset();
 				}
 			}
 		}

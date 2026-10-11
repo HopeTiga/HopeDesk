@@ -68,7 +68,7 @@ int main() {
 
     boost::asio::io_context ioContext{ 1 };
 
-    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> executorWorkGuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
     std::shared_ptr<hope::signal::WebrtcSignalServer> webrtcSignalServer = std::make_shared<hope::signal::WebrtcSignalServer>(ioContext, webrtcSignalConfig);
 
@@ -84,11 +84,11 @@ int main() {
 
     boost::asio::signal_set signals(ioContext, SIGINT, SIGTERM);
 
-    signals.async_wait([&ioContext, webrtcSignalServer = webrtcSignalServer->shared_from_this(), &work](const boost::system::error_code& error, int signal) {
+    signals.async_wait([&ioContext, webrtcSignalServer = webrtcSignalServer->shared_from_this(), &executorWorkGuard](const boost::system::error_code& error, int signal) {
 
         webrtcSignalServer->closeEvent();
 
-        work.reset();
+        executorWorkGuard.reset();
 
         ioContext.stop();
 
