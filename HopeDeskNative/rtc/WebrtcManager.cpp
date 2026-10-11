@@ -44,11 +44,11 @@ namespace rtc{
 
 WebrtcManager::WebrtcManager()
     : ioContext(1)
-    , ioContextWorkPtr(nullptr)
+    , executorWorkGuard(nullptr)
     , peerConnection(nullptr)
 {
 
-    ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
+    executorWorkGuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
     ioContextThread = std::move(std::thread([this](){
         this->ioContext.run();
@@ -204,8 +204,8 @@ WebrtcManager::~WebrtcManager()
 
     future.get();
 
-    if (ioContextWorkPtr) {
-        ioContextWorkPtr.reset();
+    if (executorWorkGuard) {
+        executorWorkGuard.reset();
     }
 
     ioContext.stop();

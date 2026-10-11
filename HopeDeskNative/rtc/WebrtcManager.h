@@ -359,7 +359,7 @@ private:
 
     boost::asio::io_context ioContext;
 
-    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> ioContextWorkPtr;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> executorWorkGuard;
 
     std::thread ioContextThread;
 
