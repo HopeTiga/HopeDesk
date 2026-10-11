@@ -43,7 +43,7 @@ namespace hope {
 
             channelSync = std::make_shared<VddChannelSync>();
 
-            ioContextWorkPtr = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+            executorWorkWuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
                 boost::asio::make_work_guard(ioContext));
 
             ioContextThread = std::move(std::thread([this]() {
@@ -1206,9 +1206,9 @@ namespace hope {
                 tcpSocket->closeEvent();
             }
 
-            if (ioContextWorkPtr) {
+            if (executorWorkWuard) {
 
-                ioContextWorkPtr.reset();
+                executorWorkWuard.reset();
 
             }
 
