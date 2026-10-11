@@ -138,12 +138,12 @@ void AsyncEvent() {
 
     boost::asio::io_context ioContext;
 
-    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> ioContextWorkPtr =
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> executorWorkGuard =
         std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    std::shared_ptr<hope::rtc::WebrtcManager> webrtcManager = std::make_shared<hope::rtc::WebrtcManager>([&ioContext, &ioContextWorkPtr]() {
+    std::shared_ptr<hope::rtc::WebrtcManager> webrtcManager = std::make_shared<hope::rtc::WebrtcManager>([&ioContext, &executorWorkGuard]() {
 
-        ioContextWorkPtr.reset();
+        executorWorkGuard.reset();
 
         ioContext.stop();
 
