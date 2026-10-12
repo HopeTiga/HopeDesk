@@ -343,6 +343,18 @@
           <property name="spacing">
            <number>10</number>
           </property>
+          <property name="leftMargin">
+           <number>24</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>24</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
           <item>
            <widget class="QLabel" name="labelAllowControl">
             <property name="text">
@@ -705,13 +717,13 @@
             <number>10</number>
            </property>
            <property name="leftMargin">
-            <number>20</number>
+            <number>24</number>
            </property>
            <property name="topMargin">
             <number>16</number>
            </property>
            <property name="rightMargin">
-            <number>20</number>
+            <number>24</number>
            </property>
            <property name="bottomMargin">
             <number>16</number>
@@ -1141,45 +1153,67 @@
                  </property>
                 </widget>
                </item>
-               <item row="8" column="0">
-                <widget class="QCheckBox" name="checkShowRtt">
-                 <property name="toolTip">
-                  <string>开启后,远程连接时在连接类型旁显示网络往返延迟(RTT)</string>
+               <item row="8" column="0" colspan="4">
+                <layout class="QGridLayout" name="gridLayout_DisplayToggles" columnstretch="1,1">
+                 <property name="leftMargin">
+                  <number>0</number>
                  </property>
-                 <property name="text">
-                  <string>显示网络延迟 (RTT)</string>
+                 <property name="topMargin">
+                  <number>0</number>
                  </property>
-                </widget>
-               </item>
-               <item row="8" column="1">
-                <widget class="QCheckBox" name="checkShowEncodeInfo">
-                 <property name="toolTip">
-                  <string>关闭后,远程连接时不显示编码与采集信息</string>
+                 <property name="rightMargin">
+                  <number>0</number>
                  </property>
-                 <property name="text">
-                  <string>显示编码与采集信息</string>
+                 <property name="bottomMargin">
+                  <number>0</number>
                  </property>
-                </widget>
-               </item>
-               <item row="8" column="2">
-                <widget class="QCheckBox" name="checkShowFps">
-                 <property name="toolTip">
-                  <string>开启后,远程连接时在控制面板显示实际渲染帧率(FPS)。关闭时同时停止帧率统计</string>
+                 <property name="horizontalSpacing">
+                  <number>20</number>
                  </property>
-                 <property name="text">
-                  <string>显示渲染帧率 (FPS)</string>
+                 <property name="verticalSpacing">
+                  <number>12</number>
                  </property>
-                </widget>
-               </item>
-               <item row="8" column="3">
-                <widget class="QCheckBox" name="checkShowHotkey">
-                 <property name="toolTip">
-                  <string>关闭后,远程连接时不显示 Ctrl+Alt+F 按钮</string>
-                 </property>
-                 <property name="text">
-                  <string>显示 Ctrl+Alt+F</string>
-                 </property>
-                </widget>
+                 <item row="0" column="0">
+                  <widget class="QCheckBox" name="checkShowRtt">
+                   <property name="toolTip">
+                    <string>开启后,远程连接时在连接类型旁显示网络往返延迟(RTT)</string>
+                   </property>
+                   <property name="text">
+                    <string>显示网络延迟 (RTT)</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QCheckBox" name="checkShowEncodeInfo">
+                   <property name="toolTip">
+                    <string>关闭后,远程连接时不显示编码与采集信息</string>
+                   </property>
+                   <property name="text">
+                    <string>显示编码与采集信息</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QCheckBox" name="checkShowFps">
+                   <property name="toolTip">
+                    <string>开启后,远程连接时在控制面板显示实际渲染帧率(FPS)。关闭时同时停止帧率统计</string>
+                   </property>
+                   <property name="text">
+                    <string>显示渲染帧率 (FPS)</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QCheckBox" name="checkShowHotkey">
+                   <property name="toolTip">
+                    <string>关闭后,远程连接时不显示 Ctrl+Alt+F 按钮</string>
+                   </property>
+                   <property name="text">
+                    <string>显示 Ctrl+Alt+F</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
                </item>
                <item row="9" column="0" colspan="4">
                 <widget class="Line" name="line_SetEncode">

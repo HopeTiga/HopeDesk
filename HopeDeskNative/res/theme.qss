@@ -176,7 +176,7 @@ QLabel#userAvatar[state="image"] {
 
 /* ===== 卡片 ===== */
 
-QWidget#containerMyDevice, QWidget#containerHistory {
+QWidget#containerMyDevice, QWidget#containerRemote, QWidget#containerHistory {
     background-color: {{bgCard}};
     border-radius: {{radiusCard}};
     border: 1px solid {{border}};
