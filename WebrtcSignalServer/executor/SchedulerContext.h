@@ -1,7 +1,6 @@
 #pragma once
 #include<boost/asio.hpp>
 #include <memory>
-#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -62,8 +61,6 @@ namespace hope {
 			std::vector<std::thread> threads;
 
 			std::vector<std::atomic<size_t>> ioPressures;
-
-			std::mutex mutexs;
 
 			size_t size;
 
