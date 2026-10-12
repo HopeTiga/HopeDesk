@@ -248,32 +248,13 @@ public:
 
     void disConnectRemote();
 
-    std::function<void(void)> onSignalServerDisConnectHandle;
-
-    std::function<void(void)> onFollowRemoteHandle;
-
-    std::function<void(void)> onDisConnectRemoteHandle;
-
-    std::function<void(void)> onRemoteSuccessFulHandle;
-
-    std::function<void()> onSignalServerConnectHandle;
-
-    std::function<void()> onRemoteFailedHandle;
-
-    std::function<void()> onResetCursorHandle;
-
-    std::function<void(int, double)> onRTCStatsCollectorHandle;
-
-    std::function<void(const std::string& codec, bool hardEncode, const std::string& captureTech)> onEncodeStatusHandle;
-
-    // 会话信息推送(myRole: 1=本端操控对端 2=本端被对端操控;peerId: 对端 accountId),按值推送避免跨线程读 targetId
-    std::function<void(int myRole, const std::string& peerId)> onSessionInfoHandle;
-
     void requestStats();
 
     void disConnectHandle();
 
     void handleCursor(const unsigned char* data,size_t size);
+
+    void setOpenBeControl(bool openBeControl);
 
 private:
 
@@ -309,6 +290,26 @@ public:
     std::atomic<bool> relativeMouseMode{false};
 
     std::atomic<bool> localCursorRestored{true};
+
+    std::function<void(void)> onSignalServerDisConnectHandle;
+
+    std::function<void(void)> onFollowRemoteHandle;
+
+    std::function<void(void)> onDisConnectRemoteHandle;
+
+    std::function<void(void)> onRemoteSuccessFulHandle;
+
+    std::function<void()> onSignalServerConnectHandle;
+
+    std::function<void(int)> onRemoteFailedHandle;
+
+    std::function<void()> onResetCursorHandle;
+
+    std::function<void(int, double)> onRTCStatsCollectorHandle;
+
+    std::function<void(const std::string& codec, bool hardEncode, const std::string& captureTech)> onEncodeStatusHandle;
+
+    std::function<void(int myRole, const std::string& peerId)> onSessionInfoHandle;
 
 private:
 
@@ -386,6 +387,8 @@ private:
     WebrtcDeskConfig webrtcDeskConfig;
 
     WebrtcManagerConfig webrtcManagerConfig;
+
+    std::atomic<bool> openBeControl {false};
 
 };
 

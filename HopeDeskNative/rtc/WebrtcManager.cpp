@@ -403,7 +403,7 @@ void WebrtcManager::disConnectRemoteHandler()
             }
         } else {
             if (self->onRemoteFailedHandle){
-                self->onRemoteFailedHandle();
+                self->onRemoteFailedHandle(0);
             }
             self->cancelRequestTimeout();
             self->closeTcpSocket();
@@ -422,13 +422,12 @@ void WebrtcManager::handleSignalMessage(std::string str)
     size_t envelopeSize = 0;
 
     struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcEnvelope, str, envelopeSize);
+
     if (deserializeError) {
         LOG_ERROR("WebSocket Received Invalid Struct_pack: {}", deserializeError.message().data());
         return;
     }
 
-    // 信封(WebrtcEnvelope)反序列化出 requestType/state/accountId/targetId,业务载荷是头部之后原样拼接的 body。
-    // 用 deserialize_to 消耗的字节数切出 body,再把信封字段合并回 payload,还原成整包 JSON,供本地 System(仍讲 JSON)与下方逻辑使用。
     std::string payload = str.substr(envelopeSize);
 
     boost::json::object json;
@@ -479,6 +478,32 @@ void WebrtcManager::handleSignalMessage(std::string str)
                     std::string type(json["type"].as_string().c_str());
 
                     if (type == "request") {
+
+                        if(!openBeControl.load()){
+
+                            WebrtcEnvelope returnWebrtcEnvelope;
+
+                            boost::json::object returnJson;
+
+                            returnJson["requestType"] = 1;
+
+                            returnJson["fowardMessage"] = "User Not Open BeControl";
+
+                            returnWebrtcEnvelope.requestType = 1;
+
+                            returnWebrtcEnvelope.accountId = accountId;
+
+                            returnWebrtcEnvelope.targetId = std::string(json["accountId"].as_string().c_str());
+
+                            returnWebrtcEnvelope.message = "WebrtcSignalServer forward";
+
+                            returnWebrtcEnvelope.state = 403;
+
+                            webrtcAsyncWrite(struct_pack::serialize<std::string>(returnWebrtcEnvelope));
+
+                            return;
+
+                        }
 
                         targetId = std::string(json["accountId"].as_string().c_str());
 
@@ -582,7 +607,17 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
                 if (onRemoteFailedHandle) {
 
-                    onRemoteFailedHandle();
+                    onRemoteFailedHandle(404);
+
+                }
+
+            } else if (responseState == 403) {
+
+                cancelRequestTimeout();
+
+                if (onRemoteFailedHandle) {
+
+                    onRemoteFailedHandle(403);
 
                 }
 
@@ -1056,7 +1091,7 @@ void WebrtcManager::handleSystemDisconnect()
 
     } else {
 
-        if (onRemoteFailedHandle) onRemoteFailedHandle();
+        if (onRemoteFailedHandle) onRemoteFailedHandle(0);
 
     }
 }
@@ -1201,7 +1236,7 @@ void WebrtcManager::armRequestTimeout(WebrtcRole role)
 
             self->initializePeerConnection();
 
-            if (caller && self->onRemoteFailedHandle) self->onRemoteFailedHandle();
+            if (caller && self->onRemoteFailedHandle) self->onRemoteFailedHandle(408);
 
             LOG_INFO("WebrtcManager Request Timeout ReInit (Caller={})", caller ? 1 : 0);
 
@@ -1412,6 +1447,10 @@ void WebrtcManager::disConnect()
 
     });
 
+}
+
+void WebrtcManager::setOpenBeControl(bool openBeControl){
+    this->openBeControl.store(openBeControl);
 }
 
 }

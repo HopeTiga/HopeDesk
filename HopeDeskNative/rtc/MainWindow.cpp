@@ -111,8 +111,7 @@ MainWindow::MainWindow(QWidget* parent)
                     ui->btnStartControl->setEnabled(true);
                     ui->btnStartControl->setText("立即连接");
                     ui->btnSendCtrlAltF->setEnabled(false);
-                    ui->remoteStatusLabel->setText("远程连接已结束");
-                    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("ended"));
+                    setRemoteStatus("远程连接已结束", "ended");
                     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
                     if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
                     hidePeerCard();
@@ -155,8 +154,7 @@ MainWindow::MainWindow(QWidget* parent)
             ui->btnStartControl->setText("控制中...");
             ui->btnStartControl->setEnabled(false);
             ui->btnSendCtrlAltF->setEnabled(true);
-            ui->remoteStatusLabel->setText("远程连接已建立");
-            theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("success"));
+            setRemoteStatus("远程连接已建立", "success");
             addToHistory(ui->remoteIdEdit->text());
 
             // 开始周期刷新 RTT,并立即拉一次(仅在设置开启时)
@@ -172,13 +170,18 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onRemoteFailedHandle = [this]() {
-        QMetaObject::invokeMethod(this, [this]() {
+    webrtcManager->onRemoteFailedHandle = [this](int state) {
+        QMetaObject::invokeMethod(this, [this, state]() {
             if (remoteConnectionTimer) remoteConnectionTimer->stop();
             ui->btnStartControl->setEnabled(true);
             ui->btnStartControl->setText("立即连接");
-            ui->remoteStatusLabel->setText("连接失败：对方不在线或拒绝");
-            theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("danger"));
+            if (state == 403) {
+                setRemoteStatus("连接失败：对方已关闭允许控制", "danger");
+            } else if (state == 408) {
+                setRemoteStatus("连接请求超时", "danger");
+            } else {
+                setRemoteStatus("连接失败：对方不在线或拒绝", "danger");
+            }
             hidePeerCard();
         }, Qt::QueuedConnection);
     };
@@ -215,6 +218,10 @@ MainWindow::~MainWindow()
         settings->setValue("webrtcAudioEnable", webrtcAudioEnable);
         settings->setValue("showRtt", showRttEnabled);
         settings->setValue("showFps", showFpsEnabled);
+        settings->setValue("showEncodeInfo", showEncodeInfoEnabled);
+        settings->setValue("showHotkey", showHotkeyEnabled);
+        settings->setValue("historyCollapsed", historyCollapsed);
+        settings->setValue("allowControl", allowControlEnabled);
         settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
         settings->setValue("webrtcEnableNvdec", webrtcEnableD3D11);
         saveEncodeConfig();
@@ -307,6 +314,17 @@ void MainWindow::initConfigAndSettings()
     ui->checkShowRtt->setChecked(showRttEnabled);
     showFpsEnabled = settings->value("showFps", false).toBool();
     ui->checkShowFps->setChecked(showFpsEnabled);
+    showEncodeInfoEnabled = settings->value("showEncodeInfo", true).toBool();
+    ui->checkShowEncodeInfo->setChecked(showEncodeInfoEnabled);
+    ui->labelCodecStatus->setVisible(showEncodeInfoEnabled);
+    ui->labelCaptureTech->setVisible(showEncodeInfoEnabled);
+    showHotkeyEnabled = settings->value("showHotkey", true).toBool();
+    ui->checkShowHotkey->setChecked(showHotkeyEnabled);
+    ui->btnSendCtrlAltF->setVisible(showHotkeyEnabled);
+    historyCollapsed = settings->value("historyCollapsed", false).toBool();
+    applyHistoryCollapsed();
+    allowControlEnabled = settings->value("allowControl", true).toBool();
+    if (webrtcManager) webrtcManager->setOpenBeControl(allowControlEnabled);
     verticalSyncEnabled = ConfigManager::Instance().GetBool("Render.VSync", false);
 
     // 编码配置:UI 存 Mbps,WebrtcDeskConfig 用 bps(读取时不转换,填入 config 时再 *1000000)
@@ -495,6 +513,10 @@ void MainWindow::setupUI()
     ui->containerRemote->setAttribute(Qt::WA_StyledBackground, true);
     ui->containerHistory->setAttribute(Qt::WA_StyledBackground, true);
 
+    allowControlSwitch = new SwitchButton(this);
+    allowControlSwitch->setChecked(allowControlEnabled);
+    ui->horizontalLayout_AllowControl->insertWidget(1, allowControlSwitch);
+
     ui->btnNavHome->setIconSize(QSize(18, 18));
     ui->btnNavDevices->setIconSize(QSize(18, 18));
     ui->btnNavSettings->setIconSize(QSize(18, 18));
@@ -539,6 +561,7 @@ void MainWindow::setupUI()
 
     ui->containerPeer->setVisible(false);
     theme::setState(ui->peerRoleBadge, "role", QStringLiteral("controller"));
+    ui->remoteStatusLabel->setVisible(false);
     theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("idle"));
     theme::setState(ui->connectionStatusLabel, "state", QStringLiteral("normal"));
 
@@ -568,7 +591,6 @@ void MainWindow::setupUI()
     loadSystemSettings();
 }
 
-// ... (loadHistoryData, loadFavoritesData, addToHistory 保持不变) ...
 void MainWindow::loadHistoryData() {
     if(!settings) return;
     historyList.clear();
@@ -844,6 +866,10 @@ void MainWindow::setupSignalSlots()
     connect(ui->checkAutoStart, &QCheckBox::clicked, this, &MainWindow::onAutoStartChecked);
     connect(ui->checkShowRtt, &QCheckBox::clicked, this, &MainWindow::onShowRttChecked);
     connect(ui->checkShowFps, &QCheckBox::clicked, this, &MainWindow::onShowFpsChecked);
+    connect(ui->checkShowEncodeInfo, &QCheckBox::clicked, this, &MainWindow::onShowEncodeInfoChecked);
+    connect(ui->checkShowHotkey, &QCheckBox::clicked, this, &MainWindow::onShowHotkeyChecked);
+    connect(ui->btnToggleHistory, &QPushButton::clicked, this, &MainWindow::onToggleHistoryClicked);
+    connect(allowControlSwitch, &SwitchButton::toggled, this, &MainWindow::onAllowControlToggled);
 
     // 周期拉取 VideoWidget 实际渲染帧率刷新 labelFps(仅显示,不参与控制)
     fpsDisplayTimer = new QTimer(this);
@@ -982,7 +1008,6 @@ void MainWindow::onShowRttChecked(bool checked)
     showRttEnabled = checked;
     if (settings) settings->setValue("showRtt", showRttEnabled);
 
-    // 立即生效:已连接时按需启停 RTT 轮询
     if (showRttEnabled) {
         if (isRemoteConnected && statsTimer) {
             statsTimer->start();
@@ -992,8 +1017,7 @@ void MainWindow::onShowRttChecked(bool checked)
         if (statsTimer) statsTimer->stop();
     }
 
-    // 重绘徽章:去掉或补上 RTT
-    if (ui->networkTypeBadge->isVisible()) {
+    if (!ui->networkTypeBadge->isHidden()) {
         refreshNetworkBadge();
     }
 }
@@ -1003,12 +1027,40 @@ void MainWindow::onShowFpsChecked(bool checked)
     showFpsEnabled = checked;
     if (settings) settings->setValue("showFps", showFpsEnabled);
 
-    // 立即生效:已连接时按需启停帧率统计与显示
     if (showFpsEnabled) {
         startFpsDisplay();
     } else {
         stopFpsDisplay();
     }
+}
+
+void MainWindow::onShowEncodeInfoChecked(bool checked)
+{
+    showEncodeInfoEnabled = checked;
+    if (settings) settings->setValue("showEncodeInfo", showEncodeInfoEnabled);
+    ui->labelCodecStatus->setVisible(showEncodeInfoEnabled);
+    ui->labelCaptureTech->setVisible(showEncodeInfoEnabled);
+}
+
+void MainWindow::onShowHotkeyChecked(bool checked)
+{
+    showHotkeyEnabled = checked;
+    if (settings) settings->setValue("showHotkey", showHotkeyEnabled);
+    ui->btnSendCtrlAltF->setVisible(showHotkeyEnabled);
+}
+
+void MainWindow::onToggleHistoryClicked()
+{
+    historyCollapsed = !historyCollapsed;
+    if (settings) settings->setValue("historyCollapsed", historyCollapsed);
+    applyHistoryCollapsed();
+}
+
+void MainWindow::onAllowControlToggled(bool checked)
+{
+    allowControlEnabled = checked;
+    if (settings) settings->setValue("allowControl", allowControlEnabled);
+    if (webrtcManager) webrtcManager->setOpenBeControl(allowControlEnabled);
 }
 
 void MainWindow::startFpsDisplay()
@@ -1315,8 +1367,7 @@ void MainWindow::onBtnConnectClicked()
         ui->btnStartControl->setEnabled(true);
         ui->btnStartControl->setText("立即连接");
         ui->btnSendCtrlAltF->setEnabled(false);   // 手动断开:禁用
-        ui->remoteStatusLabel->setText("远程连接已结束");
-        theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("ended"));
+        setRemoteStatus("远程连接已结束", "ended");
         if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
         if (ui->labelCaptureTech) ui->labelCaptureTech->setText("");
         hidePeerCard();
@@ -1344,8 +1395,7 @@ void MainWindow::onBtnConnectClicked()
         return;
     }
 
-    ui->remoteStatusLabel->setText("正在建立安全连接...");
-    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("connecting"));
+    setRemoteStatus("正在建立安全连接...", "connecting");
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("连接中...");
 
@@ -1385,8 +1435,7 @@ void MainWindow::onRemoteControlStarted()
     isRemoteConnected = true;
     ui->btnStartControl->setText("断开连接");
     ui->btnStartControl->setEnabled(true);
-    ui->remoteStatusLabel->setText("正在被远程控制中");
-    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("danger"));
+    setRemoteStatus("正在被远程控制中", "danger");
     ui->btnSendCtrlAltF->setEnabled(false);
     // 编码状态由 System 经本地 TCP(ENCODE_STATUS)上报后写入 label,这里不重复设置
 }
@@ -1398,8 +1447,7 @@ void MainWindow::onRemoteDisconnectedByPeer()
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
     ui->btnSendCtrlAltF->setEnabled(false);   // 断开:无连接可发,禁用
-    ui->remoteStatusLabel->setText("远程连接已结束");
-    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("ended"));
+    setRemoteStatus("远程连接已结束", "ended");
     hidePeerCard();
     // 断开清空状态:编/解码 + 采集 label + VideoWidget 显示状态(避免残留上一帧/旧状态)
     if (ui->labelCodecStatus) ui->labelCodecStatus->setText("");
@@ -1435,8 +1483,7 @@ void MainWindow::onRemoteConnectionTimeout()
     if (webrtcManager) webrtcManager->abortPendingConnection();
     ui->btnStartControl->setEnabled(true);
     ui->btnStartControl->setText("立即连接");
-    ui->remoteStatusLabel->setText("连接请求超时");
-    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("danger"));
+    setRemoteStatus("连接请求超时", "danger");
     hidePeerCard();
 }
 
@@ -1459,6 +1506,19 @@ void MainWindow::hidePeerCard()
     if (!ui || !ui->containerPeer) return;
     ui->containerPeer->setVisible(false);
     ui->peerIdLabel->setText("");
+}
+
+void MainWindow::setRemoteStatus(const QString& text, const char* state)
+{
+    ui->remoteStatusLabel->setText(text);
+    ui->remoteStatusLabel->setVisible(!text.isEmpty());
+    theme::setState(ui->remoteStatusLabel, "state", QString::fromLatin1(state));
+}
+
+void MainWindow::applyHistoryCollapsed()
+{
+    ui->recentListWidget->setVisible(!historyCollapsed);
+    ui->btnToggleHistory->setText(historyCollapsed ? QStringLiteral("展开") : QStringLiteral("收起"));
 }
 
 void MainWindow::updateStatusUI(const QString& status, const QString& styleClass)
@@ -1484,8 +1544,7 @@ void MainWindow::onLogoutClicked() {
     isRemoteConnected = false;
     hidePeerCard();
     hideNetworkBadge();
-    theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("idle"));
-    ui->remoteStatusLabel->setText("安全加密传输 | 支持剪贴板 | 无感低延迟");
+    setRemoteStatus("", "idle");
 
     if (videoWidget) {
         stopFpsDisplay();

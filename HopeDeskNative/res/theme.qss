@@ -176,15 +176,21 @@ QLabel#userAvatar[state="image"] {
 
 /* ===== 卡片 ===== */
 
-QWidget#containerMyDevice, QWidget#containerRemote, QWidget#containerHistory {
+QWidget#containerMyDevice, QWidget#containerHistory {
     background-color: {{bgCard}};
     border-radius: {{radiusCard}};
     border: 1px solid {{border}};
 }
 
-QLabel#labelTitleMy, QLabel#labelTitleRemote {
+QLabel#labelTitleMy {
     color: {{textFaint}};
     font-size: 14px;
+}
+
+QLabel#labelTitleRemote, QLabel#labelAllowControl {
+    color: {{text}};
+    font-size: 15px;
+    font-weight: bold;
 }
 
 /* ===== 本机识别码 ===== */
@@ -294,7 +300,7 @@ QPushButton#btnCopyPeerId:hover {
 /* ===== 连接远程设备 ===== */
 
 QLineEdit#remoteIdEdit {
-    background-color: {{bgInput}};
+    background-color: {{bgCard}};
     border: 1px solid {{borderStrong}};
     border-radius: {{radiusCtl}};
     color: {{text}};
@@ -305,11 +311,11 @@ QLineEdit#remoteIdEdit {
 
 QLineEdit#remoteIdEdit:focus {
     border: 1px solid {{primaryInk}};
-    background-color: {{bgInputFocus}};
+    background-color: {{bgCard}};
 }
 
 QLineEdit#remoteIdEdit:hover {
-    background-color: {{bgInputFocus}};
+    border: 1px solid {{primaryInk}};
 }
 
 QPushButton#btnStartControl {
@@ -336,7 +342,7 @@ QPushButton#btnStartControl:disabled {
     color: {{textSub}};
 }
 
-QLabel#remoteStatusLabel {
+QLabel#remoteStatusLabel, QLabel#labelFeatureText {
     color: {{textFaint}};
     font-size: 12px;
 }
@@ -407,7 +413,7 @@ QLabel#labelRecentTitle {
     color: {{text}};
 }
 
-QPushButton#btnClearHistory {
+QPushButton#btnClearHistory, QPushButton#btnToggleHistory {
     background: transparent;
     color: {{textFaint}};
     border: none;
@@ -416,6 +422,10 @@ QPushButton#btnClearHistory {
 
 QPushButton#btnClearHistory:hover {
     color: {{danger}};
+}
+
+QPushButton#btnToggleHistory:hover {
+    color: {{primaryInk}};
 }
 
 QListWidget#recentListWidget {

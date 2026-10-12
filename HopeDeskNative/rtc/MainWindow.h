@@ -7,7 +7,8 @@
 #include <QJsonObject>
 #include <atomic>
 #include <QSystemTrayIcon>
-#include "widget/CustomDialogs.h" // 确保引用了你的弹窗头文件
+#include "widget/CustomDialogs.h"
+#include "widget/SwitchButton.h"
 
 QT_BEGIN_NAMESPACE
 class QTabWidget;
@@ -85,6 +86,10 @@ private Q_SLOTS:
     void onAutoStartChecked(bool checked);
     void onShowRttChecked(bool checked);
     void onShowFpsChecked(bool checked);
+    void onShowEncodeInfoChecked(bool checked);
+    void onShowHotkeyChecked(bool checked);
+    void onToggleHistoryClicked();
+    void onAllowControlToggled(bool checked);
 
     void on_checkHwAccel_checkStateChanged(const Qt::CheckState &arg1);
     void on_checkHwDec_checkStateChanged(const Qt::CheckState &arg1);
@@ -95,7 +100,6 @@ private:
     void initConfigAndSettings();
 
     void checkLoginStatus();
-    // 【修复】：补全了这两个函数的声明
     void updateLocalAccountUI();
     void setColorAvatar();
 
@@ -112,6 +116,8 @@ private:
     void updateStatusUI(const QString& status, const QString& styleClass);
     void showPeerCard(int myRole, const QString& peerId);
     void hidePeerCard();
+    void setRemoteStatus(const QString& text, const char* state);
+    void applyHistoryCollapsed();
     void updateNetworkTypeUI(int type, double rttMs);
     void refreshNetworkBadge();  // 用缓存的类型/RTT 重绘徽章(开关切换时调用)
     void hideNetworkBadge();     // 断开/超时时统一隐藏徽章并清空 RTT 缓存
@@ -179,6 +185,11 @@ private:
 
     bool showRttEnabled = false;  // 是否在连接徽章上显示网络 RTT(可配置)
     bool showFpsEnabled = false;  // 是否显示实际渲染帧率(可配置)
+    bool showEncodeInfoEnabled = true;  // 是否显示编码与采集信息(可配置)
+    bool showHotkeyEnabled = true;
+    bool historyCollapsed = false;      // 历史会话是否收起
+    bool allowControlEnabled = true;    // 允许控制本设备(可配置)
+    SwitchButton* allowControlSwitch = nullptr;
     QTimer* fpsDisplayTimer = nullptr;  // 周期拉取 VideoWidget 帧率刷新 labelFps
 
     void startFpsDisplay();  // 连接建立 + 设置开启时启用
