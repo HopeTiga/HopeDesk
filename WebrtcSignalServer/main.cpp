@@ -2,8 +2,6 @@
 #include <string>
 #include <clocale>
 #include <mimalloc/mimalloc-new-delete.h>
-#include "utils/MimallocConfig.h"
-#include "utils/LoggerConfig.h"
 #include "ssl/Ssl.h"
 #include "executor/SchedulerConfig.h"
 #include "executor/SchedulerContext.h"
@@ -11,10 +9,13 @@
 #include "signal/WebrtcSignalServer.h"
 #include "rpc/CoroRpcConfig.h"
 #include "rpc/Rpc.h"
-#include "utils/ConfigManager.h"
 #include "storage/MysqlConfig.h"
 #include "storage/RedisConfig.h"
 #include "utils/Utils.h"
+#include "utils/ConfigManager.h"
+#include "utils/MimallocConfig.h"
+#include "utils/LoggerConfig.h"
+#include "utils/CompletionHandle.h"
 
 int main() {
 
@@ -82,9 +83,11 @@ int main() {
 
     }
 
-    boost::asio::signal_set signals(ioContext, SIGINT, SIGTERM);
+    boost::asio::signal_set signalSet(ioContext, SIGINT, SIGTERM);
 
-    signals.async_wait([&ioContext, webrtcSignalServer = webrtcSignalServer->shared_from_this(), &executorWorkGuard](const boost::system::error_code& error, int signal) {
+	boost::asio::co_spawn(ioContext, [&ioContext, &executorWorkGuard, webrtcSignalServer = std::move(webrtcSignalServer),&signalSet]()->boost::asio::awaitable<void> {
+		
+        co_await signalSet.async_wait(boost::asio::deferred);
 
         webrtcSignalServer->closeEvent();
 
@@ -94,7 +97,9 @@ int main() {
 
         closeLogger();
 
-        });
+        co_return;
+
+        }, hope::CompletionHandle{});
 
     ioContext.run();
 
