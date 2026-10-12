@@ -407,7 +407,7 @@ httpFilters.addFilter([](std::shared_ptr<HttpSocket> httpSocket,
 鉴权失败时 `postHttpTask`（本地与过载两条派发路径一致）写回：
 
 ```json
-{"state":403,"message":"webrtcSignalServer forbidden, please check your request","data":null}
+{"state":403,"message":"WebrtcSignalServer Forbidden, Please Check Your Request","data":null}
 ```
 
 > 注意：token 是逐字节精确比较，客户端发什么就比什么。用 ApiPost/Postman 等工具测试时填了 token 却发出去另一个值，通常不是服务端问题——检查「鉴权/Auth 标签页」里保存的 Bearer Token 或环境变量是否覆盖了手动 Header。
