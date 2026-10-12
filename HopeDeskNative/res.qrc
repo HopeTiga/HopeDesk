@@ -15,6 +15,7 @@
         <file alias="check.svg">res/icons/check.svg</file>
         <file alias="check-white.svg">res/icons/check-white.svg</file>
         <file alias="trash.svg">res/icons/trash-2.svg</file>
+        <file alias="edit.svg">res/icons/edit-3.svg</file>
         <file alias="star.svg">res/icons/star.svg</file>
         <file alias="clock.svg">res/icons/clock.svg</file>
         <file alias="monitor.svg">res/icons/monitor.svg</file>

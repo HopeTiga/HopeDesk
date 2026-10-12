@@ -106,6 +106,7 @@ private:
     void loadHistoryData();
     void loadFavoritesData();
     void addToHistory(const QString& id, const QString& name = QString());
+    void editDeviceInfo(const QString& id, bool isFavorite);
 
     void updateRecentListUI();
     void updateDeviceListUI(bool showFavorites);

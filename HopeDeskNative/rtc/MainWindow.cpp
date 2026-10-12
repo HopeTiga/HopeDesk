@@ -569,9 +569,11 @@ void MainWindow::setupUI()
 
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         trayMenu = new QMenu(this);
-        trayMenu->addAction("显示主界面", this, &MainWindow::showWindow);
+        QAction* showAction = trayMenu->addAction("显示主界面", this, &MainWindow::showWindow);
+        showAction->setIcon(theme::icon(QStringLiteral(":/icons/monitor.svg"), theme::color("textSub"), 16));
         trayMenu->addSeparator();
-        trayMenu->addAction("退出", this, &MainWindow::quitApplication);
+        QAction* quitAction = trayMenu->addAction("退出", this, &MainWindow::quitApplication);
+        quitAction->setIcon(theme::icon(QStringLiteral(":/icons/close.svg"), theme::color("textSub"), 16));
         trayIcon = new QSystemTrayIcon(this);
         trayIcon->setIcon(appIcon);
         trayIcon->setContextMenu(trayMenu);
@@ -609,6 +611,15 @@ void MainWindow::loadFavoritesData() {
         QJsonArray jsonArray = QJsonDocument::fromJson(data).array();
         for(const auto& val : jsonArray) favoritesList.append(DeviceInfo::fromJson(val.toObject()));
     }
+
+    for(DeviceInfo& favorite : favoritesList) {
+        for(const DeviceInfo& device : historyList) {
+            if(normalizeDeviceId(device.id) == normalizeDeviceId(favorite.id)) {
+                if(device.lastAccess > favorite.lastAccess) favorite.lastAccess = device.lastAccess;
+                break;
+            }
+        }
+    }
 }
 
 void MainWindow::addToHistory(const QString& id, const QString& name) {
@@ -616,10 +627,13 @@ void MainWindow::addToHistory(const QString& id, const QString& name) {
     QString deviceName = name;
     if(deviceName.isEmpty()) deviceName = nameFromFavorites(id);
 
+    const QString normalized = normalizeDeviceId(id);
+    const qint64 lastAccess = QDateTime::currentMSecsSinceEpoch();
+
     bool found = false;
     for(int i=0; i<historyList.size(); ++i) {
-        if(normalizeDeviceId(historyList[i].id) == normalizeDeviceId(id)) {
-            historyList[i].lastAccess = QDateTime::currentMSecsSinceEpoch();
+        if(normalizeDeviceId(historyList[i].id) == normalized) {
+            historyList[i].lastAccess = lastAccess;
             if(!deviceName.isEmpty()) historyList[i].name = deviceName;
             historyList.move(i, 0);
             found = true;
@@ -630,7 +644,7 @@ void MainWindow::addToHistory(const QString& id, const QString& name) {
         DeviceInfo info;
         info.id = id;
         info.name = deviceName.isEmpty() ? QStringLiteral("未知设备") : deviceName;
-        info.lastAccess = QDateTime::currentMSecsSinceEpoch();
+        info.lastAccess = lastAccess;
         historyList.insert(0, info);
         if(historyList.size() > 20) historyList.removeLast();
     }
@@ -639,8 +653,77 @@ void MainWindow::addToHistory(const QString& id, const QString& name) {
     for(const auto& dev : historyList) array.append(dev.toJson());
     settings->setValue("historyList", QJsonDocument(array).toJson());
 
+    bool favoritesTouched = false;
+    for(DeviceInfo& favorite : favoritesList) {
+        if(normalizeDeviceId(favorite.id) == normalized) {
+            favorite.lastAccess = lastAccess;
+            favoritesTouched = true;
+            break;
+        }
+    }
+    if (favoritesTouched) {
+        QJsonArray favoritesArray;
+        for(const auto& dev : favoritesList) favoritesArray.append(dev.toJson());
+        settings->setValue("favoritesList", QJsonDocument(favoritesArray).toJson());
+    }
+
     updateRecentListUI();
-    if(ui->deviceGroupList->currentRow() == 1) updateDeviceListUI(false);
+    updateDeviceListUI(ui->deviceGroupList->currentRow() == 0);
+}
+
+void MainWindow::editDeviceInfo(const QString& id, bool isFavorite) {
+    QList<DeviceInfo>& list = isFavorite ? favoritesList : historyList;
+    QList<DeviceInfo>& other = isFavorite ? historyList : favoritesList;
+
+    const QString oldId = normalizeDeviceId(id);
+    DeviceInfo* target = nullptr;
+    for(DeviceInfo& device : list) {
+        if(normalizeDeviceId(device.id) == oldId) {
+            target = &device;
+            break;
+        }
+    }
+    if(!target) return;
+
+    AddDeviceDialog dlg(this);
+    dlg.setEditMode(target->id, target->name);
+    if(dlg.exec() != QDialog::Accepted) return;
+
+    const QString newId = dlg.getID();
+    if(newId.isEmpty()) return;
+    const QString newName = dlg.getName().isEmpty() ? target->name : dlg.getName();
+
+    target->id = newId;
+    target->name = newName;
+
+    for(DeviceInfo& device : other) {
+        if(normalizeDeviceId(device.id) == oldId) {
+            device.id = newId;
+            device.name = newName;
+            break;
+        }
+    }
+
+    for(QList<DeviceInfo>* devices : { &favoritesList, &historyList }) {
+        for(int i = devices->size() - 1; i > 0; --i) {
+            for(int j = 0; j < i; ++j) {
+                if(normalizeDeviceId(devices->at(i).id) == normalizeDeviceId(devices->at(j).id)) {
+                    devices->removeAt(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    QJsonArray favoritesArray;
+    for(const auto& dev : favoritesList) favoritesArray.append(dev.toJson());
+    settings->setValue("favoritesList", QJsonDocument(favoritesArray).toJson());
+    QJsonArray historyArray;
+    for(const auto& dev : historyList) historyArray.append(dev.toJson());
+    settings->setValue("historyList", QJsonDocument(historyArray).toJson());
+
+    updateRecentListUI();
+    updateDeviceListUI(ui->deviceGroupList->currentRow() == 0);
 }
 
 // ---------------- UI 更新 ----------------
@@ -818,7 +901,13 @@ void MainWindow::setupSignalSlots()
         if(!item) return;
 
         QMenu menu(this);
-        QAction* delAction = menu.addAction("删除此设备");
+        QAction* editAction = menu.addAction(
+            theme::icon(QStringLiteral(":/icons/edit.svg"), theme::color("primaryInk"), 16), "编辑设备");
+        QAction* delAction = menu.addAction(
+            theme::icon(QStringLiteral(":/icons/trash.svg"), theme::color("danger"), 16), "删除此设备");
+        connect(editAction, &QAction::triggered, [this, item](){
+            editDeviceInfo(item->data(Qt::UserRole).toString(), ui->deviceGroupList->currentRow() == 0);
+        });
         connect(delAction, &QAction::triggered, [this, item](){
             QString id = item->data(Qt::UserRole).toString();
             bool isFav = (ui->deviceGroupList->currentRow() == 0);
@@ -933,12 +1022,31 @@ void MainWindow::onAddDeviceClicked() {
         QString name = dlg.getName();
 
         if(!id.isEmpty()) {
-            DeviceInfo info;
-            info.id = id;
-            info.name = name.isEmpty() ? "我的设备" : name;
-            info.lastAccess = QDateTime::currentMSecsSinceEpoch();
+            const QString normalized = normalizeDeviceId(id);
+            qint64 lastAccess = QDateTime::currentMSecsSinceEpoch();
+            for(const DeviceInfo& device : historyList) {
+                if(normalizeDeviceId(device.id) == normalized) {
+                    lastAccess = device.lastAccess;
+                    break;
+                }
+            }
 
-            favoritesList.append(info);
+            bool found = false;
+            for(DeviceInfo& device : favoritesList) {
+                if(normalizeDeviceId(device.id) == normalized) {
+                    if(!name.isEmpty()) device.name = name;
+                    device.lastAccess = lastAccess;
+                    found = true;
+                    break;
+                }
+            }
+            if(!found) {
+                DeviceInfo info;
+                info.id = id;
+                info.name = name.isEmpty() ? "我的设备" : name;
+                info.lastAccess = lastAccess;
+                favoritesList.append(info);
+            }
 
             QJsonArray array; for(const auto& d : favoritesList) array.append(d.toJson());
             settings->setValue("favoritesList", QJsonDocument(array).toJson());

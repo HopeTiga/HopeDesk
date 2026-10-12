@@ -109,10 +109,10 @@ public:
         mainLayout->setContentsMargins(30, 30, 30, 30);
         mainLayout->setSpacing(15);
 
-        QLabel *title = new QLabel("添加新设备", this);
-        title->setObjectName("dlgTitle");
-        title->setAlignment(Qt::AlignCenter);
-        mainLayout->addWidget(title);
+        titleLabel = new QLabel("添加新设备", this);
+        titleLabel->setObjectName("dlgTitle");
+        titleLabel->setAlignment(Qt::AlignCenter);
+        mainLayout->addWidget(titleLabel);
 
         QFrame *line = new QFrame(this);
         line->setFrameShape(QFrame::HLine);
@@ -140,7 +140,7 @@ public:
         btnCancel->setObjectName("btnCancel");
         btnCancel->setFixedHeight(40);
 
-        QPushButton *btnSave = new QPushButton("立即添加", this);
+        btnSave = new QPushButton("立即添加", this);
         btnSave->setObjectName("btnSave");
         btnSave->setFixedHeight(40);
 
@@ -155,8 +155,20 @@ public:
         });
     }
 
+    void setEditMode(const QString& id, const QString& name) {
+        setWindowTitle("编辑设备");
+        titleLabel->setText("编辑设备");
+        btnSave->setText("保存");
+        idEdit->setText(id);
+        nameEdit->setText(name);
+    }
+
     QString getID() const { return idEdit->text().trimmed(); }
     QString getName() const { return nameEdit->text().trimmed(); }
+
+private:
+    QLabel* titleLabel = nullptr;
+    QPushButton* btnSave = nullptr;
 };
 
 // ==========================================

@@ -918,3 +918,40 @@ QDialog#loginDialog QLabel#avatarDrop[state="image"] {
     background: transparent;
     border: none;
 }
+
+/* ===== 弹出菜单 ===== */
+
+QMenu {
+    background-color: {{bgCard}};
+    border: 1px solid {{border}};
+    border-radius: {{radiusCtl}};
+    padding: 6px;
+    color: {{text}};
+}
+
+QMenu::item {
+    background: transparent;
+    padding: 9px 26px 9px 34px;
+    border-radius: {{radiusPill}};
+    font-size: 13px;
+    min-width: 92px;
+}
+
+QMenu::item:selected {
+    background-color: {{primarySoft}};
+    color: {{primaryInk}};
+}
+
+QMenu::item:disabled {
+    color: {{textFaint}};
+}
+
+QMenu::icon {
+    padding-left: 8px;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: {{border}};
+    margin: 5px 10px;
+}
