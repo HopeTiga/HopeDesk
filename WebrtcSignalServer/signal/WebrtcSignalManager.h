@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <memory>
 #include <string>
 
@@ -84,6 +85,8 @@ namespace hope {
 				std::string sessionId;
 
 				int channelIndex;
+
+				std::chrono::steady_clock::time_point registrationTime;
 
 			};
 

@@ -3,6 +3,8 @@
 
 #include <chrono>
 
+#include <tuple>
+
 #include <boost/asio.hpp>
 
 #include "WebrtcSignalServer.h"
@@ -84,6 +86,8 @@ namespace hope {
 
         void WebrtcSignalManager::registerSocket(const std::string& accountId, std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket) {
 
+            const std::chrono::steady_clock::time_point registrationTime = std::chrono::steady_clock::now();
+
             std::string sessionId = webrtcSignalSocket->getSessionId();
 
             StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator = webrtcSocketMap.find(accountId);
@@ -100,9 +104,23 @@ namespace hope {
 
             int newChannelIndex = static_cast<int>(channelIndex);
 
-            absl::AnyInvocable<void(WebrtcSignalManager*)> updateGlobalIndexAndKick = [accountId, sessionId = std::move(sessionId), newChannelIndex](WebrtcSignalManager* targetManager) mutable {
+            absl::AnyInvocable<void(WebrtcSignalManager*)> updateGlobalIndexAndKick = [accountId, sessionId = std::move(sessionId), newChannelIndex, registrationTime](WebrtcSignalManager* targetManager) mutable {
 
                 StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator indexIterator = targetManager->actorSocketMappingIndex.find(accountId);
+
+                if (indexIterator != targetManager->actorSocketMappingIndex.end()
+                    && std::tie(registrationTime, sessionId) <= std::tie(indexIterator->second.registrationTime, indexIterator->second.sessionId)) {
+
+                    targetManager->webrtcSignalServer->postTask(newChannelIndex,
+                        [accountId, sessionId](std::shared_ptr<WebrtcSignalManager> manager) mutable {
+
+                            manager->removeConnection(std::move(accountId), std::move(sessionId), nullptr);
+
+                        });
+
+                    return;
+
+                }
 
                 int oldChannelIndex = -1;
 
@@ -116,7 +134,7 @@ namespace hope {
 
                 }
 
-                WebrtcSignalManager::ActorMapping actorMapping{ std::move(sessionId), newChannelIndex };
+                WebrtcSignalManager::ActorMapping actorMapping{ std::move(sessionId), newChannelIndex, registrationTime };
 
                 targetManager->actorSocketMappingIndex[accountId] = std::move(actorMapping);
 
