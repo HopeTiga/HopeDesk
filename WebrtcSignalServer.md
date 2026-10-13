@@ -203,9 +203,11 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 5. `webSocket.async_accept(req)` 完成 WebSocket 升级。
 6. `setTcpKeepAlive`（按平台调 SO_KEEPALIVE / TCP_KEEPIDLE/INTVL/CNT）。
 7. `manager->registerSocket(accountId, this)`：
+   - 入口取一次 `steady_clock::now()` 作为本次注册的 `registrationTime`（到达序）。
    - 若同 `accountId` 已有旧连接 → 旧连接 `closeEvent()`（踢旧）。
    - 写入 `WebrtcSocketMap[accountId]`。
-   - `postTask(mapChannelIndex, ...)` 在 home channel 的 `actorSocketMappingIndex[accountId] = {sessionId, channelIndex}` 登记归属。
+   - `postTask(mapChannelIndex, ...)` 在 home channel 的 `actorSocketMappingIndex[accountId] = {sessionId, channelIndex, registrationTime}` 登记归属。
+   - 登记前比较 `std::tie(registrationTime, sessionId) <= 已存值`：成立即本注册更旧，**不覆写、自踢**（`postTask` 回自己通道，走带 `closeEvent` 的 3 参 `removeConnection`）。投递到 home 的两条路（`executeQueue` 批量排空 / asio post 队列）与 `mapChannelIndex == newChannelIndex` 的同步快路都不保证 FIFO，先到的旧注册可能后落地并踢掉新连接，这一比较把它挡在覆写之前。
 
 ### 5.2 收发循环
 
@@ -1191,7 +1193,7 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 | `TaskChannel` | `AwaitableTask.h` | 全局任务队列 |
 | `AwaitableQueue<T>` | `AwaitableQueue.h` | socket 写队列 |
 | `AwaitableTask` | `AwaitableTask.h` | `absl::AnyInvocable<awaitable<void>()>` |
-| `ActorMapping` | `WebrtcSignalManager.h` | `{sessionId, channelIndex}` |
+| `ActorMapping` | `WebrtcSignalManager.h` | `{sessionId, channelIndex, registrationTime}` |
 | `StringHasher` | `utils/StringHasher.h` | 透明 string hasher（收 `string_view`，`boost::hash<string_view>`，**无种子**：接收端自己重算桶号，跨实例必须可复现） |
 | `StringKeyedNodeMap<T>` / `StringKeyedFlatMap<T>` | `utils/StringHasher.h` | string 键路由表的统一别名（boost node/flat + 透明 hasher） |
 | `AsyncTransactionGuard` | `storage/AsyncTransactionGuard.h` | 事务 RAII |
