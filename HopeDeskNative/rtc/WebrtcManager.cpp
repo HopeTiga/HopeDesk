@@ -454,7 +454,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
     std::string dataStr = boost::json::serialize(json);
 
-    if (json.contains("requestType") && tcpSocket && tcpSocket->isOpen() && WebrtcRequestState(json["requestType"].as_int64()) == WebrtcRequestState::REQUEST) {
+    if (tcpSocket && tcpSocket->isOpen() && WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::REQUEST && webrtcEnvelope.state == 200) {
 
         std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
 
@@ -463,209 +463,204 @@ void WebrtcManager::handleSignalMessage(std::string str)
         return;
     }
 
-    if (json.contains("requestType")) {
+    if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::REQUEST) {
 
-        int64_t requestType = json["requestType"].as_int64();
+        if (webrtcEnvelope.state == 200) {
 
-        int64_t responseState = json["state"].as_int64();
+            if (json.contains("type")) {
 
-        if (WebrtcRequestState(requestType) == WebrtcRequestState::REQUEST) {
+                std::string type(json["type"].as_string().c_str());
 
-            if (responseState == 200) {
+                if (type == "request") {
 
-                if (json.contains("type")) {
+                    if(!openBeControl.load()){
 
-                    std::string type(json["type"].as_string().c_str());
+                        WebrtcEnvelope returnWebrtcEnvelope;
 
-                    if (type == "request") {
+                        boost::json::object returnJson;
 
-                        if(!openBeControl.load()){
+                        returnJson["requestType"] = 1;
 
-                            WebrtcEnvelope returnWebrtcEnvelope;
+                        returnJson["fowardMessage"] = "User Not Open BeControl";
 
-                            boost::json::object returnJson;
+                        returnWebrtcEnvelope.requestType = 1;
 
-                            returnJson["requestType"] = 1;
+                        returnWebrtcEnvelope.accountId = accountId;
 
-                            returnJson["fowardMessage"] = "User Not Open BeControl";
+                        returnWebrtcEnvelope.targetId = std::string(json["accountId"].as_string().c_str());
 
-                            returnWebrtcEnvelope.requestType = 1;
+                        returnWebrtcEnvelope.message = "WebrtcSignalServer forward";
 
-                            returnWebrtcEnvelope.accountId = accountId;
+                        returnWebrtcEnvelope.state = 403;
 
-                            returnWebrtcEnvelope.targetId = std::string(json["accountId"].as_string().c_str());
+                        webrtcAsyncWrite(struct_pack::serialize<std::string>(returnWebrtcEnvelope));
 
-                            returnWebrtcEnvelope.message = "WebrtcSignalServer forward";
+                        return;
 
-                            returnWebrtcEnvelope.state = 403;
+                    }
 
-                            webrtcAsyncWrite(struct_pack::serialize<std::string>(returnWebrtcEnvelope));
+                    targetId = std::string(json["accountId"].as_string().c_str());
 
-                            return;
+                    sessionRole = 2;
 
-                        }
+                    json["localMaxBitrateBps"] = webrtcDeskConfig.localMaxBitrateBps;
 
+                    json["localMinBitrateBps"] = webrtcDeskConfig.localMinBitrateBps;
+
+                    json["localMaxFramerate"] = webrtcDeskConfig.localMaxFramerate;
+
+                    json["desktopWidth"] = webrtcDeskConfig.desktopWidth;
+
+                    json["desktopHeight"] = webrtcDeskConfig.desktopHeight;
+
+                    json["desktopRefreshRate"] = webrtcDeskConfig.desktopRefreshRate;
+
+                    this->followData = boost::json::serialize(json);
+
+                    WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
+
+                    if (!WindowsServiceManager::serviceExists(webrtcManagerConfig.systemService)) {
+
+                        WindowsServiceManager::registerService(webrtcManagerConfig.systemService, webrtcManagerConfig.systemServiceExe);
+
+                    }
+
+                    if (WindowsServiceManager::startService(webrtcManagerConfig.systemService)) {
+
+                        LOG_INFO("WindowsServiceManager::StartService Successful!");
+
+                        this->armRequestTimeout(WebrtcRole::Callee);
+
+                        return;
+                    }
+
+                } else if (type == "offer") {
+
+                    if (json.contains("accountId")) {
                         targetId = std::string(json["accountId"].as_string().c_str());
+                    }
 
-                        sessionRole = 2;
+                    std::string sdp(json["sdp"].as_string().c_str());
 
-                        json["localMaxBitrateBps"] = webrtcDeskConfig.localMaxBitrateBps;
+                    if (!peerConnection) {
+                        LOG_ERROR("PeerConnection Is Null, Cannot Process Offer");
+                        return;
+                    }
 
-                        json["localMinBitrateBps"] = webrtcDeskConfig.localMinBitrateBps;
+                    // 创建远程描述
+                    webrtc::SdpParseError error;
+                    std::unique_ptr<webrtc::SessionDescriptionInterface> remoteDesc(
+                        webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
 
-                        json["localMaxFramerate"] = webrtcDeskConfig.localMaxFramerate;
+                    if (!remoteDesc) {
+                        LOG_ERROR("Failed To Parse Offer SDP: {}", error.description.c_str());
+                        return;
+                    }
 
-                        json["desktopWidth"] = webrtcDeskConfig.desktopWidth;
+                    peerConnection->SetRemoteDescription(
+                        SetRemoteDescriptionObserver::Create().get(),
+                        remoteDesc.release()
+                        );
 
-                        json["desktopHeight"] = webrtcDeskConfig.desktopHeight;
+                    // 创建并发送 answer
+                    webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
 
-                        json["desktopRefreshRate"] = webrtcDeskConfig.desktopRefreshRate;
+                    createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
 
-                        this->followData = boost::json::serialize(json);
+                    peerConnection->CreateAnswer(createAnswerObserver.get(), options);
 
-                        WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
+                } else if (type == "candidate") {
 
-                        if (!WindowsServiceManager::serviceExists(webrtcManagerConfig.systemService)) {
+                    std::string candidateStr(json["candidate"].as_string().c_str());
+                    std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
+                    int mlineIndex = json.contains("mlineIndex") ? static_cast<int>(json["mlineIndex"].as_int64()) : 0;
 
-                            WindowsServiceManager::registerService(webrtcManagerConfig.systemService, webrtcManagerConfig.systemServiceExe);
+                    if (peerConnection) {
 
-                        }
-
-                        if (WindowsServiceManager::startService(webrtcManagerConfig.systemService)) {
-
-                            LOG_INFO("WindowsServiceManager::StartService Successful!");
-
-                            this->armRequestTimeout(WebrtcRole::Callee);
-
-                            return;
-                        }
-
-                    } else if (type == "offer") {
-
-                        if (json.contains("accountId")) {
-                            targetId = std::string(json["accountId"].as_string().c_str());
-                        }
-
-                        std::string sdp(json["sdp"].as_string().c_str());
-
-                        if (!peerConnection) {
-                            LOG_ERROR("PeerConnection Is Null, Cannot Process Offer");
-                            return;
-                        }
-
-                        // 创建远程描述
                         webrtc::SdpParseError error;
-                        std::unique_ptr<webrtc::SessionDescriptionInterface> remoteDesc(
-                            webrtc::CreateSessionDescription(webrtc::SdpType::kOffer, sdp, &error));
+                        std::unique_ptr<webrtc::IceCandidateInterface> candidate(
+                            webrtc::CreateIceCandidate(mid, mlineIndex, candidateStr, &error));
 
-                        if (!remoteDesc) {
-                            LOG_ERROR("Failed To Parse Offer SDP: {}", error.description.c_str());
+                        if (!candidate) {
+                            LOG_ERROR("Failed To Parse ICE Candidate: {}", error.description.c_str());
                             return;
                         }
 
-                        peerConnection->SetRemoteDescription(
-                            SetRemoteDescriptionObserver::Create().get(),
-                            remoteDesc.release()
-                            );
-
-                        // 创建并发送 answer
-                        webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
-
-                        createAnswerObserver = CreateAnswerObserverImpl::Create(this, peerConnection);
-
-                        peerConnection->CreateAnswer(createAnswerObserver.get(), options);
-
-                    } else if (type == "candidate") {
-
-                        std::string candidateStr(json["candidate"].as_string().c_str());
-                        std::string mid = json.contains("mid") ? std::string(json["mid"].as_string().c_str()) : "";
-                        int mlineIndex = json.contains("mlineIndex") ? static_cast<int>(json["mlineIndex"].as_int64()) : 0;
-
-                        if (peerConnection) {
-
-                            webrtc::SdpParseError error;
-                            std::unique_ptr<webrtc::IceCandidateInterface> candidate(
-                                webrtc::CreateIceCandidate(mid, mlineIndex, candidateStr, &error));
-
-                            if (!candidate) {
-                                LOG_ERROR("Failed To Parse ICE Candidate: {}", error.description.c_str());
-                                return;
-                            }
-
-                            bool success = peerConnection->AddIceCandidate(candidate.get());
-                            if (!success) {
-                                LOG_ERROR("Failed To Add ICE Candidate");
-                            }
-
-                        } else {
-                            LOG_ERROR("PeerConnection Is Null, Cannot Add ICE Candidate");
+                        bool success = peerConnection->AddIceCandidate(candidate.get());
+                        if (!success) {
+                            LOG_ERROR("Failed To Add ICE Candidate");
                         }
+
+                    } else {
+                        LOG_ERROR("PeerConnection Is Null, Cannot Add ICE Candidate");
                     }
                 }
+            }
 
-            } else if (responseState == 404) {
+        } else if (webrtcEnvelope.state == 404) {
 
-                if (onRemoteFailedHandle) {
+            cancelRequestTimeout();
 
-                    onRemoteFailedHandle(404);
+            if (onRemoteFailedHandle) {
 
-                }
-
-            } else if (responseState == 403) {
-
-                cancelRequestTimeout();
-
-                if (onRemoteFailedHandle) {
-
-                    onRemoteFailedHandle(403);
-
-                }
+                onRemoteFailedHandle(404);
 
             }
 
-        } else if (WebrtcRequestState(requestType) == WebrtcRequestState::STOPREMOTE) {
+        } else if (webrtcEnvelope.state == 403) {
 
-            if (responseState == 200) {
+            cancelRequestTimeout();
 
-                disConnectRemoteHandler();
+            if (onRemoteFailedHandle) {
 
-            }
-
-        } else if (WebrtcRequestState(requestType) == WebrtcRequestState::CLOSESYSTEM) {
-
-            if (responseState == 200) {
-
-                closeTcpSocket();
-
-                WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
-
-                targetId = json["accountId"].as_string().c_str();
-
-                WebrtcEnvelope webrtcEnvelope;
-
-                webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::SYSTEMREADLY);
-
-                webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
-
-                webrtcEnvelope.accountId = accountId;
-
-                webrtcEnvelope.targetId = targetId;
-
-                webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope));
-
-            }
-
-        } else if (WebrtcRequestState(requestType) == WebrtcRequestState::SYSTEMREADLY) {
-
-            if (responseState == 200) {
-
-                asyncRemoteDesk(webrtcDeskConfig);
+                onRemoteFailedHandle(403);
 
             }
 
         }
 
+    } else if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::STOPREMOTE) {
+
+        if (webrtcEnvelope.state == 200) {
+
+            disConnectRemoteHandler();
+
+        }
+
+    } else if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::CLOSESYSTEM) {
+
+        if (webrtcEnvelope.state == 200) {
+
+            closeTcpSocket();
+
+            WindowsServiceManager::stopService(webrtcManagerConfig.systemService);
+
+            targetId = json["accountId"].as_string().c_str();
+
+            WebrtcEnvelope webrtcEnvelope;
+
+            webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::SYSTEMREADLY);
+
+            webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
+
+            webrtcEnvelope.accountId = accountId;
+
+            webrtcEnvelope.targetId = targetId;
+
+            webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope));
+
+        }
+
+    } else if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::SYSTEMREADLY) {
+
+        if (webrtcEnvelope.state == 200) {
+
+            asyncRemoteDesk(webrtcDeskConfig);
+
+        }
+
     }
+
 
 }
 

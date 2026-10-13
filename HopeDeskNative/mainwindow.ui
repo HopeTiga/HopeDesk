@@ -2,14 +2,6 @@
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>1080</width>
-    <height>750</height>
-   </rect>
-  </property>
   <property name="windowTitle">
    <string>HopeDesk Pro</string>
   </property>
@@ -74,22 +66,22 @@
         </spacer>
        </item>
        <item>
+        <widget class="QPushButton" name="btnWinMenu">
+         <property name="cursor">
+          <cursorShape>PointingHandCursor</cursorShape>
+         </property>
+         <property name="toolTip">
+          <string>菜单</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QPushButton" name="btnWinMin">
          <property name="cursor">
           <cursorShape>PointingHandCursor</cursorShape>
          </property>
          <property name="toolTip">
           <string>最小化</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="btnWinMax">
-         <property name="cursor">
-          <cursorShape>PointingHandCursor</cursorShape>
-         </property>
-         <property name="toolTip">
-          <string>最大化</string>
          </property>
         </widget>
        </item>
@@ -324,7 +316,7 @@
       <widget class="QWidget" name="pageHome">
        <layout class="QVBoxLayout" name="verticalLayout_Home">
         <property name="spacing">
-         <number>20</number>
+         <number>28</number>
         </property>
         <property name="leftMargin">
          <number>35</number>
@@ -589,11 +581,11 @@
                <property name="visible">
                 <bool>false</bool>
                </property>
-               <property name="maximumSize">
-                <size>
-                 <width>16777215</width>
-                 <height>30</height>
-                </size>
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
                </property>
                <layout class="QHBoxLayout" name="horizontalLayout_Peer">
                 <property name="spacing">
@@ -635,189 +627,182 @@
                   </property>
                  </widget>
                 </item>
+                <item>
+                 <spacer name="horizontalSpacer_Peer">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
                </layout>
               </widget>
              </item>
             </layout>
            </item>
            <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_Tech">
-             <property name="spacing">
-              <number>10</number>
+            <widget class="QWidget" name="containerTech" native="true">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
              </property>
-             <item>
-              <widget class="QLabel" name="remoteStatusLabel">
-               <property name="visible">
-                <bool>false</bool>
-               </property>
-               <property name="text">
-                <string/>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="labelCodecStatus">
-               <property name="text">
-                <string/>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="labelFps">
-               <property name="text">
-                <string/>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="labelCaptureTech">
-               <property name="text">
-                <string/>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <spacer name="horizontalSpacer_Tech">
-               <property name="orientation">
-                <enum>Qt::Orientation::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <spacer name="verticalSpacer_Middle">
-          <property name="orientation">
-           <enum>Qt::Orientation::Vertical</enum>
-          </property>
-          <property name="sizeType">
-           <enum>QSizePolicy::Policy::Fixed</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>15</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-        <item>
-         <widget class="QWidget" name="containerHistory" native="true">
-          <layout class="QVBoxLayout" name="verticalLayout_History">
-           <property name="spacing">
-            <number>10</number>
-           </property>
-           <property name="leftMargin">
-            <number>24</number>
-           </property>
-           <property name="topMargin">
-            <number>16</number>
-           </property>
-           <property name="rightMargin">
-            <number>24</number>
-           </property>
-           <property name="bottomMargin">
-            <number>16</number>
-           </property>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_HistoryHeader">
-             <item>
-              <widget class="QLabel" name="labelRecentTitle">
-               <property name="text">
-                <string>历史会话</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <spacer name="horizontalSpacer_4">
-               <property name="orientation">
-                <enum>Qt::Orientation::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-             <item>
-              <widget class="QPushButton" name="btnToggleHistory">
-               <property name="cursor">
-                <cursorShape>PointingHandCursor</cursorShape>
-               </property>
-               <property name="toolTip">
-                <string>收起或展开历史会话</string>
-               </property>
-               <property name="text">
-                <string>收起</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="btnClearHistory">
-               <property name="cursor">
-                <cursorShape>PointingHandCursor</cursorShape>
-               </property>
-               <property name="toolTip">
-                <string>清空历史记录</string>
-               </property>
-               <property name="text">
-                <string>清空</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QListWidget" name="recentListWidget">
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>130</height>
-              </size>
-             </property>
-             <property name="flow">
-              <enum>QListView::Flow::LeftToRight</enum>
-             </property>
-             <property name="isWrapping" stdset="0">
-              <bool>true</bool>
-             </property>
-             <property name="resizeMode">
-              <enum>QListView::ResizeMode::Adjust</enum>
-             </property>
-             <property name="spacing">
-              <number>0</number>
-             </property>
-             <property name="viewMode">
-              <enum>QListView::ViewMode::IconMode</enum>
-             </property>
+             <layout class="QHBoxLayout" name="horizontalLayout_Tech">
+              <property name="spacing">
+               <number>10</number>
+              </property>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="remoteStatusLabel">
+                <property name="visible">
+                 <bool>false</bool>
+                </property>
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelCodecStatus">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelFps">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelCaptureTech">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacer_Tech">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
             </widget>
            </item>
           </layout>
          </widget>
         </item>
         <item>
-         <spacer name="verticalSpacer_Home">
-          <property name="orientation">
-           <enum>Qt::Orientation::Vertical</enum>
+         <layout class="QHBoxLayout" name="horizontalLayout_DeskMode">
+          <property name="spacing">
+           <number>26</number>
           </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
+          <property name="leftMargin">
+           <number>4</number>
           </property>
-         </spacer>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QRadioButton" name="radioDeskRemote">
+            <property name="cursor">
+             <cursorShape>PointingHandCursor</cursorShape>
+            </property>
+            <property name="text">
+             <string>远程控制</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioDeskFile">
+            <property name="cursor">
+             <cursorShape>PointingHandCursor</cursorShape>
+            </property>
+            <property name="text">
+             <string>文件传输</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioDeskView">
+            <property name="cursor">
+             <cursorShape>PointingHandCursor</cursorShape>
+            </property>
+            <property name="text">
+             <string>观看模式</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioDeskCoop">
+            <property name="cursor">
+             <cursorShape>PointingHandCursor</cursorShape>
+            </property>
+            <property name="text">
+             <string>协作模式</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer_DeskMode">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QWidget" name="widgetHomeFill" native="true">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
         </item>
        </layout>
       </widget>
@@ -1414,6 +1399,289 @@
                  </property>
                  <property name="value">
                   <number>144</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="19" column="0" colspan="4">
+                <widget class="Line" name="line_Background">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                </widget>
+               </item>
+               <item row="20" column="0" colspan="2">
+                <widget class="QLabel" name="labelBackground">
+                 <property name="text">
+                  <string>背景</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="21" column="0">
+                <widget class="QLabel" name="labelWindowBackground">
+                 <property name="text">
+                  <string>界面背景图</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="21" column="1" colspan="3">
+                <layout class="QHBoxLayout" name="horizontalLayout_WindowBackground">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QLineEdit" name="lineEditWindowBackground">
+                   <property name="readOnly">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnWindowBackgroundBrowse">
+                   <property name="cursor">
+                    <cursorShape>PointingHandCursor</cursorShape>
+                   </property>
+                   <property name="text">
+                    <string>选择...</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnWindowBackgroundClear">
+                   <property name="cursor">
+                    <cursorShape>PointingHandCursor</cursorShape>
+                   </property>
+                   <property name="text">
+                    <string>清空</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="22" column="0">
+                <widget class="QLabel" name="labelBackgroundOpacity">
+                 <property name="text">
+                  <string>背景透明度</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="22" column="1">
+                <widget class="QSpinBox" name="spinBackgroundOpacity">
+                 <property name="toolTip">
+                  <string>数值越大底色越实、背景图越淡:100% 时只剩底色,往小调背景图一点点浮出来。卡片、侧栏这些面板的透明程度一并跟着走</string>
+                 </property>
+                 <property name="suffix">
+                  <string> %</string>
+                 </property>
+                 <property name="maximum">
+                  <number>100</number>
+                 </property>
+                 <property name="singleStep">
+                  <number>5</number>
+                 </property>
+                 <property name="value">
+                  <number>100</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="23" column="0">
+                <widget class="QLabel" name="labelTextColor">
+                 <property name="text">
+                  <string>文字颜色</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="23" column="1" colspan="3">
+                <layout class="QHBoxLayout" name="horizontalLayout_TextColor">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QLineEdit" name="lineEditTextColor">
+                   <property name="placeholderText">
+                    <string>默认</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnTextColorPick">
+                   <property name="cursor">
+                    <cursorShape>PointingHandCursor</cursorShape>
+                   </property>
+                   <property name="text">
+                    <string>选择...</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnTextColorReset">
+                   <property name="cursor">
+                    <cursorShape>PointingHandCursor</cursorShape>
+                   </property>
+                   <property name="text">
+                    <string>恢复默认</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="24" column="0">
+                <widget class="QLabel" name="labelDeviceCodeSize">
+                 <property name="text">
+                  <string>识别码字号</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="24" column="1" colspan="3">
+                <layout class="QHBoxLayout" name="horizontalLayout_DeviceCodeSize">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QSpinBox" name="spinDeviceCodeSize">
+                   <property name="toolTip">
+                    <string>首页本机识别码的字号,默认 24</string>
+                   </property>
+                   <property name="suffix">
+                    <string> px</string>
+                   </property>
+                   <property name="minimum">
+                    <number>20</number>
+                   </property>
+                   <property name="maximum">
+                    <number>72</number>
+                   </property>
+                   <property name="singleStep">
+                    <number>2</number>
+                   </property>
+                   <property name="value">
+                    <number>24</number>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <spacer name="horizontalSpacer_DeviceCodeSize">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>40</width>
+                     <height>20</height>
+                    </size>
+                   </property>
+                  </spacer>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btnDeviceCodeSizeReset">
+                   <property name="cursor">
+                    <cursorShape>PointingHandCursor</cursorShape>
+                   </property>
+                   <property name="text">
+                    <string>恢复默认</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="25" column="0" colspan="4">
+                <widget class="Line" name="line_Window">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                </widget>
+               </item>
+               <item row="26" column="0" colspan="2">
+                <widget class="QLabel" name="labelWindow">
+                 <property name="text">
+                  <string>窗口</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="27" column="0">
+                <widget class="QLabel" name="labelWindowWidth">
+                 <property name="text">
+                  <string>宽度</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="27" column="1">
+                <widget class="QSpinBox" name="spinWindowWidth">
+                 <property name="suffix">
+                  <string> px</string>
+                 </property>
+                 <property name="minimum">
+                  <number>800</number>
+                 </property>
+                 <property name="maximum">
+                  <number>3840</number>
+                 </property>
+                 <property name="singleStep">
+                  <number>10</number>
+                 </property>
+                 <property name="value">
+                  <number>1080</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="28" column="0">
+                <widget class="QLabel" name="labelWindowHeight">
+                 <property name="text">
+                  <string>高度</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="28" column="1">
+                <widget class="QSpinBox" name="spinWindowHeight">
+                 <property name="suffix">
+                  <string> px</string>
+                 </property>
+                 <property name="minimum">
+                  <number>600</number>
+                 </property>
+                 <property name="maximum">
+                  <number>2160</number>
+                 </property>
+                 <property name="singleStep">
+                  <number>10</number>
+                 </property>
+                 <property name="value">
+                  <number>800</number>
                  </property>
                 </widget>
                </item>

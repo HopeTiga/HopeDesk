@@ -60,6 +60,8 @@ inline const QHash<QString, QString>& tokens()
         { QStringLiteral("scrollHandle"),      QStringLiteral("#D5DBE3") },
         { QStringLiteral("scrollHandleHover"), QStringLiteral("#BAC3CE") },
 
+        { QStringLiteral("deviceCodeSize"),    QStringLiteral("24px") },
+
         { QStringLiteral("radiusCard"),        QStringLiteral("14px") },
         { QStringLiteral("radiusCtl"),         QStringLiteral("10px") },
         { QStringLiteral("radiusPill"),        QStringLiteral("6px") }
@@ -75,18 +77,73 @@ inline QColor color(const char* name)
     return QColor(found.value());
 }
 
+inline QString substituteTokens(const QString& qss, const QHash<QString, QString>& table)
+{
+    QString result = qss;
+    QHash<QString, QString>::const_iterator it = table.constBegin();
+    for (; it != table.constEnd(); ++it) {
+        result.replace(QStringLiteral("{{") + it.key() + QStringLiteral("}}"), it.value());
+    }
+    return result;
+}
+
+inline QColor blendColor(const QColor& from, const QColor& to, qreal amount)
+{
+    const qreal t = qBound(0.0, amount, 1.0);
+    return QColor::fromRgbF(from.redF() + (to.redF() - from.redF()) * t,
+                            from.greenF() + (to.greenF() - from.greenF()) * t,
+                            from.blueF() + (to.blueF() - from.blueF()) * t);
+}
+
+inline QColor surfaceColor(const char* name, qreal surfaceOpacity)
+{
+    QColor result = color(name);
+    if (!result.isValid()) return result;
+    result.setAlphaF(result.alphaF() * qBound(0.0, surfaceOpacity, 1.0));
+    return result;
+}
+
+inline QHash<QString, QString> surfaceTokens(qreal surfaceOpacity, const QColor& textColor, int deviceCodeSize = 0)
+{
+    QHash<QString, QString> table = tokens();
+
+    if (textColor.isValid()) {
+        const QColor contrast = textColor.lightness() < 128 ? QColor(Qt::white) : QColor(Qt::black);
+        table[QStringLiteral("text")]      = textColor.name();
+        table[QStringLiteral("textSub")]   = blendColor(textColor, contrast, 0.38).name();
+        table[QStringLiteral("textFaint")] = blendColor(textColor, contrast, 0.58).name();
+    }
+
+    if (deviceCodeSize > 0) {
+        table[QStringLiteral("deviceCodeSize")] = QString::number(deviceCodeSize) + QStringLiteral("px");
+    }
+
+    const qreal alpha = qBound(0.0, surfaceOpacity, 1.0);
+    if (alpha >= 1.0) return table;
+
+    const char* surfaceKeys[] = { "bgCard", "bgSideBar", "bgInput", "bgInputFocus", "navActive", "primarySoft" };
+    for (const char* key : surfaceKeys) {
+        QColor surface(table.value(QString::fromLatin1(key)));
+        if (!surface.isValid()) continue;
+        table[QString::fromLatin1(key)] = QStringLiteral("rgba(%1, %2, %3, %4)")
+            .arg(surface.red()).arg(surface.green()).arg(surface.blue())
+            .arg(surface.alphaF() * alpha, 0, 'f', 3);
+    }
+    return table;
+}
+
 inline QString loadStyleSheet(const QString& resourcePath)
 {
     QFile file(resourcePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return QString();
+    return substituteTokens(QString::fromUtf8(file.readAll()), tokens());
+}
 
-    QString qss = QString::fromUtf8(file.readAll());
-    const QHash<QString, QString>& table = tokens();
-    QHash<QString, QString>::const_iterator it = table.constBegin();
-    for (; it != table.constEnd(); ++it) {
-        qss.replace(QStringLiteral("{{") + it.key() + QStringLiteral("}}"), it.value());
-    }
-    return qss;
+inline QString loadStyleSheet(const QString& resourcePath, qreal surfaceOpacity, const QColor& textColor = QColor(), int deviceCodeSize = 0)
+{
+    QFile file(resourcePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return QString();
+    return substituteTokens(QString::fromUtf8(file.readAll()), surfaceTokens(surfaceOpacity, textColor, deviceCodeSize));
 }
 
 inline void setState(QWidget* widget, const char* key, const QString& value)

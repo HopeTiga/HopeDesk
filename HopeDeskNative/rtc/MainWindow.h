@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QPixmap>
 #include <QSettings>
 #include <QTimer>
 #include <QListWidgetItem>
@@ -13,7 +14,11 @@
 QT_BEGIN_NAMESPACE
 class QTabWidget;
 class QCheckBox;
+class QFrame;
+class QLabel;
 class QLineEdit;
+class QListWidget;
+class QPushButton;
 class QSpinBox;
 QT_END_NAMESPACE
 
@@ -47,8 +52,9 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
-    void changeEvent(QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void paintEvent(QPaintEvent* event) override;
 
 private Q_SLOTS:
     // UI交互
@@ -88,8 +94,18 @@ private Q_SLOTS:
     void onShowFpsChecked(bool checked);
     void onShowEncodeInfoChecked(bool checked);
     void onShowHotkeyChecked(bool checked);
-    void onToggleHistoryClicked();
     void onAllowControlToggled(bool checked);
+    void onBackgroundOpacityChanged(int value);
+    void pickBackgroundImage();
+    void clearBackgroundImage();
+    void pickTextColor();
+    void resetTextColor();
+    void onTextColorEdited();
+    void onDeviceCodeSizeChanged(int value);
+    void resetDeviceCodeSize();
+    void onWindowSizeChanged();
+    void onDeskModeChanged();
+    void showTitleMenu();
 
     void on_checkHwAccel_checkStateChanged(const Qt::CheckState &arg1);
     void on_checkHwDec_checkStateChanged(const Qt::CheckState &arg1);
@@ -107,6 +123,8 @@ private:
     void loadFavoritesData();
     void addToHistory(const QString& id, const QString& name = QString());
     void editDeviceInfo(const QString& id, bool isFavorite);
+    void removeDevice(const QString& id, bool isFavorite);
+    void showDeviceMenu(QListWidget* list, const QPoint& pos, bool isFavorite);
 
     void updateRecentListUI();
     void updateDeviceListUI(bool showFavorites);
@@ -118,15 +136,19 @@ private:
     void showPeerCard(int myRole, const QString& peerId);
     void hidePeerCard();
     void setRemoteStatus(const QString& text, const char* state);
-    void applyHistoryCollapsed();
+    void buildRecentPopup();
+    void showRecentPopup();
+    void hideRecentPopup();
     void updateNetworkTypeUI(int type, double rttMs);
     void refreshNetworkBadge();  // 用缓存的类型/RTT 重绘徽章(开关切换时调用)
     void hideNetworkBadge();     // 断开/超时时统一隐藏徽章并清空 RTT 缓存
     void saveEncodeConfig();     // 把 6 个编码配置成员落盘(QSettings)
     void syncConfigToManager();  // 把当前全部桌面配置同步到 WebrtcManager(RESTART 等内部复用路径需要)
 
+    void applyBackgrounds();
+    void applyWindowSize();
+
     void moveToCenter();
-    void toggleMaximize();
     void updateWindowButtons();
 private:
     Ui::MainWindow *ui;
@@ -188,10 +210,21 @@ private:
     bool showFpsEnabled = false;  // 是否显示实际渲染帧率(可配置)
     bool showEncodeInfoEnabled = true;  // 是否显示编码与采集信息(可配置)
     bool showHotkeyEnabled = true;
-    bool historyCollapsed = false;      // 历史会话是否收起
     bool allowControlEnabled = true;    // 允许控制本设备(可配置)
     SwitchButton* allowControlSwitch = nullptr;
     QTimer* fpsDisplayTimer = nullptr;  // 周期拉取 VideoWidget 帧率刷新 labelFps
+
+    QPixmap windowBackgroundPixmap;
+    QString windowBackgroundPath;
+    QString textColorName;
+    int backgroundOpacity = 100;
+    int deviceCodeSize = 24;
+
+    QFrame* recentPopup = nullptr;
+    QListWidget* recentPopupList = nullptr;
+    QLabel* labelPopupEmpty = nullptr;
+    QPushButton* btnPopupAdd = nullptr;
+    QPushButton* btnPopupClear = nullptr;
 
     void startFpsDisplay();  // 连接建立 + 设置开启时启用
     void stopFpsDisplay();   // 断开/关闭设置时停止并清空显示

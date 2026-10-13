@@ -71,10 +71,10 @@ QToolTip {
 /* ===== 标题栏 ===== */
 
 QWidget#titleBar {
-    background: {{bgSideBar}};
+    background: transparent;
 }
 
-QPushButton#btnWinMin, QPushButton#btnWinMax, QPushButton#btnWinClose {
+QPushButton#btnWinMenu, QPushButton#btnWinMin, QPushButton#btnWinClose {
     background: transparent;
     border: none;
     padding: 0;
@@ -85,7 +85,7 @@ QPushButton#btnWinMin, QPushButton#btnWinMax, QPushButton#btnWinClose {
     color: {{textSub}};
 }
 
-QPushButton#btnWinMin:hover, QPushButton#btnWinMax:hover {
+QPushButton#btnWinMenu:hover, QPushButton#btnWinMin:hover {
     background-color: {{navHover}};
     color: {{text}};
 }
@@ -103,7 +103,7 @@ QWidget#sideBar {
 
 QWidget#sideBar QPushButton {
     background-color: transparent;
-    color: {{textSub}};
+    color: {{textFaint}};
     text-align: left;
     padding-left: 16px;
     border: none;
@@ -116,7 +116,7 @@ QWidget#sideBar QPushButton {
 
 QWidget#sideBar QPushButton:hover {
     background-color: {{navHover}};
-    color: {{text}};
+    color: {{textSub}};
 }
 
 QWidget#sideBar QPushButton:checked {
@@ -133,7 +133,6 @@ QLabel#logoLabel {
 }
 
 QFrame#userFrame {
-    border-top: 1px solid {{border}};
     background: transparent;
 }
 
@@ -176,7 +175,7 @@ QLabel#userAvatar[state="image"] {
 
 /* ===== 卡片 ===== */
 
-QWidget#containerMyDevice, QWidget#containerHistory {
+QWidget#containerMyDevice {
     background-color: {{bgCard}};
     border-radius: {{radiusCard}};
     border: 1px solid {{border}};
@@ -196,7 +195,7 @@ QLabel#labelTitleRemote, QLabel#labelAllowControl {
 /* ===== 本机识别码 ===== */
 
 QLabel#myDeviceCodeLabel {
-    font-size: 38px;
+    font-size: {{deviceCodeSize}};
     font-weight: bold;
     color: {{primaryInk}};
     font-family: "Segoe UI", "Roboto", monospace;
@@ -306,6 +305,7 @@ QLineEdit#remoteIdEdit {
     color: {{text}};
     font-size: 20px;
     padding-left: 18px;
+    padding-right: 46px;
     font-weight: 500;
 }
 
@@ -405,58 +405,88 @@ QLabel#labelCaptureTech {
     font-size: 12px;
 }
 
-/* ===== 历史会话 ===== */
+/* ===== 桌面模式单选 ===== */
 
-QLabel#labelRecentTitle {
-    font-size: 15px;
-    font-weight: bold;
-    color: {{text}};
-}
-
-QPushButton#btnClearHistory, QPushButton#btnToggleHistory {
+QRadioButton {
     background: transparent;
-    color: {{textFaint}};
-    border: none;
-    font-size: 12px;
+    color: {{textSub}};
+    font-size: 13px;
+    spacing: 7px;
 }
 
-QPushButton#btnClearHistory:hover {
-    color: {{danger}};
+QRadioButton::indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    border: 1px solid {{borderStrong}};
+    background: {{bgCard}};
 }
 
-QPushButton#btnToggleHistory:hover {
-    color: {{primaryInk}};
+QRadioButton::indicator:hover {
+    border-color: {{textFaint}};
 }
 
-QListWidget#recentListWidget {
-    background-color: transparent;
+QRadioButton::indicator:checked {
+    border: 1px solid {{primaryInk}};
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0 {{primaryInk}}, stop:0.5 {{primaryInk}}, stop:0.66 {{bgCard}}, stop:1 {{bgCard}});
+}
+
+/* ===== 最近设备下拉 ===== */
+
+QFrame#recentPopup {
+    background-color: {{bgCard}};
+    border: 1px solid {{border}};
+    border-radius: {{radiusCtl}};
+}
+
+QListWidget#recentPopupList {
+    background: transparent;
     border: none;
     outline: none;
 }
 
-QListWidget#recentListWidget::item {
-    background-color: {{bgInput}};
-    border-radius: {{radiusCtl}};
+QListWidget#recentPopupList::item {
+    background: transparent;
     color: {{text}};
-    margin-right: 12px;
-    margin-bottom: 5px;
-    border: 1px solid {{borderStrong}};
+    font-size: 13px;
+    border-radius: {{radiusPill}};
+    padding-left: 10px;
+    padding-right: 10px;
+    margin: 1px 2px;
 }
 
-QListWidget#recentListWidget::item:hover {
+QListWidget#recentPopupList::item:hover {
     background-color: {{primarySoft}};
-    border-color: {{primaryInk}};
 }
 
-QListWidget#recentListWidget::item:selected {
-    border: 1px solid {{primaryInk}};
+QListWidget#recentPopupList::item:selected {
     background-color: {{primarySoft}};
+    color: {{primaryInk}};
+}
+
+QLabel#labelPopupEmpty {
+    color: {{textFaint}};
+    font-size: 13px;
+    padding: 18px 0px;
+}
+
+QPushButton#btnPopupAction {
+    background: transparent;
+    border: none;
+    color: {{textFaint}};
+    font-size: 12px;
+    padding: 3px 2px;
+}
+
+QPushButton#btnPopupAction:hover {
+    color: {{primaryInk}};
 }
 
 /* ===== 设备列表 ===== */
 
 QListWidget#deviceGroupList {
-    background: {{bg}};
+    background: transparent;
     border: none;
     border-right: 1px solid {{borderStrong}};
     color: {{textSub}};
@@ -508,7 +538,7 @@ QPushButton#btnAddDevice:hover {
 }
 
 QListWidget#deviceDetailList {
-    background: {{bg}};
+    background: transparent;
     border: none;
     outline: none;
     padding: 10px;
@@ -535,7 +565,7 @@ QListWidget#deviceDetailList::item:selected {
 
 /* ===== 设置页 ===== */
 
-QScrollArea#scrollAreaSettings {
+QScrollArea#scrollAreaSettings, QScrollArea#systemScrollArea {
     background: transparent;
     border: none;
 }
@@ -555,7 +585,7 @@ QTabWidget#settingsTabWidget QTabBar {
 
 QTabWidget#settingsTabWidget QTabBar::tab {
     background: transparent;
-    color: {{textSub}};
+    color: {{textFaint}};
     padding: 8px 2px;
     margin-right: 28px;
     font-size: 14px;
@@ -564,8 +594,8 @@ QTabWidget#settingsTabWidget QTabBar::tab {
 }
 
 QTabWidget#settingsTabWidget QTabBar::tab:hover:!selected {
-    color: {{primaryInk}};
-    border-bottom: 2px solid {{primarySoftBorder}};
+    color: {{textSub}};
+    border-bottom: 2px solid {{borderStrong}};
 }
 
 QTabWidget#settingsTabWidget QTabBar::tab:selected {
@@ -692,7 +722,7 @@ QFrame#frameSettingCard QSpinBox::down-arrow, QWidget#systemTab QSpinBox::down-a
     height: 12px;
 }
 
-QWidget#systemTab QLineEdit {
+QFrame#frameSettingCard QLineEdit, QWidget#systemTab QLineEdit {
     background-color: {{bgInput}};
     border: 1px solid {{borderStrong}};
     border-radius: {{radiusCtl}};
@@ -701,16 +731,18 @@ QWidget#systemTab QLineEdit {
     font-size: 14px;
 }
 
+QFrame#frameSettingCard QLineEdit:focus,
 QWidget#systemTab QLineEdit:focus {
     border: 1px solid {{primaryInk}};
     background-color: {{bgInputFocus}};
 }
 
+QFrame#frameSettingCard QLineEdit:hover,
 QWidget#systemTab QLineEdit:hover {
     background-color: {{bgInputFocus}};
 }
 
-QPushButton#browseButton {
+QPushButton#browseButton, QFrame#frameSettingCard QPushButton {
     background-color: {{bgCard}};
     color: {{primaryInk}};
     border: 1px solid {{borderStrong}};
@@ -719,7 +751,7 @@ QPushButton#browseButton {
     font-size: 14px;
 }
 
-QPushButton#browseButton:hover {
+QPushButton#browseButton:hover, QFrame#frameSettingCard QPushButton:hover {
     border-color: {{primaryInk}};
     background-color: {{primaryHoverSoft}};
 }
@@ -747,7 +779,9 @@ QWidget#systemTab QLabel#labelVddNameValue {
     color: {{primaryInk}};
 }
 
-QFrame#frameSettingCard QLabel#labelEncodeConfig {
+QFrame#frameSettingCard QLabel#labelEncodeConfig,
+QFrame#frameSettingCard QLabel#labelBackground,
+QFrame#frameSettingCard QLabel#labelWindow {
     font-size: 15px;
     font-weight: bold;
     color: {{text}};
@@ -764,7 +798,7 @@ QFrame#frameSettingCard QLabel#labelEncodeLocal {
     padding: 2px 10px;
 }
 
-QFrame#line_Set1, QFrame#line_SetEncode {
+QFrame#line_Set1, QFrame#line_SetEncode, QFrame#line_Background, QFrame#line_Window {
     background: {{border}};
     max-height: 1px;
 }

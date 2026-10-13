@@ -17,16 +17,23 @@
 #include <QJsonObject>
 #include <QClipboard>
 #include <QPixmap>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QTabWidget>
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QSpinBox>
+#include <QComboBox>
 #include <QFormLayout>
+#include <QFrame>
+#include <QScrollArea>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QFileDialog>
+#include <QColorDialog>
 #include <QFileInfo>
 #include <QSurfaceFormat>
 
@@ -220,7 +227,6 @@ MainWindow::~MainWindow()
         settings->setValue("showFps", showFpsEnabled);
         settings->setValue("showEncodeInfo", showEncodeInfoEnabled);
         settings->setValue("showHotkey", showHotkeyEnabled);
-        settings->setValue("historyCollapsed", historyCollapsed);
         settings->setValue("allowControl", allowControlEnabled);
         settings->setValue("webrtcEnableNvenc", webrtcEnableNvenc);
         settings->setValue("webrtcEnableNvdec", webrtcEnableD3D11);
@@ -244,27 +250,61 @@ void MainWindow::showEvent(QShowEvent* event) {
     }
 }
 
-void MainWindow::changeEvent(QEvent* event) {
-    QMainWindow::changeEvent(event);
-    if (event->type() == QEvent::WindowStateChange) updateWindowButtons();
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    ui->sideBar->setFixedWidth(qBound(200, qRound(event->size().width() * 0.247), 300));
+    ui->titleBar->update();
 }
 
-void MainWindow::toggleMaximize() {
-    if (isMaximized()) showNormal();
-    else showMaximized();
+void MainWindow::paintEvent(QPaintEvent* event) {
+    QMainWindow::paintEvent(event);
+    if (windowBackgroundPixmap.isNull()) return;
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter.setOpacity(1.0 - backgroundOpacity / 100.0);
+    painter.drawPixmap(rect(), windowBackgroundPixmap);
 }
 
 void MainWindow::updateWindowButtons() {
-    if (!ui || !ui->btnWinMax) return;
+    if (!ui || !ui->btnWinMenu) return;
+    ui->btnWinMenu->setText(QStringLiteral("\uE700"));
     ui->btnWinMin->setText(QStringLiteral("\uE921"));
-    ui->btnWinMax->setText(isMaximized() ? QStringLiteral("\uE923") : QStringLiteral("\uE922"));
     ui->btnWinClose->setText(QStringLiteral("\uE8BB"));
 }
 
+static QWidget* enclosingScrollViewport(QWidget* widget)
+{
+    QWidget* parent = widget->parentWidget();
+    while (parent) {
+        QAbstractScrollArea* area = qobject_cast<QAbstractScrollArea*>(parent);
+        if (area) return area->viewport();
+        parent = parent->parentWidget();
+    }
+    return nullptr;
+}
+
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == ui->titleBar && event->type() == QEvent::Paint) {
+        QPainter painter(ui->titleBar);
+        painter.fillRect(QRect(0, 0, ui->sideBar->width(), ui->titleBar->height()),
+                         theme::surfaceColor("bgSideBar", backgroundOpacity / 100.0));
+        return true;
+    }
     if (watched == ui->userFrame && event->type() == QEvent::MouseButtonRelease) {
         onUserAvatarClicked();
         return true;
+    }
+    if (watched == ui->remoteIdEdit && event->type() == QEvent::MouseButtonPress) {
+        if (ui->remoteIdEdit->text().trimmed().isEmpty()) showRecentPopup();
+    }
+    if (event->type() == QEvent::Wheel) {
+        QWidget* widget = qobject_cast<QWidget*>(watched);
+        if (widget && !widget->hasFocus()
+            && (qobject_cast<QAbstractSpinBox*>(widget) || qobject_cast<QComboBox*>(widget))) {
+            QWidget* viewport = enclosingScrollViewport(widget);
+            if (viewport) QApplication::sendEvent(viewport, event);
+            return true;
+        }
     }
     return QMainWindow::eventFilter(watched, event);
 }
@@ -321,8 +361,6 @@ void MainWindow::initConfigAndSettings()
     showHotkeyEnabled = settings->value("showHotkey", true).toBool();
     ui->checkShowHotkey->setChecked(showHotkeyEnabled);
     ui->btnSendCtrlAltF->setVisible(showHotkeyEnabled);
-    historyCollapsed = settings->value("historyCollapsed", false).toBool();
-    applyHistoryCollapsed();
     allowControlEnabled = settings->value("allowControl", true).toBool();
     if (webrtcManager) webrtcManager->setOpenBeControl(allowControlEnabled);
     verticalSyncEnabled = ConfigManager::Instance().GetBool("Render.VSync", false);
@@ -343,6 +381,23 @@ void MainWindow::initConfigAndSettings()
     ui->spinLocalMaxBitrate->setValue(localMaxBitrateMbps);
     ui->spinLocalMinBitrate->setValue(localMinBitrateMbps);
     ui->spinLocalFramerate->setValue(localMaxFramerate);
+
+    windowBackgroundPath = settings->value("backgroundImagePath", "").toString();
+    backgroundOpacity    = settings->value("backgroundImageOpacity", 100).toInt();
+    textColorName        = settings->value("textColor", "").toString();
+    deviceCodeSize       = settings->value("deviceCodeSize", 24).toInt();
+    ui->lineEditWindowBackground->setText(windowBackgroundPath);
+    ui->spinBackgroundOpacity->setValue(backgroundOpacity);
+    ui->lineEditTextColor->setText(textColorName);
+    ui->spinDeviceCodeSize->setValue(deviceCodeSize);
+    ui->spinWindowWidth->setValue(settings->value("windowWidth", 1080).toInt());
+    ui->spinWindowHeight->setValue(settings->value("windowHeight", 800).toInt());
+
+    const int deskMode = settings->value("deskMode", 0).toInt();
+    ui->radioDeskRemote->setChecked(deskMode == 0);
+    ui->radioDeskFile->setChecked(deskMode == 1);
+    ui->radioDeskView->setChecked(deskMode == 2);
+    ui->radioDeskCoop->setChecked(deskMode == 3);
 
     syncConfigToManager();  // 启动即把已加载配置同步给 manager
 }
@@ -494,12 +549,12 @@ void MainWindow::setupUI()
 
     windowAgent = new FramelessWindowAgent(this, this);
     windowAgent->addDraggableArea(ui->titleBar);
+    windowAgent->addInteractiveWidget(ui->btnWinMenu);
     windowAgent->addInteractiveWidget(ui->btnWinMin);
-    windowAgent->addInteractiveWidget(ui->btnWinMax);
     windowAgent->addInteractiveWidget(ui->btnWinClose);
 
+    connect(ui->btnWinMenu, &QPushButton::clicked, this, &MainWindow::showTitleMenu);
     connect(ui->btnWinMin, &QPushButton::clicked, this, &QWidget::showMinimized);
-    connect(ui->btnWinMax, &QPushButton::clicked, this, &MainWindow::toggleMaximize);
     connect(ui->btnWinClose, &QPushButton::clicked, this, &QWidget::close);
 
     updateWindowButtons();
@@ -511,11 +566,12 @@ void MainWindow::setupUI()
     ui->sideBar->setAttribute(Qt::WA_StyledBackground, true);
     ui->containerMyDevice->setAttribute(Qt::WA_StyledBackground, true);
     ui->containerRemote->setAttribute(Qt::WA_StyledBackground, true);
-    ui->containerHistory->setAttribute(Qt::WA_StyledBackground, true);
 
     allowControlSwitch = new SwitchButton(this);
     allowControlSwitch->setChecked(allowControlEnabled);
     ui->horizontalLayout_AllowControl->insertWidget(1, allowControlSwitch);
+
+    ui->verticalLayout_Home->setStretchFactor(ui->widgetHomeFill, 1);
 
     ui->btnNavHome->setIconSize(QSize(18, 18));
     ui->btnNavDevices->setIconSize(QSize(18, 18));
@@ -527,20 +583,20 @@ void MainWindow::setupUI()
 
     connect(ui->btnNavHome, &QPushButton::toggled, this, [this](bool checked) {
         ui->btnNavHome->setIcon(theme::icon(QStringLiteral(":/icons/monitor.svg"),
-            checked ? theme::color("primary") : theme::color("textSub"), 18));
+            checked ? theme::color("primary") : theme::color("textFaint"), 18));
     });
     connect(ui->btnNavDevices, &QPushButton::toggled, this, [this](bool checked) {
         ui->btnNavDevices->setIcon(theme::icon(QStringLiteral(":/icons/link.svg"),
-            checked ? theme::color("primary") : theme::color("textSub"), 18));
+            checked ? theme::color("primary") : theme::color("textFaint"), 18));
     });
     connect(ui->btnNavSettings, &QPushButton::toggled, this, [this](bool checked) {
         ui->btnNavSettings->setIcon(theme::icon(QStringLiteral(":/icons/settings.svg"),
-            checked ? theme::color("primary") : theme::color("textSub"), 18));
+            checked ? theme::color("primary") : theme::color("textFaint"), 18));
     });
 
     ui->btnNavHome->setIcon(theme::icon(QStringLiteral(":/icons/monitor.svg"), theme::color("primary"), 18));
-    ui->btnNavDevices->setIcon(theme::icon(QStringLiteral(":/icons/link.svg"), theme::color("textSub"), 18));
-    ui->btnNavSettings->setIcon(theme::icon(QStringLiteral(":/icons/settings.svg"), theme::color("textSub"), 18));
+    ui->btnNavDevices->setIcon(theme::icon(QStringLiteral(":/icons/link.svg"), theme::color("textFaint"), 18));
+    ui->btnNavSettings->setIcon(theme::icon(QStringLiteral(":/icons/settings.svg"), theme::color("textFaint"), 18));
 
     ui->deviceGroupList->setIconSize(QSize(16, 16));
     if (ui->deviceGroupList->item(0)) {
@@ -552,8 +608,6 @@ void MainWindow::setupUI()
 
     ui->btnCopyCode->setIconSize(QSize(14, 14));
     ui->btnCopyCode->setIcon(theme::icon(QStringLiteral(":/icons/copy.svg"), theme::color("textFaint"), 14));
-    ui->btnClearHistory->setIconSize(QSize(14, 14));
-    ui->btnClearHistory->setIcon(theme::icon(QStringLiteral(":/icons/trash.svg"), theme::color("textFaint"), 14));
     ui->btnAddDevice->setIconSize(QSize(14, 14));
     ui->btnAddDevice->setIcon(theme::icon(QStringLiteral(":/icons/plus.svg"), theme::color("primary"), 14));
     ui->btnCopyPeerId->setIconSize(QSize(14, 14));
@@ -565,15 +619,26 @@ void MainWindow::setupUI()
     theme::setState(ui->remoteStatusLabel, "state", QStringLiteral("idle"));
     theme::setState(ui->connectionStatusLabel, "state", QStringLiteral("normal"));
 
+    buildRecentPopup();
+    QAction* recentAction = ui->remoteIdEdit->addAction(
+        theme::icon(QStringLiteral(":/icons/chevron-down.svg"), theme::color("textFaint"), 22),
+        QLineEdit::TrailingPosition);
+    connect(recentAction, &QAction::triggered, this, [this]() {
+        if (recentPopup && recentPopup->isVisible()) hideRecentPopup();
+        else showRecentPopup();
+    });
+
     ui->userFrame->installEventFilter(this);
+    ui->remoteIdEdit->installEventFilter(this);
+
+    trayMenu = new QMenu(this);
+    QAction* showAction = trayMenu->addAction("显示主界面", this, &MainWindow::showWindow);
+    showAction->setIcon(theme::icon(QStringLiteral(":/icons/monitor.svg"), theme::color("textSub"), 16));
+    trayMenu->addSeparator();
+    QAction* quitAction = trayMenu->addAction("退出", this, &MainWindow::quitApplication);
+    quitAction->setIcon(theme::icon(QStringLiteral(":/icons/close.svg"), theme::color("textSub"), 16));
 
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
-        trayMenu = new QMenu(this);
-        QAction* showAction = trayMenu->addAction("显示主界面", this, &MainWindow::showWindow);
-        showAction->setIcon(theme::icon(QStringLiteral(":/icons/monitor.svg"), theme::color("textSub"), 16));
-        trayMenu->addSeparator();
-        QAction* quitAction = trayMenu->addAction("退出", this, &MainWindow::quitApplication);
-        quitAction->setIcon(theme::icon(QStringLiteral(":/icons/close.svg"), theme::color("textSub"), 16));
         trayIcon = new QSystemTrayIcon(this);
         trayIcon->setIcon(appIcon);
         trayIcon->setContextMenu(trayMenu);
@@ -591,6 +656,18 @@ void MainWindow::setupUI()
     // 设置页改为 tab 结构:「通用设置」(原内容) + 「系统设置」
     buildSystemSettingsTab();
     loadSystemSettings();
+
+    const QList<QAbstractSpinBox*> spinBoxes = findChildren<QAbstractSpinBox*>();
+    for (QAbstractSpinBox* spin : spinBoxes) spin->setFocusPolicy(Qt::StrongFocus);
+    const QList<QComboBox*> comboBoxes = findChildren<QComboBox*>();
+    for (QComboBox* combo : comboBoxes) combo->setFocusPolicy(Qt::StrongFocus);
+    ui->spinWindowWidth->setKeyboardTracking(false);
+    ui->spinWindowHeight->setKeyboardTracking(false);
+    ui->spinDeviceCodeSize->setKeyboardTracking(false);
+    qApp->installEventFilter(this);
+
+    applyWindowSize();
+    applyBackgrounds();
 }
 
 void MainWindow::loadHistoryData() {
@@ -726,6 +803,48 @@ void MainWindow::editDeviceInfo(const QString& id, bool isFavorite) {
     updateDeviceListUI(ui->deviceGroupList->currentRow() == 0);
 }
 
+void MainWindow::removeDevice(const QString& id, bool isFavorite) {
+    QList<DeviceInfo>& list = isFavorite ? favoritesList : historyList;
+    const QString normalized = normalizeDeviceId(id);
+
+    for(int i=0; i<list.size(); ++i) {
+        if(normalizeDeviceId(list[i].id) == normalized) {
+            list.removeAt(i);
+            break;
+        }
+    }
+
+    QJsonArray array;
+    for(const auto& dev : list) array.append(dev.toJson());
+    settings->setValue(isFavorite ? "favoritesList" : "historyList", QJsonDocument(array).toJson());
+
+    updateRecentListUI();
+    updateDeviceListUI(ui->deviceGroupList->currentRow() == 0);
+}
+
+void MainWindow::showDeviceMenu(QListWidget* list, const QPoint& pos, bool isFavorite) {
+    QListWidgetItem* item = list->itemAt(pos);
+    if(!item) return;
+
+    const QString id = item->data(Qt::UserRole).toString();
+    if(id.isEmpty()) return;
+
+    QMenu menu(list);
+    QAction* editAction = menu.addAction(
+        theme::icon(QStringLiteral(":/icons/edit.svg"), theme::color("primaryInk"), 16), "编辑设备");
+    QAction* delAction = menu.addAction(
+        theme::icon(QStringLiteral(":/icons/trash.svg"), theme::color("danger"), 16), "删除此设备");
+
+    connect(editAction, &QAction::triggered, [this, id, isFavorite](){
+        editDeviceInfo(id, isFavorite);
+    });
+    connect(delAction, &QAction::triggered, [this, id, isFavorite](){
+        removeDevice(id, isFavorite);
+    });
+
+    menu.exec(list->mapToGlobal(pos));
+}
+
 // ---------------- UI 更新 ----------------
 
 // 识别码可能带空白(手输或粘贴),比对前去掉
@@ -758,17 +877,22 @@ QString MainWindow::nameFromFavorites(const QString& id) const {
 }
 
 void MainWindow::updateRecentListUI() {
-    ui->recentListWidget->clear();
+    if (!recentPopupList) return;
+    recentPopupList->clear();
     if (historyList.isEmpty()) return;
 
-    for(const auto& dev : historyList) {
-        QString text = QString("%1\n%2").arg(dev.id).arg(displayNameFor(dev));
+    for(const DeviceInfo& dev : historyList) {
+        QString label = dev.id;
+        const QString name = displayNameFor(dev);
+        if (!name.isEmpty() && name != dev.id) label += QString("  ·  %1").arg(name);
+
         QListWidgetItem* item = new QListWidgetItem(
-            theme::icon(QStringLiteral(":/icons/clock.svg"), theme::color("textFaint"), 18), text);
-        item->setSizeHint(QSize(160, 60));
-        item->setTextAlignment(Qt::AlignCenter);
+            theme::icon(QStringLiteral(":/icons/clock.svg"), theme::color("textFaint"), 16), label);
+        item->setSizeHint(QSize(0, 34));
         item->setData(Qt::UserRole, dev.id);
-        ui->recentListWidget->addItem(item);
+        item->setToolTip(QString("识别码: %1\n上次访问: %2").arg(dev.id)
+            .arg(QDateTime::fromMSecsSinceEpoch(dev.lastAccess).toString("yyyy-MM-dd HH:mm")));
+        recentPopupList->addItem(item);
     }
 }
 
@@ -887,49 +1011,14 @@ void MainWindow::setupSignalSlots()
             ui->btnCopyPeerId->setIcon(theme::icon(QStringLiteral(":/icons/copy.svg"), theme::color("textFaint"), 14));
         });
     });
-    connect(ui->recentListWidget, &QListWidget::itemClicked, this, &MainWindow::onDeviceItemClicked);
-    connect(ui->btnClearHistory, &QPushButton::clicked, this, &MainWindow::onClearHistoryClicked);
-
     connect(ui->deviceGroupList, &QListWidget::currentItemChanged, this, &MainWindow::onDeviceGroupChanged);
     connect(ui->deviceDetailList, &QListWidget::itemClicked, this, &MainWindow::onDeviceItemClicked);
 
     connect(ui->btnAddDevice, &QPushButton::clicked, this, &MainWindow::onAddDeviceClicked);
 
     ui->deviceDetailList->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(ui->deviceDetailList, &QWidget::customContextMenuRequested, [this](const QPoint& pos){
-        QListWidgetItem* item = ui->deviceDetailList->itemAt(pos);
-        if(!item) return;
-
-        QMenu menu(this);
-        QAction* editAction = menu.addAction(
-            theme::icon(QStringLiteral(":/icons/edit.svg"), theme::color("primaryInk"), 16), "编辑设备");
-        QAction* delAction = menu.addAction(
-            theme::icon(QStringLiteral(":/icons/trash.svg"), theme::color("danger"), 16), "删除此设备");
-        connect(editAction, &QAction::triggered, [this, item](){
-            editDeviceInfo(item->data(Qt::UserRole).toString(), ui->deviceGroupList->currentRow() == 0);
-        });
-        connect(delAction, &QAction::triggered, [this, item](){
-            QString id = item->data(Qt::UserRole).toString();
-            bool isFav = (ui->deviceGroupList->currentRow() == 0);
-
-            if(isFav) {
-                for(int i=0; i<favoritesList.size(); ++i) {
-                    if(favoritesList[i].id == id) { favoritesList.removeAt(i); break; }
-                }
-                QJsonArray array; for(const auto& d : favoritesList) array.append(d.toJson());
-                settings->setValue("favoritesList", QJsonDocument(array).toJson());
-                updateDeviceListUI(true);
-            } else {
-                for(int i=0; i<historyList.size(); ++i) {
-                    if(historyList[i].id == id) { historyList.removeAt(i); break; }
-                }
-                QJsonArray array; for(const auto& d : historyList) array.append(d.toJson());
-                settings->setValue("historyList", QJsonDocument(array).toJson());
-                updateDeviceListUI(false);
-                updateRecentListUI();
-            }
-        });
-        menu.exec(ui->deviceDetailList->mapToGlobal(pos));
+    connect(ui->deviceDetailList, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos){
+        showDeviceMenu(ui->deviceDetailList, pos, ui->deviceGroupList->currentRow() == 0);
     });
 
     reconnectTimer = new QTimer(this);
@@ -957,7 +1046,6 @@ void MainWindow::setupSignalSlots()
     connect(ui->checkShowFps, &QCheckBox::clicked, this, &MainWindow::onShowFpsChecked);
     connect(ui->checkShowEncodeInfo, &QCheckBox::clicked, this, &MainWindow::onShowEncodeInfoChecked);
     connect(ui->checkShowHotkey, &QCheckBox::clicked, this, &MainWindow::onShowHotkeyChecked);
-    connect(ui->btnToggleHistory, &QPushButton::clicked, this, &MainWindow::onToggleHistoryClicked);
     connect(allowControlSwitch, &SwitchButton::toggled, this, &MainWindow::onAllowControlToggled);
 
     // 周期拉取 VideoWidget 实际渲染帧率刷新 labelFps(仅显示,不参与控制)
@@ -1006,6 +1094,131 @@ void MainWindow::setupSignalSlots()
                     &localMinBitrateMbps,   &localMaxBitrateMbps);
     bindEncodeSpin(ui->spinRequestFramerate, &requestMaxFramerate);
     bindEncodeSpin(ui->spinLocalFramerate,   &localMaxFramerate);
+
+    connect(ui->btnWindowBackgroundBrowse, &QPushButton::clicked, this, &MainWindow::pickBackgroundImage);
+    connect(ui->btnWindowBackgroundClear, &QPushButton::clicked, this, &MainWindow::clearBackgroundImage);
+    connect(ui->spinBackgroundOpacity, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onBackgroundOpacityChanged);
+    connect(ui->btnTextColorPick, &QPushButton::clicked, this, &MainWindow::pickTextColor);
+    connect(ui->btnTextColorReset, &QPushButton::clicked, this, &MainWindow::resetTextColor);
+    connect(ui->lineEditTextColor, &QLineEdit::editingFinished, this, &MainWindow::onTextColorEdited);
+    connect(ui->spinDeviceCodeSize, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onDeviceCodeSizeChanged);
+    connect(ui->btnDeviceCodeSizeReset, &QPushButton::clicked, this, &MainWindow::resetDeviceCodeSize);
+    connect(ui->spinWindowWidth, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onWindowSizeChanged);
+    connect(ui->spinWindowHeight, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onWindowSizeChanged);
+    connect(ui->radioDeskRemote, &QRadioButton::toggled, this, &MainWindow::onDeskModeChanged);
+    connect(ui->radioDeskFile, &QRadioButton::toggled, this, &MainWindow::onDeskModeChanged);
+    connect(ui->radioDeskView, &QRadioButton::toggled, this, &MainWindow::onDeskModeChanged);
+    connect(ui->radioDeskCoop, &QRadioButton::toggled, this, &MainWindow::onDeskModeChanged);
+}
+
+void MainWindow::applyBackgrounds() {
+    windowBackgroundPixmap = windowBackgroundPath.isEmpty() ? QPixmap() : QPixmap(windowBackgroundPath);
+    qApp->setStyleSheet(theme::loadStyleSheet(QStringLiteral(":/styles/theme.qss"), backgroundOpacity / 100.0, QColor(textColorName), deviceCodeSize));
+    update();
+}
+
+void MainWindow::pickBackgroundImage() {
+    const QString selectedPath = QFileDialog::getOpenFileName(this, tr("选择背景图"), windowBackgroundPath,
+        tr("图片 (*.png *.jpg *.jpeg *.bmp *.webp)"));
+    if (selectedPath.isEmpty()) return;
+    windowBackgroundPath = selectedPath;
+    ui->lineEditWindowBackground->setText(selectedPath);
+    settings->setValue("backgroundImagePath", selectedPath);
+    applyBackgrounds();
+}
+
+void MainWindow::clearBackgroundImage() {
+    windowBackgroundPath.clear();
+    ui->lineEditWindowBackground->clear();
+    settings->setValue("backgroundImagePath", QString());
+    applyBackgrounds();
+}
+
+void MainWindow::onBackgroundOpacityChanged(int value) {
+    backgroundOpacity = value;
+    settings->setValue("backgroundImageOpacity", value);
+    applyBackgrounds();
+}
+
+void MainWindow::pickTextColor() {
+    const QColor initial = QColor(textColorName).isValid() ? QColor(textColorName) : theme::color("text");
+    const QColor picked = QColorDialog::getColor(initial, this, tr("选择文字颜色"));
+    if (!picked.isValid()) return;
+    textColorName = picked.name();
+    ui->lineEditTextColor->setText(textColorName);
+    settings->setValue("textColor", textColorName);
+    applyBackgrounds();
+}
+
+void MainWindow::resetTextColor() {
+    textColorName.clear();
+    ui->lineEditTextColor->clear();
+    settings->setValue("textColor", QString());
+    applyBackgrounds();
+}
+
+void MainWindow::onTextColorEdited() {
+    const QString typed = ui->lineEditTextColor->text().trimmed();
+    const QColor color(typed);
+
+    if (!typed.isEmpty() && !color.isValid()) {
+        ui->lineEditTextColor->setText(textColorName);
+        return;
+    }
+
+    const QString normalized = color.isValid() ? color.name() : QString();
+    ui->lineEditTextColor->setText(normalized);
+    if (normalized == textColorName) return;
+
+    textColorName = normalized;
+    settings->setValue("textColor", textColorName);
+    applyBackgrounds();
+}
+
+void MainWindow::onDeviceCodeSizeChanged(int value) {
+    deviceCodeSize = value;
+    settings->setValue("deviceCodeSize", value);
+    applyBackgrounds();
+}
+
+void MainWindow::resetDeviceCodeSize() {
+    ui->spinDeviceCodeSize->setValue(24);
+}
+
+void MainWindow::applyWindowSize() {
+    const int requestedWidth  = ui->spinWindowWidth->value();
+    const int requestedHeight = ui->spinWindowHeight->value();
+    resize(requestedWidth, requestedHeight);
+
+    const int actualWidth  = width();
+    const int actualHeight = height();
+    if (actualWidth != requestedWidth) {
+        QSignalBlocker blocker(ui->spinWindowWidth);
+        ui->spinWindowWidth->setValue(actualWidth);
+    }
+    if (actualHeight != requestedHeight) {
+        QSignalBlocker blocker(ui->spinWindowHeight);
+        ui->spinWindowHeight->setValue(actualHeight);
+    }
+}
+
+void MainWindow::onWindowSizeChanged() {
+    settings->setValue("windowWidth", ui->spinWindowWidth->value());
+    settings->setValue("windowHeight", ui->spinWindowHeight->value());
+    applyWindowSize();
+}
+
+void MainWindow::onDeskModeChanged() {
+    int mode = 0;
+    if (ui->radioDeskFile->isChecked()) mode = 1;
+    else if (ui->radioDeskView->isChecked()) mode = 2;
+    else if (ui->radioDeskCoop->isChecked()) mode = 3;
+    settings->setValue("deskMode", mode);
+}
+
+void MainWindow::showTitleMenu() {
+    if (!trayMenu) return;
+    trayMenu->popup(ui->btnWinMenu->mapToGlobal(QPoint(0, ui->btnWinMenu->height())));
 }
 
 void MainWindow::onAddDeviceClicked() {
@@ -1017,44 +1230,50 @@ void MainWindow::onAddDeviceClicked() {
     }
 
     AddDeviceDialog dlg(this);
-    if(dlg.exec() == QDialog::Accepted) {
-        QString id = dlg.getID();
-        QString name = dlg.getName();
+    if(dlg.exec() != QDialog::Accepted) return;
 
-        if(!id.isEmpty()) {
-            const QString normalized = normalizeDeviceId(id);
-            qint64 lastAccess = QDateTime::currentMSecsSinceEpoch();
-            for(const DeviceInfo& device : historyList) {
-                if(normalizeDeviceId(device.id) == normalized) {
-                    lastAccess = device.lastAccess;
-                    break;
-                }
-            }
+    const QString id = dlg.getID();
+    if(id.isEmpty()) return;
+    const QString name = dlg.getName();
 
-            bool found = false;
-            for(DeviceInfo& device : favoritesList) {
-                if(normalizeDeviceId(device.id) == normalized) {
-                    if(!name.isEmpty()) device.name = name;
-                    device.lastAccess = lastAccess;
-                    found = true;
-                    break;
-                }
-            }
-            if(!found) {
-                DeviceInfo info;
-                info.id = id;
-                info.name = name.isEmpty() ? "我的设备" : name;
-                info.lastAccess = lastAccess;
-                favoritesList.append(info);
-            }
-
-            QJsonArray array; for(const auto& d : favoritesList) array.append(d.toJson());
-            settings->setValue("favoritesList", QJsonDocument(array).toJson());
-
-            updateRecentListUI();
-            if(ui->deviceGroupList->currentRow() == 0) updateDeviceListUI(true);
+    const QString normalized = normalizeDeviceId(id);
+    qint64 lastAccess = QDateTime::currentMSecsSinceEpoch();
+    for(const DeviceInfo& device : historyList) {
+        if(normalizeDeviceId(device.id) == normalized) {
+            lastAccess = device.lastAccess;
+            break;
         }
     }
+
+    const bool toFavorites = (ui->mainStackedWidget->currentIndex() != 0) && (ui->deviceGroupList->currentRow() == 0);
+    QList<DeviceInfo>& list = toFavorites ? favoritesList : historyList;
+
+    bool found = false;
+    for(DeviceInfo& device : list) {
+        if(normalizeDeviceId(device.id) == normalized) {
+            if(!name.isEmpty()) device.name = name;
+            device.lastAccess = lastAccess;
+            found = true;
+            break;
+        }
+    }
+    if(!found) {
+        DeviceInfo info;
+        info.id = id;
+        info.name = name;
+        info.lastAccess = lastAccess;
+        if(info.name.isEmpty()) info.name = toFavorites ? "我的设备" : "未知设备";
+        if(toFavorites) list.append(info);
+        else list.insert(0, info);
+    }
+    if(!toFavorites && list.size() > 20) list.removeLast();
+
+    QJsonArray array;
+    for(const auto& device : list) array.append(device.toJson());
+    settings->setValue(toFavorites ? "favoritesList" : "historyList", QJsonDocument(array).toJson());
+
+    updateRecentListUI();
+    updateDeviceListUI(ui->deviceGroupList->currentRow() == 0);
 }
 
 void MainWindow::onClearHistoryClicked() {
@@ -1062,7 +1281,7 @@ void MainWindow::onClearHistoryClicked() {
         historyList.clear();
         settings->remove("historyList");
         updateRecentListUI();
-        if(ui->deviceGroupList->currentRow() == 1) updateDeviceListUI(false);
+        updateDeviceListUI(ui->deviceGroupList->currentRow() == 0);
     }
 }
 
@@ -1155,13 +1374,6 @@ void MainWindow::onShowHotkeyChecked(bool checked)
     showHotkeyEnabled = checked;
     if (settings) settings->setValue("showHotkey", showHotkeyEnabled);
     ui->btnSendCtrlAltF->setVisible(showHotkeyEnabled);
-}
-
-void MainWindow::onToggleHistoryClicked()
-{
-    historyCollapsed = !historyCollapsed;
-    if (settings) settings->setValue("historyCollapsed", historyCollapsed);
-    applyHistoryCollapsed();
 }
 
 void MainWindow::onAllowControlToggled(bool checked)
@@ -1284,7 +1496,13 @@ void MainWindow::buildSystemSettingsTab()
     systemLayout->addWidget(applyButton, 0, Qt::AlignLeft);
     systemLayout->addStretch();
 
-    settingsTabWidget->addTab(systemTab, tr("系统设置"));
+    QScrollArea* systemScrollArea = new QScrollArea(settingsTabWidget);
+    systemScrollArea->setObjectName("systemScrollArea");
+    systemScrollArea->setWidgetResizable(true);
+    systemScrollArea->setFrameShape(QFrame::NoFrame);
+    systemScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    systemScrollArea->setWidget(systemTab);
+    settingsTabWidget->addTab(systemScrollArea, tr("系统设置"));
 
     // 把 tab 控件放进设置页原布局(scrollAreaSettings 已被 reparent 走)
     ui->verticalLayout_Settings->addWidget(settingsTabWidget);
@@ -1623,10 +1841,88 @@ void MainWindow::setRemoteStatus(const QString& text, const char* state)
     theme::setState(ui->remoteStatusLabel, "state", QString::fromLatin1(state));
 }
 
-void MainWindow::applyHistoryCollapsed()
+void MainWindow::buildRecentPopup()
 {
-    ui->recentListWidget->setVisible(!historyCollapsed);
-    ui->btnToggleHistory->setText(historyCollapsed ? QStringLiteral("展开") : QStringLiteral("收起"));
+    recentPopup = new QFrame(this);
+    recentPopup->setObjectName("recentPopup");
+    recentPopup->setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
+    recentPopup->setAttribute(Qt::WA_StyledBackground, true);
+
+    QVBoxLayout* popupLayout = new QVBoxLayout(recentPopup);
+    popupLayout->setContentsMargins(6, 6, 6, 6);
+    popupLayout->setSpacing(2);
+
+    recentPopupList = new QListWidget(recentPopup);
+    recentPopupList->setObjectName("recentPopupList");
+    recentPopupList->setFrameShape(QFrame::NoFrame);
+    recentPopupList->setFocusPolicy(Qt::NoFocus);
+    recentPopupList->setIconSize(QSize(16, 16));
+    recentPopupList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    recentPopupList->setContextMenuPolicy(Qt::CustomContextMenu);
+    popupLayout->addWidget(recentPopupList);
+
+    labelPopupEmpty = new QLabel("暂无最近设备", recentPopup);
+    labelPopupEmpty->setObjectName("labelPopupEmpty");
+    labelPopupEmpty->setAlignment(Qt::AlignCenter);
+    popupLayout->addWidget(labelPopupEmpty);
+
+    QWidget* popupFooter = new QWidget(recentPopup);
+    QHBoxLayout* footerLayout = new QHBoxLayout(popupFooter);
+    footerLayout->setContentsMargins(8, 4, 8, 2);
+    footerLayout->setSpacing(8);
+    btnPopupAdd = new QPushButton("添加设备", popupFooter);
+    btnPopupClear = new QPushButton("清空", popupFooter);
+    for (QPushButton* button : { btnPopupAdd, btnPopupClear }) {
+        button->setObjectName("btnPopupAction");
+        button->setCursor(Qt::PointingHandCursor);
+        button->setIconSize(QSize(14, 14));
+    }
+    btnPopupAdd->setIcon(theme::icon(QStringLiteral(":/icons/plus.svg"), theme::color("textFaint"), 14));
+    btnPopupClear->setIcon(theme::icon(QStringLiteral(":/icons/trash.svg"), theme::color("textFaint"), 14));
+    footerLayout->addWidget(btnPopupAdd);
+    footerLayout->addStretch();
+    footerLayout->addWidget(btnPopupClear);
+    popupLayout->addWidget(popupFooter);
+
+    connect(recentPopupList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+        hideRecentPopup();
+        onDeviceItemClicked(item);
+    });
+    connect(recentPopupList, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        showDeviceMenu(recentPopupList, pos, false);
+    });
+    connect(btnPopupAdd, &QPushButton::clicked, this, [this]() {
+        hideRecentPopup();
+        QTimer::singleShot(0, this, &MainWindow::onAddDeviceClicked);
+    });
+    connect(btnPopupClear, &QPushButton::clicked, this, [this]() {
+        hideRecentPopup();
+        QTimer::singleShot(0, this, &MainWindow::onClearHistoryClicked);
+    });
+
+    updateRecentListUI();
+}
+
+void MainWindow::showRecentPopup()
+{
+    if (!recentPopup || !ui->remoteIdEdit) return;
+    updateRecentListUI();
+
+    const int rowCount = recentPopupList->count();
+    recentPopupList->setVisible(rowCount > 0);
+    labelPopupEmpty->setVisible(rowCount == 0);
+    recentPopupList->setFixedHeight(qBound(1, rowCount, 6) * 34 + 2);
+
+    recentPopup->setFixedWidth(qMax(ui->remoteIdEdit->width(), 280));
+    recentPopup->adjustSize();
+    recentPopup->move(ui->remoteIdEdit->mapToGlobal(QPoint(0, ui->remoteIdEdit->height() + 6)));
+    recentPopup->show();
+    recentPopup->raise();
+}
+
+void MainWindow::hideRecentPopup()
+{
+    if (recentPopup && recentPopup->isVisible()) recentPopup->hide();
 }
 
 void MainWindow::updateStatusUI(const QString& status, const QString& styleClass)
