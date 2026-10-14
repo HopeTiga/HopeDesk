@@ -12,7 +12,10 @@ namespace hope {
 
         typedef NVENCSTATUS(NVENCAPI* PNVENCODEAPICREATEINSTANCE)(NV_ENCODE_API_FUNCTION_LIST*);
 
-        constexpr DWORD kVddAcquireTimeoutMs = 100;
+        // 照参考消费者 ZakoVddCapture.cpp:1207 的 AcquireSync(1, 2)：驱动一次发布只消费一次，
+        // 等不到就是这一帧没东西可读，短超时跳帧即可。原来给 100ms，等于让静止桌面上的 repeat
+        // 帧每次把编码线程钉住 100ms（正好是 repeat 周期），恢复瞬间的实时帧会被推后一拍。
+        constexpr DWORD kVddAcquireTimeoutMs = 2;
 
         NvencH264Encoder::NvencH264Encoder() {}
 
@@ -137,7 +140,6 @@ namespace hope {
             bufCount = 8;
             mappedResources.resize(bufCount, nullptr);
             swInputBuffers.resize(bufCount, nullptr);
-            pendingInputs.resize(bufCount);
 
             if (!InitVideoProcessor(width, height)) {
                 LOG_ERROR("VideoProcessor 初始化失败，无法走 NV12 输入路径");
@@ -327,7 +329,6 @@ namespace hope {
                     params.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
                     mappedResources[idx] = map.mappedResource;
                     swInputBuffers[idx] = nullptr;
-                    pendingInputs[idx].isShared = false;
                 }
                 else if (hr == static_cast<HRESULT>(WAIT_TIMEOUT)) {
                     // 背压：跳帧
@@ -380,7 +381,6 @@ namespace hope {
                 params.bufferFmt = NV_ENC_BUFFER_FORMAT_NV12;
                 mappedResources[idx] = nullptr;
                 swInputBuffers[idx] = swInputBuffer;
-                pendingInputs[idx].isShared = false;
             }
 
             NVENCSTATUS err = nvencFuncs.nvEncEncodePicture(nvencSession, &params);
@@ -435,18 +435,6 @@ namespace hope {
                         nvencFuncs.nvEncUnmapInputResource(nvencSession, mappedResources[curBitstream]);
                         mappedResources[curBitstream] = nullptr;
                     }
-                    // 直注路径归还锁
-                    if (pendingInputs[curBitstream].isShared) {
-                        if (pendingInputs[curBitstream].km)
-                            pendingInputs[curBitstream].km->ReleaseSync(0);
-                        if (pendingInputs[curBitstream].buffer) {
-                            auto* d3d = static_cast<WebrtcD3D11TextureBuffer*>(pendingInputs[curBitstream].buffer.get());
-                            if (d3d) d3d->FreeSharedSlot();
-                        }
-                        pendingInputs[curBitstream].km.Reset();
-                        pendingInputs[curBitstream].buffer = nullptr;
-                        pendingInputs[curBitstream].isShared = false;
-                    }
                     if (swInputBuffers[curBitstream]) {
                         nvencFuncs.nvEncDestroyInputBuffer(nvencSession, swInputBuffers[curBitstream]);
                         swInputBuffers[curBitstream] = nullptr;
@@ -481,21 +469,6 @@ namespace hope {
                 for (auto& kv : resourceCache)
                     if (kv.second.regPtr) nvencFuncs.nvEncUnregisterResource(nvencSession, kv.second.regPtr);
                 resourceCache.clear();
-
-                // 兜底归还
-                for (auto& p : pendingInputs) {
-                    if (p.isShared) {
-                        if (p.km) p.km->ReleaseSync(0);
-                        if (p.buffer) {
-                            auto* d3d = static_cast<WebrtcD3D11TextureBuffer*>(p.buffer.get());
-                            if (d3d) d3d->FreeSharedSlot();
-                        }
-                        p.km.Reset();
-                        p.buffer = nullptr;
-                        p.isShared = false;
-                    }
-                }
-                pendingInputs.clear();
 
                 nvencFuncs.nvEncDestroyEncoder(nvencSession);
                 nvencSession = nullptr;

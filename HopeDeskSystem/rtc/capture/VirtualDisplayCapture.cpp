@@ -632,26 +632,6 @@ namespace hope {
             return ProbeResult::Ready;
         }
 
-        VirtualDisplayCapture::ProbeResult VirtualDisplayCapture::probeLiveChannel(UINT16& outGen)
-        {
-            ZakoFrameMetadata live{};
-            if (!readStableMetadata(live)) return ProbeResult::NotReady;
-
-            const bool advanced =
-                live.FrameCounter != liveFrameCounter ||
-                live.LastPublishQpc != livePublishQpc ||
-                live.MetadataSequence != liveMetadataSequence;
-
-            liveFrameCounter = live.FrameCounter;
-            livePublishQpc = live.LastPublishQpc;
-            liveMetadataSequence = live.MetadataSequence;
-
-            if (!advanced) return ProbeResult::NotReady;
-
-            outGen = static_cast<UINT16>(live.MetadataSequence >> 16);
-            return ProbeResult::Ready;
-        }
-
         bool VirtualDisplayCapture::readStableMetadata(ZakoFrameMetadata& out)
         {
             if (!pMeta) return false;
@@ -786,9 +766,6 @@ namespace hope {
                         lastHeight = (int)meta.Height;
                         lastFormat = meta.DxgiFormat;
                     }
-                    liveFrameCounter = 0;
-                    livePublishQpc = 0;
-                    liveMetadataSequence = 0;
                     if (channelSync) {
                         channelSync->generation.fetch_add(1, std::memory_order_release);
                     }
@@ -893,7 +870,12 @@ namespace hope {
                 if (pMeta && ++idleTicks >= probeIdleTicks) {
                     idleTicks = 0;
                     UINT16 probeGen = 0;
-                    const ProbeResult probe = probeLiveChannel(probeGen);
+                    // 判活只能用「通道开不开得出来」，不能用「元数据有没有前进」：静止桌面上驱动
+                    // 本来就不产帧，后者与「驱动僵死」同形，会把每一次静止都当成故障去重开通道、
+                    // 重设拓扑，而重开又会把探测基线归零、让下一次探测假报 Ready 从而复位重试计数
+                    // ——自激成 16 秒一圈的永动机。OpenFrameChannel 返回 DEVICE_NOT_READY 才是
+                    // 生产端真的没了（见 probeChannelGeneration），非二义。
+                    const ProbeResult probe = probeChannelGeneration(probeGen);
                     if (probe == ProbeResult::NotReady && ++staleFastAttempts <= kVddStaleFastAttempts) {
                         probeIdleTicks = kVddStaleFastTicks;
                         RECT staleRc{};

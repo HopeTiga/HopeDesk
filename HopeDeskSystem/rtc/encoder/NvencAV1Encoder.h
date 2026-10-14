@@ -58,14 +58,6 @@ namespace hope {
             std::vector<NV_ENC_INPUT_PTR> mappedResources;
             std::vector<NV_ENC_INPUT_PTR> swInputBuffers;
 
-            // 直注路径在途输入
-            struct PendingInput {
-                Microsoft::WRL::ComPtr<IDXGIKeyedMutex> km;          // 持有到 unmap
-                webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer; // 保活 d3dBuffer 以便 FreeSharedSlot
-                bool isShared = false;                                // 仅直注路径为 true
-            };
-            std::vector<PendingInput> pendingInputs;
-
             uint32_t bufCount = 0;
             uint32_t curBitstream = 0;   // 当前提取索引
             uint32_t nextBitstream = 0;  // 下一个下发索引
