@@ -255,6 +255,25 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR* argv) {
 
 int main(int argc, char* argv[]) {
 
+    // 日志一律落在 exe 同目录的 logs\ 下,不依赖进程 CWD。
+    // 服务(SYSTEM)默认 CWD 是 C:\Windows\System32,子进程又用 lpCurrentDirectory=nullptr 继承,
+    // 不在这里锚定的话整条链的日志都会落到 C:\Windows\System32\logs。
+    // 必须早于第一条 LOG_*:sink 是惰性建的,建的时刻就把路径定死。
+    char exePath[MAX_PATH] = {};
+
+    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) > 0) {
+
+        std::string exeDir(exePath);
+
+        size_t lastSlash = exeDir.find_last_of("\\/");
+
+        if (lastSlash != std::string::npos) {
+
+            setLogDirectory((exeDir.substr(0, lastSlash) + "\\logs").c_str());
+
+        }
+    }
+
     mi_version();
 
     DWORD sessionId = GetCurrentSessionId();
