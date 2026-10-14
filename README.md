@@ -238,8 +238,8 @@ WebrtcSignalServer/
 - **采集模式自动切换**：控制端"模式"选择 **游戏模式** → System 使用 Hope Virtual Display 高性能采集；选择 **办公模式** → 使用 Desktop Duplication API 兼容采集。Hope Virtual Display 不可用（驱动未装/未加载）时也能优雅回退到 Desktop Duplication API，保证连接不中断。
 - **干净的采集画面**：System 每次会话自动开启虚拟显示器的**硬件光标**（`HARDWARECURSOR=1`），光标经 IddCx 带外通道渲染，不合成进帧缓冲，捕获帧不含系统光标。
 - **编解码与采集状态可见**：**控制端 Native** 实时显示当前解码器（`解码: AV1 硬解`——codec + 硬解/软解）；**被控端 Native** 实时显示当前编码器（`编码: AV1 硬编`——codec + 硬编/软编）与实际使用的采集技术（`采集: Hope Virtual Display` / `Desktop Duplication API`），由远端/System 上报获得；断开控制后两端状态均自动清空，不残留上一会话。
-- **WebRTC 调试日志**：**控制端 Native**「设置 → 系统设置」提供「WebRTC 调试日志」开关（写入 `Webrtc.DebugLog`）。开启后 Native 与 System 均把 libwebrtc 的 `RTC_LOG`（`LS_VERBOSE` 级别，含 ICE 连通性检查、candidate pair 状态、DTLS 握手）写入 `logs/webrtc.log`，开关经注册消息下发给 System（System 以服务方式运行时日志落在 `C:\Windows\System32\logs\webrtc.log`）。日志量大，建议仅排查连接问题时开启。
-- **应用日志**：Native 与 System 各自的 `LOG_*` 写**单文件** `logs/HopeDeskNative.log` / `logs/HopeDeskSystem.log`（相对运行目录；单文件 10MB、保留最近 5 个轮转），**每条同步落盘**，崩溃前的日志不会丢。控制台按级别 ANSI 着色，四个级别均可在调用点短路——被关掉的级别连 fmt 格式化都不做。
+- **WebRTC 调试日志**：**控制端 Native**「设置 → 系统设置」提供「WebRTC 调试日志」开关（写入 `Webrtc.DebugLog`）。开启后 Native 与 System 均把 libwebrtc 的 `RTC_LOG`（`LS_VERBOSE` 级别，含 ICE 连通性检查、candidate pair 状态、DTLS 握手）写入 `logs/webrtc.log`，开关经注册消息下发给 System。**System 的日志目录锚定在它自己的 exe 所在目录**：`<HopeDeskSystem.exe 目录>\logs\webrtc.log`。以服务方式启动时进程工作目录是 `C:\Windows\System32`，而 System 会话内 worker 又是同 exe 自我复制出来的（`CreateProcessAsUserW` 的 `lpCurrentDirectory` 传 `nullptr`），会一路继承该 CWD —— 因此在 `main()` 入口用 `setLogDirectory()` 显式锚定，日志不再随工作目录漂移、也不会落到 `System32\logs` 下。日志量大，建议仅排查连接问题时开启。
+- **应用日志**：Native 与 System 各自的 `LOG_*` 写**单文件** `logs/HopeDeskNative.log` / `logs/HopeDeskSystem.log`（单文件 10MB、保留最近 5 个轮转），**每条同步落盘**，崩溃前的日志不会丢。日志目录：**Native 相对运行目录；System 锚定在 exe 所在目录**（`<HopeDeskSystem.exe 目录>\logs\`，与其工作目录无关，见上条）。控制台按级别 ANSI 着色，四个级别均可在调用点短路——被关掉的级别连 fmt 格式化都不做。
 
 ### 🔀 稳健的信令架构
 - **高兼容性与穿透力**：采用广泛支持的**WebSocket协议**作为核心信令通道，确保在企业网络、公共Wi-Fi等各种复杂网络环境下都能可靠建立连接，具备出色的防火墙穿透能力。
@@ -304,7 +304,7 @@ HopeDesk 采用以 WebSocket 为核心的稳健信令架构，旨在各类生产
 | `Gpu Scheduling Priority Applied: HAGS=Enabled Priority=Realtime` | **120–140** |
 | `Gpu Scheduling Priority Applied: HAGS=Enabled Priority=High` | **立刻 ~60** |
 
-**如何确认当次真的生效**：看服务端日志 `C:\Windows\System32\logs\HopeDeskSystem.log` 里的 `PerfBoost.h Gpu Scheduling Priority Applied: HAGS=? Priority=?` —— 只有 `Priority=Realtime` 才是要的档位（行号随注释增删变动，认文本，别认行号）。若出现 `Gpu Scheduling Priority Set Failed: ... (Needs SeIncreaseBasePriorityPrivilege)`，说明进程没有 `SeIncreaseBasePriorityPrivilege`，**两个档位都没生效**，得先解决特权。
+**如何确认当次真的生效**：看服务端日志 `<HopeDeskSystem.exe 目录>\logs\HopeDeskSystem.log` 里的 `PerfBoost.h Gpu Scheduling Priority Applied: HAGS=? Priority=?` —— 只有 `Priority=Realtime` 才是要的档位（行号随注释增删变动，认文本，别认行号）。若出现 `Gpu Scheduling Priority Set Failed: ... (Needs SeIncreaseBasePriorityPrivilege)`，说明进程没有 `SeIncreaseBasePriorityPrivilege`，**两个档位都没生效**，得先解决特权。
 
 > ⚠️ **边界**：上游 Sunshine 文档指出，NVIDIA 驱动在 **HAGS 开启 + 使用 REALTIME + 显存接近占满** 三者同时成立时，可能**冻结编码器**；`kRealtimeWithHags` 就是为此保留的逃生门。本机游戏态显存占用约 74%，尚未触发。**若出现编码卡死或码流中断，第一嫌疑即在此处** —— 届时才回退为 `false`，并记录当时的显存占用。
 
