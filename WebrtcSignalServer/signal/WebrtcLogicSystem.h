@@ -124,9 +124,9 @@ namespace hope {
 
 							LOG_ERROR("Unknown Webrtc Request Type: {}", type);
 
-							boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr]() mutable {
+							boost::asio::post(boost::asio::get_associated_executor(*completionHandlerPtr, ioContext), [completionHandlerPtr, type]() mutable {
 
-								(*completionHandlerPtr)(std::exception_ptr{});
+								(*completionHandlerPtr)(std::make_exception_ptr(std::runtime_error(absl::StrFormat("Unknown Webrtc Request Type: %d", type))));
 
 								});
 
