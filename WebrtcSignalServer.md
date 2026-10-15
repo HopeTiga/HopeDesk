@@ -12,7 +12,7 @@ WebrtcSignalServer 是 Webrtc 信令面的中转服务：
 
 - **信令通道**：WebSocket（`wss://` 默认开 SSL），客户端用 `accountId` 鉴权接入，服务器按 `requestType` 处理/转发信令到 `targetId`。
 - **运维通道**：HTTPS，提供通道/连接统计接口。
-- **分片并发**：启动时按 `threadSize` 切出 N 个「通道(channel)」，每个通道独占一个 `io_context`+线程；连接按 round-robin 分配，路由按 `accountId` 一致性哈希跨通道寻址。
+- **分片并发**：启动时按 `threadSize` 切出 N 个「通道(channel)」，每个通道独占一个 `io_context`+线程；连接按 round-robin 分配，路由按 `accountId` 哈希取模跨通道寻址。
 - **过载保护**：本地协程派发 + 全局任务队列两级调度，超阈值走全局队列削峰，满则回 503。
 - **配置解耦**：`ConfigManager` 只在 `main.cpp` 出现，业务类全部构造注入 / 全局配置，不在类内读 ini。
 - **节点间 RPC**：`CoroRpc` 既是 RPC 服务端（默认注册 `requestForward` 一个 handler）又是 RPC 客户端（连接池 + 负载均衡器），requestType 9 的信令就由它送出去（见 §8）。
@@ -298,7 +298,7 @@ handler = WebrtcHandlers[requestType]
 | 缓存失效重路由 | 最多 3（源→缓存→home→T），第一跳是"信缓存"的代价 |
 
 要点：
-- **一致性哈希 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射**在一个进程内**稳定（全仓库只有 `WebrtcSignalManager` 里那一个 `StringHasher` 成员被 5 处路由决策共用，所以各通道必然算出同一个桶）。`actorSocketMappingIndex`（targetId→{sessionId,channel}）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
+- **哈希取模定 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射**在一个进程内**稳定（全仓库只有 `WebrtcSignalManager` 里那一个 `StringHasher` 成员被 5 处路由决策共用，所以各通道必然算出同一个桶）。`actorSocketMappingIndex`（targetId → `{sessionId, channelIndex, registrationTime}`，其中 `registrationTime` 是注册到达序，用于同 accountId 新旧注册的仲裁，见 §5.1）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
   - hasher 的值**从不跨进程**：跨节点转发时 `forwardChannel` 恒为 0（`signal/WebrtcLogicSystem.cpp:1106`），接收端用自己的 hasher 重算桶。所以 hasher 必须跨实例可复现（见 §11）。
 - **两级缓存**：源 socket 的 `actorMappingIndex`（targetId→channel）就近缓存，home 的 `actorSocketMappingIndex` 全局索引。命中缓存省一跳；缓存命中这条是 1 跳的常见好路径。
 - **过期自愈**：缓存指向的通道查不到 socket（缓存过期）就重路由到 home 重新寻址；404 时清掉源 socket 上指向错误通道的缓存项，下次重新寻址。缓存失效多出的那一跳是缓存换来的代价。
@@ -875,7 +875,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 > **全文的性能数字只住在这一章**（§11.1 绑核、§11.2 逻辑池），其它章节提到吞吐/延迟只做引用、不复述数字 —— 新数出来只改一处。
 
 1. **io_context-per-thread proactor 池**（`SchedulerContexts`），连接按通道分片，**单连接生命周期内绑定单线程，无锁**。
-2. **一致性哈希路由**（`accountId % threadSize`）+ 每 socket 路由缓存，跨通道寻址最多两跳，命中缓存一跳。
+2. **哈希取模路由**（`hasher(accountId) % hashSize`）+ 每 socket 路由缓存，跨通道寻址最多两跳，命中缓存一跳。
 3. **无锁队列** moodycamel::ConcurrentQueue（仓库自带副本改名为 `hopeMoodycamel` 隔离，避免与 ylt 自带 moodycamel 撞名/共享宏守卫）。
 4. **concurrent_channel / sam 信号量** 做协程唤醒，避免轮询。
 5. **RST 强关**（`linger{1,0}`）避免 TIME_WAIT，短连接高 churn 场景友好。
@@ -950,7 +950,7 @@ hope::executor::SchedulerContexts::init(schedulerConfig);
 
 #### 该配多少（含 SMT 的取舍）
 
-`threadSize = 0` 取的是 **`std::thread::hardware_concurrency()`，也就是逻辑 CPU 数**：开着超线程时它是 16 而物理核只有 10，`(offset + i) % cores.size()` 就让其中 6 个核各扛两个反应堆（正是上面那条 "some will carry two reactors" 警告）。这时"一个反应堆独占一个物理核"的设计落空 —— 两个反应堆在同一个核上抢 ALU / ROB / L1 / L2。更要命的是**哪条通道落在被抢的核上是不变的**：一致性哈希把 `accountId` 钉死在通道上、通道又钉死在线程上，于是同一批账号**永远**跑在抢核的通道上，拓扑差异直接暴露成**尾延迟**（p50 不动，p99 被那几条通道抬起来）。
+`threadSize = 0` 取的是 **`std::thread::hardware_concurrency()`，也就是逻辑 CPU 数**：开着超线程时它是 16 而物理核只有 10，`(offset + i) % cores.size()` 就让其中 6 个核各扛两个反应堆（正是上面那条 "some will carry two reactors" 警告）。这时"一个反应堆独占一个物理核"的设计落空 —— 两个反应堆在同一个核上抢 ALU / ROB / L1 / L2。更要命的是**哪条通道落在被抢的核上是不变的**：哈希取模把 `accountId` 钉死在通道上、通道又钉死在线程上，于是同一批账号**永远**跑在抢核的通道上，拓扑差异直接暴露成**尾延迟**（p50 不动，p99 被那几条通道抬起来）。
 
 要确定性就**显式写死 `threadSize`，并让它 ≤ P 核数**：关掉超线程时 `hardware_concurrency()` 天然等于物理核数、`threadSize = 0` 自动对齐；不想动 BIOS 就直接写死 P 核数 —— 反应堆全落在 P 核上、各独占一整个物理核，顺带绕开 P/E 核的单核吞吐差异。代价是剩下的核与超线程兄弟全空着，留给 spdlog 异步线程、CoroRpc 线程池、MySQL 连接池这些**没有绑核**的线程。
 
