@@ -206,11 +206,13 @@ namespace hope {
 
             std::string activeCaptureTech = "Hope Virtual Display";  // 上报用: "Hope Virtual Display" 或 "Desktop Duplication API"
 
+            int degradeReason = -1;
+
             std::shared_ptr<HAudioCatch> hAudioCatch;
 
             boost::asio::io_context ioContext;
 
-            std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> executorWorkWuard;
+            std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> executorWorkguard;
 
             std::thread ioContextThread;
 

@@ -43,7 +43,7 @@ namespace hope {
 
             channelSync = std::make_shared<VddChannelSync>();
 
-            executorWorkWuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+            executorWorkguard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
                 boost::asio::make_work_guard(ioContext));
 
             ioContextThread = std::move(std::thread([this]() {
@@ -644,7 +644,7 @@ namespace hope {
 
                     returnJson["targetId"] = targetId;
 
-                    returnJson["reason"] = 0;
+                    returnJson["reason"] = 2;
 
                     returnJson["fowardMessage"] = "ScreenCapture Initialize Failed";
 
@@ -675,7 +675,7 @@ namespace hope {
 
                     returnJson["targetId"] = targetId;
 
-                    returnJson["reason"] = 1;
+                    returnJson["reason"] = 3;
 
                     returnJson["fowardMessage"] = "ScreenCapture StartCapture Failed";
 
@@ -774,7 +774,9 @@ namespace hope {
 
                 if (!virtualDisplayCapture->initialize()) {
 
-                    LOG_ERROR("Failed To Initialize VirtualDisplayCapture");
+                    LOG_ERROR("Failed To Initialize VirtualDisplayCapture, Degrading To Desktop Duplication API (Reason 0)");
+
+                    degradeReason = 0;
 
                     webrtcDeskSystemConfig.webrtcModulesType = 1;
 
@@ -785,7 +787,9 @@ namespace hope {
 
                 if (!virtualDisplayCapture->startCapture()) {
 
-                    LOG_ERROR("Failed To Start VirtualDisplayCapture");
+                    LOG_ERROR("Failed To Start VirtualDisplayCapture, Degrading To Desktop Duplication API (Reason 1)");
+
+                    degradeReason = 1;
 
                     webrtcDeskSystemConfig.webrtcModulesType = 1;
 
@@ -1103,7 +1107,7 @@ namespace hope {
 
                                 webrtcVideoEncoderFactory->onEncoderStatusHandle =
                                     [this](const std::string& codec, bool hardEncode) {
-                                    if (!hardEncode && screenCapture) {
+                                    if (!hardEncode && virtualDisplayCapture) {
                                         virtualDisplayCapture->forceCpuPath();
                                     }
                                     boost::json::object o;
@@ -1111,6 +1115,7 @@ namespace hope {
                                     o["codec"] = codec;
                                     o["hard"] = hardEncode;
                                     o["capture"] = activeCaptureTech;  // "Hope Virtual Display" / "Desktop Duplication API"
+                                    o["reason"] = degradeReason;
                                     std::string s = boost::json::serialize(o);
                                     auto data = std::make_shared<WriterData>(const_cast<char*>(s.data()), s.size());
                                     asyncWrite(data);
@@ -1257,9 +1262,9 @@ namespace hope {
                 tcpSocket->closeEvent();
             }
 
-            if (executorWorkWuard) {
+            if (executorWorkguard) {
 
-                executorWorkWuard.reset();
+                executorWorkguard.reset();
 
             }
 
