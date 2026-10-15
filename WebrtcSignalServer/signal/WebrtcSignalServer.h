@@ -105,7 +105,7 @@ namespace hope {
                         std::shared_ptr<WebrtcSignalManager> & webrtcSignalManager = webrtcSignalManagers[channelIndex];
 
                         if constexpr (std::is_void_v<ValueType>) {
-                            boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
+                            boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getSchedulerContext(),
                                 [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
                                 -> boost::asio::awaitable<void> {
                                     co_await asyncHandle(webrtcSignalManager);
@@ -116,7 +116,7 @@ namespace hope {
                                 });
                         }
                         else {
-                            boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getIoCompletionPorts(),
+                            boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getSchedulerContext(),
                                 [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
                                 -> boost::asio::awaitable<ValueType> {
                                     co_return co_await asyncHandle(webrtcSignalManager);

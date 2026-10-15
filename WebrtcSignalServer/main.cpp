@@ -4,7 +4,7 @@
 #include <mimalloc/mimalloc-new-delete.h>
 #include "ssl/Ssl.h"
 #include "executor/SchedulerConfig.h"
-#include "executor/SchedulerContext.h"
+#include "executor/SchedulerContexts.h"
 #include "signal/WebrtcSignalConfig.h"
 #include "signal/WebrtcSignalServer.h"
 #include "rpc/CoroRpcConfig.h"
@@ -53,7 +53,7 @@ int main() {
 
     hope::executor::SchedulerConfig schedulerConfig;
     hope::executor::loadSchedulerConfig(schedulerConfig, configManager);
-    hope::executor::SchedulerContext::init(schedulerConfig);
+    hope::executor::SchedulerContexts::init(schedulerConfig);
 
     hope::signal::WebrtcSignalConfig webrtcSignalConfig;
     hope::signal::loadWebrtcSignalConfig(webrtcSignalConfig, configManager);

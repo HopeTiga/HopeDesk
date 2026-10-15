@@ -10,7 +10,7 @@
 #include "WebrtcSignalServer.h"
 #include "WebrtcSignalSocket.h"
 
-#include "../executor/SchedulerContext.h"
+#include "../executor/SchedulerContexts.h"
 
 #include "../utils/Utils.h"
 #include "../utils/CompletionHandle.h"
@@ -38,7 +38,7 @@ namespace hope {
 
 #else
 
-            boost::asio::io_context& logicIoContext = hope::executor::SchedulerContext::getLogicInstance()->getIoCompletePort(channelIndex);
+            boost::asio::io_context& logicIoContext = hope::executor::SchedulerContexts::getLogicInstance()->getSchedulerContext(channelIndex);
 
 #endif
 
@@ -66,7 +66,7 @@ namespace hope {
             return webrtcSignalServer;
         }
 
-        boost::asio::io_context& WebrtcSignalManager::getIoCompletionPorts() {
+        boost::asio::io_context& WebrtcSignalManager::getSchedulerContext() {
 
             return ioContext;
 
@@ -74,7 +74,7 @@ namespace hope {
 
         std::shared_ptr<hope::signal::WebrtcSignalSocket> WebrtcSignalManager::generateWebrtcSignalSocket() {
 
-            return std::make_shared<hope::signal::WebrtcSignalSocket>(getIoCompletionPorts(), this, channelConfig.maxTlsHandShakeTime);
+            return std::make_shared<hope::signal::WebrtcSignalSocket>(getSchedulerContext(), this, channelConfig.maxTlsHandShakeTime);
 
         }
 
@@ -331,7 +331,7 @@ namespace hope {
 
                     webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = self->shared_from_this()](std::string accountId, std::string sessionId) {
 
-                        boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getIoCompletionPorts();
+                        boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getSchedulerContext();
 
                         boost::asio::post(ioContext, [webrtcSignalManager = std::move(webrtcSignalManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
 
@@ -350,7 +350,7 @@ namespace hope {
 #endif
 
 
-                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(webrtcSignalSocket->getSchedulerContext(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
                         if (co_await webrtcSignalSocket->handShake()) {
 

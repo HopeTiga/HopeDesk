@@ -92,7 +92,7 @@ namespace hope {
 
 			boost::asio::awaitable<bool> handShake();
 
-			boost::asio::io_context& getIoCompletionPorts();
+			boost::asio::io_context& getSchedulerContext();
 
 			void asyncEvent();
 

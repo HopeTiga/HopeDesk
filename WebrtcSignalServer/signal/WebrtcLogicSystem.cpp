@@ -61,7 +61,7 @@ namespace hope {
 
         }
 
-        boost::asio::io_context& WebrtcLogicSystem::getIoCompletionPorts()
+        boost::asio::io_context& WebrtcLogicSystem::getSchedulerContext()
         {
             return ioContext;
         }

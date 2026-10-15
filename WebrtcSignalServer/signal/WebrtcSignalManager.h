@@ -61,7 +61,7 @@ namespace hope {
 
 			int getChannelIndex();
 
-			boost::asio::io_context& getIoCompletionPorts();
+			boost::asio::io_context& getSchedulerContext();
 
 			std::shared_ptr<hope::signal::WebrtcSignalSocket> generateWebrtcSignalSocket();
 

@@ -74,7 +74,7 @@ namespace hope {
 
         }
 
-        boost::asio::io_context& WebrtcSignalSocket::getIoCompletionPorts() {
+        boost::asio::io_context& WebrtcSignalSocket::getSchedulerContext() {
 
             return ioContext;
 
@@ -174,7 +174,7 @@ namespace hope {
 
 #ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-                boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getIoCompletionPorts();
+                boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getSchedulerContext();
 
                 boost::asio::post(ioContext, [accountId = std::move(accountId), webrtcSignalSocket = shared_from_this()] {
 

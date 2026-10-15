@@ -9,7 +9,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <iostream> 
 
-#include "../executor/SchedulerContext.h"
+#include "../executor/SchedulerContexts.h"
 #include "WebrtcSignalSocket.h"
 #include "HttpSocket.h"
 #include "HttpFilters.h"
@@ -167,7 +167,7 @@ namespace hope {
 
                     webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = std::move(webrtcSignalManager)](std::string accountId, std::string sessionId) {
 
-                        boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getIoCompletionPorts();
+                        boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getSchedulerContext();
 
                         boost::asio::post(ioContext, [webrtcSignalManager = std::move(webrtcSignalManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
 
@@ -185,7 +185,7 @@ namespace hope {
                         });
 #endif
 
-                    boost::asio::co_spawn(webrtcSignalSocket->getIoCompletionPorts(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(webrtcSignalSocket->getSchedulerContext(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
 
                         if (co_await webrtcSignalSocket->handShake()) {
 
@@ -382,9 +382,9 @@ namespace hope {
                 }
 
 #ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
-                boost::asio::io_context & ioContext = webrtcSignalManager->getLogicSystem()->getIoCompletionPorts();
+                boost::asio::io_context & ioContext = webrtcSignalManager->getLogicSystem()->getSchedulerContext();
 #else
-                boost::asio::io_context & ioContext = webrtcSignalManager->getIoCompletionPorts();
+                boost::asio::io_context & ioContext = webrtcSignalManager->getSchedulerContext();
 #endif
 
                 boost::asio::post(ioContext,
@@ -406,7 +406,7 @@ namespace hope {
 
             closeLatch.wait();
 
-            hope::executor::SchedulerContext::getInstance()->stop();
+            hope::executor::SchedulerContexts::getInstance()->stop();
 
             webrtcSignalManagers.clear();
 
@@ -456,7 +456,7 @@ namespace hope {
 
             for (int i = 0; i < webrtcSignalConfig.threadSize; i++) {
 
-                boost::asio::io_context& ioContext = hope::executor::SchedulerContext::getInstance()->getIoCompletePort(i);
+                boost::asio::io_context& ioContext = hope::executor::SchedulerContexts::getInstance()->getSchedulerContext(i);
 
                 WebrtcSignalChannelConfig channelConfig{
                     webrtcSignalConfig.threadSize,

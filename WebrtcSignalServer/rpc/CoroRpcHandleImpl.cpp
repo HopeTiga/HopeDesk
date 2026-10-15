@@ -111,7 +111,7 @@ namespace hope {
 
 			std::shared_ptr<hope::signal::WebrtcSignalManager> & mapChannelManager = webrtcSignalManagers[mapChannelIndex];
 
-			boost::asio::io_context & mapChannelIoContext = mapChannelManager->getLogicSystem()->getIoCompletionPorts();
+			boost::asio::io_context & mapChannelIoContext = mapChannelManager->getLogicSystem()->getSchedulerContext();
 
 			coro_io::callback_awaitor<int> callbackAwaitor;
 
@@ -197,7 +197,7 @@ namespace hope {
 			// 第二跳：投到目标所在的那条通道上。
 			std::shared_ptr<hope::signal::WebrtcSignalManager> & targetChannelManager = webrtcSignalManagers[lookupResult.channelIndex];
 
-			boost::asio::io_context & targetChannelIoContext = targetChannelManager->getLogicSystem()->getIoCompletionPorts();
+			boost::asio::io_context & targetChannelIoContext = targetChannelManager->getLogicSystem()->getSchedulerContext();
 
 			async_simple::Try<RpcForwardResponse> delivered = co_await coro_io::post(
 				[targetChannelManager, accountId, targetId, forwardMessage = std::move(forwardMessage)]() mutable -> RpcForwardResponse {

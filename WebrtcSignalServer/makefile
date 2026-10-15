@@ -63,8 +63,10 @@ SRCS := main.cpp \
 	rpc/Rpc.cpp \
 	rpc/CoroRpc.cpp \
 	rpc/CoroRpcHandleImpl.cpp \
-	mysql/WebrtcMysqlManagerPools.cpp \
-	executor/SchedulerContext.cpp \
+	storage/MysqlManagerPools.cpp \
+	storage/RedisWrapper.cpp \
+	storage/Subscribe.cpp \
+	executor/SchedulerContexts.cpp \
 	utils/Utils.cpp
 
 OBJS := $(patsubst %.cpp,$(BUILDDIR)/%.o,$(SRCS))
