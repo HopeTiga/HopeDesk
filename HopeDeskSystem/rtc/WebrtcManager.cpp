@@ -565,30 +565,26 @@ namespace hope {
         }
 
         bool WebrtcManager::initializeScreenCapture() {
-            if (screenCapture || compatScreenCapture) {
+            if (virtualDisplayCapture || screenCapture) {
                 return false;
             }
 
-            // webrtcModulesType: 0=游戏模式(高性能 VDD) 1=办公模式(兼容 ScreenCapture)
             if (webrtcDeskSystemConfig.webrtcModulesType == 1) {
-                // === 兼容模式：ScreenCapture (DXGI 桌面采集)，CPU 传输，不用脏矩形 ===
-                LOG_INFO("WebrtcModulesType=1 (办公模式): 兼容模式 (ScreenCapture)");
+                LOG_INFO("WebrtcModulesType=1 (Office Mode): Compatibility Mode (ScreenCapture)");
                 activeCaptureTech = "Desktop Duplication API";
-                auto sc = std::make_shared<ScreenCapture>();
+                screenCapture = std::make_shared<ScreenCapture>();
                 ScreenCapture::CaptureConfig cfg;
                 cfg.width = webrtcDeskSystemConfig.desktopWidth > 0 ? webrtcDeskSystemConfig.desktopWidth : 1920;
                 cfg.height = webrtcDeskSystemConfig.desktopHeight > 0 ? webrtcDeskSystemConfig.desktopHeight : 1080;
-                // 采集层级直接用客户端传的 webrtcUseLevels: 0=CPU 1=GPU 2=PRO
                 const int useLevel = webrtcDeskSystemConfig.webrtcUseLevels;
                 const CaptureLevels captureLevel = (useLevel >= 0 && useLevel <= 2)
                     ? static_cast<CaptureLevels>(useLevel) : CaptureLevels::CPU;
                 cfg.levels = captureLevel;
                 cfg.uselevels = captureLevel;
                 cfg.enableDirtyRects = false;                      // 不用脏矩形
-                sc->setConfig(cfg);
+                screenCapture->setConfig(cfg);
 
-                // ScreenCapture 输出格式: CPU=BGRA, GPU=I420, PRO=NV12 -> 统一转 I420 后 PushFrame
-                sc->setDataHandle([this](const uint8_t* data, int width, int height,
+                screenCapture->setDataHandle([this](const uint8_t* data, int width, int height,
                     std::atomic<bool>* isBusy, int rowPitch, CaptureLevels level) {
                         if (!videoTrackSourceImpl || !data) {
                             if (isBusy) isBusy->store(false);
@@ -596,7 +592,6 @@ namespace hope {
                         }
                         webrtc::scoped_refptr<webrtc::I420Buffer> i420Buffer = bufferPool.CreateI420Buffer(width, height);
                         if (level == CaptureLevels::CPU) {
-                            // CPU: BGRA -> I420
                             libyuv::ARGBToI420(
                                 data, rowPitch,
                                 i420Buffer->MutableDataY(), i420Buffer->StrideY(),
@@ -605,7 +600,6 @@ namespace hope {
                                 width, height);
                         }
                         else if (level == CaptureLevels::GPU) {
-                            // GPU 级: 计算着色器输出 I420 (Y/U/V 三平面, U/V 行距=rowPitch/2, 见 ScreenCapture 注释)
                             const uint8_t* src_y = data;
                             const uint8_t* src_u = data + static_cast<size_t>(rowPitch) * height;
                             const uint8_t* src_v = src_u + static_cast<size_t>(rowPitch / 2) * (height / 2);
@@ -619,7 +613,6 @@ namespace hope {
                                 width, height);
                         }
                         else {
-                            // PRO 级: NV12 -> I420 (UV 平面紧跟 Y 平面, 行距=rowPitch)
                             libyuv::NV12ToI420(
                                 data, rowPitch,
                                 data + static_cast<size_t>(rowPitch) * height, rowPitch,
@@ -637,21 +630,71 @@ namespace hope {
                         if (isBusy) isBusy->store(false);
                     });
 
-                compatScreenCapture = sc;
-                if (!sc->initialize()) {
+                if (!screenCapture->initialize()) {
+
                     LOG_ERROR("Failed To Initialize ScreenCapture (Compat Mode)");
-                    compatScreenCapture.reset();
+
+                    screenCapture.reset();
+
+					boost::json::object returnJson;
+                    
+                    returnJson["requestType"] = static_cast<int64_t>(WebrtcRequestState::REQUEST);
+
+					returnJson["accountId"] = accountId;
+
+                    returnJson["targetId"] = targetId;
+
+                    returnJson["reason"] = 0;
+
+                    returnJson["fowardMessage"] = "ScreenCapture Initialize Failed";
+
+                    returnJson["message"] = "WebrtcSignalServer forward";
+
+					returnJson["state"] = 503;
+                    
+                    std::string data = boost::json::serialize(returnJson);
+
+                    std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(data.c_str(),data.size());
+
+                    asyncWrite(std::move(writerData));
+
                     return false;
                 }
-                if (!sc->startCapture()) {
+
+                if (!screenCapture->startCapture()) {
+
                     LOG_ERROR("Failed To Start ScreenCapture (Compat Mode)");
-                    compatScreenCapture.reset();
+
+                    screenCapture.reset();
+
+                    boost::json::object returnJson;
+
+                    returnJson["requestType"] = static_cast<int64_t>(WebrtcRequestState::REQUEST);
+
+                    returnJson["accountId"] = accountId;
+
+                    returnJson["targetId"] = targetId;
+
+                    returnJson["reason"] = 1;
+
+                    returnJson["fowardMessage"] = "ScreenCapture StartCapture Failed";
+
+                    returnJson["message"] = "WebrtcSignalServer forward";
+
+                    returnJson["state"] = 503;
+
+                    std::string data = boost::json::serialize(returnJson);
+
+                    std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(data.c_str(), data.size());
+
+                    asyncWrite(std::move(writerData));
+
                     return false;
                 }
             }
             else {
-                // === 高性能模式：VirtualDisplayCapture (VDD 帧通道) ===
-                screenCapture = std::make_shared<VirtualDisplayCapture>();
+
+                virtualDisplayCapture = std::make_shared<VirtualDisplayCapture>();
                 activeCaptureTech = "Hope Virtual Display";
 
                 hope::rtc::VirtualDisplayCapture::Config config;
@@ -671,7 +714,7 @@ namespace hope {
                     LOG_INFO("WebrtcEnableNvenc");
                     config.cpuPath = false; // zero-copy GPU shared handle -> NVENC direct injection
 
-                    screenCapture->setGpuDataHandle([this](HANDLE sharedHandle,
+                    virtualDisplayCapture->setGpuDataHandle([this](HANDLE sharedHandle,
                         int width, int height,
                         UINT format, UINT rowPitch,
                         UINT64 frameId
@@ -700,8 +743,7 @@ namespace hope {
                     config.cpuPath = true; // mapped BGRA CPU buffer -> libyuv ARGBToI420
                 }
 
-                // 两个句柄都装上:硬编失败回退软编时 forceCpuPath() 一置位就切到 CPU 帧路径
-                screenCapture->setDataHandle([this](const uint8_t* data, int width, int height, int stride, UINT64 frameId) {
+                virtualDisplayCapture->setDataHandle([this](const uint8_t* data, int width, int height, int stride, UINT64 frameId) {
 
                         if (!videoTrackSourceImpl || !data) {
                             return;
@@ -726,25 +768,35 @@ namespace hope {
                         videoTrackSourceImpl->PushFrame(frame);
                     });
 
-                screenCapture->setConfig(config);
+                virtualDisplayCapture->setConfig(config);
 
-                // 与下游编码器共享通道同步状态：编码器 keyed-mutex 同步丢失时
-                // 请求本捕获重开帧通道自愈。
-                screenCapture->setChannelSync(channelSync);
+                virtualDisplayCapture->setChannelSync(channelSync);
 
-                if (!screenCapture->initialize()) {
-                    LOG_ERROR("Failed To Initialize Screen Capture");
-                    return false;
+                if (!virtualDisplayCapture->initialize()) {
+
+                    LOG_ERROR("Failed To Initialize VirtualDisplayCapture");
+
+                    webrtcDeskSystemConfig.webrtcModulesType = 1;
+
+                    virtualDisplayCapture = nullptr;
+
+                    return initializeScreenCapture();
                 }
 
-                if (!screenCapture->startCapture()) {
-                    LOG_ERROR("Failed To Start Screen Capture");
-                    return false;
+                if (!virtualDisplayCapture->startCapture()) {
+
+                    LOG_ERROR("Failed To Start VirtualDisplayCapture");
+
+                    webrtcDeskSystemConfig.webrtcModulesType = 1;
+
+                    virtualDisplayCapture = nullptr;
+
+                    return initializeScreenCapture();
+
                 }
 
             }
 
-            // 光标上报（两个模式共用）
             cursorHooks = std::make_unique<CursorHooks>();
 
             cursorHooks->setCursorHandle([this](unsigned char* data, size_t size) {
@@ -978,6 +1030,15 @@ namespace hope {
             }
             else if (WebrtcRequestState(requestType) == WebrtcRequestState::REQUEST) {
                 if (responseState == 200) {
+
+                    if (json.contains("accountId")) {
+                        targetId = std::string(json["accountId"].as_string().c_str());
+                    }
+
+                    if (json.contains("targetId")) {
+                        accountId = std::string(json["targetId"].as_string().c_str());
+                    }
+
                     if (json.contains("type")) {
                         std::string type(json["type"].as_string().c_str());
 
@@ -1038,15 +1099,12 @@ namespace hope {
                             if (webrtcVideoEncoderFactory) {
                                 webrtcVideoEncoderFactory->webrtcEnableNvenc = webrtcDeskSystemConfig.webrtcEnableNvenc;
 
-                                // 注入 VDD 通道同步状态：编码器检测到 keyed-mutex 同步丢失时
-                                // 请求上游重开帧通道自愈。
                                 webrtcVideoEncoderFactory->channelSync = channelSync;
 
                                 webrtcVideoEncoderFactory->onEncoderStatusHandle =
                                     [this](const std::string& codec, bool hardEncode) {
-                                    // 编码器回退软编:采集同步切回 CPU 帧路径(零拷贝帧软编消费不了)
                                     if (!hardEncode && screenCapture) {
-                                        screenCapture->forceCpuPath();
+                                        virtualDisplayCapture->forceCpuPath();
                                     }
                                     boost::json::object o;
                                     o["requestType"] = static_cast<int64_t>(WebrtcRequestState::ENCODE_STATUS);
@@ -1082,14 +1140,6 @@ namespace hope {
                             // 会话已确认要传输视频/音频:提升进程优先级类 + 定时器精度
                             hope::perf::boostStreamingPriority();
 
-                            if (json.contains("accountId")) {
-                                targetId = std::string(json["accountId"].as_string().c_str());
-                            }
-
-                            if (json.contains("targetId")) {
-                                accountId = std::string(json["targetId"].as_string().c_str());
-                            }
-
                             webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
                             options.offer_to_receive_video = true;
                             options.offer_to_receive_audio = false;
@@ -1124,12 +1174,13 @@ namespace hope {
             // 会话结束:还原进程优先级类和定时器精度(幂等,未提升过则为空操作)
             hope::perf::restoreStreamingPriority();
 
+            if (virtualDisplayCapture) {
+                virtualDisplayCapture.reset();
+            }
+
             // Stop screen capture first (either mode)
             if (screenCapture) {
                 screenCapture.reset();
-            }
-            if (compatScreenCapture) {
-                compatScreenCapture.reset();
             }
 
             if (hAudioCatch) {

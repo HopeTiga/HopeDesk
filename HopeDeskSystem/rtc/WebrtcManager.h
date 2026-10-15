@@ -87,8 +87,6 @@ namespace hope {
             int desktopRefreshRate = 144;       // 虚拟显示器刷新率Hz(客户端传入)
         };
 
-        // WebrtcManager 运行期配置:STUN/TURN 由 Native 端通过 REGISTER 消息(registerStr)
-        // 直接传入,WebrtcManager 自身不再读取 ConfigManager,便于后续扩展更多字段。
         struct WebrtcManagerConfig {
             std::string stunHost;
             std::string turnHost;
@@ -200,12 +198,12 @@ namespace hope {
 
             WebrtcVideoDecoderFactory* webrtcVideoDecoderFactory;
 
-            std::shared_ptr<VirtualDisplayCapture> screenCapture;  // 高性能模式：VDD 帧通道
-            std::shared_ptr<ScreenCapture> compatScreenCapture;    // 兼容模式：DXGI 桌面采集
+            std::shared_ptr<VirtualDisplayCapture> virtualDisplayCapture;  // 高性能模式：VDD 帧通道
 
-            // VDD 帧通道同步状态：连接上游 VirtualDisplayCapture 与下游 NVENC 编码器。
-            // 编码器 keyed-mutex 同步丢失（驱动重建共享纹理）时请求上游重开通道自愈。
+            std::shared_ptr<ScreenCapture> screenCapture;    // 兼容模式：DXGI 桌面采集
+
             std::shared_ptr<VddChannelSync> channelSync;
+
             std::string activeCaptureTech = "Hope Virtual Display";  // 上报用: "Hope Virtual Display" 或 "Desktop Duplication API"
 
             std::shared_ptr<HAudioCatch> hAudioCatch;
