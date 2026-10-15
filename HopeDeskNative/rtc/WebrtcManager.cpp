@@ -379,8 +379,6 @@ void WebrtcManager::requestStats()
 
     auto handle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
     if (webrtcManagerObserver) {
-        // weak:统计回调可能在管理器析构之后才回来;直接捕获 this 会悬垂,
-        // 捕获 shared_ptr 又会和 handle 组成循环,故用 weak。
         std::weak_ptr<WebrtcManager> weakSelf = shared_from_this();
         handle->onRTCStatsCollectorHandle = [weakSelf](int type, double rttMs) {
             std::shared_ptr<WebrtcManager> self = weakSelf.lock();
