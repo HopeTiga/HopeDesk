@@ -40,14 +40,11 @@
 namespace hope{
     namespace rtc{
 
-// UI 侧回调转接:WebrtcManagerObserver 的虚接口 -> MainWindow 构造时挂上的 lambda。
-// lambda 体一律保持原样(捕获 this 直接摸 ui 与成员),这里只负责把虚调用转发过去;
-// 未挂的 lambda 静默丢弃,和旧实现里"回调为空就跳过"一致。
 class MainWindowWebrtcObserver : public WebrtcManagerObserver {
 public:
 
     std::function<void(const std::string&, bool)> onCodecStatus;
-    std::function<void(const std::string&, bool, const std::string&)> onEncodeStatus;
+    std::function<void(const std::string&, bool, const std::string&, int)> onEncodeStatus;
     std::function<void()> onSignalServerConnect;
     std::function<void()> onSignalServerDisConnect;
     std::function<void()> onRemoteSuccessful;
@@ -62,8 +59,8 @@ public:
         if (onCodecStatus) onCodecStatus(codec, hardDecode);
     }
 
-    void onEncodeStatusHandle(const std::string& codec, bool hardEncode, const std::string& captureTech) override {
-        if (onEncodeStatus) onEncodeStatus(codec, hardEncode, captureTech);
+    void onEncodeStatusHandle(const std::string& codec, bool hardEncode, const std::string& captureTech, int degradeReason) override {
+        if (onEncodeStatus) onEncodeStatus(codec, hardEncode, captureTech, degradeReason);
     }
 
     void onSignalServerConnectHandle() override {
@@ -122,7 +119,6 @@ MainWindow::MainWindow(QWidget* parent)
 
     webrtcManager->asyncEvent();
 
-    // UI 回调统一走 WebrtcManagerObserver(构造末尾整体交给 WebrtcManager)
     std::unique_ptr<MainWindowWebrtcObserver> webrtcObserver = std::make_unique<MainWindowWebrtcObserver>();
 
     // 操控端:解码状态 -> label(只显示解码;编码状态在被控端 Native 显示)
@@ -135,9 +131,14 @@ MainWindow::MainWindow(QWidget* parent)
     };
 
     // 被控端:本机 System 经本地 TCP(ENCODE_STATUS)上报当前编码 codec + 硬编/软编 + 采集技术 -> label
-    webrtcObserver->onEncodeStatus = [this](const std::string& codec, bool hardEncode, const std::string& captureTech) {
+    webrtcObserver->onEncodeStatus = [this](const std::string& codec, bool hardEncode, const std::string& captureTech, int degradeReason) {
         QString codecQ = QString::fromStdString(codec).toUpper();
         QString captureQ = QString::fromStdString(captureTech);
+        if (degradeReason >= 0) {
+            captureQ += degradeReason == 1
+                ? QStringLiteral("（Hope Virtual Display 开始捕获失败，已降级）")
+                : QStringLiteral("（Hope Virtual Display 初始化失败，已降级）");
+        }
         QMetaObject::invokeMethod(this, [this, codecQ, hardEncode, captureQ]() {
             if (ui) {
                 if (ui->labelCodecStatus)
@@ -253,9 +254,7 @@ MainWindow::MainWindow(QWidget* parent)
             } else if (state == 408) {
                 setRemoteStatus("连接请求超时", "danger");
             } else if (state == 503) {
-                // 被控端采集起不来(VDD 退到 DXGI 也不成):不是连接问题,是对方出不了画面
-                // reason: 0=采集初始化失败 1=开始捕获失败
-                if (reason == 1) {
+                if (reason == 3) {
                     setRemoteStatus("对方采集失败：开始捕获失败", "danger");
                 } else {
                     setRemoteStatus("对方采集失败：初始化失败", "danger");
@@ -288,7 +287,6 @@ MainWindow::MainWindow(QWidget* parent)
         #endif
     }, Qt::QueuedConnection); };
 
-    // lambda 全挂好后再整体交给 WebrtcManager
     webrtcManager->registerWebrtcManagerObserver(std::move(webrtcObserver));
 }
 

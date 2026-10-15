@@ -191,7 +191,7 @@ public:
 
     virtual void onRTCStatsCollectorHandle(int type, double rttMs) = 0;
 
-    virtual void onEncodeStatusHandle(const std::string& codec, bool hardEncode, const std::string& captureTech) = 0;
+    virtual void onEncodeStatusHandle(const std::string& codec, bool hardEncode, const std::string& captureTech, int degradeReason) = 0;
 
     virtual void onSessionInfoHandle(int myRole, const std::string& peerId) = 0;
 

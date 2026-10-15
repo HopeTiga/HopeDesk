@@ -1029,8 +1029,9 @@ void WebrtcManager::handleSystemMessage(std::string str)
         std::string codec = json.contains("codec") ? json["codec"].as_string().c_str() : "";
         bool hard = json.contains("hard") ? json["hard"].as_bool() : false;
         std::string capture = json.contains("capture") ? json["capture"].as_string().c_str() : "Hope Virtual Display";
-        LOG_INFO("Encode Status From System: Codec={} Hard={} Capture={}", codec.c_str(), hard ? 1 : 0, capture.c_str());
-        if (webrtcManagerObserver) webrtcManagerObserver->onEncodeStatusHandle(codec, hard, capture);
+        int degradeReason = json.contains("reason") ? boost::json::value_to<int>(json["reason"]) : -1;
+        LOG_INFO("Encode Status From System: Codec={} Hard={} Capture={} DegradeReason={}", codec.c_str(), hard ? 1 : 0, capture.c_str(), degradeReason);
+        if (webrtcManagerObserver) webrtcManagerObserver->onEncodeStatusHandle(codec, hard, capture, degradeReason);
 
         return;  // 状态消息不再转发给信号服务器
     }
