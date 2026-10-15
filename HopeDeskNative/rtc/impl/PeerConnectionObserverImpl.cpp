@@ -86,30 +86,34 @@ void PeerConnectionObserverImpl::OnIceCandidate(const webrtc::IceCandidateInterf
 
 void PeerConnectionObserverImpl::OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState newState) {
     std::shared_ptr<WebrtcManager> manager = webrtcManager->shared_from_this();
-    // post 到 ioContext:回调在 WebRTC 信令线程,碰 WebrtcManager 状态须串行到 ioContext
+
     webrtcManager->post([manager, newState]() {
         switch (newState) {
         case webrtc::PeerConnectionInterface::kIceConnectionConnected: {
             LOG_INFO("WebRTC Connection Established");
             manager->isRemote = true;
-            manager->cancelRequestTimeout();  // 连上即取消挂起的请求超时看门狗,防止断开后幽灵补刀
+            manager->cancelRequestTimeout();
             manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
-            if (manager->onRTCStatsCollectorHandle) {
-                manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = manager->onRTCStatsCollectorHandle;
+            if (manager->webrtcManagerObserver) {
+                std::weak_ptr<WebrtcManager> weakManager = manager;
+                manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = [weakManager](int type, double rttMs) {
+                    std::shared_ptr<WebrtcManager> self = weakManager.lock();
+                    if (self && self->webrtcManagerObserver) {
+                        self->webrtcManagerObserver->onRTCStatsCollectorHandle(type, rttMs);
+                    }
+                };
             }
             if (manager->peerConnection) {
                 manager->peerConnection->GetStats(manager->rtcStatsCollectorHandle.get());
             }
-            if (manager->onRemoteSuccessFulHandle) {
-                manager->onRemoteSuccessFulHandle();
+            if (manager->webrtcManagerObserver) {
+                manager->webrtcManagerObserver->onRemoteSuccessFulHandle();
             }
             manager->pushSessionInfo();
             break;
         }
         case webrtc::PeerConnectionInterface::kIceConnectionFailed:
             LOG_ERROR("ICE Connection Failed");
-            // ICE 失败是终态:走 disConnectRemoteHandler 强制重置连接态(关 tcpSocket/peerConnection、
-            // 重建空白 peerConnection),若之前已连上还会通知 UI。防止残留导致重连失败。
             manager->disConnectRemoteHandler();
             break;
         case webrtc::PeerConnectionInterface::kIceConnectionDisconnected: {

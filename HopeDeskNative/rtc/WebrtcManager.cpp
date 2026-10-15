@@ -46,6 +46,7 @@ WebrtcManager::WebrtcManager()
     : ioContext(1)
     , executorWorkGuard(nullptr)
     , peerConnection(nullptr)
+    , webrtcManagerObserver(nullptr)
 {
 
     executorWorkGuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
@@ -112,8 +113,8 @@ void WebrtcManager::connect(std::string ip)
         });
 
         ws->setOnConnectHandle([this]() {
-            if (onSignalServerConnectHandle) {
-                onSignalServerConnectHandle();
+            if (webrtcManagerObserver) {
+                webrtcManagerObserver->onSignalServerConnectHandle();
             }
         });
 
@@ -150,15 +151,8 @@ WebrtcManager::~WebrtcManager()
 
     boost::asio::post(ioContext,[this,&promise](){
 
-        onSignalServerDisConnectHandle = nullptr;
-        onFollowRemoteHandle = nullptr;
-        onDisConnectRemoteHandle = nullptr;
-        onRemoteSuccessFulHandle = nullptr;
-        onSignalServerConnectHandle = nullptr;
-        onRemoteFailedHandle = nullptr;
-        onResetCursorHandle = nullptr;
-        onRTCStatsCollectorHandle = nullptr;
-        onSessionInfoHandle = nullptr;
+        // UI 回调随观察者一起丢掉:销毁过程中不再往 UI 派发
+        webrtcManagerObserver.reset();
 
         if (webSocket) {
             webSocket->closeEvent();
@@ -384,8 +378,16 @@ void WebrtcManager::requestStats()
     if (!peerConnection) return;
 
     auto handle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
-    if (onRTCStatsCollectorHandle) {
-        handle->onRTCStatsCollectorHandle = onRTCStatsCollectorHandle;
+    if (webrtcManagerObserver) {
+        // weak:统计回调可能在管理器析构之后才回来;直接捕获 this 会悬垂,
+        // 捕获 shared_ptr 又会和 handle 组成循环,故用 weak。
+        std::weak_ptr<WebrtcManager> weakSelf = shared_from_this();
+        handle->onRTCStatsCollectorHandle = [weakSelf](int type, double rttMs) {
+            std::shared_ptr<WebrtcManager> self = weakSelf.lock();
+            if (self && self->webrtcManagerObserver) {
+                self->webrtcManagerObserver->onRTCStatsCollectorHandle(type, rttMs);
+            }
+        };
     }
     peerConnection->GetStats(handle.get());
 }
@@ -396,17 +398,18 @@ void WebrtcManager::disConnectRemoteHandler()
 
     boost::asio::post(ioContext, [self = shared_from_this()]() {
 
+        self->closeTcpSocket();
+
         if (self->isRemote.load()) {
             self->setOnVideoFrameHanlder(nullptr);
-            if (self->onDisConnectRemoteHandle) {
-                self->onDisConnectRemoteHandle();
+            if (self->webrtcManagerObserver) {
+                self->webrtcManagerObserver->onDisConnectRemoteHandle();
             }
         } else {
-            if (self->onRemoteFailedHandle){
-                self->onRemoteFailedHandle(0);
+            if (self->webrtcManagerObserver){
+                self->webrtcManagerObserver->onRemoteFailedHandle(0, 0);
             }
             self->cancelRequestTimeout();
-            self->closeTcpSocket();
             self->releaseSource();
             self->initializePeerConnection();
         }
@@ -601,9 +604,9 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
             cancelRequestTimeout();
 
-            if (onRemoteFailedHandle) {
+            if (webrtcManagerObserver) {
 
-                onRemoteFailedHandle(404);
+                webrtcManagerObserver->onRemoteFailedHandle(404,0);
 
             }
 
@@ -611,9 +614,21 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
             cancelRequestTimeout();
 
-            if (onRemoteFailedHandle) {
+            if (webrtcManagerObserver) {
 
-                onRemoteFailedHandle(403);
+                webrtcManagerObserver->onRemoteFailedHandle(403,0);
+
+            }
+
+        }else if (webrtcEnvelope.state == 503) {
+
+            cancelRequestTimeout();
+
+            int reason = boost::json::value_to<int>(json["reason"]);
+
+            if (webrtcManagerObserver) {
+
+                webrtcManagerObserver->onRemoteFailedHandle(503,reason);
 
             }
 
@@ -669,9 +684,9 @@ void WebrtcManager::handleSignalServerDisconnect()
 
     cancelRequestTimeout();  // 信令断连:取消挂起的看门狗
 
-    if (onSignalServerDisConnectHandle) {
+    if (webrtcManagerObserver) {
 
-        onSignalServerDisConnectHandle();
+        webrtcManagerObserver->onSignalServerDisConnectHandle();
 
     }
 
@@ -685,9 +700,9 @@ void WebrtcManager::handleSignalServerDisconnect()
 
     setOnVideoFrameHanlder(nullptr);
 
-    if (onDisConnectRemoteHandle) {
+    if (webrtcManagerObserver) {
 
-        onDisConnectRemoteHandle();
+        webrtcManagerObserver->onDisConnectRemoteHandle();
 
     }
 
@@ -766,7 +781,7 @@ void WebrtcManager::requestCursorResync()
 
 void WebrtcManager::restoreSystemCursor()
 {
-    if (onResetCursorHandle) onResetCursorHandle();
+    if (webrtcManagerObserver) webrtcManagerObserver->onResetCursorHandle();
     localCursorRestored = true;
 }
 
@@ -994,7 +1009,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
 
     if (requestState == WebrtcRequestState::START) {
 
-        if (onFollowRemoteHandle) onFollowRemoteHandle();
+        if (webrtcManagerObserver) webrtcManagerObserver->onFollowRemoteHandle();
 
         isRemote = true;
 
@@ -1007,7 +1022,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
 
         int type = json["connectionType"].as_int64();
 
-        if (onRTCStatsCollectorHandle) onRTCStatsCollectorHandle(type, -1.0);
+        if (webrtcManagerObserver) webrtcManagerObserver->onRTCStatsCollectorHandle(type, -1.0);
 
         return;
     }
@@ -1017,7 +1032,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
         bool hard = json.contains("hard") ? json["hard"].as_bool() : false;
         std::string capture = json.contains("capture") ? json["capture"].as_string().c_str() : "Hope Virtual Display";
         LOG_INFO("Encode Status From System: Codec={} Hard={} Capture={}", codec.c_str(), hard ? 1 : 0, capture.c_str());
-        if (onEncodeStatusHandle) onEncodeStatusHandle(codec, hard, capture);
+        if (webrtcManagerObserver) webrtcManagerObserver->onEncodeStatusHandle(codec, hard, capture);
 
         return;  // 状态消息不再转发给信号服务器
     }
@@ -1026,7 +1041,15 @@ void WebrtcManager::handleSystemMessage(std::string str)
         // System 消息拆成信封 + 业务载荷:requestType/accountId/targetId 入信封,其余进 body
         WebrtcEnvelope webrtcEnvelope;
         webrtcEnvelope.requestType = static_cast<int>(json["requestType"].as_int64());
-        webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
+
+        if(json.contains("state")){
+            webrtcEnvelope.state = boost::json::value_to<int>(json["state"]);
+        }else{
+
+            webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
+
+        }
+
         if (json.contains("accountId")) {
             webrtcEnvelope.accountId = std::string(json["accountId"].as_string().c_str());
         }
@@ -1082,11 +1105,11 @@ void WebrtcManager::handleSystemDisconnect()
 
         setOnVideoFrameHanlder(nullptr);
 
-        if (onDisConnectRemoteHandle) onDisConnectRemoteHandle();
+        if (webrtcManagerObserver) webrtcManagerObserver->onDisConnectRemoteHandle();
 
     } else {
 
-        if (onRemoteFailedHandle) onRemoteFailedHandle(0);
+        if (webrtcManagerObserver) webrtcManagerObserver->onRemoteFailedHandle(0,0);
 
     }
 }
@@ -1095,9 +1118,9 @@ void WebrtcManager::sendSignalingMessage(boost::json::object& msg) {
 
     if (!webSocket || !webSocket->isOpen()) {
         LOG_ERROR("Cannot Send Signaling Message - WebSocket Not Connected");
-        if(onSignalServerDisConnectHandle){
+        if(webrtcManagerObserver){
 
-            onSignalServerDisConnectHandle();
+            webrtcManagerObserver->onSignalServerDisConnectHandle();
 
         }
         return;
@@ -1175,9 +1198,9 @@ void WebrtcManager::releaseSource()
 
 void WebrtcManager::pushSessionInfo()
 {
-    if (!onSessionInfoHandle) return;
+    if (!webrtcManagerObserver) return;
     int role = (sessionRole.load() == 2) ? 2 : 1;
-    onSessionInfoHandle(role, targetId);
+    webrtcManagerObserver->onSessionInfoHandle(role, targetId);
 }
 
 std::string WebrtcManager::getAccountId() const
@@ -1231,7 +1254,7 @@ void WebrtcManager::armRequestTimeout(WebrtcRole role)
 
             self->initializePeerConnection();
 
-            if (caller && self->onRemoteFailedHandle) self->onRemoteFailedHandle(408);
+            if (caller && self->webrtcManagerObserver) self->webrtcManagerObserver->onRemoteFailedHandle(408, 0);
 
             LOG_INFO("WebrtcManager Request Timeout ReInit (Caller={})", caller ? 1 : 0);
 
@@ -1270,7 +1293,7 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
             // 解码状态 -> 转发给 onCodecStatusHandle(MainWindow 据此更新主页 label)
             self->webrtcVideoDecoderFactory->onDecoderStatusHandle =
                 [self](const std::string& codec, bool hardDecode) {
-                    if (self->onCodecStatusHandle) self->onCodecStatusHandle(codec, hardDecode);
+                    if (self->webrtcManagerObserver) self->webrtcManagerObserver->onCodecStatusHandle(codec, hardDecode);
                 };
             // 硬解直投:帧回调同步给工厂(下发给存活/新建的硬解解码器)。
             self->webrtcVideoDecoderFactory->setOnDisplayHandle(self->onVideoFrameHandler);
@@ -1432,9 +1455,9 @@ void WebrtcManager::disConnect()
 
         self->setOnVideoFrameHanlder(nullptr);
 
-        if(self->onDisConnectRemoteHandle){
+        if(self->webrtcManagerObserver){
 
-            self->onDisConnectRemoteHandle();
+            self->webrtcManagerObserver->onDisConnectRemoteHandle();
 
         }
 
@@ -1446,6 +1469,14 @@ void WebrtcManager::disConnect()
 
 void WebrtcManager::setOpenBeControl(bool openBeControl){
     this->openBeControl.store(openBeControl);
+}
+
+void WebrtcManager::registerWebrtcManagerObserver(std::unique_ptr<WebrtcManagerObserver> webrtcManagerObserver){
+    this->webrtcManagerObserver = std::move(webrtcManagerObserver);
+}
+
+void WebrtcManager::removeWebrtcManagerObserver(){
+    this->webrtcManagerObserver = nullptr;
 }
 
 }

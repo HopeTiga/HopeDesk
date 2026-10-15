@@ -138,8 +138,6 @@ struct VideoFrame {
     }
 };
 
-
-// WebrtcManager 启动期配置(由 MainWindow 从 config.ini 读取后注入,WebrtcManager 自身不再读配置)
 struct WebrtcManagerConfig {
     std::string systemService = "HopeDeskSystem";   // 系统服务名(Webrtc.SystemService,用户可设)
     std::string systemServiceExe;                   // 系统服务可执行文件路径(Webrtc.SystemServiceExe)
@@ -170,6 +168,35 @@ struct WebrtcDeskConfig {
     int desktopWidth       = 1920;
     int desktopHeight      = 1080;
     int desktopRefreshRate = 144;
+
+};
+
+class WebrtcManagerObserver{
+
+public:
+
+    virtual void onSignalServerDisConnectHandle() = 0;
+
+    virtual void onFollowRemoteHandle() = 0;
+
+    virtual void onDisConnectRemoteHandle() = 0;
+
+    virtual void onRemoteSuccessFulHandle() = 0;
+
+    virtual void onSignalServerConnectHandle() = 0;
+
+    virtual void onRemoteFailedHandle(int stateCode,int reason) = 0;
+
+    virtual void onResetCursorHandle() = 0;
+
+    virtual void onRTCStatsCollectorHandle(int type, double rttMs) = 0;
+
+    virtual void onEncodeStatusHandle(const std::string& codec, bool hardEncode, const std::string& captureTech) = 0;
+
+    virtual void onSessionInfoHandle(int myRole, const std::string& peerId) = 0;
+
+    // 操控端:解码器上报实际用的 codec + 硬解/软解
+    virtual void onCodecStatusHandle(const std::string& codec, bool hardDecode) = 0;
 
 };
 
@@ -211,8 +238,6 @@ public:
     void reapplyLocalCursor();
 
     void setLocalCursorRestored(bool restore);
-
-    std::function<void(const std::string& codec, bool hardDecode)> onCodecStatusHandle;
 
     void connect(std::string ip);
 
@@ -256,6 +281,10 @@ public:
 
     void setOpenBeControl(bool openBeControl);
 
+    void registerWebrtcManagerObserver(std::unique_ptr<WebrtcManagerObserver> webrtcManagerObserver);
+
+    void removeWebrtcManagerObserver();
+
 private:
 
     bool initializePeerConnection();
@@ -290,26 +319,6 @@ public:
     std::atomic<bool> relativeMouseMode{false};
 
     std::atomic<bool> localCursorRestored{true};
-
-    std::function<void(void)> onSignalServerDisConnectHandle;
-
-    std::function<void(void)> onFollowRemoteHandle;
-
-    std::function<void(void)> onDisConnectRemoteHandle;
-
-    std::function<void(void)> onRemoteSuccessFulHandle;
-
-    std::function<void()> onSignalServerConnectHandle;
-
-    std::function<void(int)> onRemoteFailedHandle;
-
-    std::function<void()> onResetCursorHandle;
-
-    std::function<void(int, double)> onRTCStatsCollectorHandle;
-
-    std::function<void(const std::string& codec, bool hardEncode, const std::string& captureTech)> onEncodeStatusHandle;
-
-    std::function<void(int myRole, const std::string& peerId)> onSessionInfoHandle;
 
 private:
 
@@ -389,6 +398,8 @@ private:
     WebrtcManagerConfig webrtcManagerConfig;
 
     std::atomic<bool> openBeControl {false};
+
+    std::unique_ptr<WebrtcManagerObserver> webrtcManagerObserver;
 
 };
 

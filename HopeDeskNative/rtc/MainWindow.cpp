@@ -40,6 +40,69 @@
 namespace hope{
     namespace rtc{
 
+// UI 侧回调转接:WebrtcManagerObserver 的虚接口 -> MainWindow 构造时挂上的 lambda。
+// lambda 体一律保持原样(捕获 this 直接摸 ui 与成员),这里只负责把虚调用转发过去;
+// 未挂的 lambda 静默丢弃,和旧实现里"回调为空就跳过"一致。
+class MainWindowWebrtcObserver : public WebrtcManagerObserver {
+public:
+
+    std::function<void(const std::string&, bool)> onCodecStatus;
+    std::function<void(const std::string&, bool, const std::string&)> onEncodeStatus;
+    std::function<void()> onSignalServerConnect;
+    std::function<void()> onSignalServerDisConnect;
+    std::function<void()> onRemoteSuccessful;
+    std::function<void(int, int)> onRemoteFailed;
+    std::function<void(int, const std::string&)> onSessionInfo;
+    std::function<void(int, double)> onRTCStatsCollector;
+    std::function<void()> onDisConnectRemote;
+    std::function<void()> onFollowRemote;
+    std::function<void()> onResetCursor;
+
+    void onCodecStatusHandle(const std::string& codec, bool hardDecode) override {
+        if (onCodecStatus) onCodecStatus(codec, hardDecode);
+    }
+
+    void onEncodeStatusHandle(const std::string& codec, bool hardEncode, const std::string& captureTech) override {
+        if (onEncodeStatus) onEncodeStatus(codec, hardEncode, captureTech);
+    }
+
+    void onSignalServerConnectHandle() override {
+        if (onSignalServerConnect) onSignalServerConnect();
+    }
+
+    void onSignalServerDisConnectHandle() override {
+        if (onSignalServerDisConnect) onSignalServerDisConnect();
+    }
+
+    void onRemoteSuccessFulHandle() override {
+        if (onRemoteSuccessful) onRemoteSuccessful();
+    }
+
+    void onRemoteFailedHandle(int stateCode, int reason) override {
+        if (onRemoteFailed) onRemoteFailed(stateCode, reason);
+    }
+
+    void onSessionInfoHandle(int myRole, const std::string& peerId) override {
+        if (onSessionInfo) onSessionInfo(myRole, peerId);
+    }
+
+    void onRTCStatsCollectorHandle(int type, double rttMs) override {
+        if (onRTCStatsCollector) onRTCStatsCollector(type, rttMs);
+    }
+
+    void onDisConnectRemoteHandle() override {
+        if (onDisConnectRemote) onDisConnectRemote();
+    }
+
+    void onFollowRemoteHandle() override {
+        if (onFollowRemote) onFollowRemote();
+    }
+
+    void onResetCursorHandle() override {
+        if (onResetCursor) onResetCursor();
+    }
+};
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -59,8 +122,11 @@ MainWindow::MainWindow(QWidget* parent)
 
     webrtcManager->asyncEvent();
 
+    // UI 回调统一走 WebrtcManagerObserver(构造末尾整体交给 WebrtcManager)
+    std::unique_ptr<MainWindowWebrtcObserver> webrtcObserver = std::make_unique<MainWindowWebrtcObserver>();
+
     // 操控端:解码状态 -> label(只显示解码;编码状态在被控端 Native 显示)
-    webrtcManager->onCodecStatusHandle = [this](const std::string& codec, bool hardDecode) {
+    webrtcObserver->onCodecStatus = [this](const std::string& codec, bool hardDecode) {
         QString codecQ = QString::fromStdString(codec).toUpper();
         QString text = QString("解码: %1 %2").arg(codecQ).arg(hardDecode ? "硬解" : "软解");
         QMetaObject::invokeMethod(this, [this, text]() {
@@ -69,7 +135,7 @@ MainWindow::MainWindow(QWidget* parent)
     };
 
     // 被控端:本机 System 经本地 TCP(ENCODE_STATUS)上报当前编码 codec + 硬编/软编 + 采集技术 -> label
-    webrtcManager->onEncodeStatusHandle = [this](const std::string& codec, bool hardEncode, const std::string& captureTech) {
+    webrtcObserver->onEncodeStatus = [this](const std::string& codec, bool hardEncode, const std::string& captureTech) {
         QString codecQ = QString::fromStdString(codec).toUpper();
         QString captureQ = QString::fromStdString(captureTech);
         QMetaObject::invokeMethod(this, [this, codecQ, hardEncode, captureQ]() {
@@ -90,20 +156,20 @@ MainWindow::MainWindow(QWidget* parent)
     // 3. 检查登录 (不使用 Timer，直接调用，因为对象已创建)
     checkLoginStatus();
 
-    webrtcManager->onSignalServerConnectHandle = [this]() {
+    webrtcObserver->onSignalServerConnect = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             this->onConnectionStateChanged(true);
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onSignalServerDisConnectHandle = [this]() {
+    webrtcObserver->onSignalServerDisConnect = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             if(isSignalConnected) this->onConnectionStateChanged(false);
             else QTimer::singleShot(3000, this, &MainWindow::startSignalServerConnection);
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onRemoteSuccessFulHandle = [this]() {
+    webrtcObserver->onRemoteSuccessful = [this]() {
         QMetaObject::invokeMethod(this, [this]() {
             if (remoteConnectionTimer) remoteConnectionTimer->stop();
             if (!videoWidget) {
@@ -177,8 +243,8 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onRemoteFailedHandle = [this](int state) {
-        QMetaObject::invokeMethod(this, [this, state]() {
+    webrtcObserver->onRemoteFailed = [this](int state, int reason) {
+        QMetaObject::invokeMethod(this, [this, state, reason]() {
             if (remoteConnectionTimer) remoteConnectionTimer->stop();
             ui->btnStartControl->setEnabled(true);
             ui->btnStartControl->setText("立即连接");
@@ -186,6 +252,14 @@ MainWindow::MainWindow(QWidget* parent)
                 setRemoteStatus("连接失败：对方已关闭允许控制", "danger");
             } else if (state == 408) {
                 setRemoteStatus("连接请求超时", "danger");
+            } else if (state == 503) {
+                // 被控端采集起不来(VDD 退到 DXGI 也不成):不是连接问题,是对方出不了画面
+                // reason: 0=采集初始化失败 1=开始捕获失败
+                if (reason == 1) {
+                    setRemoteStatus("对方采集失败：开始捕获失败", "danger");
+                } else {
+                    setRemoteStatus("对方采集失败：初始化失败", "danger");
+                }
             } else {
                 setRemoteStatus("连接失败：对方不在线或拒绝", "danger");
             }
@@ -193,26 +267,29 @@ MainWindow::MainWindow(QWidget* parent)
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onSessionInfoHandle = [this](int myRole, const std::string& peerId) {
+    webrtcObserver->onSessionInfo = [this](int myRole, const std::string& peerId) {
         QString idQ = QString::fromStdString(peerId);
         QMetaObject::invokeMethod(this, [this, myRole, idQ]() {
             showPeerCard(myRole, idQ);
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onRTCStatsCollectorHandle = [this](int type, double rttMs) {
+    webrtcObserver->onRTCStatsCollector = [this](int type, double rttMs) {
         QMetaObject::invokeMethod(this, [this, type, rttMs]() {
             updateNetworkTypeUI(type, rttMs);
         }, Qt::QueuedConnection);
     };
 
-    webrtcManager->onDisConnectRemoteHandle = [this]() { QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer", Qt::QueuedConnection); };
-    webrtcManager->onFollowRemoteHandle = [this]() { QMetaObject::invokeMethod(this, "onRemoteControlStarted", Qt::QueuedConnection); };
-    webrtcManager->onResetCursorHandle = [this]() { QMetaObject::invokeMethod(this, [this](){
+    webrtcObserver->onDisConnectRemote = [this]() { QMetaObject::invokeMethod(this, "onRemoteDisconnectedByPeer", Qt::QueuedConnection); };
+    webrtcObserver->onFollowRemote = [this]() { QMetaObject::invokeMethod(this, "onRemoteControlStarted", Qt::QueuedConnection); };
+    webrtcObserver->onResetCursor = [this]() { QMetaObject::invokeMethod(this, [this](){
         #ifdef Q_OS_WIN
         SystemParametersInfo(SPI_SETCURSORS, 0, NULL, 0);
         #endif
     }, Qt::QueuedConnection); };
+
+    // lambda 全挂好后再整体交给 WebrtcManager
+    webrtcManager->registerWebrtcManagerObserver(std::move(webrtcObserver));
 }
 
 MainWindow::~MainWindow()
