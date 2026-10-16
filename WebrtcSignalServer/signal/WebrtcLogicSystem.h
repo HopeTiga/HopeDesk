@@ -49,9 +49,9 @@ namespace hope {
 
 		struct PostedTask {
 
-			std::shared_ptr<WebrtcSignalManager>* webrtcSignalManager = nullptr;
+			WebrtcSignalManager * webrtcSignalManager = nullptr;
 
-			absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager>&)> asyncHandle;
+			absl::AnyInvocable<void(WebrtcSignalManager *)> asyncHandle;
 
 		};
 
@@ -76,7 +76,7 @@ namespace hope {
 
 			static constexpr std::size_t maximumTasksPerExecute = 8;
 
-			WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskQueues, WebrtcLogicConfig webrtcLogicConfig);
+			WebrtcLogicSystem(boost::asio::io_context& ioContext, int channelIndex, TaskChannel& taskChannel, WebrtcLogicConfig webrtcLogicConfig);
 
 			~WebrtcLogicSystem();
 
@@ -236,7 +236,7 @@ namespace hope {
 
 			std::atomic<bool> asyncEvents{ false };
 
-			TaskChannel& taskQueues;
+			TaskChannel& taskChannel;
 
 			AwaitableQueue<PostedTask> executeQueue;
 

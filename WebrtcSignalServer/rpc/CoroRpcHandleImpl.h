@@ -21,7 +21,7 @@ namespace hope {
 
 		public:
 
-			CoroRpcHandleImpl(hope::signal::WebrtcSignalServer& webrtcSignalServer);
+			CoroRpcHandleImpl(hope::signal::WebrtcSignalServer * webrtcSignalServer);
 
 			~CoroRpcHandleImpl();
 

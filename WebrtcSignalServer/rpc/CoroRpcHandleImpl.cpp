@@ -17,7 +17,7 @@ namespace hope {
 
 	namespace rpc {
 
-		CoroRpcHandleImpl::CoroRpcHandleImpl(hope::signal::WebrtcSignalServer& webrtcSignalServer)
+		CoroRpcHandleImpl::CoroRpcHandleImpl(hope::signal::WebrtcSignalServer * webrtcSignalServer)
 			: CoroRpcHandleInterface(webrtcSignalServer) {
 
 		}
@@ -46,7 +46,7 @@ namespace hope {
 
 			std::string targetId = forwardPacketJson["targetId"].as_string().data();
 
-			std::vector<std::shared_ptr<hope::signal::WebrtcSignalManager>> & webrtcSignalManagers = webrtcSignalServer.getWebrtcSignalManagers();
+			std::vector<std::unique_ptr<hope::signal::WebrtcSignalManager>> & webrtcSignalManagers = webrtcSignalServer->getWebrtcSignalManagers();
 
 			bool invalidForwardChannel = rpcforward.forwardChannel < 0
 				|| rpcforward.forwardChannel >= static_cast<int>(webrtcSignalManagers.size())
@@ -60,7 +60,7 @@ namespace hope {
 
 			}
 
-			std::shared_ptr<hope::signal::WebrtcSignalManager> & webrtcSignalManager = webrtcSignalManagers[rpcforward.forwardChannel];
+			hope::signal::WebrtcSignalManager * webrtcSignalManager = webrtcSignalManagers[rpcforward.forwardChannel].get();
 
 			int mapChannelIndex = static_cast<int>(webrtcSignalManager->hasher(targetId.c_str()) % webrtcSignalManager->hashSize);
 
@@ -109,7 +109,7 @@ namespace hope {
 
 			};
 
-			std::shared_ptr<hope::signal::WebrtcSignalManager> & mapChannelManager = webrtcSignalManagers[mapChannelIndex];
+			hope::signal::WebrtcSignalManager * mapChannelManager = webrtcSignalManagers[mapChannelIndex].get();
 
 			boost::asio::io_context & mapChannelIoContext = mapChannelManager->getLogicSystem()->getSchedulerContext();
 
@@ -194,8 +194,7 @@ namespace hope {
 
 			}
 
-			// 第二跳：投到目标所在的那条通道上。
-			std::shared_ptr<hope::signal::WebrtcSignalManager> & targetChannelManager = webrtcSignalManagers[lookupResult.channelIndex];
+			hope::signal::WebrtcSignalManager * targetChannelManager = webrtcSignalManagers[lookupResult.channelIndex].get();
 
 			boost::asio::io_context & targetChannelIoContext = targetChannelManager->getLogicSystem()->getSchedulerContext();
 

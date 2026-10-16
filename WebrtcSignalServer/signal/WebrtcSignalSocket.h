@@ -110,7 +110,7 @@ namespace hope {
 
 		public:
 
-			void setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)>&& handle);
+			void setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)>&& onDisConnectHandle);
 
 		public:
 
@@ -124,7 +124,7 @@ namespace hope {
 
 			boost::asio::awaitable<void> writerCoroutine();
 
-			void handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error);
+			void handleCoroutineExit(std::string_view coroutineName, std::exception_ptr exceptionPtr);
 
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
 				int idle = 0, int intvl = 10, int probes = 10);

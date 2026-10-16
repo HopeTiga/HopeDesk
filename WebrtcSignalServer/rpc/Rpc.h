@@ -24,4 +24,4 @@ namespace hope {
 	}
 }
 
-void initCoroRpcHandleInterface(std::shared_ptr<hope::signal::WebrtcSignalServer> webrtcSignalServer);
+void initCoroRpcHandleInterface(hope::signal::WebrtcSignalServer * webrtcSignalServer);

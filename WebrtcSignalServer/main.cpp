@@ -71,9 +71,9 @@ int main() {
 
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> executorWorkGuard = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ioContext));
 
-    std::shared_ptr<hope::signal::WebrtcSignalServer> webrtcSignalServer = std::make_shared<hope::signal::WebrtcSignalServer>(ioContext, webrtcSignalConfig);
+    std::unique_ptr<hope::signal::WebrtcSignalServer> webrtcSignalServer = std::make_unique<hope::signal::WebrtcSignalServer>(ioContext, webrtcSignalConfig);
 
-    initCoroRpcHandleInterface(webrtcSignalServer);
+    initCoroRpcHandleInterface(webrtcSignalServer.get());
 
     if (!webrtcSignalServer->asyncEvent()) {
 

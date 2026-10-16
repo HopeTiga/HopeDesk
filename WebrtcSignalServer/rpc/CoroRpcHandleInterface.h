@@ -15,7 +15,7 @@ namespace hope {
 
 		public:
 
-			CoroRpcHandleInterface(hope::signal::WebrtcSignalServer& webrtcSignalServer)
+			CoroRpcHandleInterface(hope::signal::WebrtcSignalServer * webrtcSignalServer)
 				: webrtcSignalServer(webrtcSignalServer) {
 
 			}
@@ -30,7 +30,7 @@ namespace hope {
 
 		public:
 
-			hope::signal::WebrtcSignalServer& webrtcSignalServer;
+			hope::signal::WebrtcSignalServer * webrtcSignalServer;
 
 		};
 

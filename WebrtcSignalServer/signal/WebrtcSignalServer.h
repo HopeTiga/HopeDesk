@@ -33,7 +33,7 @@ namespace hope {
 
         template <typename AsyncHandle>
         using AwaitableReturnValueType = typename AwaitableReturnValue<std::decay_t<
-            std::invoke_result_t<AsyncHandle, std::shared_ptr<WebrtcSignalManager>&>>>::type;
+            std::invoke_result_t<AsyncHandle, WebrtcSignalManager *>>>::type;
 
         template <typename T>
         struct PostTaskCompletionSignature {
@@ -54,7 +54,7 @@ namespace hope {
             : std::true_type {
         };
 
-        class WebrtcSignalServer : public std::enable_shared_from_this<WebrtcSignalServer> {
+        class WebrtcSignalServer{
 
         public:
 
@@ -102,11 +102,11 @@ namespace hope {
                             return;
                         }
 
-                        std::shared_ptr<WebrtcSignalManager> & webrtcSignalManager = webrtcSignalManagers[channelIndex];
+                        WebrtcSignalManager * webrtcSignalManager = webrtcSignalManagers[channelIndex].get();
 
                         if constexpr (std::is_void_v<ValueType>) {
                             boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getSchedulerContext(),
-                                [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
+                                [webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
                                 -> boost::asio::awaitable<void> {
                                     co_await asyncHandle(webrtcSignalManager);
                                     co_return;
@@ -117,7 +117,7 @@ namespace hope {
                         }
                         else {
                             boost::asio::co_spawn(webrtcSignalManager->getLogicSystem()->getSchedulerContext(),
-                                [&webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
+                                [webrtcSignalManager, asyncHandle = std::move(asyncHandle)]() mutable
                                 -> boost::asio::awaitable<ValueType> {
                                     co_return co_await asyncHandle(webrtcSignalManager);
                                 },
@@ -129,23 +129,23 @@ namespace hope {
                     token);
             }
 
-            bool postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager> &)>&& asyncHandle);
+            bool postTask(size_t channelIndex, absl::AnyInvocable<void(WebrtcSignalManager * webrtcSignalManager)>&& asyncHandle);
 
             size_t getChannelNumbers();
 
-            std::vector<std::shared_ptr<WebrtcSignalManager>> & getWebrtcSignalManagers();
+            std::vector<std::unique_ptr<WebrtcSignalManager>> & getWebrtcSignalManagers();
 
             void registerRpcHandleImpl(std::unique_ptr<hope::rpc::CoroRpcHandleInterface> coroRpcHandleInterface);
 
         private:
 
-            std::shared_ptr<WebrtcSignalManager> loadBalanceWebrtcManger();
+            WebrtcSignalManager * loadBalanceWebrtcManger();
 
             void initialize();
 
         private:
 
-            std::vector<std::shared_ptr<WebrtcSignalManager>> webrtcSignalManagers;
+            std::vector<std::unique_ptr<WebrtcSignalManager>> webrtcSignalManagers;
 
             std::atomic<size_t> managerIndex{ 0 };
 

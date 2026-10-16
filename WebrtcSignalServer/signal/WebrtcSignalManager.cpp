@@ -19,12 +19,12 @@ namespace hope {
 
     namespace signal {
 
-        WebrtcSignalManager::WebrtcSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebrtcSignalServer* webrtcSignalServer, TaskChannel& taskQueues, WebrtcSignalChannelConfig channelConfig)
+        WebrtcSignalManager::WebrtcSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebrtcSignalServer* webrtcSignalServer, TaskChannel& taskChannel, WebrtcSignalChannelConfig webrtcChannelConfig)
             : channelIndex(channelIndex)
             , ioContext(ioContext)
             , webrtcSignalServer(webrtcSignalServer)
-            , hashSize(channelConfig.hashSize)
-            , channelConfig(channelConfig)
+            , hashSize(webrtcChannelConfig.hashSize)
+            , webrtcChannelConfig(webrtcChannelConfig)
 #ifdef __linux__
             , acceptor(ioContext)
             , httpAcceptor(ioContext)
@@ -42,9 +42,9 @@ namespace hope {
 
 #endif
 
-            hope::signal::WebrtcLogicConfig webrtcLogicConfig{ channelConfig.threshold, channelConfig.exitThreshold, channelConfig.asyncThreshold, channelConfig.mysqlConfig, channelConfig.redisConfig };
+            hope::signal::WebrtcLogicConfig webrtcLogicConfig{ webrtcChannelConfig.threshold, webrtcChannelConfig.exitThreshold, webrtcChannelConfig.asyncThreshold, webrtcChannelConfig.mysqlConfig, webrtcChannelConfig.redisConfig };
 
-            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(logicIoContext, channelIndex, taskQueues, webrtcLogicConfig);
+            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(logicIoContext, channelIndex, taskChannel, webrtcLogicConfig);
 
             webrtcLogicSystem->asyncEvent();
 
@@ -74,13 +74,13 @@ namespace hope {
 
         std::shared_ptr<hope::signal::WebrtcSignalSocket> WebrtcSignalManager::generateWebrtcSignalSocket() {
 
-            return std::make_shared<hope::signal::WebrtcSignalSocket>(getSchedulerContext(), this, channelConfig.maxTlsHandShakeTime);
+            return std::make_shared<hope::signal::WebrtcSignalSocket>(getSchedulerContext(), this, webrtcChannelConfig.maxTlsHandShakeTime);
 
         }
 
         std::shared_ptr<HttpSocket> WebrtcSignalManager::generateHttpSocket() {
 
-            return std::make_shared<HttpSocket>(ioContext, this, channelConfig.maxTlsHttpHandShakeTime, channelConfig.maxHttpKeepAliveTime);
+            return std::make_shared<HttpSocket>(ioContext, this, webrtcChannelConfig.maxTlsHttpHandShakeTime, webrtcChannelConfig.maxHttpKeepAliveTime);
 
         }
 
@@ -112,9 +112,9 @@ namespace hope {
                     && std::tie(registrationTime, sessionId) <= std::tie(indexIterator->second.registrationTime, indexIterator->second.sessionId)) {
 
                     targetManager->webrtcSignalServer->postTask(newChannelIndex,
-                        [accountId, sessionId](std::shared_ptr<WebrtcSignalManager> manager) mutable {
+                        [accountId, sessionId](WebrtcSignalManager * webrtcSignalManager) mutable {
 
-                            manager->removeConnection(std::move(accountId), std::move(sessionId), nullptr);
+                            webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId), nullptr);
 
                         });
 
@@ -141,9 +141,9 @@ namespace hope {
                 if (oldChannelIndex != -1 && oldChannelIndex != newChannelIndex) {
 
                     targetManager->webrtcSignalServer->postTask(oldChannelIndex,
-                        [accountId, oldSessionId](std::shared_ptr<WebrtcSignalManager> oldManager) mutable {
+                        [accountId, oldSessionId](WebrtcSignalManager * webrtcSignalManager) mutable {
 
-                            oldManager->removeConnection(std::move(accountId), std::move(oldSessionId), nullptr);
+                            webrtcSignalManager->removeConnection(std::move(accountId), std::move(oldSessionId), nullptr);
 
                         });
 
@@ -159,9 +159,9 @@ namespace hope {
             else {
 
                 webrtcSignalServer->postTask(mapChannelIndex,
-                    [managers = shared_from_this(), updateGlobalIndexAndKick = std::move(updateGlobalIndexAndKick)](std::shared_ptr<WebrtcSignalManager> webrtcSignalManager)mutable -> boost::asio::awaitable<void> {
+                    [updateGlobalIndexAndKick = std::move(updateGlobalIndexAndKick)](WebrtcSignalManager * webrtcSignalManager)mutable -> boost::asio::awaitable<void> {
 
-                        updateGlobalIndexAndKick(webrtcSignalManager.get());
+                        updateGlobalIndexAndKick(webrtcSignalManager);
 
                         co_return;
 
@@ -197,13 +197,13 @@ namespace hope {
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
+            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](WebrtcSignalManager * webrtcSignalManager) -> boost::asio::awaitable<void> {
 
-                StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
+                StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = webrtcSignalManager->actorSocketMappingIndex.find(accountId);
 
-                if (iteratorIndex != manager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
+                if (iteratorIndex != webrtcSignalManager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
 
-                    manager->actorSocketMappingIndex.erase(iteratorIndex);
+                    webrtcSignalManager->actorSocketMappingIndex.erase(iteratorIndex);
 
                     LOG_INFO("Global Index Removed: {}", accountId.c_str());
 
@@ -240,13 +240,13 @@ namespace hope {
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](std::shared_ptr<WebrtcSignalManager> manager) -> boost::asio::awaitable<void> {
+            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](WebrtcSignalManager * webrtcSignalManager) -> boost::asio::awaitable<void> {
 
-                StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = manager->actorSocketMappingIndex.find(accountId);
+                StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = webrtcSignalManager->actorSocketMappingIndex.find(accountId);
 
-                if (iteratorIndex != manager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
+                if (iteratorIndex != webrtcSignalManager->actorSocketMappingIndex.end() && iteratorIndex->second.sessionId == sessionId) {
 
-                    manager->actorSocketMappingIndex.erase(iteratorIndex);
+                    webrtcSignalManager->actorSocketMappingIndex.erase(iteratorIndex);
 
                     LOG_INFO("Global Index Removed: {}", accountId.c_str());
 
@@ -329,11 +329,11 @@ namespace hope {
 
 #ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = self->shared_from_this()](std::string accountId, std::string sessionId) {
+                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = this](std::string accountId, std::string sessionId) {
 
                         boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getSchedulerContext();
 
-                        boost::asio::post(ioContext, [webrtcSignalManager = std::move(webrtcSignalManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
+                        boost::asio::post(ioContext, [webrtcSignalManager, accountId = std::move(accountId), sessionId = std::move(sessionId)] {
 
                             webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
 
@@ -349,8 +349,9 @@ namespace hope {
                         });
 #endif
 
+                    boost::asio::io_context& ioContext = webrtcSignalSocket->getSchedulerContext();
 
-                    boost::asio::co_spawn(webrtcSignalSocket->getSchedulerContext(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(ioContext, [webrtcSignalSocket = std::move(webrtcSignalSocket)]()->boost::asio::awaitable<void> {
 
                         if (co_await webrtcSignalSocket->handShake()) {
 
@@ -439,7 +440,7 @@ namespace hope {
 
                             }
 
-                            boost::asio::co_spawn(httpSocket->getIoContext(), [httpSocket = httpSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                            boost::asio::co_spawn(httpSocket->getIoContext(), [httpSocket = std::move(httpSocket)]()->boost::asio::awaitable<void> {
 
                                 co_await httpSocket->asyncEvent();
 

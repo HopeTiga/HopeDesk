@@ -117,7 +117,7 @@ namespace hope {
 
                 while (asyncEvents.load()) {
 
-                    std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = loadBalanceWebrtcManger();
+                    WebrtcSignalManager * webrtcSignalManager = loadBalanceWebrtcManger();
 
                     std::shared_ptr<hope::signal::WebrtcSignalSocket> webrtcSignalSocket = webrtcSignalManager->generateWebrtcSignalSocket();
 
@@ -165,11 +165,11 @@ namespace hope {
 
 #ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = std::move(webrtcSignalManager)](std::string accountId, std::string sessionId) {
+                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager](std::string accountId, std::string sessionId) {
 
                         boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getSchedulerContext();
 
-                        boost::asio::post(ioContext, [webrtcSignalManager = std::move(webrtcSignalManager), accountId = std::move(accountId), sessionId = std::move(sessionId)] {
+                        boost::asio::post(ioContext, [webrtcSignalManager, accountId = std::move(accountId), sessionId = std::move(sessionId)] {
 
                             webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
 
@@ -178,14 +178,15 @@ namespace hope {
                         });
 #else
 
-                    webrtcSignalSocket->setOnDisConnectHandle([&webrtcSignalManager](std::string accountId, std::string sessionId) {
+                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager](std::string accountId, std::string sessionId) {
 
                         webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
 
                         });
 #endif
+                    boost::asio::io_context & ioContext = webrtcSignalSocket->getSchedulerContext();
 
-                    boost::asio::co_spawn(webrtcSignalSocket->getSchedulerContext(), [webrtcSignalSocket = webrtcSignalSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(ioContext, [webrtcSignalSocket = std::move(webrtcSignalSocket)]()->boost::asio::awaitable<void> {
 
                         if (co_await webrtcSignalSocket->handShake()) {
 
@@ -219,7 +220,7 @@ namespace hope {
 
                     while (asyncEvents.load()) {
 
-                        std::shared_ptr<WebrtcSignalManager> webrtcSignalManager = loadBalanceWebrtcManger();
+                        WebrtcSignalManager * webrtcSignalManager = loadBalanceWebrtcManger();
 
                         std::shared_ptr<HttpSocket> httpSocket = webrtcSignalManager->generateHttpSocket();
 
@@ -265,7 +266,7 @@ namespace hope {
 
                         }
 
-                        boost::asio::co_spawn(httpSocket->getIoContext(), [this, httpSocket = httpSocket->shared_from_this()]()->boost::asio::awaitable<void> {
+                        boost::asio::co_spawn(httpSocket->getIoContext(), [this, httpSocket = std::move(httpSocket)]()->boost::asio::awaitable<void> {
 
                             co_await httpSocket->asyncEvent();
 
@@ -360,7 +361,7 @@ namespace hope {
 
             taskQueues.close();
 
-            for (std::shared_ptr<WebrtcSignalManager>& webrtcSignalManager : webrtcSignalManagers) {
+            for (std::unique_ptr<WebrtcSignalManager>& webrtcSignalManager : webrtcSignalManagers) {
 
                 if (!webrtcSignalManager) continue;
 
@@ -374,7 +375,7 @@ namespace hope {
 
             std::latch closeLatch(webrtcSignalManagers.size());
 
-            for (std::shared_ptr<WebrtcSignalManager>& webrtcSignalManager : webrtcSignalManagers) {
+            for (std::unique_ptr<WebrtcSignalManager>& webrtcSignalManager : webrtcSignalManagers) {
 
                 if (!webrtcSignalManager) {
                     closeLatch.count_down();
@@ -388,7 +389,7 @@ namespace hope {
 #endif
 
                 boost::asio::post(ioContext,
-                    [webrtcSignalManager, &closeLatch]() {
+                    [webrtcSignalManager = webrtcSignalManager.get(), &closeLatch]() {
 
                         for (StringKeyedNodeMap<std::shared_ptr<WebrtcSignalSocket>>::iterator iterator =
                                  webrtcSignalManager->webrtcSocketMap.begin();
@@ -408,41 +409,47 @@ namespace hope {
 
             hope::executor::SchedulerContexts::getInstance()->stop();
 
+#ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
+            hope::executor::SchedulerContexts::getLogicInstance()->stop();
+#endif
+
             webrtcSignalManagers.clear();
 
             LOG_INFO("Already CloseEvent");
 
         }
 
-        bool WebrtcSignalServer::postTask(size_t channelIndex, absl::AnyInvocable<void(std::shared_ptr<WebrtcSignalManager> &)>&& asyncHandle)
+        bool WebrtcSignalServer::postTask(size_t channelIndex, absl::AnyInvocable<void(WebrtcSignalManager *)>&& asyncHandle)
         {
             if (channelIndex >= webrtcSignalManagers.size()) {
                 LOG_ERROR("Invalid ChannelIndex: {}, Size: {}", channelIndex, webrtcSignalManagers.size());
                 return false;
             }
 
-            std::shared_ptr<WebrtcSignalManager> & webrtcSignalManager = webrtcSignalManagers[channelIndex];
+            WebrtcSignalManager * webrtcSignalManager = webrtcSignalManagers[channelIndex].get();
+
             if (!webrtcSignalManager) {
                 LOG_ERROR("WebrtcSignalManager At Index {} Is Null", channelIndex);
                 return false;
             }
 
-            std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem = webrtcSignalManager->getLogicSystem();
+            WebrtcLogicSystem * webrtcLogicSystem = webrtcSignalManager->getLogicSystem().get();
+
             if (!webrtcLogicSystem) {
                 LOG_ERROR("WebrtcLogicSystem At Index {} Is Null", channelIndex);
                 return false;
             }
 
-            PostedTask task{ &webrtcSignalManager, std::move(asyncHandle) };
+            PostedTask postedTask{ webrtcSignalManager, std::move(asyncHandle) };
 
-            return webrtcLogicSystem->postTask(std::move(task));
+            return webrtcLogicSystem->postTask(std::move(postedTask));
         }
 
-        std::shared_ptr<WebrtcSignalManager> WebrtcSignalServer::loadBalanceWebrtcManger()
+        WebrtcSignalManager* WebrtcSignalServer::loadBalanceWebrtcManger()
         {
             size_t index = managerIndex.fetch_add(1) % webrtcSignalConfig.threadSize;
 
-            return webrtcSignalManagers[index];
+            return webrtcSignalManagers[index].get();
 
         }
 
@@ -470,13 +477,13 @@ namespace hope {
                     webrtcSignalConfig.redisConfig
                 };
 
-                webrtcSignalManagers[i] = std::make_shared<WebrtcSignalManager>(i, ioContext, this, taskQueues, channelConfig);
+                webrtcSignalManagers[i] = std::make_unique<WebrtcSignalManager>(i, ioContext, this, taskQueues, channelConfig);
 
             }
 
         }
 
-        std::vector<std::shared_ptr<WebrtcSignalManager>>& WebrtcSignalServer::getWebrtcSignalManagers() {
+        std::vector<std::unique_ptr<WebrtcSignalManager>>& WebrtcSignalServer::getWebrtcSignalManagers() {
         
             return webrtcSignalManagers;
 

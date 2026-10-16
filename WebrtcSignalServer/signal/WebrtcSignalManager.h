@@ -44,12 +44,12 @@ namespace hope {
 
 		};
 
-		class WebrtcSignalManager : public std::enable_shared_from_this<WebrtcSignalManager>
+		class WebrtcSignalManager
 		{
 			friend class WebrtcLogicSystem;
 		public:
 
-			WebrtcSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebrtcSignalServer* webrtcSignalServer, TaskChannel& taskQueues, WebrtcSignalChannelConfig channelConfig);
+			WebrtcSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, WebrtcSignalServer* webrtcSignalServer, TaskChannel& taskChannel, WebrtcSignalChannelConfig webrtcChannelConfig);
 
 			~WebrtcSignalManager();
 
@@ -67,7 +67,7 @@ namespace hope {
 
 			std::shared_ptr<HttpSocket> generateHttpSocket();
 
-			void registerSocket(const std::string& accountId, std::shared_ptr<WebrtcSignalSocket> socket);
+			void registerSocket(const std::string& accountId, std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket);
 
 			WebrtcSignalServer* getWebrtcSignalServer();
 
@@ -108,7 +108,7 @@ namespace hope {
 
 			std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem;
 
-			WebrtcSignalChannelConfig channelConfig;
+			WebrtcSignalChannelConfig webrtcChannelConfig;
 
 
 #ifdef __linux__

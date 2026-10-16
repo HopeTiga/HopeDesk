@@ -138,7 +138,7 @@ namespace hope {
 
                 if (accountId.empty()) {
 
-                    LOG_WARN("WebrtcSignalSocket Handshake Rejected: Missing Authorization (Expect Authorization Header OR ? Authorization = Query)");
+                    LOG_WARN("Handshake Rejected: Missing Authorization (Expect Authorization Header OR ? Authorization = Query)");
 
                     boost::beast::http::response<boost::beast::http::string_body> res{ boost::beast::http::status::unauthorized, req.version() };
 
@@ -189,9 +189,9 @@ namespace hope {
 #endif
 
             }
-            catch (const boost::system::system_error& se) {
+            catch (const boost::system::system_error& systemError) {
 
-                LOG_ERROR("WebrtcSignalSocket Handshake Ffailed! ERROR: {}", se.what());
+                LOG_ERROR("Handshake Failed ERROR: {}", systemError.what());
 
                 closeSocket();
 
@@ -212,9 +212,9 @@ namespace hope {
 
                 co_return;
 
-                }, [self = shared_from_this()](std::exception_ptr p) {
+                }, [self = shared_from_this()](std::exception_ptr exceptionPtr) {
 
-                    self->handleCoroutineExit("ReviceCoroutine", p);
+                    self->handleCoroutineExit("ReviceCoroutine", exceptionPtr);
 
                     });
 
@@ -224,9 +224,9 @@ namespace hope {
 
                     co_return;
 
-                    }, [self = shared_from_this()](std::exception_ptr p) {
+                    }, [self = shared_from_this()](std::exception_ptr exceptionPtr) {
 
-                        self->handleCoroutineExit("WriterCoroutine", p);
+                        self->handleCoroutineExit("WriterCoroutine", exceptionPtr);
 
                         });
 
@@ -249,9 +249,9 @@ namespace hope {
 
         }
 
-        void WebrtcSignalSocket::handleCoroutineExit(std::string_view coroutineName, std::exception_ptr error) {
+        void WebrtcSignalSocket::handleCoroutineExit(std::string_view coroutineName, std::exception_ptr exceptionPtr) {
 
-            if (!asyncEvents.load(std::memory_order_acquire)) {
+            if (!asyncEvents.load()) {
 
                 return;
 
@@ -259,13 +259,22 @@ namespace hope {
 
             closeEvent();
 
-            if (onDisConnectHandle && !isHandleDisConnect.exchange(true)) {
+            if (!isHandleDisConnect.exchange(true)) {
 
-                onDisConnectHandle(accountId, sessionId);
+                if (onDisConnectHandle) {
+                
+                    onDisConnectHandle(accountId, sessionId);
+
+                }
+
+            }
+            else {
+            
+                return;
 
             }
 
-            if (!error) {
+            if (!exceptionPtr) {
 
                 LOG_INFO("{} Exit: Peer Closed The Connection", coroutineName);
 
@@ -275,7 +284,7 @@ namespace hope {
 
             try {
 
-                std::rethrow_exception(error);
+                std::rethrow_exception(exceptionPtr);
 
             }
             catch (const std::exception& e) {
@@ -677,8 +686,8 @@ namespace hope {
 
         }
 
-        void WebrtcSignalSocket::setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)>&& handle) {
-            this->onDisConnectHandle = std::move(handle);
+        void WebrtcSignalSocket::setOnDisConnectHandle(absl::AnyInvocable<void(std::string, std::string)>&& onDisConnectHandle) {
+            this->onDisConnectHandle = std::move(onDisConnectHandle);
         }
 
         void WebrtcSignalSocket::setAccountId(const std::string& accountId) { this->accountId = accountId; }
