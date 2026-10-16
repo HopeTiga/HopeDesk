@@ -30,8 +30,8 @@ namespace hope {
         constexpr UINT32 kVddProbeIdleTicks = 8;        // 静止 8 圈（~0.8s）后开始探测
         constexpr UINT32 kVddProbeMaxIdleTicks = 50;    // 探测间隔封顶 5s
         constexpr int kVddNotReadyToleranceMs = 15000;  // NOT_READY 持续超时才判驱动僵死
-        constexpr UINT32 kVddStaleFastTicks = 3;        // 停顿后先按 3 圈（~300ms）快节奏重挂
-        constexpr int kVddStaleFastAttempts = 3;        // 快挂 3 次不成就让位给 15s 重档
+        constexpr int kVddWakeBackoffMaxMs = 120000;
+        constexpr int kVddDownWakeAttempts = 30;
         constexpr int kVddRepaintAttempts = 5;          // 通道开不出来时前 5 次各逼一次全屏重绘
         constexpr UINT32 kVddMaxDimension = 16384;
 
@@ -739,12 +739,15 @@ namespace hope {
             // 帧通道采集线程对帧率/延迟最敏感,提到 TIME_CRITICAL
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
+            SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
+
             const DWORD waitMs = 100;       // 单圈等待粒度（repeat-frame cadence）
             UINT32 idleTicks = 0;
             UINT32 probeIdleTicks = kVddProbeIdleTicks;
             bool notReadyPending = false;
             bool rejectedLogged = false;
             std::chrono::steady_clock::time_point notReadySince{};
+            int wakeBackoffMs = kVddNotReadyToleranceMs;
 
             // 建立 ChannelGeneration + 分辨率/格式基线，避免首圈误判通道已重建。
             if (pMeta) {
@@ -811,6 +814,12 @@ namespace hope {
                             }
                             RedrawWindow(nullptr, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
                         }
+                        if (repaintTries % kVddDownWakeAttempts == 0) {
+                            LOG_WARN("VirtualDisplayCapture Frame Channel Down, Reopening Device To Wake D0");
+                            reopenDriver();
+                            sendCommand(L"RELOAD_DRIVER");
+                            applyTopology();
+                        }
                     }
                     else {
                         repaintTries = 0;
@@ -870,14 +879,21 @@ namespace hope {
                 if (pMeta && ++idleTicks >= probeIdleTicks) {
                     idleTicks = 0;
                     UINT16 probeGen = 0;
-                    // 判活只能用「通道开不开得出来」，不能用「元数据有没有前进」：静止桌面上驱动
-                    // 本来就不产帧，后者与「驱动僵死」同形，会把每一次静止都当成故障去重开通道、
-                    // 重设拓扑，而重开又会把探测基线归零、让下一次探测假报 Ready 从而复位重试计数
-                    // ——自激成 16 秒一圈的永动机。OpenFrameChannel 返回 DEVICE_NOT_READY 才是
-                    // 生产端真的没了（见 probeChannelGeneration），非二义。
                     const ProbeResult probe = probeChannelGeneration(probeGen);
-                    if (probe == ProbeResult::NotReady && ++staleFastAttempts <= kVddStaleFastAttempts) {
-                        probeIdleTicks = kVddStaleFastTicks;
+                    switch (probe) {
+                    case ProbeResult::Ready:
+                        notReadyPending = false;
+                        staleFastAttempts = 0;
+                        wakeBackoffMs = kVddNotReadyToleranceMs;
+                        if (probeGen != lastChannelGen) {
+                            reopenChannel();
+                        }
+                        else if (probeIdleTicks < kVddProbeMaxIdleTicks) {
+                            probeIdleTicks *= 2;
+                            if (probeIdleTicks > kVddProbeMaxIdleTicks) probeIdleTicks = kVddProbeMaxIdleTicks;
+                        }
+                        break;
+                    case ProbeResult::NotReady: {
                         RECT staleRc{};
                         DEVMODEW staleMode{};
                         bool staleHasMode = false;
@@ -889,47 +905,27 @@ namespace hope {
                             channelDown = true;
                             openBackoffMs = kVddBackoffStartMs;
                             nextOpenRetryAt = std::chrono::steady_clock::now();
+                            break;
                         }
-                        else {
-                            LOG_INFO("VirtualDisplayCapture Frame Channel Stale, Reattaching");
-                            reopenFrameChannel();
-                        }
-                        continue;
-                    }
-                    switch (probe) {
-                    case ProbeResult::Ready:
-                        notReadyPending = false;
-                        staleFastAttempts = 0;
-                        if (probeGen != lastChannelGen) {
-                            reopenChannel();
-                        }
-                        else if (probeIdleTicks < kVddProbeMaxIdleTicks) {
-                            probeIdleTicks *= 2;
-                            if (probeIdleTicks > kVddProbeMaxIdleTicks) probeIdleTicks = kVddProbeMaxIdleTicks;
-                        }
-                        break;
-                    case ProbeResult::NotReady:
-                        // 驱动在模式切换窗口内合法拒绝开通道，按墙上时钟容忍；只有持续
-                        // 超过容忍窗口才是真僵死（设备下到 D3 后 swap chain 一直没回来）。
                         if (!notReadyPending) {
                             notReadyPending = true;
                             notReadySince = std::chrono::steady_clock::now();
                             probeIdleTicks = kVddProbeIdleTicks;
                         }
                         else if (std::chrono::steady_clock::now() - notReadySince >=
-                                 std::chrono::milliseconds(kVddNotReadyToleranceMs)) {
-                            notReadyPending = false;
+                                 std::chrono::milliseconds(wakeBackoffMs)) {
+                            notReadySince = std::chrono::steady_clock::now();
+                            probeIdleTicks = kVddProbeIdleTicks;
+                            if (wakeBackoffMs < kVddWakeBackoffMaxMs) {
+                                wakeBackoffMs *= 2;
+                                if (wakeBackoffMs > kVddWakeBackoffMaxMs) wakeBackoffMs = kVddWakeBackoffMaxMs;
+                            }
                             LOG_WARN("VirtualDisplayCapture Driver Stalled, Reopening Device To Wake D0");
                             reopenDriver();
-                            LOG_INFO("VirtualDisplayCapture Reapplying Vdd Topology");
-                            applyTopology();
-                            closeFrameChannel();        // 旧帧通道失效，pMeta 置空
-                            channelDown = true;
-                            openBackoffMs = kVddBackoffStartMs;
-                            nextOpenRetryAt = std::chrono::steady_clock::now();
-                            continue;
+                            sendCommand(L"RELOAD_DRIVER");
                         }
                         break;
+                    }
                     case ProbeResult::Rejected:
                         // 请求被驱动拒绝（LUID 不符 / 参数非法），重载设备修不了，报一次即可。
                         if (!rejectedLogged) {
@@ -943,6 +939,8 @@ namespace hope {
                 }
 
             }
+
+            SetThreadExecutionState(ES_CONTINUOUS);
 
         }
 
