@@ -16,9 +16,9 @@ namespace hope {
 		}
 
 		template <typename... Args>
-		void operator()(std::exception_ptr exception, Args&&... /*value*/) const noexcept {
+		void operator()(std::exception_ptr exceptionPtr, Args&&... /*value*/) const noexcept {
 
-			if (!exception) {
+			if (!exceptionPtr) {
 
 				return;
 
@@ -26,12 +26,12 @@ namespace hope {
 
 			try {
 
-				std::rethrow_exception(exception);
+				std::rethrow_exception(exceptionPtr);
 
 			}
-			catch (const std::exception& e) {
+			catch (const std::exception& exception) {
 
-				LOG_ERROR_FROM(spawnLocation, "CoSpawn Exception: {}", e.what());
+				LOG_ERROR_FROM(spawnLocation, "CoSpawn Exception: {}", exception.what());
 
 			}
 			catch (...) {

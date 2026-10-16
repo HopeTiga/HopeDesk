@@ -10,7 +10,7 @@ namespace hope {
 	namespace signal {
 
 		WebrtcSignalPacket::WebrtcSignalPacket(std::shared_ptr<WebrtcSignalSocket> webrtcSignalSocket, WebrtcSignalManager* webrtcSignalManager, int channelIndex)
-			: webrtcSignalSocket(webrtcSignalSocket)
+			: webrtcSignalSocket(std::move(webrtcSignalSocket))
 			, webrtcSignalManager(webrtcSignalManager)
 			, channelIndex(channelIndex) {
 

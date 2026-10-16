@@ -45,7 +45,7 @@ namespace hope {
             , executeQueue(ioContext.get_executor())
             , webrtcLogicConfig(webrtcLogicConfig)
         {
-            mysqlManagerPools = std::make_shared<hope::storage::MysqlManagerPools>(ioContext, webrtcLogicConfig.mysqlConfig);
+            mysqlManagerPools = std::make_unique<hope::storage::MysqlManagerPools>(ioContext, webrtcLogicConfig.mysqlConfig);
 
             for (std::size_t index = 0; index < webrtcLogicConfig.redisConfig.connectionSize; index++) {
 
@@ -96,18 +96,18 @@ namespace hope {
                     co_await(*func)(std::move(webrtcSignalPacket));
 
                     },
-                    [this](std::exception_ptr exception) mutable {
+                    [this](std::exception_ptr exceptionPtr) mutable {
 
-                        if (exception) {
+                        if (exceptionPtr) {
 
                             try {
 
-                                std::rethrow_exception(exception);
+                                std::rethrow_exception(exceptionPtr);
 
                             }
-                            catch (const std::exception& e) {
+                            catch (const std::exception& exception) {
 
-                                LOG_ERROR("PostTask CoSpawn Exception: {}", e.what());
+                                LOG_ERROR("PostTask CoSpawn Exception: {}", exception.what());
 
                             }
 
@@ -176,11 +176,11 @@ namespace hope {
 
             if (!asyncTaskExecutes.compare_exchange_strong(expected, true)) return;
 
-            boost::asio::co_spawn(ioContext, [webrtcLogicSystem = shared_from_this()]()mutable->boost::asio::awaitable<void> {
+            boost::asio::co_spawn(ioContext, [this]()mutable->boost::asio::awaitable<void> {
 
-                while (webrtcLogicSystem->asyncEvents.load()) {
+                while (this->asyncEvents.load()) {
 
-                    std::optional<AwaitableTask> optional = co_await webrtcLogicSystem->taskChannel.dequeue();
+                    std::optional<AwaitableTask> optional = co_await this->taskChannel.dequeue();
 
                     if (!optional.has_value()) break;
 
@@ -188,36 +188,36 @@ namespace hope {
 
                     if (func) {
 
-                        boost::asio::co_spawn(webrtcLogicSystem->ioContext, [func = std::move(func)]() mutable -> boost::asio::awaitable<void> {
+                        boost::asio::co_spawn(this->ioContext, [func = std::move(func)]() mutable -> boost::asio::awaitable<void> {
 
                             co_await func();
 
-                            }, [](std::exception_ptr ptr) {
-                                if (ptr) {
+                            }, [](std::exception_ptr exceptionPtr) {
+                                if (exceptionPtr) {
                                     try {
-                                        std::rethrow_exception(ptr);
+                                        std::rethrow_exception(exceptionPtr);
                                     }
-                                    catch (const std::exception& e) {
-                                        LOG_ERROR("AsyncTaskExecute Task Exception: {}", e.what());
+                                    catch (const std::exception& exception) {
+                                        LOG_ERROR("AsyncTaskExecute Task Exception: {}", exception.what());
                                     }
                                 }
                                 });
 
                     }
 
-                    if (webrtcLogicSystem->localTaskQueueSize.load() >= webrtcLogicSystem->webrtcLogicConfig.exitThreshold) {
+                    if (this->localTaskQueueSize.load() >= this->webrtcLogicConfig.exitThreshold) {
 
-                        LOG_WARN("Local Queue Depth {} Exceeds Threshold, Switching To Local Processing", webrtcLogicSystem->localTaskQueueSize.load());
+                        LOG_WARN("Local Queue Depth {} Exceeds Threshold, Switching To Local Processing", this->localTaskQueueSize.load());
 
-                        webrtcLogicSystem->asyncTaskExecutes.store(false);
+                        this->asyncTaskExecutes.store(false);
 
                         break;
 
                     }
 
-                    if (!webrtcLogicSystem->asyncEvents.load()) {
+                    if (!this->asyncEvents.load()) {
 
-                        webrtcLogicSystem->asyncTaskExecutes.store(false);
+                        this->asyncTaskExecutes.store(false);
 
                         break;
 
@@ -241,17 +241,17 @@ namespace hope {
 
             if (!asyncExecutes.compare_exchange_strong(expected, true)) return;
 
-            boost::asio::co_spawn(ioContext, [webrtcLogicSystem = shared_from_this()]()mutable->boost::asio::awaitable<void> {
+            boost::asio::co_spawn(ioContext, [this]()mutable->boost::asio::awaitable<void> {
 
                 PostedTask postedTasks[maximumTasksPerExecute];
 
-                while (webrtcLogicSystem->asyncEvents.load()) {
+                while (this->asyncEvents.load()) {
 
-                    std::size_t count = webrtcLogicSystem->executeQueue.tryDequeueBulk(postedTasks, maximumTasksPerExecute);
+                    std::size_t count = this->executeQueue.tryDequeueBulk(postedTasks, maximumTasksPerExecute);
 
                     if (count == 0) {
 
-                        if (!co_await webrtcLogicSystem->executeQueue.awaitDequeue(postedTasks[0])) break;
+                        if (!co_await this->executeQueue.awaitDequeue(postedTasks[0])) break;
 
                         count = 1;
 
@@ -264,9 +264,9 @@ namespace hope {
                             postedTasks[index].asyncHandle(postedTasks[index].webrtcSignalManager);
 
                         }
-                        catch (const std::exception& e) {
+                        catch (const std::exception& exception) {
 
-                            LOG_ERROR("AsyncExecute Task Exception: {}", e.what());
+                            LOG_ERROR("AsyncExecute Task Exception: {}", exception.what());
 
                         }
 
@@ -274,26 +274,26 @@ namespace hope {
 
                 }
 
-                webrtcLogicSystem->asyncExecutes.store(false);
+                this->asyncExecutes.store(false);
 
                 LOG_INFO("AsyncExecute Close AsyncEvent");
 
                 co_return;
 
-                }, [webrtcLogicSystem = shared_from_this()](std::exception_ptr exception) {
+                }, [this](std::exception_ptr exceptionPtr) {
 
-                    webrtcLogicSystem->asyncExecutes.store(false);
+                    this->asyncExecutes.store(false);
 
-                    if (exception) {
+                    if (exceptionPtr) {
 
                         try {
 
-                            std::rethrow_exception(exception);
+                            std::rethrow_exception(exceptionPtr);
 
                         }
-                        catch (const std::exception& e) {
+                        catch (const std::exception& exception) {
 
-                            LOG_ERROR("AsyncExecute Unhandled Exception: {}", e.what());
+                            LOG_ERROR("AsyncExecute Unhandled Exception: {}", exception.what());
 
                         }
 
@@ -363,7 +363,7 @@ namespace hope {
 
                     if (!success) {
 
-                        boost::asio::io_context& ioContext = httpSocketShared->getIoContext();
+                        boost::asio::io_context& ioContext = httpSocketShared->getSchedulerContext();
 
                         boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocketShared), version]()mutable->boost::asio::awaitable<void> {
 
@@ -381,13 +381,13 @@ namespace hope {
 
                             co_return;
 
-                            }, [this](std::exception_ptr ptr) {
-                                if (ptr) {
+                            }, [this](std::exception_ptr exceptionPtr) {
+                                if (exceptionPtr) {
                                     try {
-                                        std::rethrow_exception(ptr);
+                                        std::rethrow_exception(exceptionPtr);
                                     }
-                                    catch (const std::exception& e) {
-                                        LOG_ERROR("Overload boost::asio::CoSpawn HttpTask Response Exception: {}", e.what());
+                                    catch (const std::exception& exception) {
+                                        LOG_ERROR("Overload boost::asio::CoSpawn HttpTask Response Exception: {}", exception.what());
                                     }
                                 }
                                 });
@@ -424,7 +424,7 @@ namespace hope {
 
                     co_await (*func)(httpSocket, httpRequest);
 
-                    }, [this, targetUrl](std::exception_ptr ptr) {
+                    }, [this, targetUrl](std::exception_ptr exceptionPtr) {
 
                         if (localTaskQueueSize.fetch_sub(1) == webrtcLogicConfig.asyncThreshold + 1) {
 
@@ -432,15 +432,15 @@ namespace hope {
 
                         }
 
-                        if (ptr) {
+                        if (exceptionPtr) {
                             try {
 
-                                std::rethrow_exception(ptr);
+                                std::rethrow_exception(exceptionPtr);
 
                             }
-                            catch (const std::exception& e) {
+                            catch (const std::exception& exception) {
 
-                                LOG_ERROR("CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
+                                LOG_ERROR("CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), exception.what());
 
                             }
                         }
@@ -449,7 +449,7 @@ namespace hope {
             }
             else {
 
-                boost::asio::io_context& ioContext = httpSocket->getIoContext();
+                boost::asio::io_context& ioContext = httpSocket->getSchedulerContext();
 
                 boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket), httpRequest = std::move(httpRequest)]()mutable->boost::asio::awaitable<void> {
 
@@ -472,9 +472,9 @@ namespace hope {
 
                         httpSocket->closeSocket();
                     }
-                    catch (const std::exception& e) {
+                    catch (const std::exception& exception) {
 
-                        LOG_ERROR("Http Write Error: {}", e.what());
+                        LOG_ERROR("Http Write Error: {}", exception.what());
 
                         httpSocket->closeSocket();
 
@@ -482,13 +482,13 @@ namespace hope {
 
                     co_return;
 
-                    }, [targetUrl](std::exception_ptr ptr) {
-                        if (ptr) {
+                    }, [targetUrl](std::exception_ptr exceptionPtr) {
+                        if (exceptionPtr) {
                             try {
-                                std::rethrow_exception(ptr);
+                                std::rethrow_exception(exceptionPtr);
                             }
-                            catch (const std::exception& e) {
-                                LOG_ERROR("CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), e.what());
+                            catch (const std::exception& exception) {
+                                LOG_ERROR("CoSpawn HttpTask: {} Exception: {}", targetUrl.c_str(), exception.what());
                             }
                         }
                         });
@@ -498,8 +498,6 @@ namespace hope {
         }
 
         void WebrtcLogicSystem::initHandlers() {
-
-			std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem = shared_from_this();
 
             std::function<boost::asio::awaitable<void>(WebrtcSignalPacket, std::string)> forwardHandler = [this](WebrtcSignalPacket webrtcSignalPacket, std::string requestTypeStr)->boost::asio::awaitable<void> {
 
@@ -1189,7 +1187,7 @@ namespace hope {
 
             std::function<void(std::shared_ptr<HttpSocket>, unsigned, std::string)> httpSocketAsyncWrite =
                 [this](std::shared_ptr<HttpSocket> httpSocket, unsigned version, std::string body) {
-                boost::asio::io_context& ioContext = httpSocket->getIoContext();
+                boost::asio::io_context& ioContext = httpSocket->getSchedulerContext();
                 boost::asio::co_spawn(
                     ioContext,
                     [httpSocket = std::move(httpSocket), version, body = std::move(body)]() mutable -> boost::asio::awaitable<void> {
@@ -1202,13 +1200,13 @@ namespace hope {
                         co_await httpSocket->asyncWrite(std::move(res));
                         co_return;
                     },
-                    [this](std::exception_ptr ptr) {
-                        if (ptr) {
+                    [this](std::exception_ptr exceptionPtr) {
+                        if (exceptionPtr) {
                             try {
-                                std::rethrow_exception(ptr);
+                                std::rethrow_exception(exceptionPtr);
                             }
-                            catch (const std::exception& e) {
-                                LOG_ERROR("boost::asio::CoSpawn HttpTask Response Exception: {}", e.what());
+                            catch (const std::exception& exception) {
+                                LOG_ERROR("boost::asio::CoSpawn HttpTask Response Exception: {}", exception.what());
                             }
                         }
                     });

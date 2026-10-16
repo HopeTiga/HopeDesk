@@ -33,7 +33,7 @@ namespace hope {
 
 			boost::redis::connection & getRedisConnection();
 
-			boost::asio::io_context& getIoContext();
+			boost::asio::io_context& getSchedulerContext();
 
 		private:
 

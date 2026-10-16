@@ -124,7 +124,7 @@ namespace hope {
 
 			boost::asio::awaitable<void> writerCoroutine();
 
-			void handleCoroutineExit(std::string_view coroutineName, std::exception_ptr exceptionPtr);
+			void handleCoroutineExit(std::string_view coroutineName, std::exception_ptr exceptionPtrPtr);
 
 			void setTcpKeepAlive(boost::asio::ip::tcp::socket& socket,
 				int idle = 0, int intvl = 10, int probes = 10);

@@ -152,8 +152,8 @@ namespace hope {
 				}
 
 			}
-			catch (const std::exception& e) {
-				LOG_ERROR("AsyncHandShake Exception: {}", e.what());
+			catch (const std::exception& exception) {
+				LOG_ERROR("AsyncHandShake Exception: {}", exception.what());
 				co_return false;
 			}
 
@@ -410,7 +410,7 @@ namespace hope {
 
 		}
 
-		boost::asio::io_context& HttpSocket::getIoContext()
+		boost::asio::io_context& HttpSocket::getSchedulerContext()
 		{
 			return ioContext;
 		}

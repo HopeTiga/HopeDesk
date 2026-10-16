@@ -79,7 +79,7 @@ namespace hope {
 
 		}
 
-		boost::asio::io_context& RedisWrapper::getIoContext() {
+		boost::asio::io_context& RedisWrapper::getSchedulerContext() {
 
 			return ioContext;
 

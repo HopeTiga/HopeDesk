@@ -69,7 +69,7 @@ namespace hope {
 
 		};
 
-		class WebrtcLogicSystem : public std::enable_shared_from_this<WebrtcLogicSystem>
+		class WebrtcLogicSystem
 		{
 
 		public:
@@ -113,9 +113,9 @@ namespace hope {
 								co_await(*func)(std::move(webrtcSignalPacket));
 
 								},
-								[this, completionHandlerPtr](std::exception_ptr exception) mutable {
+								[this, completionHandlerPtr](std::exception_ptr exceptionPtr) mutable {
 
-									(*completionHandlerPtr)(exception);
+									(*completionHandlerPtr)(exceptionPtr);
 
 								});
 
@@ -161,9 +161,9 @@ namespace hope {
 								co_return co_await(*func)(std::move(webrtcSignalPacket));
 
 								},
-								[this, completionHandlerPtr](std::exception_ptr exception, boost::json::value value = {}) mutable {
+								[this, completionHandlerPtr](std::exception_ptr exceptionPtr, boost::json::value value = {}) mutable {
 
-									(*completionHandlerPtr)(std::move(exception), std::move(value));
+									(*completionHandlerPtr)(std::move(exceptionPtr), std::move(value));
 
 								});
 
@@ -226,7 +226,7 @@ namespace hope {
 
 			HttpFilters httpFilters;
 
-			std::shared_ptr<hope::storage::MysqlManagerPools> mysqlManagerPools;
+			std::unique_ptr<hope::storage::MysqlManagerPools> mysqlManagerPools;
 
 			std::vector<hope::storage::RedisWrapper> redisWrappers;
 

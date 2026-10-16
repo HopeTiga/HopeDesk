@@ -111,8 +111,8 @@ namespace hope {
                                     co_await asyncHandle(webrtcSignalManager);
                                     co_return;
                                 },
-                                [completionHandlerPtr](std::exception_ptr exception) mutable {
-                                    (*completionHandlerPtr)(std::move(exception));
+                                [completionHandlerPtr](std::exception_ptr exceptionPtr) mutable {
+                                    (*completionHandlerPtr)(std::move(exceptionPtr));
                                 });
                         }
                         else {
@@ -121,8 +121,8 @@ namespace hope {
                                 -> boost::asio::awaitable<ValueType> {
                                     co_return co_await asyncHandle(webrtcSignalManager);
                                 },
-                                [completionHandlerPtr](std::exception_ptr exception, ValueType value = {}) mutable {
-                                    (*completionHandlerPtr)(std::move(exception), std::move(value));
+                                [completionHandlerPtr](std::exception_ptr exceptionPtr, ValueType value = {}) mutable {
+                                    (*completionHandlerPtr)(std::move(exceptionPtr), std::move(value));
                                 });
                         }
                     },

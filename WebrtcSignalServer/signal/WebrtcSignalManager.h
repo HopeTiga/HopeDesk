@@ -53,7 +53,7 @@ namespace hope {
 
 			~WebrtcSignalManager();
 
-			std::shared_ptr<hope::signal::WebrtcLogicSystem> getLogicSystem();
+			WebrtcLogicSystem * getLogicSystem();
 
 			void removeConnection(std::string accountId, std::string sessionId, void * nullPoint);
 
@@ -106,7 +106,7 @@ namespace hope {
 
 			size_t channelIndex;
 
-			std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem;
+			std::unique_ptr<WebrtcLogicSystem> webrtcLogicSystem;
 
 			WebrtcSignalChannelConfig webrtcChannelConfig;
 

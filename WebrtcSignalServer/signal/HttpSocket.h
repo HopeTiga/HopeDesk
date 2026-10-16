@@ -43,7 +43,7 @@ namespace hope {
 
 			void closeSocket();
 
-			boost::asio::io_context& getIoContext();
+			boost::asio::io_context& getSchedulerContext();
 
 			WebrtcSignalManager* getWebrtcSignalManager();
 

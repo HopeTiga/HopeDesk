@@ -50,8 +50,8 @@ namespace hope {
                 httpAcceptor.listen(boost::asio::socket_base::max_listen_connections);
 
             }
-            catch (const std::exception& e) {
-                LOG_ERROR("Acceptor Setup Failed: {}", e.what());
+            catch (const std::exception& exception) {
+                LOG_ERROR("Acceptor Setup Failed: {}", exception.what());
                 throw;
             }
 
@@ -128,24 +128,24 @@ namespace hope {
                         co_await acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::deferred);
 
                     }
-                    catch (const boost::system::system_error& e) {
+                    catch (const boost::system::system_error& systemError) {
 
-                        if (e.code() == boost::asio::error::operation_aborted || !asyncEvents.load() || !acceptor.is_open()) {
+                        if (systemError.code() == boost::asio::error::operation_aborted || !asyncEvents.load() || !acceptor.is_open()) {
 
-                            LOG_INFO("Accept Loop Exits: {}", e.code().message().c_str());
+                            LOG_INFO("Accept Loop Exits: {}", systemError.code().message().c_str());
 
                             break;
 
                         }
 
-                        LOG_WARN("Accept Failed, Backoff And Retry: {}", e.code().message().c_str());
+                        LOG_WARN("Accept Failed, Backoff And Retry: {}", systemError.code().message().c_str());
 
                         shouldBackoff = true;
 
                     }
-                    catch (const std::exception& e) {
+                    catch (const std::exception& exception) {
 
-                        LOG_ERROR("Accept Loop Fatal Exception: {}", e.what());
+                        LOG_ERROR("Accept Loop Fatal Exception: {}", exception.what());
 
                         break;
 
@@ -198,15 +198,15 @@ namespace hope {
 
                 }
 
-                }, [this](std::exception_ptr ptr) {
+                }, [this](std::exception_ptr exceptionPtr) {
 
-                    if (ptr) {
+                    if (exceptionPtr) {
 
-                        try { std::rethrow_exception(ptr); }
+                        try { std::rethrow_exception(exceptionPtr); }
 
-                        catch (const std::exception& e) {
+                        catch (const std::exception& exception) {
 
-                            LOG_ERROR("Accept Loop Unhandled Exception: {}", e.what());
+                            LOG_ERROR("Accept Loop Unhandled Exception: {}", exception.what());
 
                         }
 
@@ -246,9 +246,9 @@ namespace hope {
                             shouldBackoff = true;
 
                         }
-                        catch (const std::exception& e) {
+                        catch (const std::exception& exception) {
 
-                            LOG_ERROR("Http Accept Loop Fatal Exception: {}", e.what());
+                            LOG_ERROR("Http Accept Loop Fatal Exception: {}", exception.what());
 
                             break;
 
@@ -266,7 +266,7 @@ namespace hope {
 
                         }
 
-                        boost::asio::co_spawn(httpSocket->getIoContext(), [this, httpSocket = std::move(httpSocket)]()->boost::asio::awaitable<void> {
+                        boost::asio::co_spawn(httpSocket->getSchedulerContext(), [this, httpSocket = std::move(httpSocket)]()->boost::asio::awaitable<void> {
 
                             co_await httpSocket->asyncEvent();
 
@@ -278,15 +278,15 @@ namespace hope {
 
                     co_return;
 
-                    }, [this](std::exception_ptr ptr) {
+                    }, [this](std::exception_ptr exceptionPtr) {
 
-                        if (ptr) {
+                        if (exceptionPtr) {
 
-                            try { std::rethrow_exception(ptr); }
+                            try { std::rethrow_exception(exceptionPtr); }
 
-                            catch (const std::exception& e) {
+                            catch (const std::exception& exception) {
 
-                                LOG_ERROR("Http Accept Loop Unhandled Exception: {}", e.what());
+                                LOG_ERROR("Http Accept Loop Unhandled Exception: {}", exception.what());
 
                             }
 
@@ -365,7 +365,7 @@ namespace hope {
 
                 if (!webrtcSignalManager) continue;
 
-                std::shared_ptr<WebrtcLogicSystem> webrtcLogicSystem = webrtcSignalManager->getLogicSystem();
+                WebrtcLogicSystem * webrtcLogicSystem = webrtcSignalManager->getLogicSystem();
 
                 if (!webrtcLogicSystem) continue;
 
@@ -433,7 +433,7 @@ namespace hope {
                 return false;
             }
 
-            WebrtcLogicSystem * webrtcLogicSystem = webrtcSignalManager->getLogicSystem().get();
+            WebrtcLogicSystem * webrtcLogicSystem = webrtcSignalManager->getLogicSystem();
 
             if (!webrtcLogicSystem) {
                 LOG_ERROR("WebrtcLogicSystem At Index {} Is Null", channelIndex);

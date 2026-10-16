@@ -287,9 +287,9 @@ namespace hope {
                 std::rethrow_exception(exceptionPtr);
 
             }
-            catch (const std::exception& e) {
+            catch (const std::exception& exception) {
 
-                LOG_ERROR("{} Error: {}", coroutineName, e.what());
+                LOG_ERROR("{} Error: {}", coroutineName, exception.what());
 
             }
             catch (...) {

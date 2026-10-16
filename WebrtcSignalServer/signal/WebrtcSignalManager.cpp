@@ -44,7 +44,7 @@ namespace hope {
 
             hope::signal::WebrtcLogicConfig webrtcLogicConfig{ webrtcChannelConfig.threshold, webrtcChannelConfig.exitThreshold, webrtcChannelConfig.asyncThreshold, webrtcChannelConfig.mysqlConfig, webrtcChannelConfig.redisConfig };
 
-            webrtcLogicSystem = std::make_shared<hope::signal::WebrtcLogicSystem>(logicIoContext, channelIndex, taskChannel, webrtcLogicConfig);
+            webrtcLogicSystem = std::make_unique<hope::signal::WebrtcLogicSystem>(logicIoContext, channelIndex, taskChannel, webrtcLogicConfig);
 
             webrtcLogicSystem->asyncEvent();
 
@@ -56,9 +56,9 @@ namespace hope {
 
         }
 
-        std::shared_ptr<WebrtcLogicSystem> WebrtcSignalManager::getLogicSystem()
+        WebrtcLogicSystem * WebrtcSignalManager::getLogicSystem()
         {
-            return webrtcLogicSystem;
+            return webrtcLogicSystem.get();
         }
 
         WebrtcSignalServer* WebrtcSignalManager::getWebrtcSignalServer()
@@ -112,7 +112,7 @@ namespace hope {
                     && std::tie(registrationTime, sessionId) <= std::tie(indexIterator->second.registrationTime, indexIterator->second.sessionId)) {
 
                     targetManager->webrtcSignalServer->postTask(newChannelIndex,
-                        [accountId, sessionId](WebrtcSignalManager * webrtcSignalManager) mutable {
+                        [accountId, sessionId](WebrtcSignalManager* webrtcSignalManager) mutable {
 
                             webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId), nullptr);
 
@@ -141,7 +141,7 @@ namespace hope {
                 if (oldChannelIndex != -1 && oldChannelIndex != newChannelIndex) {
 
                     targetManager->webrtcSignalServer->postTask(oldChannelIndex,
-                        [accountId, oldSessionId](WebrtcSignalManager * webrtcSignalManager) mutable {
+                        [accountId, oldSessionId](WebrtcSignalManager* webrtcSignalManager) mutable {
 
                             webrtcSignalManager->removeConnection(std::move(accountId), std::move(oldSessionId), nullptr);
 
@@ -159,7 +159,7 @@ namespace hope {
             else {
 
                 webrtcSignalServer->postTask(mapChannelIndex,
-                    [updateGlobalIndexAndKick = std::move(updateGlobalIndexAndKick)](WebrtcSignalManager * webrtcSignalManager)mutable -> boost::asio::awaitable<void> {
+                    [updateGlobalIndexAndKick = std::move(updateGlobalIndexAndKick)](WebrtcSignalManager* webrtcSignalManager)mutable -> boost::asio::awaitable<void> {
 
                         updateGlobalIndexAndKick(webrtcSignalManager);
 
@@ -197,7 +197,7 @@ namespace hope {
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](WebrtcSignalManager * webrtcSignalManager) -> boost::asio::awaitable<void> {
+            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](WebrtcSignalManager* webrtcSignalManager) -> boost::asio::awaitable<void> {
 
                 StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = webrtcSignalManager->actorSocketMappingIndex.find(accountId);
 
@@ -240,7 +240,7 @@ namespace hope {
 
             int mapChannelIndex = hasher(accountId) % hashSize;
 
-            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](WebrtcSignalManager * webrtcSignalManager) -> boost::asio::awaitable<void> {
+            webrtcSignalServer->postTask(mapChannelIndex, [accountId = std::move(accountId), sessionId = std::move(sessionId)](WebrtcSignalManager* webrtcSignalManager) -> boost::asio::awaitable<void> {
 
                 StringKeyedNodeMap<WebrtcSignalManager::ActorMapping>::iterator iteratorIndex = webrtcSignalManager->actorSocketMappingIndex.find(accountId);
 
@@ -279,22 +279,22 @@ namespace hope {
 
             acceptor.listen();
 
-            boost::asio::co_spawn(ioContext, [self = shared_from_this(), &runAccepct]() ->boost::asio::awaitable<void> {
+            boost::asio::co_spawn(ioContext, [webrtcSignalManager = this, &runAccepct]() ->boost::asio::awaitable<void> {
 
                 while (runAccepct.load()) {
 
-                    std::shared_ptr<hope::signal::WebrtcSignalSocket> webrtcSignalSocket = std::make_shared<hope::signal::WebrtcSignalSocket>(self->ioContext, self.get(), self->channelConfig.maxTlsHandShakeTime);
+                    std::shared_ptr<hope::signal::WebrtcSignalSocket> webrtcSignalSocket = std::make_shared<hope::signal::WebrtcSignalSocket>(webrtcSignalManager->ioContext, webrtcSignalManager, webrtcSignalManager->webrtcChannelConfig.maxTlsHandShakeTime);
 
                     bool shouldBackoff = false;
 
                     try {
 
-                        co_await self->acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::deferred);
+                        co_await webrtcSignalManager->acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::deferred);
 
                     }
                     catch (const boost::system::system_error& e) {
 
-                        if (e.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !self->acceptor.is_open()) {
+                        if (e.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !webrtcSignalManager->acceptor.is_open()) {
 
                             LOG_INFO("Accept Loop Exits: {}", e.code().message().c_str());
 
@@ -307,7 +307,7 @@ namespace hope {
                         shouldBackoff = true;
 
                     }
-                    catch (const std::exception& e) {
+                    catch (const std::exception& exception) {
 
                         LOG_ERROR("Accept Loop Fatal Exception: {}", e.what());
 
@@ -317,7 +317,7 @@ namespace hope {
 
                     if (shouldBackoff) {
 
-                        boost::asio::steady_timer backoffTimer(self->ioContext);
+                        boost::asio::steady_timer backoffTimer(webrtcSignalManager->ioContext);
 
                         backoffTimer.expires_after(std::chrono::milliseconds(100));
 
@@ -329,7 +329,7 @@ namespace hope {
 
 #ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC
 
-                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager = this](std::string accountId, std::string sessionId) {
+                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager](std::string accountId, std::string sessionId) {
 
                         boost::asio::io_context& ioContext = webrtcSignalManager->getLogicSystem()->getSchedulerContext();
 
@@ -342,9 +342,9 @@ namespace hope {
                         });
 #else
 
-                    webrtcSignalSocket->setOnDisConnectHandle([this](std::string accountId, std::string sessionId) {
+                    webrtcSignalSocket->setOnDisConnectHandle([webrtcSignalManager](std::string accountId, std::string sessionId) {
 
-                        this->removeConnection(std::move(accountId), std::move(sessionId));
+                        webrtcSignalManager->removeConnection(std::move(accountId), std::move(sessionId));
 
                         });
 #endif
@@ -364,13 +364,13 @@ namespace hope {
 
                 }
 
-                }, [self = shared_from_this()](std::exception_ptr ptr) {
+                }, [](std::exception_ptr ptr) {
 
                     if (ptr) {
 
                         try { std::rethrow_exception(ptr); }
 
-                        catch (const std::exception& e) {
+                        catch (const std::exception& exception) {
 
                             LOG_ERROR("Accept Loop Unhandled Exception: {}", e.what());
 
@@ -392,22 +392,22 @@ namespace hope {
 
                     httpAcceptor.listen();
 
-                    boost::asio::co_spawn(ioContext, [self = shared_from_this(), &runAccepct]() ->boost::asio::awaitable<void> {
+                    boost::asio::co_spawn(ioContext, [webrtcSignalManager = this, &runAccepct]() ->boost::asio::awaitable<void> {
 
                         while (runAccepct.load()) {
 
-                            std::shared_ptr<HttpSocket> httpSocket = self->generateHttpSocket();
+                            std::shared_ptr<HttpSocket> httpSocket = webrtcSignalManager->generateHttpSocket();
 
                             bool shouldBackoff = false;
 
                             try {
 
-                                co_await self->httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::deferred);
+                                co_await webrtcSignalManager->httpAcceptor.async_accept(httpSocket->getSocket(), boost::asio::deferred);
 
                             }
                             catch (const boost::system::system_error& e) {
 
-                                if (e.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !self->httpAcceptor.is_open()) {
+                                if (e.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !webrtcSignalManager->httpAcceptor.is_open()) {
 
                                     LOG_INFO("Accept Loop Exits: {}", e.code().message().c_str());
 
@@ -420,7 +420,7 @@ namespace hope {
                                 shouldBackoff = true;
 
                             }
-                            catch (const std::exception& e) {
+                            catch (const std::exception& exception) {
 
                                 LOG_ERROR("Http Accept Loop Fatal Exception: {}", e.what());
 
@@ -430,7 +430,7 @@ namespace hope {
 
                             if (shouldBackoff) {
 
-                                boost::asio::steady_timer backoffTimer(self->ioContext);
+                                boost::asio::steady_timer backoffTimer(webrtcSignalManager->ioContext);
 
                                 backoffTimer.expires_after(std::chrono::milliseconds(100));
 
@@ -440,7 +440,9 @@ namespace hope {
 
                             }
 
-                            boost::asio::co_spawn(httpSocket->getIoContext(), [httpSocket = std::move(httpSocket)]()->boost::asio::awaitable<void> {
+                            boost::asio::io_context& ioContext = httpSocket->getSchedulerContext();
+
+                            boost::asio::co_spawn(ioContext, [httpSocket = std::move(httpSocket)]()->boost::asio::awaitable<void> {
 
                                 co_await httpSocket->asyncEvent();
 
@@ -452,13 +454,13 @@ namespace hope {
 
                         co_return;
 
-                        }, [self = shared_from_this()](std::exception_ptr ptr) {
+                        }, [](std::exception_ptr ptr) {
 
                             if (ptr) {
 
                                 try { std::rethrow_exception(ptr); }
 
-                                catch (const std::exception& e) {
+                                catch (const std::exception& exception) {
 
                                     LOG_ERROR("Http Accept Loop Unhandled Exception: {}", e.what());
 
