@@ -113,9 +113,9 @@ flowchart TB
 | logic 池 × `threadSize`（仅 `HOPE_RTC_SIGNAL_SERVER_LOGIC`） | 第二个 `SchedulerContexts` 单例 | 本通道的 handler 执行、转发、MySQL pool |
 
 - **连接绑定通道**：accept 后 `loadBalanceWebrtcManger()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
-- **跨通道通信**：两个原语（`WebrtcSignalServer::postTask` 按 `handler` 返回类型重载），都把活儿派到 `channelIndex` 通道的 io_context 上跑、lambda 收到 `shared_ptr<WebrtcSignalManager>`，区别在协程/非协程与完成令牌：
-  - `postTask(channelIndex, handler, token = CompletionHandle)`——**协程 + completion-token 版**（`handler` 返回 `awaitable<T>(shared_ptr<M>)`）。内部 `async_initiate` + `co_spawn`。默认令牌 `CompletionHandle` = fire-and-forget + 异常落日志（返回 `void`）；传 `boost::asio::deferred` 即可 `co_await` 拿返回值（`handler` 返回 `awaitable<json>` 则直接得到 `json`），续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认 → `void`，`deferred` → `awaitable<T>`。
-  - `postTask(channelIndex, handler)`——**普通 post 版**（`handler` 是 `void(shared_ptr<M>)` 的可调用对象）。内部 `boost::asio::post`，**不建协程、无协程帧开销**，返回 `bool`（校验 channelIndex）。给"纯同步活儿、不需要 `co_await`、不需要异常语义"的 fire-and-forget 跳用（如回写/清缓存）。轻量优先用普通重载；要 `co_await` 或要跨通道协程语义才用协程重载。
+- **跨通道通信**：两个原语（`WebrtcSignalServer::postTask` 按 `handler` 返回类型重载），都把活儿派到 `channelIndex` 通道的 io_context 上跑、lambda 收到 `WebrtcSignalManager *`，区别在协程/非协程与完成令牌：
+  - `postTask(channelIndex, handler, token = CompletionHandle)`——**协程 + completion-token 版**（`handler` 返回 `awaitable<T>(WebrtcSignalManager *)`）。内部 `async_initiate` + `co_spawn`。默认令牌 `CompletionHandle` = fire-and-forget + 异常落日志（返回 `void`）；传 `boost::asio::deferred` 即可 `co_await` 拿返回值（`handler` 返回 `awaitable<json>` 则直接得到 `json`），续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认 → `void`，`deferred` → `awaitable<T>`。
+  - `postTask(channelIndex, handler)`——**普通 post 版**（`handler` 是 `void(WebrtcSignalManager *)` 的可调用对象）。内部 `boost::asio::post`，**不建协程、无协程帧开销**，返回 `bool`（校验 channelIndex）。给"纯同步活儿、不需要 `co_await`、不需要异常语义"的 fire-and-forget 跳用（如回写/清缓存）。轻量优先用普通重载；要 `co_await` 或要跨通道协程语义才用协程重载。
   - 入参非法（channelIndex 越界/manager 为空）时：普通 `postTask` 直接 `LOG_ERROR` + 返回 `false`；协程 `postTask` 走 async 契约——通过令牌完成一个 `runtime_error` 异常（默认令牌打日志、`deferred` 在调用方 `co_await` 处抛出），不 `co_spawn`，避免 `deferred` 调用方挂死。
   - 路由转发的线程跳转用这两个重载完成（forward 路径已确认无死代码、无冗余查找、无冗余自跳，到极限）。
 - **条件编译**：
@@ -185,7 +185,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
      - 两次 `stop()` 都返回后这个窗口被彻底关掉：**协程的每一次恢复都必须由某个 io_context 派发一个完成回调，而两个池的线程都已经 join 完、context 都已停**，所以挂起的协程永远不会被唤醒，也就永远不会走到读捕获变量那行。改变的不是协程的生命周期，是它再也执行不到那行代码。
      - 两个池都要停是硬要求：handler 协程跑在 logic 池上，只停 io 池等于把它留在一个还能被唤醒的地方。反过来说，`webrtcSignalManagers.clear()` 安全所依赖的**不是 `closeLatch.wait()`**（那只保证每条关闭任务跑完），而是这两次 join。
      - 由此 `webrtcSignalManagers.clear()` 从"赌没有协程在飞"变成"确定没有协程能跑"。
-   - `webrtcSignalManagers.clear()`（触发各 Manager/LogicSystem/MysqlPool 析构，即 `webrtcHandlers.clear()` 等）。
+   - `webrtcSignalManagers.clear()`（触发各 Manager/LogicSystem/MysqlPool 析构，即 `webrtcHandlers.clear()` 等）。`webrtcSignalManagers` 是 `std::vector<std::unique_ptr<WebrtcSignalManager>>`：Manager 独占 LogicSystem 与 MysqlPool，跨线程只传裸指针（`getLogicSystem()`、`postTask` 的 handler 入参），`clear()` 是这棵对象图唯一的析构点。
      - 注意 `~MysqlManagerPools` 只是把 `pool->cancel()` `post` 到**已经停掉的** io_context，**这句不会被执行**；连接改由连接池析构时关闭（被遗弃的 handler 连同它捕获的 `shared_ptr<pool>` 在 `~SchedulerContexts` 销毁 io_context 时释放）。这是这套顺序唯一的语义差异，进程即将退出，无实际影响。
 2. 回到 `main`：`work.reset()` + `ioContext.stop()`（main **自己的** io_context，与 worker 池彼此独立）。
 3. `closeLogger()`。此时 worker 线程已 join，不会再有人往已拆掉的 logger 里写。
@@ -536,7 +536,7 @@ CoroRpcHandleImpl coroRpcHandleImpl;
 rpc->registerHandler<&CoroRpcHandleImpl::requestForward>(&coroRpcHandleImpl);  // 必须传 this
 ```
 
-> 本服务器采用成员函数方式，`CoroRpcHandleImpl` 继承抽象基类 `CoroRpcHandleInterface`（基类持有 `WebrtcSignalServer` 引用），在 `registerRpcHandle()` 中通过 `CoroRpc::getInstance()->registerHandler<&CoroRpcHandleImpl::requestForward>(this)` 注册，从而在 RPC 调用时能访问信令服务。
+> 本服务器采用成员函数方式，`CoroRpcHandleImpl` 继承抽象基类 `CoroRpcHandleInterface`（基类持有 `WebrtcSignalServer *`），在 `registerRpcHandle()` 中通过 `CoroRpc::getInstance()->registerHandler<&CoroRpcHandleImpl::requestForward>(this)` 注册，从而在 RPC 调用时能访问信令服务。
 
 `registerHandler` 支持同时注册自由函数和成员函数，签名与返回类型必须一致。
 
@@ -628,9 +628,9 @@ LOG_INFO("Protocol: CoroRpc , Listen Accept Port: {}", webrtcSignalConfig.coroRp
 `coroRpcHandleInterfaces` 的填充（vector 的 registerHandle）由 `initCoroRpcHandleInterface` 在 `main.cpp` 组合期调用一次完成——构造默认 handler，经 `registerRpcHandleImpl` move 进数组：
 
 ```cpp
-void initCoroRpcHandleInterface(std::shared_ptr<hope::signal::WebrtcSignalServer> webrtcSignalServer) {
+void initCoroRpcHandleInterface(hope::signal::WebrtcSignalServer * webrtcSignalServer) {
     std::unique_ptr<hope::rpc::CoroRpcHandleInterface> coroRpcHandleInterface =
-        std::make_unique<hope::rpc::CoroRpcHandleImpl>(*webrtcSignalServer.get());
+        std::make_unique<hope::rpc::CoroRpcHandleImpl>(webrtcSignalServer);
     webrtcSignalServer->registerRpcHandleImpl(std::move(coroRpcHandleInterface));   // 注册进 vector
 }
 
@@ -639,7 +639,7 @@ void WebrtcSignalServer::registerRpcHandleImpl(std::unique_ptr<hope::rpc::CoroRp
 }
 ```
 
-- 默认 handler 由自由函数 `initCoroRpcHandleInterface(std::shared_ptr<WebrtcSignalServer>)`（声明在 `rpc/Rpc.h`、定义在 `rpc/Rpc.cpp`）创建并注册；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
+- 默认 handler 由自由函数 `initCoroRpcHandleInterface(hope::signal::WebrtcSignalServer *)`（声明在 `rpc/Rpc.h`、定义在 `rpc/Rpc.cpp`）创建并注册；`main.cpp` 构造 server 后调用一次，**实现不写在 main.cpp 里**。
 - `closeEvent()` 中 `CoroRpc::getInstance()->closeEvent();` 停止 RPC 服务。
 
 **默认 RPC handler：`CoroRpcHandleImpl::requestForward`**（注册方式见 §8.2）  
