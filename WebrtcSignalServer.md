@@ -17,7 +17,7 @@ WebrtcSignalServer 是 Webrtc 信令面的中转服务：
 - **配置解耦**：`ConfigManager` 只在 `main.cpp` 出现，业务类全部构造注入 / 全局配置，不在类内读 ini。
 - **节点间 RPC**：`CoroRpc` 既是 RPC 服务端（默认注册 `requestForward` 一个 handler）又是 RPC 客户端（连接池 + 负载均衡器），requestType 9 的信令就由它送出去（见 §8）。
 
-平台：Linux 为主（makefile 用 clang++ + io_uring + ThinLTO），Windows 仅作开发/调试编译路径。SSL 默认开启，**编译期宏**可关：信令 `WEBRTC_SIGNAL_SOCKET_DISABLE_SSL`（Windows 侧由 `webrtc-signal-server.props:39` 提供，压测时才加）、HTTP `WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL`。压测客户端 `Boost-Beast-Test` 是明文（`tls` 默认 false，没有开 TLS 的开关），所以压测必须关 SSL，否则两边握不上手。
+平台：Linux 为主（makefile 用 clang++ + io_uring + ThinLTO），Windows 仅作开发/调试编译路径。SSL 默认开启，**编译期宏**可关：信令 `WEBRTC_SIGNAL_SOCKET_DISABLE_SSL`（在 `signal/WebrtcSignalSocket.h` 顶部 `#define`）、HTTP `WEBRTC_SIGNAL_HTTP_SOCKET_DISABLE_SSL`。
 
 ---
 
@@ -178,11 +178,12 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 1. `WebrtcSignalServer->closeEvent()`（幂等，`asyncEvents.exchange(false)` 挡住重复进入）：
    - `CoroRpc::getInstance()->closeEvent()` 停 RPC 服务：`coro_rpc_server::stop()` → `io_context_pool::stop()`，**join 掉 RPC 自己的全部线程**。此后不会再有人经 RPC 路径访问通道内的表（`CoroRpcHandleImpl` 会 `find` manager 的 `actorSocketMappingIndex` 与 `webrtcSocketMap`）。
    - `taskQueues.close()` 关全局任务队列（排水协程收到 `channel_closed`，排空队列后自然退出）。
-   - **逐连接温和关闭**：每个 Manager 的 socket 关闭任务 `post` 到**它自己的连接池 ioContext**，与 `registerSocket`/`removeConnection` 串行（避免跨线程竞态访问 `webrtcSocketMap`）——逐个 `socket->closeEvent()` 后 `webrtcSocketMap.clear()`；N 个通道**并行**关闭，用 `std::latch`（C++20 barrier）`count_down()`/`wait()` 等全部完成。
+   - **逐连接温和关闭**：每个 Manager 的 socket 关闭任务 `post` 到**它自己所属的池的 ioContext**（开了 `HOPE_RTC_SIGNAL_SERVER_LOGIC` 时是 logic 池的第 `channelIndex` 个 context，见 §11.2），与 `registerSocket`/`removeConnection` 串行（避免跨线程竞态访问 `webrtcSocketMap`）——逐个 `socket->closeEvent()` 后 `webrtcSocketMap.clear()`；N 个通道**并行**关闭，用 `std::latch`（C++20 barrier）`count_down()`/`wait()` 等全部完成。
      - **这一步必须留在下一句 `stop()` 之前**：它靠 worker 线程仍在 `run()` 才有机会执行，反序会死锁在 `closeLatch.wait()`。
-   - `SchedulerContexts::getInstance()->stop()`：`releaseWork()` → 全部 io_context `stop()`（停止派发、丢弃未执行 handler）→ **`join()` 全部 worker 线程**。
-     - 这一句同时是**清表安全性的来源**。`webrtcHandlers` 等注册表里存的是 `awaitable` 协程对象，派发时取裸指针捕获进异步执行体；一个**已挂起**的 handler 协程帧并不安全——协程帧是透过闭包对象读捕获变量的，不是自己拷一份，所以注册表一 `clear()`，任何一次唤醒都是 use-after-free。
-     - `stop()` 返回后这个窗口被彻底关掉：**协程的每一次恢复都必须由某个 io_context 派发一个完成回调，而线程已经 join 完、context 已停**，所以挂起的协程永远不会被唤醒，也就永远不会走到读捕获变量那行。改变的不是协程的生命周期，是它再也执行不到那行代码。
+   - `SchedulerContexts::getInstance()->stop()`，紧接 `#ifdef HOPE_RTC_SIGNAL_SERVER_LOGIC` 内的 `SchedulerContexts::getLogicInstance()->stop()`（§11.2 的第二个池）：`releaseWork()` → 全部 io_context `stop()`（停止派发、丢弃未执行 handler）→ **`join()` 全部 worker 线程**。两个池各停一次，两次都在清表之前。
+     - 这两句同时是**清表安全性的来源**。`webrtcHandlers` 等注册表里存的是 `awaitable` 协程对象，派发时取裸指针捕获进异步执行体；一个**已挂起**的 handler 协程帧并不安全——协程帧是透过闭包对象读捕获变量的，不是自己拷一份，所以注册表一 `clear()`，任何一次唤醒都是 use-after-free。
+     - 两次 `stop()` 都返回后这个窗口被彻底关掉：**协程的每一次恢复都必须由某个 io_context 派发一个完成回调，而两个池的线程都已经 join 完、context 都已停**，所以挂起的协程永远不会被唤醒，也就永远不会走到读捕获变量那行。改变的不是协程的生命周期，是它再也执行不到那行代码。
+     - 两个池都要停是硬要求：handler 协程跑在 logic 池上，只停 io 池等于把它留在一个还能被唤醒的地方。反过来说，`webrtcSignalManagers.clear()` 安全所依赖的**不是 `closeLatch.wait()`**（那只保证每条关闭任务跑完），而是这两次 join。
      - 由此 `webrtcSignalManagers.clear()` 从"赌没有协程在飞"变成"确定没有协程能跑"。
    - `webrtcSignalManagers.clear()`（触发各 Manager/LogicSystem/MysqlPool 析构，即 `webrtcHandlers.clear()` 等）。
      - 注意 `~MysqlManagerPools` 只是把 `pool->cancel()` `post` 到**已经停掉的** io_context，**这句不会被执行**；连接改由连接池析构时关闭（被遗弃的 handler 连同它捕获的 `shared_ptr<pool>` 在 `~SchedulerContexts` 销毁 io_context 时释放）。这是这套顺序唯一的语义差异，进程即将退出，无实际影响。
@@ -960,11 +961,11 @@ hope::executor::SchedulerContexts::init(schedulerConfig);
 
 ### 11.2 逻辑线程分池（`HOPE_RTC_SIGNAL_SERVER_LOGIC`）
 
-**这是编译期开关，不是 ini 项**：Windows 由 `webrtc-signal-server.props:39` 定义（无条件，所有配置都带）。不开这个开关时，派发/转发在本通道 reactor 线程上就地执行（下表的对照列）。
+**这是编译期开关，不是 ini 项**：Windows 由 `webrtc-signal-server.props:39` 定义，Linux 由 `makefile:17` 的 `-DHOPE_RTC_SIGNAL_SERVER_LOGIC` 定义，两边都无条件带。不开这个开关时，派发/转发在本通道 reactor 线程上就地执行（下表的对照列）。
 
 #### 机制：谁跑在哪个线程上
 
-| | 未定义（关） | 定义（开，当前 Windows 构建） |
+| | 未定义（关） | 定义（开，两棵树当前构建都开） |
 |---|---|---|
 | 连接握手 / 读写协程 | 本通道 TPC 线程 | 本通道 TPC 线程（不变） |
 | 业务派发 / 转发 / MySQL 池 | **同一个 TPC 线程**，就地执行 | **独立 logic 池的第 `channelIndex` 个线程** |
