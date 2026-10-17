@@ -364,11 +364,14 @@ void WebrtcManager::disConnectRemote()
         self->initializePeerConnection();
         if (self->webSocket && self->webSocket->isOpen()) {
             WebrtcEnvelope webrtcEnvelope;
-            webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::STOPREMOTE);
+            webrtcEnvelope.requestType = static_cast<int>(RequestType::REQUEST);
             webrtcEnvelope.state = 200;
             webrtcEnvelope.accountId = self->accountId;
             webrtcEnvelope.targetId = self->targetId;
-            self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope));
+            boost::json::object payload;
+            payload["logicType"] = static_cast<int64_t>(LogicType::STOPREMOTE);
+            std::string body = boost::json::serialize(payload);
+            self->webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(body));
         }
     });
 }
@@ -445,6 +448,8 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
     json["requestType"] = webrtcEnvelope.requestType;
 
+    const LogicType logicType = (json.contains("logicType") && json["logicType"].is_int64()) ? static_cast<LogicType>(json["logicType"].as_int64()) : LogicType::REQUEST;
+
     json["state"] = webrtcEnvelope.state;
 
     json["message"] = webrtcEnvelope.message;
@@ -455,7 +460,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
     std::string dataStr = boost::json::serialize(json);
 
-    if (tcpSocket && tcpSocket->isOpen() && WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::REQUEST && webrtcEnvelope.state == 200) {
+    if (tcpSocket && tcpSocket->isOpen() && logicType == LogicType::REQUEST && webrtcEnvelope.state == 200) {
 
         std::shared_ptr<WriterData> writerData = std::make_shared<WriterData>(dataStr.data(), dataStr.size());
 
@@ -464,7 +469,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
         return;
     }
 
-    if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::REQUEST) {
+    if (logicType == LogicType::REQUEST) {
 
         if (webrtcEnvelope.state == 200) {
 
@@ -632,7 +637,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
         }
 
-    } else if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::STOPREMOTE) {
+    } else if (logicType == LogicType::STOPREMOTE) {
 
         if (webrtcEnvelope.state == 200) {
 
@@ -640,7 +645,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
         }
 
-    } else if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::CLOSESYSTEM) {
+    } else if (logicType == LogicType::CLOSESYSTEM) {
 
         if (webrtcEnvelope.state == 200) {
 
@@ -652,7 +657,7 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
             WebrtcEnvelope webrtcEnvelope;
 
-            webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::SYSTEMREADLY);
+            webrtcEnvelope.requestType = static_cast<int>(RequestType::REQUEST);
 
             webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
 
@@ -660,11 +665,17 @@ void WebrtcManager::handleSignalMessage(std::string str)
 
             webrtcEnvelope.targetId = targetId;
 
-            webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope));
+            boost::json::object payload;
+
+            payload["logicType"] = static_cast<int64_t>(LogicType::SYSTEMREADLY);
+
+            std::string body = boost::json::serialize(payload);
+
+            webrtcAsyncWrite(struct_pack::serialize<std::string>(webrtcEnvelope).append(body));
 
         }
 
-    } else if (WebrtcRequestState(webrtcEnvelope.requestType) == WebrtcRequestState::SYSTEMREADLY) {
+    } else if (logicType == LogicType::SYSTEMREADLY) {
 
         if (webrtcEnvelope.state == 200) {
 
@@ -1003,9 +1014,9 @@ void WebrtcManager::handleSystemMessage(std::string str)
         return;
     }
 
-    WebrtcRequestState requestState = WebrtcRequestState(json["requestType"].as_int64());
+    RequestType requestState = RequestType(json["requestType"].as_int64());
 
-    if (requestState == WebrtcRequestState::START) {
+    if (requestState == RequestType::START) {
 
         if (webrtcManagerObserver) webrtcManagerObserver->onFollowRemoteHandle();
 
@@ -1016,7 +1027,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
         return;
     }
 
-    if (requestState == WebrtcRequestState::STATS) {
+    if (requestState == RequestType::STATS) {
 
         int type = json["connectionType"].as_int64();
 
@@ -1025,7 +1036,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
         return;
     }
 
-    if (requestState == WebrtcRequestState::ENCODE_STATUS) {
+    if (requestState == RequestType::ENCODE_STATUS) {
         std::string codec = json.contains("codec") ? json["codec"].as_string().c_str() : "";
         bool hard = json.contains("hard") ? json["hard"].as_bool() : false;
         std::string capture = json.contains("capture") ? json["capture"].as_string().c_str() : "Hope Virtual Display";
@@ -1037,9 +1048,9 @@ void WebrtcManager::handleSystemMessage(std::string str)
     }
 
     if (webSocket && webSocket->isOpen()) {
-        // System 消息拆成信封 + 业务载荷:requestType/accountId/targetId 入信封,其余进 body
+        // System 消息拆成信封 + 业务载荷:信封固定 REQUEST,语义类型走 logicType
         WebrtcEnvelope webrtcEnvelope;
-        webrtcEnvelope.requestType = static_cast<int>(json["requestType"].as_int64());
+        webrtcEnvelope.requestType = static_cast<int>(RequestType::REQUEST);
 
         if(json.contains("state")){
             webrtcEnvelope.state = boost::json::value_to<int>(json["state"]);
@@ -1055,7 +1066,6 @@ void WebrtcManager::handleSystemMessage(std::string str)
         if (json.contains("targetId")) {
             webrtcEnvelope.targetId = std::string(json["targetId"].as_string().c_str());
         }
-        json.erase("requestType");
         json.erase("accountId");
         json.erase("targetId");
         json.erase("state");
@@ -1067,7 +1077,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
 void WebrtcManager::handleSystemAccept()
 {
     boost::json::object registerJson;
-    registerJson["requestType"] = static_cast<int>(WebrtcRequestState::REGISTER);
+    registerJson["requestType"] = 0;
     registerJson["systemService"] = webrtcManagerConfig.systemService;
     registerJson["stunHost"]    = webrtcManagerConfig.stunHost;
     registerJson["turnHost"]    = webrtcManagerConfig.turnHost;
@@ -1127,7 +1137,7 @@ void WebrtcManager::sendSignalingMessage(boost::json::object& msg) {
 
     // 业务载荷(msg)保持 JSON 文本,信封字段拆出;不修改 msg,也不往 body 里塞 state
     WebrtcEnvelope webrtcEnvelope;
-    webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::REQUEST);
+    webrtcEnvelope.requestType = static_cast<int>(RequestType::REQUEST);
     webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
     webrtcEnvelope.accountId = accountId;
     if (!targetId.empty()) {
@@ -1327,7 +1337,7 @@ void WebrtcManager::asyncRemoteDesk(WebrtcDeskConfig webrtcDeskConfig)
             message["requestMaxFramerate"] = self->webrtcDeskConfig.requestMaxFramerate;
 
             WebrtcEnvelope webrtcEnvelope;
-            webrtcEnvelope.requestType = static_cast<int>(WebrtcRequestState::REQUEST);
+            webrtcEnvelope.requestType = static_cast<int>(RequestType::REQUEST);
             webrtcEnvelope.state = 200;   // 接收端按 state==200 处理
             webrtcEnvelope.accountId = self->accountId;
             webrtcEnvelope.targetId = self->targetId;

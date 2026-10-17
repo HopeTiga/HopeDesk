@@ -86,15 +86,18 @@ using hope::net::WebrtcEnvelope;
 
 using hope::system::WindowsServiceManager;
 
-enum class WebrtcRequestState {
-    REGISTER = 0,
+enum class RequestType {
     REQUEST = 1,
-    STOPREMOTE = 3,
     START = 4,
-    CLOSESYSTEM = 6,
-    SYSTEMREADLY = 7,
     STATS = 8,
     ENCODE_STATUS = 9   // System -> 被控 Native:上报当前编码 codec + 硬编/软编
+};
+
+enum class LogicType {
+    REQUEST = 1,
+    STOPREMOTE = 3,
+    CLOSESYSTEM = 6,
+    SYSTEMREADLY = 7
 };
 
 // 本端在连接里的角色:
