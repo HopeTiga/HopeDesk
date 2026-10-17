@@ -292,24 +292,24 @@ namespace hope {
                         co_await webrtcSignalManager->acceptor.async_accept(webrtcSignalSocket->getSocket(), boost::asio::deferred);
 
                     }
-                    catch (const boost::system::system_error& e) {
+                    catch (const boost::system::system_error& systemError) {
 
-                        if (e.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !webrtcSignalManager->acceptor.is_open()) {
+                        if (systemError.code() == boost::asio::error::operation_aborted || !runAccepct.load() || !webrtcSignalManager->acceptor.is_open()) {
 
-                            LOG_INFO("Accept Loop Exits: {}", e.code().message().c_str());
+                            LOG_INFO("Accept Loop Exits: {}", systemError.code().message().c_str());
 
                             break;
 
                         }
 
-                        LOG_WARN("Accept Failed, Backoff and Retry: {}", e.code().message().c_str());
+                        LOG_WARN("Accept Failed, Backoff and Retry: {}", systemError.code().message().c_str());
 
                         shouldBackoff = true;
 
                     }
                     catch (const std::exception& exception) {
 
-                        LOG_ERROR("Accept Loop Fatal Exception: {}", e.what());
+                        LOG_ERROR("Accept Loop Fatal Exception: {}", exception.what());
 
                         break;
 
@@ -372,7 +372,7 @@ namespace hope {
 
                         catch (const std::exception& exception) {
 
-                            LOG_ERROR("Accept Loop Unhandled Exception: {}", e.what());
+                            LOG_ERROR("Accept Loop Unhandled Exception: {}", exception.what());
 
                         }
 
@@ -422,7 +422,7 @@ namespace hope {
                             }
                             catch (const std::exception& exception) {
 
-                                LOG_ERROR("Http Accept Loop Fatal Exception: {}", e.what());
+                                LOG_ERROR("Http Accept Loop Fatal Exception: {}", exception.what());
 
                                 break;
 
@@ -462,7 +462,7 @@ namespace hope {
 
                                 catch (const std::exception& exception) {
 
-                                    LOG_ERROR("Http Accept Loop Unhandled Exception: {}", e.what());
+                                    LOG_ERROR("Http Accept Loop Unhandled Exception: {}", exception.what());
 
                                 }
 

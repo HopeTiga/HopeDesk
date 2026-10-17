@@ -499,7 +499,7 @@ namespace hope {
 
         void WebrtcLogicSystem::initHandlers() {
 
-            std::function<boost::asio::awaitable<void>(WebrtcSignalPacket, std::string)> forwardHandler = [this](WebrtcSignalPacket webrtcSignalPacket, std::string requestTypeStr)->boost::asio::awaitable<void> {
+            std::function<void(WebrtcSignalPacket, std::string)> forwardHandler = [this](WebrtcSignalPacket webrtcSignalPacket, std::string requestTypeStr)->void{
 
                 std::shared_ptr<WebrtcSignalSocket> & webrtcSignalSocket = webrtcSignalPacket.webrtcSignalSocket;
 
@@ -515,7 +515,7 @@ namespace hope {
 
                     LOG_WARN("Forward Message Missing AccountId or TargetId.");
 
-                    co_return;
+                    return;
 
                 }
 
@@ -607,7 +607,7 @@ namespace hope {
                                     }
                                     });
 
-                                co_return;
+                                return;
                             }
                             else {
 
@@ -623,7 +623,7 @@ namespace hope {
 
                                 LOG_WARN("Request Forward Not Found (404): {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
-                                co_return;
+                                return;
 
                             }
 
@@ -1037,7 +1037,7 @@ namespace hope {
                             });
                     }
 
-                    co_return;
+                    return;
 
                 }
 
@@ -1045,24 +1045,17 @@ namespace hope {
 
                 LOG_INFO("Request Forward: {} -> {} (Request Type: {})", accountId.data(), targetId.data(), requestTypeStr.c_str());
 
-                co_return;
+                return;
 
                 };
 
             // ==================== Handlers 1-4 ====================
-            webrtcHandlers[1] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "REQUEST"); });
-
-            webrtcHandlers[3] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { co_await forwardHandler(std::move(webrtcSignalPacket), "STOP_REMOTE"); });
-
-            webrtcHandlers[6] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
-                co_await forwardHandler(std::move(webrtcSignalPacket), "CLOSE_SYSTEM");
+            webrtcHandlers[static_cast<int>(RequestType::request)] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> { 
+                forwardHandler(std::move(webrtcSignalPacket), "REQUEST"); 
+                co_return;
                 });
 
-            webrtcHandlers[7] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
-                co_await forwardHandler(std::move(webrtcSignalPacket), "SYSTEM_READLY");
-                });
-
-            webrtcHandlers[9] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
+            webrtcHandlers[2] = std::make_unique<WebrtcHandler>([this, forwardHandler](WebrtcSignalPacket webrtcSignalPacket)->boost::asio::awaitable<void> {
 
                 hope::rpc::CoroRpc* coroRpc = hope::rpc::CoroRpc::getInstance();
 

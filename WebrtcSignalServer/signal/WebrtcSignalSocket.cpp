@@ -3,6 +3,7 @@
 
 #include <boost/url.hpp>
 #include <string_view>
+#include <cstddef>
 #include <cstring>
 #include <array>
 #include <boost/uuid/uuid.hpp>
@@ -475,6 +476,95 @@ namespace hope {
 
         }
 
+        namespace {
+
+            inline void shiftEnvelope(WebrtcEnvelopeView & envelope, std::ptrdiff_t delta) noexcept {
+
+                if (envelope.message.data()) {
+
+                    envelope.message = std::string_view(envelope.message.data() + delta, envelope.message.size());
+
+                }
+
+                if (envelope.accountId.data()) {
+
+                    envelope.accountId = std::string_view(envelope.accountId.data() + delta, envelope.accountId.size());
+
+                }
+
+                if (envelope.targetId.data()) {
+
+                    envelope.targetId = std::string_view(envelope.targetId.data() + delta, envelope.targetId.size());
+
+                }
+
+            }
+
+        }
+
+        void WebrtcSignalSocket::flushBatchBucket(const BatchBucket & bucket) {
+
+            WebrtcSignalPacket webrtcSignalPacket(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+
+            webrtcSignalPacket.packet.reserve(bucket.bytes > 64 ? bucket.bytes : 64);
+
+            if (bucket.ranges.size() == 1) {
+
+                const WebrtcPayloadRange & range = bucket.ranges[0];
+
+                webrtcSignalPacket.packet.assign(receiveBuffer.data() + range.offset, range.length);
+
+            }
+            else {
+
+                webrtcSignalPacket.packet.ranges.reserve(bucket.ranges.size());
+
+                for (const WebrtcPayloadRange & range : bucket.ranges) {
+
+                    webrtcSignalPacket.packet.ranges.push_back(WebrtcPayloadRange{
+                        static_cast<std::uint32_t>(webrtcSignalPacket.packet.size()), range.length });
+
+                    webrtcSignalPacket.packet.append(receiveBuffer.data() + range.offset, range.length);
+
+                }
+
+            }
+
+            std::string_view packetView(webrtcSignalPacket.packet.data(), webrtcSignalPacket.packet.size());
+
+            std::size_t envelopeSize = 0;
+
+            struct_pack::err_code deserializeError = struct_pack::deserialize_to(
+                webrtcSignalPacket.webrtcEnvelope, packetView, envelopeSize);
+
+            if (deserializeError) {
+
+                LOG_ERROR("StructPack Parse Error On Batch Flush: {}", deserializeError.message().data());
+
+                return;
+
+            }
+
+            webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPacket));
+
+        }
+
+        void WebrtcSignalSocket::flushBatchBuckets() {
+
+            for (std::pair<const std::string_view, BatchBucket> & entry : batchBuckets) {
+
+                if (!entry.second.ranges.empty()) {
+
+                    flushBatchBucket(entry.second);
+
+                }
+
+            }
+
+            batchBuckets.clear();
+
+        }
+
         boost::asio::awaitable<void> WebrtcSignalSocket::reviceCoroutine() {
 
             std::string fragmentedPayload;
@@ -540,30 +630,54 @@ namespace hope {
 
                     }
 
-                    WebrtcSignalPacket webrtcSignalPakcet(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
-
                     if (assemblingFragment) {
+
+                        WebrtcSignalPacket webrtcSignalPacket(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
 
                         fragmentedPayload.append(receiveBuffer.data() + frameRange.offset, frameRange.length);
 
-                        webrtcSignalPakcet.packet = std::move(fragmentedPayload);
+                        webrtcSignalPacket.packet = std::move(fragmentedPayload);
 
                         fragmentedPayload.clear();
 
                         assemblingFragment = false;
 
+                        std::string_view stringView(webrtcSignalPacket.packet.data(), webrtcSignalPacket.packet.size());
+
+                        size_t envelopeSize = 0;
+
+                        struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcSignalPacket.webrtcEnvelope, stringView, envelopeSize);
+
+                        if (deserializeError) {
+
+                            LOG_ERROR("StructPack Parse Error: {}", deserializeError.message().data());
+
+                            throw std::runtime_error("StructPack Parse Error");
+
+                        }
+
+                        if (webrtcSignalPacket.webrtcEnvelope.requestType == 0) {
+
+                            LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
+
+                            throw std::runtime_error("Invalid Request: Missing RequestType");
+
+                        }
+
+                        webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPacket));
+
+                        continue;
+
                     }
-                    else {
 
-                        webrtcSignalPakcet.packet.assign(receiveBuffer.data() + frameRange.offset, frameRange.length);
+                    const char * source = receiveBuffer.data() + frameRange.offset;
 
-                    }
-
-                    std::string_view stringView(webrtcSignalPakcet.packet.data(), webrtcSignalPakcet.packet.size());
+                    WebrtcEnvelopeView webrtcEnvelope;
 
                     size_t envelopeSize = 0;
 
-                    struct_pack::err_code deserializeError = struct_pack::deserialize_to(webrtcSignalPakcet.webrtcEnvelope, stringView, envelopeSize);
+                    struct_pack::err_code deserializeError = struct_pack::deserialize_to(
+                        webrtcEnvelope, std::string_view(source, frameRange.length), envelopeSize);
 
                     if (deserializeError) {
 
@@ -573,7 +687,7 @@ namespace hope {
 
                     }
 
-                    if (webrtcSignalPakcet.webrtcEnvelope.requestType == 0) {
+                    if (webrtcEnvelope.requestType == 0) {
 
                         LOG_ERROR("WebrtcSignalSocket Invalid Request: missing requestType");
 
@@ -581,9 +695,42 @@ namespace hope {
 
                     }
 
-                    webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPakcet));
+                    if (webrtcEnvelope.targetId.empty() || webrtcEnvelope.requestType != static_cast<int>(RequestType::request)) {
+
+                        WebrtcSignalPacket webrtcSignalPacket(shared_from_this(), webrtcSignalManager, webrtcSignalManager->getChannelIndex());
+
+                        webrtcSignalPacket.packet.assign(source, frameRange.length);
+
+                        webrtcSignalPacket.webrtcEnvelope = webrtcEnvelope;
+
+                        shiftEnvelope(webrtcSignalPacket.webrtcEnvelope, webrtcSignalPacket.packet.data() - source);
+
+                        webrtcSignalManager->getLogicSystem()->postTask(std::move(webrtcSignalPacket));
+
+                        continue;
+
+                    }
+
+                    BatchBucket & bucket = batchBuckets[webrtcEnvelope.targetId];
+
+                    bucket.ranges.push_back(WebrtcPayloadRange{
+                        static_cast<std::uint32_t>(frameRange.offset), static_cast<std::uint32_t>(frameRange.length) });
+
+                    bucket.bytes += frameRange.length;
+
+                    if (bucket.ranges.size() >= maximumFramesPerWrite) {
+
+                        flushBatchBucket(bucket);
+
+                        bucket.ranges.clear();
+
+                        bucket.bytes = 0;
+
+                    }
 
                 }
+
+                flushBatchBuckets();
 
                 receiveHeldBytes = totalBytes - frameBatch.consumed;
 
@@ -600,15 +747,20 @@ namespace hope {
                 }
 
             }
+
+            flushBatchBuckets();
+
         }
 
         boost::asio::awaitable<void> WebrtcSignalSocket::writerCoroutine() {
 
-            std::vector<std::string> packets(maximumFramesPerWrite);
+            std::vector<WebrtcSignalPayload> packets(maximumFramesPerWrite);
 
             std::vector<boost::asio::const_buffer> segments;
 
             segments.reserve(maximumFramesPerWrite * 2);
+
+            std::size_t pendingFrames = 0;
 
             while (asyncEvents.load()) {
 
@@ -630,21 +782,61 @@ namespace hope {
 
                 segments.clear();
 
+                pendingFrames = 0;
+
                 for (std::size_t index = 0; index < count; ++index) {
 
-                    char* frameHeader = frameHeaderScratch.data() + index * maximumFrameHeaderSize;
+                    WebrtcSignalPayload & payload = packets[index];
 
-                    const std::size_t frameHeaderSize = encodeFrameHeader(frameHeader, packets[index].size(), true);
+                    const std::size_t frameCount = payload.ranges.empty() ? 1 : payload.ranges.size();
 
-                    segments.emplace_back(frameHeader, frameHeaderSize);
+                    for (std::size_t frameIndex = 0; frameIndex < frameCount; ++frameIndex) {
 
-                    segments.emplace_back(boost::asio::buffer(packets[index]));
+                        if (pendingFrames == maximumFramesPerWrite) {
+
+                            co_await boost::asio::async_write(webSocket.next_layer(), segments, boost::asio::deferred);
+
+                            segments.clear();
+
+                            pendingFrames = 0;
+
+                        }
+
+                        const std::string_view bytes = payload.ranges.empty()
+                            ? std::string_view(payload.data(), payload.size())
+                            : payload.payload(frameIndex);
+
+                        char * frameHeader = frameHeaderScratch.data() + pendingFrames * maximumFrameHeaderSize;
+
+                        const std::size_t frameHeaderSize = encodeFrameHeader(frameHeader, bytes.size(), true);
+
+                        segments.emplace_back(frameHeader, frameHeaderSize);
+
+                        segments.emplace_back(bytes.data(), bytes.size());
+
+                        ++pendingFrames;
+
+                    }
 
                 }
 
-                co_await boost::asio::async_write(webSocket.next_layer(), segments, boost::asio::deferred);
+                if (pendingFrames > 0) {
 
-                packets.resize(count);
+                    co_await boost::asio::async_write(webSocket.next_layer(), segments, boost::asio::deferred);
+
+                    segments.clear();
+
+                    pendingFrames = 0;
+
+                }
+
+                for (std::size_t index = 0; index < count; ++index) {
+
+                    packets[index].clear();
+
+                    packets[index].ranges.clear();
+
+                }
 
             }
 
@@ -682,7 +874,17 @@ namespace hope {
 
         void WebrtcSignalSocket::asyncWrite(std::string packet) {
 
-            awaitableQueue.enqueue(std::move(packet));
+            WebrtcSignalPayload payload;
+
+            payload.assign(std::move(packet));
+
+            awaitableQueue.enqueue(std::move(payload));
+
+        }
+
+        void WebrtcSignalSocket::asyncWrite(WebrtcSignalPayload && payload) {
+
+            awaitableQueue.enqueue(std::move(payload));
 
         }
 

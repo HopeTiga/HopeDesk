@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <string>
 #include <string_view>
@@ -34,6 +34,8 @@
 #include <absl/functional/any_invocable.h>
 
 #include "AwaitableQueue.h"
+
+#include "WebrtcSignalPacket.h"
 
 namespace hope {
 
@@ -99,6 +101,8 @@ namespace hope {
 			void closeEvent();
 
 			void asyncWrite(std::string packet);
+
+			void asyncWrite(WebrtcSignalPayload&& payload);
 
 			void setAccountId(const std::string& accountId);
 
@@ -167,7 +171,7 @@ namespace hope {
 
 			boost::asio::ip::tcp::resolver resolver;
 
-			AwaitableQueue<std::string> awaitableQueue;
+			AwaitableQueue<WebrtcSignalPayload> awaitableQueue;
 
 			std::atomic<bool> asyncEvents{ false };
 
@@ -186,6 +190,20 @@ namespace hope {
 			std::size_t receiveHeldBytes{ 0 };
 
 			std::vector<char> frameHeaderScratch;
+
+			struct BatchBucket {
+
+				std::vector<WebrtcPayloadRange> ranges;
+
+				std::size_t bytes = 0;
+
+			};
+
+			boost::unordered_flat_map<std::string_view, BatchBucket, StringHasher, std::equal_to<>> batchBuckets;
+
+			void flushBatchBucket(const BatchBucket & bucket);
+
+			void flushBatchBuckets();
 
 		private:
 
