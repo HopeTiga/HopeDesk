@@ -7,7 +7,7 @@ namespace hope {
     namespace rtc {
 
         enum class RequestType {
-            REGISTER = 0,
+            SYSTEM_INIT = 0,
             REQUEST = 1,
             START = 4,
             STATS = 8,

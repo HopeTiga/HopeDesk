@@ -1004,7 +1004,7 @@ namespace hope {
 
             int64_t responseState = json["state"].as_int64();
 
-            if (RequestType(requestType) == RequestType::REGISTER)
+            if (RequestType(requestType) == RequestType::SYSTEM_INIT)
             {
                 if (json.contains("systemService")) {
                     webrtcManagerConfig.systemService = json["systemService"].as_string().c_str();
