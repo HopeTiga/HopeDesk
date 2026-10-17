@@ -76,7 +76,7 @@ namespace hope {
         void WebrtcManager::sendSignalingMessage(const boost::json::object& message) {
 
             boost::json::object fullMsg;
-            fullMsg["requestType"] = static_cast<int64_t>(WebrtcRequestState::REQUEST);
+            fullMsg["requestType"] = static_cast<int64_t>(RequestType::REQUEST);
             fullMsg["accountId"] = accountId;
             fullMsg["targetId"] = targetId;
             fullMsg["state"] = 200;
@@ -638,7 +638,7 @@ namespace hope {
 
 					boost::json::object returnJson;
                     
-                    returnJson["requestType"] = static_cast<int64_t>(WebrtcRequestState::REQUEST);
+                    returnJson["requestType"] = static_cast<int64_t>(RequestType::REQUEST);
 
 					returnJson["accountId"] = accountId;
 
@@ -669,7 +669,7 @@ namespace hope {
 
                     boost::json::object returnJson;
 
-                    returnJson["requestType"] = static_cast<int64_t>(WebrtcRequestState::REQUEST);
+                    returnJson["requestType"] = static_cast<int64_t>(RequestType::REQUEST);
 
                     returnJson["accountId"] = accountId;
 
@@ -1004,7 +1004,7 @@ namespace hope {
 
             int64_t responseState = json["state"].as_int64();
 
-            if (WebrtcRequestState(requestType) == WebrtcRequestState::REGISTER)
+            if (RequestType(requestType) == RequestType::REGISTER)
             {
                 if (json.contains("systemService")) {
                     webrtcManagerConfig.systemService = json["systemService"].as_string().c_str();
@@ -1032,7 +1032,7 @@ namespace hope {
                     }
                 }
             }
-            else if (WebrtcRequestState(requestType) == WebrtcRequestState::REQUEST) {
+            else if (RequestType(requestType) == RequestType::REQUEST) {
                 if (responseState == 200) {
 
                     if (json.contains("accountId")) {
@@ -1111,7 +1111,7 @@ namespace hope {
                                         virtualDisplayCapture->forceCpuPath();
                                     }
                                     boost::json::object o;
-                                    o["requestType"] = static_cast<int64_t>(WebrtcRequestState::ENCODE_STATUS);
+                                    o["requestType"] = static_cast<int64_t>(RequestType::ENCODE_STATUS);
                                     o["codec"] = codec;
                                     o["hard"] = hardEncode;
                                     o["capture"] = activeCaptureTech;  // "Hope Virtual Display" / "Desktop Duplication API"

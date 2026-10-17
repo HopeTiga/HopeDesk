@@ -6,13 +6,10 @@ namespace hope {
 
     namespace rtc {
 
-        enum class WebrtcRequestState {
+        enum class RequestType {
             REGISTER = 0,
             REQUEST = 1,
-            STOPR_EMOTE = 3,
             START = 4,
-            CLOSE_SYSTEM = 6,
-            SYSTEM_READLY = 7,
             STATS = 8,
             ENCODE_STATUS = 9   // System -> 被控 Native:上报当前编码 codec + 硬编/软编
         };

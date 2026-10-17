@@ -89,7 +89,7 @@ namespace hope {
                     }
 
                     boost::json::object json;
-                    json["requestType"] = static_cast<int64_t>(WebrtcRequestState::START);
+                    json["requestType"] = static_cast<int64_t>(RequestType::START);
                     std::string jsonStr = boost::json::serialize(json);
                     std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
                     manager->asyncWrite(data);
@@ -97,7 +97,7 @@ namespace hope {
                     manager->rtcStatsCollectorHandle = webrtc::make_ref_counted<hope::rtc::RTCStatsCollectorHandle>();
                     manager->rtcStatsCollectorHandle->onRTCStatsCollectorHandle = [manager](int connectionType) {
                         boost::json::object json;
-                        json["requestType"] = static_cast<int64_t>(WebrtcRequestState::STATS);
+                        json["requestType"] = static_cast<int64_t>(RequestType::STATS);
                         json["connectionType"] = connectionType;
                         std::string jsonStr = boost::json::serialize(json);
                         std::shared_ptr<WriterData> data = std::make_shared<WriterData>(const_cast<char*>(jsonStr.c_str()), jsonStr.size());
