@@ -13,7 +13,7 @@ WebrtcSignalServer 是 Webrtc 信令面的中转服务：
 - **信令通道**：WebSocket（`wss://` 默认开 SSL），客户端用 `accountId` 鉴权接入，服务器按 `requestType` 处理/转发信令到 `targetId`。
 - **运维通道**：HTTPS，提供通道/连接统计接口。
 - **分片并发**：启动时按 `threadSize` 切出 N 个「通道(channel)」，每个通道独占一个 `io_context`+线程；连接按 round-robin 分配，路由按 `accountId` 哈希取模跨通道寻址。
-- **过载保护**：本地协程派发 + 全局任务队列两级调度，超阈值走全局队列削峰，满则回 503。
+- **过载保护（只覆盖 HTTP 派发与跨通道任务）**：本地 `co_spawn` + 全局 `TaskChannel` 两级；本地队列深度 ≥ `threshold` **且**该 handler 在 `httpLogicHandlers` 里被标记可搬迁时，任务改投全局队列，队列满则回 503。**信令派发不走这层闸门**（见 §5.4）。
 - **配置解耦**：`ConfigManager` 只在 `main.cpp` 出现，业务类全部构造注入 / 全局配置，不在类内读 ini。
 - **节点间 RPC**：`CoroRpc` 既是 RPC 服务端（默认注册 `requestForward` 一个 handler）又是 RPC 客户端（连接池 + 负载均衡器），requestType 2 的信令就由它送出去（见 §8）。
 
@@ -112,7 +112,7 @@ flowchart TB
 | TPC reactor × `threadSize` | `SchedulerContexts` 池中各自一个 | 本通道连接的握手/读写协程 |
 | logic 池 × `threadSize`（仅 `HOPE_RTC_SIGNAL_SERVER_LOGIC`） | 第二个 `SchedulerContexts` 单例 | 本通道的 handler 执行、转发、MySQL pool |
 
-- **连接绑定通道**：accept 后 `loadBalanceWebrtcManger()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
+- **连接绑定通道**：accept 后 `loadBalanceWebrtcManager()` 用 `managerIndex.fetch_add(1) % threadSize` round-robin 选一个 Manager，socket 的 `co_spawn` 落在该 Manager 的 io_context 上；此后该连接的收发、handler 都在同一个 worker 线程，**无跨线程锁**。
 - **跨通道通信**：两个原语（`WebrtcSignalServer::postTask` 按 `handler` 返回类型重载），都把活儿派到 `channelIndex` 通道的 io_context 上跑、lambda 收到 `WebrtcSignalManager *`，区别在协程/非协程与完成令牌：
   - `postTask(channelIndex, handler, token = CompletionHandle)`——**协程 + completion-token 版**（`handler` 返回 `awaitable<T>(WebrtcSignalManager *)`）。内部 `async_initiate` + `co_spawn`。默认令牌 `CompletionHandle` = fire-and-forget + 异常落日志（返回 `void`）；传 `boost::asio::deferred` 即可 `co_await` 拿返回值（`handler` 返回 `awaitable<json>` 则直接得到 `json`），续体按 asio executor 亲和落回**调用方 io**（不跨线程），适合"发一跳、等它干完再继续"。返回类型由令牌决定（`async_result`）：默认 → `void`，`deferred` → `awaitable<T>`。
   - `postTask(channelIndex, handler)`——**普通 post 版**（`handler` 是 `void(WebrtcSignalManager *)` 的可调用对象）。内部 `boost::asio::post`，**不建协程、无协程帧开销**，返回 `bool`（校验 channelIndex）。给"纯同步活儿、不需要 `co_await`、不需要异常语义"的 fire-and-forget 跳用（如回写/清缓存）。轻量优先用普通重载；要 `co_await` 或要跨通道协程语义才用协程重载。
@@ -212,9 +212,9 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 ### 5.2 收发循环
 
-- `asyncEvent()` 起 `reviceCoroutine` + `writerCoroutine` 两个协程。
+- `asyncEvent()` 起 `receiveCoroutine` + `writerCoroutine` 两个协程。
 - **握手之后直接操作 `webSocket.next_layer()`**，不走 Beast 的 `async_read`/`async_write`（SSL 开着时是 `ssl::stream`，关掉时是 `tcp::socket`，同一份代码）。理由见下方「为什么不用 Beast 的读写接口」。
-- **revice**：`async_read_some` 读进 `receiveBuffer`（缓冲区两档，见下方「接收缓冲区」）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头（`WebrtcEnvelopeView`，`string_view` 指向读缓冲、零拷贝）→ 取 `requestType/targetId` → **只有转发路径（`requestType == 1`）且 `targetId` 非空的帧**进桶（`boost::unordered_flat_map<std::string_view, BatchBucket>`，桶里只记 `(offset,len)`、累加字节数，一条也不拷）→ 读末对每桶**一次** `reserve` + `append` 拼成连续 arena、填 `payload.ranges`、从 arena 重解析一次信封头（视图改指 arena）→ `logicSystem->postTask(packet)`。合批后一次投递带约 10 条（1000 连接实测 10.7 条/次），见 §11.2「转发路径合批」。其余帧（其它 requestType、空 `targetId`、分片消息）仍是单条直发。
+- **receiveCoroutine**：`async_read_some` 读进 `receiveBuffer`（缓冲区两档，见下方「接收缓冲区」）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头（`WebrtcEnvelopeView`，`string_view` 指向读缓冲、零拷贝）→ 取 `requestType/targetId` → **只有转发路径（`requestType == 1`）且 `targetId` 非空的帧**进桶（`boost::unordered_flat_map<std::string_view, BatchBucket>`，桶里只记 `(offset,len)`、累加字节数，一条也不拷）→ 读末对每桶**一次** `reserve` + `append` 拼成连续 arena、填 `payload.ranges`、从 arena 重解析一次信封头（视图改指 arena）→ `logicSystem->postTask(packet)`。合批后一次投递带约 10 条（1000 连接实测 10.7 条/次），见 §11.2「转发路径合批」。其余帧（其它 requestType、空 `targetId`、分片消息）仍是单条直发。
   - 一次读完成产出 K 条消息，K 通常 > 1（128B 消息实测 ~17–42），这是写侧批量能成立的前提，也是读侧分桶的收益来源。
   - **只有纯透传类型合批**：现在只有 `RequestType::request`（=1）进入桶，它只是把 `packet` 原样转给目标 socket。其余类型（例如 2 号要 `erase` 掉信封再走 RPC）一律单条直发，行为与合批前逐字节一致。
   - **`targetId` 为空的消息不进桶**（直接单条直发）：它们最终都会被 `forwardHandler` 的空值检查丢掉，单发保证报错仍是"一条一条"，不会被合批合并。桶的键就只有 `targetId`（可合批的类型只剩一个，不需要再带 `requestType`）。
@@ -250,31 +250,22 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 ### 5.4 业务派发与过载（`WebrtcLogicSystem`）
 
-消息派发原语。`revice` **每个桶调用一次**（合批前是每帧一次；1000 连接实测约 10 条/次）。两个重载，共用同一套派发/削峰逻辑：
+消息派发原语。`receiveCoroutine` **每个桶调用一次**（合批前是每帧一次；1000 连接实测约 10 条/次）。
 
-- `postTask(packet)`——**普通 fire-and-forget 版**，revice 热路径实际走它。没有 completion-token 全套机制（无 `make_shared<handler>`、无 `async_initiate`、无 `associated_executor` 搬运），handler 抛出的异常就地 LOG。
+- `postTask(packet)`——**普通 fire-and-forget 版**，`receiveCoroutine` 热路径实际走它。查 `webrtcHandlers[requestType]` 后直接 `co_spawn` 到本通道 logic io：**没有 completion-token 机制、没有过载闸门、不经过全局队列**；handler 异常在 co_spawn 完成回调里就地 LOG。
 - `postTask(packet, token)`——**completion-token 版**（模板）。token 无默认实参、必须显式传（传 `boost::asio::deferred` 可 `co_await` 拿完成/异常），内部保留 `async_initiate` 等机制。当前无调用方，为将来需要协程语义的派发预留。
-
-派发逻辑（两版一致）：
-
-```
-handler = WebrtcHandlers[requestType]
-若找不到 → LOG_ERROR "Unknown Request Type"
-找到:
-  if localTaskQueueSize>=threshold && WebrtcLogicHandlers[type]==true:
-      走全局队列: taskQueues.enqueue(lambda)  // 削峰,跨通道并行
-      失败(队列满) → 向源 socket 回 503 busy
-  else:
-      localTaskQueueSize++
-      co_spawn(本通道 io, func(packet))       // 快路径,贴连接所在线程跑
-      完成回调: localTaskQueueSize--
-               若回落到 asyncThreshold+1 → 重启 asyncTaskExecute()
-               有异常 → 普通版就地 LOG;token 版经 completion handler 传播
-```
-
-- 值返回的兄弟原语 `coPostTask(packet)` 走 `webrtcValueHandlers[type]`，同队列/削峰逻辑，但 handler 返回 `awaitable<boost::json::value>`，最终以 `void(std::exception_ptr, json)` 回调值（或经默认 token `CompletionHandle` 只记异常）。
-- `WebrtcLogicHandlers[type]` 标记该 handler 是否可搬到全局队列。**当前信令 1–7、9 全为 false**，即信令始终本地派发（低延迟、贴在连接所在线程）；全局队列主要服务可搬迁的 HTTP handler（`overview` 为 true）。
+- 值返回的兄弟原语 `coPostTask(packet, token)` 走 `webrtcValueHandlers[type]`，形状与 token 版相同（`co_spawn` + `awaitable<json::value>`），**同样没有过载闸门**；当前无调用方。
 - 全局 `TaskChannel` 由 `threadSize+1` 个排水协程消费（main loop 1 个 + 每通道 LogicSystem 1 个），moodycamel 多消费安全。
+
+派发路径（两版一致，只有 `co_spawn` 这一步）：
+
+```
+handler = webrtcHandlers[requestType]
+若找不到 → LOG_ERROR "Unknown Request Type"
+找到     → co_spawn(本通道 logic io, func(packet))
+```
+
+> 过载两级调度（`threshold` / `exitThreshold` / `asyncThreshold` + 503）**只作用于 HTTP 派发**（`postHttpTask`，闸门是 `localTaskQueueSize >= threshold && httpLogicHandlers[url]`）与**跨通道任务**（`WebrtcSignalServer::postTask` → `executeQueue`，由 `asyncExecute` 排水）；信令帧不参与，见 §10.2 / §10.3。
 
 ### 5.5 forward 路由（核心）
 
@@ -306,7 +297,7 @@ handler = WebrtcHandlers[requestType]
 
 要点：
 - **哈希取模定 home**：`hasher(targetId) % hashSize`（`hashSize=threadSize`），targetId→home 映射**在一个进程内**稳定（全仓库只有 `WebrtcSignalManager` 里那一个 `StringHasher` 成员被 5 处路由决策共用，所以各通道必然算出同一个桶）。`actorSocketMappingIndex`（targetId → `{sessionId, channelIndex, registrationTime}`，其中 `registrationTime` 是注册到达序，用于同 accountId 新旧注册的仲裁，见 §5.1）是全局索引，只存在于 home 线程，查它必须跳 home——这是无缓存 / home≠源路径要 2 跳的根因。
-  - hasher 的值**从不跨进程**：跨节点转发时 `forwardChannel` 恒为 0（`signal/WebrtcLogicSystem.cpp:1106`），接收端用自己的 hasher 重算桶。所以 hasher 必须跨实例可复现（见 §11）。
+  - hasher 的值**从不跨进程**：跨节点转发时 `forwardChannel` 恒为 0（`signal/WebrtcLogicSystem.cpp:1097`），接收端用自己的 hasher 重算桶。所以 hasher 必须跨实例可复现（见 §11）。
 - **两级缓存**：源 socket 的 `actorMappingIndex`（targetId→channel）就近缓存，home 的 `actorSocketMappingIndex` 全局索引。命中缓存省一跳；缓存命中这条是 1 跳的常见好路径。
 - **过期自愈**：缓存指向的通道查不到 socket（缓存过期）就重路由到 home 重新寻址；404 时清掉源 socket 上指向错误通道的缓存项，下次重新寻址。缓存失效多出的那一跳是缓存换来的代价。
 - **线程安全**：`webrtcSocketMap`/`actorSocketMappingIndex`/`actorMappingIndex` 各自只在所属通道的 io_context 线程上访问，跨通道读写一律先 `post` 到该线程再动表（`postTask` 的普通/协程两个重载；RPC handler 里是 `coro_io::post`），无锁。
@@ -381,7 +372,7 @@ flowchart TD
 
 ### 6.2 派发与过载
 
-`postHttpTask` 与信令同构：`httpHandlers[targetUrl]` 命中 → 过载判断（`httpLogicHandlers[url]` 决定可否搬全局队列）→ 本地 co_spawn 或全局队列；满则回 503；未命中路由回 404。
+`postHttpTask` 与信令**不同**：`httpHandlers[targetUrl]` 命中后还要过一道过载闸门 —— 本地 `localTaskQueueSize ≥ threshold` **且** `httpLogicHandlers[url]` 为真时改投全局 `TaskChannel`（队列满回 503），否则本地 `co_spawn`；未命中路由回 404。`httpLogicHandlers` 目前只有 `/api/v1/managers/overview` 是 true，`/api/v1/managers/stat` 是 false。
 
 ### 6.3 路由与鉴权（`HttpFilters`）
 
@@ -862,15 +853,17 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 | 参数 | 含义 |
 |------|------|
 | `overload` | 全局 `TaskChannel` 容量 = `overload*(threadSize+1)` |
-| `threshold` | 本地+全局队列深度同时达到才走全局削峰 |
-| `exitThreshold` | 本地队列深度达到则本地排水协程退出（让位） |
-| `asyncThreshold` | 本地深度回落到此+1 时重启本地排水 |
+| `threshold` | 本地 `localTaskQueueSize` ≥ 此值、**且**该 HTTP handler 在 `httpLogicHandlers` 里为真时，才改投全局 `TaskChannel` |
+| `exitThreshold` | 全局排水协程 `asyncTaskExecute` 看到本地深度 ≥ 此值就自行停下，把活儿让回本地 `co_spawn` |
+| `asyncThreshold` | 本地深度回落到 `asyncThreshold+1` 时重新拉起全局排水协程 |
+
+> 这四个阈值只服务 HTTP 派发；信令帧永远是本地 `co_spawn`，不看它们。
 
 ### 10.3 两级调度
 
-- **本通道执行队列**（`executeQueue`，装 `PostedTask`）：快路径，排水协程 `asyncExecute` 贴在连接所在的 logic 线程上跑（见 §11.2）。
-- **全局 `TaskChannel`**：局部队列深度超阈值时，可搬迁的 handler 改走它，由 `threadSize+1` 个排水协程跨线程消费，削峰填谷；队列满 → 向源 socket 回 503 背压。
-- 两级各自的入队条件与阈值见 §5.4 的派发伪代码。
+- **本通道执行队列**（`executeQueue`，装 `PostedTask`）：跨通道任务（`WebrtcSignalServer::postTask`）走这里，排水协程 `asyncExecute` 贴在连接所在的 logic 线程上跑（见 §11.2）。
+- **全局 `TaskChannel`**：本地深度 ≥ `threshold` 且 handler 可搬迁（目前只有 HTTP 的 `/api/v1/managers/overview`）的任务改走它，由 `threadSize+1` 个排水协程跨线程消费；队列满 → 503 背压（这一条只出现在 `postHttpTask` 里）。
+- 入队条件见 `postHttpTask` 与 §10.2；**信令派发不参与这两级**。
 
 ---
 
@@ -891,7 +884,7 @@ RAII 事务：`create(conn)` 执行 `START TRANSACTION`；`commit()`/`asyncRollb
 11. **CPU 亲和绑核**（可选，`ioEnableCpuAffinity` / `logicEnableCpuAffinity`）：每个通道的反应堆线程钉在一个固定物理核上，一个反应堆独占一个物理核；io 池与 logic 池各一对独立开关，开哪一侧只钉哪一侧；详见 §11.1。
 12. **路由表容器与哈希**（`utils/StringHasher.h`）：以 `std::string` 为键的表（`webrtcSocketMap` / `actorSocketMappingIndex` / `actorMappingIndex` / `httpHandlers` / `httpLogicHandlers`）统一走 `hope::StringKeyedNodeMap<V>` / `StringKeyedFlatMap<V>` 别名，即 `boost::unordered_node_map` / `unordered_flat_map` + `hope::StringHasher` + `std::equal_to<>`。
     - **为什么 hasher 必须透明**（收 `string_view` 并 `using is_transparent = void`）：仓库里有 11 处 `map.find(targetId.data())` 传的是 `const char*`。`boost::hash<std::string>` 不透明，用它会让这 11 处**每次查找多构造一个临时 `std::string`**；透明 hasher 下按字符内容命中，零分配，`const char*` 只多一次 `strlen`。
-    - **哈希值里没有种子，也不加**：跨节点转发的帧里 `forwardChannel` **恒为 0**（`signal/WebrtcLogicSystem.cpp:1106` 的 `RpcForward rpcForward(0, ...)`），接收端不信发送端给的桶号，而是**用自己进程里同一个 `StringHasher` 对 `targetId` 重算一次**。所以哈希函数必须**跨进程可复现**——一旦引入随机种子，同一个 `accountId` 在 A 实例和 B 实例就可能算出不同桶，跨实例路由直接错。这是刻意的取舍：`accountId` 来自客户端 `Authorization` 头、攻击者可控，"分片抗打偏"是加种子的唯一动机，但它与可复现直接冲突。
+    - **哈希值里没有种子，也不加**：跨节点转发的帧里 `forwardChannel` **恒为 0**（`signal/WebrtcLogicSystem.cpp:1097` 的 `RpcForward rpcForward(0, ...)`），接收端不信发送端给的桶号，而是**用自己进程里同一个 `StringHasher` 对 `targetId` 重算一次**。所以哈希函数必须**跨进程可复现**——一旦引入随机种子，同一个 `accountId` 在 A 实例和 B 实例就可能算出不同桶，跨实例路由直接错。这是刻意的取舍：`accountId` 来自客户端 `Authorization` 头、攻击者可控，"分片抗打偏"是加种子的唯一动机，但它与可复现直接冲突。
     - **只有一个 `StringHasher`、全仓库共用**：同一个 `accountId` 必须算出同一个桶（跨通道转发、全局索引都依赖它），5 处路由决策走的是同一个类型。
     - 注：容器用 boost 不等于能少链 absl 的库——`absl::AnyInvocable`（15 处）和 `absl::StrFormat` 还在。收益是更快 + 容器风格统一。
 
@@ -1002,7 +995,7 @@ hope::executor::SchedulerContexts::init(schedulerConfig);
 
 #### 转发路径合批：requestType 1 按 targetId 分桶，一次投递带整桶
 
-这是**只针对转发路径**（`requestType = 1`，即 `RequestType::request`）的优化，不是"消息带 targetId 就合批"。判据在 `revice` 里写死为一句话：
+这是**只针对转发路径**（`requestType = 1`，即 `RequestType::request`）的优化，不是"消息带 targetId 就合批"。判据在 `receiveCoroutine` 里写死为一句话：
 
 ```cpp
 if (webrtcEnvelope.targetId.empty() || webrtcEnvelope.requestType != static_cast<int>(RequestType::request)) {
@@ -1242,7 +1235,7 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 
 - ConfigManager 只在 main.cpp 使用；signal 子系统走构造注入（`WebrtcSignalConfig` / `WebrtcSignalChannelConfig` / `WebrtcLogicConfig`），**存储层也不例外**——`MysqlConfig` 与 `RedisConfig` 都是 `WebrtcLogicConfig` 的成员。**配置一律不走全局变量**，新增配置照这个走。
 - **错误文本的编码只由构建环境决定，调用点一律不转码**（细节见 §2.1）：Windows 靠 `webrtc-signal-server.props` 里的 `BOOST_SYSTEM_USE_UTF8`，Linux 靠 `main.cpp` 的 `setlocale(C.UTF-8)`。调用点直接写 `ec.message()` / `e.what()`，不套包装、不改写 `what()` 里嵌的系统文本——要动编码就动构建面那一个宏。
-- **项目代码不写 `auto`**，写不出类型的场合只有 9 处：`rpc/CoroRpc.h` 的 3 处**非类型模板参数**（`template <auto... functions>` / `<auto first, auto...>` / `<auto func>`）、2 处**尾置返回 `auto`**（`asyncRpcRequest` / `asyncLbRpcRequest`——返回类型由 `Op` 推导，前导返回类型看不到参数名）、4 处**结构化绑定**（`HttpSocket.cpp` 的 `auto [handshake_ec] = ...` 与 `WebrtcLogicSystem.cpp` 的 3 处）。本文档的示例代码同样不写 `auto`。
+- **项目代码不写 `auto`**，写不出类型的场合只有 9 处：`rpc/CoroRpc.h` 的 3 处**非类型模板参数**（`template <auto... functions>` / `<auto first, auto...>` / `<auto func>`）、2 处**尾置返回 `auto`**（`asyncRpcRequest` / `asyncLbRpcRequest`——返回类型由 `Op` 推导，前导返回类型看不到参数名）、3 处**结构化绑定**（`HttpSocket.cpp` 的 `auto [handshake_ec] = ...`、`WebrtcLogicSystem.cpp` 的 2 处 `for (auto const& [accountId, socketPtr] : ...)`）、1 处**泛型 lambda 形参**（`CoroRpcHandleImpl.cpp` 的 `(auto handler)`）。本文档的示例代码同样不写 `auto`。（仓库自带的 `utils/concurrentqueue.h` 是第三方副本，里头 180 多处 `auto` 不在此约定内。）
 - **取执行器和 move handler 要分成两句**（`rpc/CoroRpc.h` 的 `LazyAwaitInitiation::operator()`）：handler 的执行器是从它自己所在的协程帧里读出来的，而 handler 又要 move 进 `post` 的 lambda——这两件事写进同一个实参列表，求值顺序就没有保证（MSVC 从右往左），先搬走 handler 再取执行器读到的是空帧。写法：先把执行器取成具名局部量（`decltype(boost::asio::get_associated_executor(handler)) handlerExecutor = boost::asio::get_associated_executor(handler);`），再用它起 `post`（见 §8.7 B）。
 - **命名**：成员名与构造形参同名、都不带下划线后缀——`WebrtcSignalManager(size_t channelIndex, boost::asio::io_context& ioContext, ...) : channelIndex(channelIndex), ioContext(ioContext)`；类型别名与函数名不用 snake_case（`WebSocketType` / `parseArguments`）。唯一例外是库自身的接口名（spdlog `base_sink` 的 `sink_it_` / `formatter_` / `flush_`）。
 - **asio 定时器只用在连接级/握手级这种粗粒度的界上**：Boost 1.91 在 Windows/IOCP 下是「io_context 自带一条专用 timer 线程，给它一个 `GetQueuedCompletionStatus` 超时值睡到下一个到期点」的轮询模型（`include/boost/boost/asio/detail/win_iocp_io_context.hpp` 的 `timer_thread_`），粒度跟着那个 wait 走，每个 timer 实例还要挂进 io_context 的 timer 队列；`cancel()` 与到期本身是竞态，想「超时就放弃」得自己再加一个完成标志。转发路径不设界（见 §8.7 B）。
@@ -1258,5 +1251,5 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 - HTTP 鉴权 token `913140924@qq.com` 为示例硬编码，生产环境需替换为真实鉴权。
 - **接收上限是刻意的硬线，不是只防攻击者的护栏**：单条净荷超过「接收缓冲区」那一档的上限（不定义 `WEBSOCKET_BIG_BUFFER` 时 16376 字节，定义时 65528 字节）直接断连（RST）。压测客户端 `--sdp-size` 要留在当前档之内，否则每条连接都被 RST，压测端的读数会失真。分片累加那道 `maximumMessageSize` 检查目前**无测试覆盖** —— 项目里没有任何会发 FIN=0 分片帧的客户端。
 - `writerCoroutine` 在「取空挂起后被唤醒」那条分支上只取 1 条就写、不继续排空（批量只在队列里已积了多条时才发生）；超限是直接 `throw`，没回 1009 关闭帧，对端只看到 RST。另：`maximumFrameHeaderSize = 10` 是**写侧** `frameHeaderScratch` 的槽位步长，读侧 `takeFrames` 本地另写了一遍 `2/4/10`，两处手工绑死、编译器不保证，改帧格式要同时动。
-- 合批的三个边界：① 判据写死在 `signal/WebrtcSignalSocket.cpp` 的 revice 里（`targetId.empty() || requestType != RequestType::request` 即单条直发），没有白名单函数；新增可合批的帧类型要改这一句——漏改只是不合批，不会错；② 单桶上限 = `maximumFramesPerWrite`（32 条），满了先落地，所以一桶最多一次写；③ 目标未登记时整桶只回一条 404（信封没有消息 id，无法逐条对应）。
+- 合批的三个边界：① 判据写死在 `signal/WebrtcSignalSocket.cpp` 的 receiveCoroutine 里（`targetId.empty() || requestType != RequestType::request` 即单条直发），没有白名单函数；新增可合批的帧类型要改这一句——漏改只是不合批，不会错；② 单桶上限 = `maximumFramesPerWrite`（32 条），满了先落地，所以一桶最多一次写；③ 目标未登记时整桶只回一条 404（信封没有消息 id，无法逐条对应）。
 - **返回 `awaitable<void>` 的函数体里没有 `co_await` / `co_yield` / `co_return` 时，它不是协程**：编译器按普通函数处理，落空"返回"一个未初始化的 `awaitable`（MSVC 只给一条 C4715「不是所有控件路径都返回值」），而 `postTask` 里的 `co_await (*func)(packet)` 会读到 null 的 `frame_`，在 `awaitable_frame_base::push_frame` 写空指针直接 AV。`forwardHandler` 改成同步函数那次就踩了：handler lambda 里必须显式 `co_return;`。判据——`-> awaitable<...>` 的 lambda 上出现 C4715，就是少了 `co_return`。
