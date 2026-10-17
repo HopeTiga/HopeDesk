@@ -87,6 +87,7 @@ using hope::net::WebrtcEnvelope;
 using hope::system::WindowsServiceManager;
 
 enum class RequestType {
+    SYSTEM_INIT = 0,
     REQUEST = 1,
     START = 4,
     STATS = 8,

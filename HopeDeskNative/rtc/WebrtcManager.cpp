@@ -746,7 +746,7 @@ void WebrtcManager::applyWebrtcDebugLog(bool enabled)
         if (!self->tcpSocket || !self->tcpSocket->isOpen()) return;
 
         boost::json::object registerJson;
-        registerJson["requestType"] = 0;
+        registerJson["requestType"] = static_cast<int64_t>(RequestType::SYSTEM_INIT);
         registerJson["systemService"] = self->webrtcManagerConfig.systemService;
         registerJson["stunHost"]    = self->webrtcManagerConfig.stunHost;
         registerJson["turnHost"]    = self->webrtcManagerConfig.turnHost;
@@ -1077,7 +1077,7 @@ void WebrtcManager::handleSystemMessage(std::string str)
 void WebrtcManager::handleSystemAccept()
 {
     boost::json::object registerJson;
-    registerJson["requestType"] = 0;
+    registerJson["requestType"] = static_cast<int64_t>(RequestType::SYSTEM_INIT);
     registerJson["systemService"] = webrtcManagerConfig.systemService;
     registerJson["stunHost"]    = webrtcManagerConfig.stunHost;
     registerJson["turnHost"]    = webrtcManagerConfig.turnHost;
