@@ -214,7 +214,7 @@ main.cpp: ConfigManager.Instance().Load("config.ini")
 
 - `asyncEvent()` 起 `receiveCoroutine` + `writerCoroutine` 两个协程。
 - **握手之后直接操作 `webSocket.next_layer()`**，不走 Beast 的 `async_read`/`async_write`（SSL 开着时是 `ssl::stream`，关掉时是 `tcp::socket`，同一份代码）。理由见下方「为什么不用 Beast 的读写接口」。
-- **receiveCoroutine**：`async_read_some` 读进 `receiveBuffer`（缓冲区两档，见下方「接收缓冲区」）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头（`WebrtcEnvelopeView`，`string_view` 指向读缓冲、零拷贝）→ 取 `requestType/targetId` → **只有转发路径（`requestType == 1`）且 `targetId` 非空的帧**进桶（`boost::unordered_flat_map<std::string_view, BatchBucket>`，桶里只记 `(offset,len)`、累加字节数，一条也不拷）→ 读末对每桶**一次** `reserve` + `append` 拼成连续 arena、填 `payload.ranges`、从 arena 重解析一次信封头（视图改指 arena）→ `logicSystem->postTask(packet)`。合批后一次投递带约 10 条（1000 连接实测 10.7 条/次），见 §11.2「转发路径合批」。其余帧（其它 requestType、空 `targetId`、分片消息）仍是单条直发。
+- **receiveCoroutine**：`async_read_some` 读进 `receiveBuffer`（缓冲区两档，见下方「接收缓冲区」）→ `takeFrames` 扫出缓冲区里所有**完整**帧（半帧留到下一轮；ping/pong 整帧跳过；`consumed == 0` 时跳过 memmove）→ 逐条 `unmaskPayload` 就地解掉客户端掩码 → `struct_pack::deserialize_to` 只解析信封头（`WebrtcEnvelopeView`，`string_view` 指向读缓冲、零拷贝）→ 取 `requestType/targetId` → **只有转发路径（`requestType == 1`）且 `targetId` 非空的帧**进桶（`boost::unordered_flat_map<std::string_view, BatchBucket>`，桶里只记 `(offset,len)`、累加字节数，一条也不拷）→ 读末对每桶**一次** `reserve`、**把源缓冲里地址连续的相邻帧并成一段、一段只做一次 `append`**（`prev.offset + prev.length == next.offset` 才并，所以 `A,B,A` 这种仍是 3 段），填 `payload.ranges`、从 arena 重解析一次信封头（视图改指 arena）→ `logicSystem->postTask(packet)`。合批后一次投递带约 10 条（1000 连接实测 10.7 条/次），见 §11.2「转发路径合批」。其余帧（其它 requestType、空 `targetId`、分片消息）仍是单条直发。
   - 一次读完成产出 K 条消息，K 通常 > 1（128B 消息实测 ~17–42），这是写侧批量能成立的前提，也是读侧分桶的收益来源。
   - **只有纯透传类型合批**：现在只有 `RequestType::request`（=1）进入桶，它只是把 `packet` 原样转给目标 socket。其余类型（例如 2 号要 `erase` 掉信封再走 RPC）一律单条直发，行为与合批前逐字节一致。
   - **`targetId` 为空的消息不进桶**（直接单条直发）：它们最终都会被 `forwardHandler` 的空值检查丢掉，单发保证报错仍是"一条一条"，不会被合批合并。桶的键就只有 `targetId`（可合批的类型只剩一个，不需要再带 `requestType`）。
@@ -1019,6 +1019,7 @@ if (webrtcEnvelope.targetId.empty() || webrtcEnvelope.requestType != static_cast
 | 丢失 / 错误 | 0 / 0 | 0 / 0 | — |
 
 - 合批比例：服务端日志每 **10.7 条**消息一次 `Request Forward`（合批前 1:1）。
+- **拷贝不是瓶颈**（`WebrtcSignalServer-bench/copybench.cpp` 实测）：300B 消息逐条 `append` 4.6 ns/条，相邻区间合并后 2.2 ns/条（省 2.4 ns/条 ≈ 单条 0.7% 成本里的 0.4%）。arena 的价值主要是**消掉每消息一次 malloc**，不是消掉 memcpy；`A,B,A` 这种不连续的仍是 3 段、3 次拷贝，但投递仍是 2 次。
 - 微基准（`D:\cppPro\WebrtcSignalServer-version\WebrtcSignalServer-bench`，同一套收发机制、只换派发粒度）：饱和段 CPU **2.5 → 0.66 µs/条**（3.8×），同 CPU 预算可吸 3.4× 输入；一次读里全是不同目标时桶≈1 条，桶大小=1 走单条路径，不额外分配、也不比逐条慢。
 - 代价：目标未登记时**一条 404 代替整桶 N 条**（信封里没有消息 id，合并后只能回一个错误）；`WebrtcEnvelopeView` 只有桶首那条（桶内 `requestType/accountId/targetId` 必然相同，逐条 body 用 `packet.payload(i)` 取）。
 
@@ -1253,3 +1254,5 @@ curl -k -X POST https://host:9099/api/v1/managers/stat \
 - `writerCoroutine` 在「取空挂起后被唤醒」那条分支上只取 1 条就写、不继续排空（批量只在队列里已积了多条时才发生）；超限是直接 `throw`，没回 1009 关闭帧，对端只看到 RST。另：`maximumFrameHeaderSize = 10` 是**写侧** `frameHeaderScratch` 的槽位步长，读侧 `takeFrames` 本地另写了一遍 `2/4/10`，两处手工绑死、编译器不保证，改帧格式要同时动。
 - 合批的三个边界：① 判据写死在 `signal/WebrtcSignalSocket.cpp` 的 receiveCoroutine 里（`targetId.empty() || requestType != RequestType::request` 即单条直发），没有白名单函数；新增可合批的帧类型要改这一句——漏改只是不合批，不会错；② 单桶上限 = `maximumFramesPerWrite`（32 条），满了先落地，所以一桶最多一次写；③ 目标未登记时整桶只回一条 404（信封没有消息 id，无法逐条对应）。
 - **返回 `awaitable<void>` 的函数体里没有 `co_await` / `co_yield` / `co_return` 时，它不是协程**：编译器按普通函数处理，落空"返回"一个未初始化的 `awaitable`（MSVC 只给一条 C4715「不是所有控件路径都返回值」），而 `postTask` 里的 `co_await (*func)(packet)` 会读到 null 的 `frame_`，在 `awaitable_frame_base::push_frame` 写空指针直接 AV。`forwardHandler` 改成同步函数那次就踩了：handler lambda 里必须显式 `co_return;`。判据——`-> awaitable<...>` 的 lambda 上出现 C4715，就是少了 `co_return`。
+- **信令路径没有 per-connection 限流**：`overload/threshold/503` 只覆盖 HTTP 派发，转发路径上一条连接可以无限刷（应用服务器发标识、被控端决定接不接受会话，但服务端这一侧拦不住"刷"）。要加就在 `receiveCoroutine` 解析完信封、进桶之前放一个只属本连接线程的计数器/令牌桶（固定窗口十行，无需锁），超限直接丢或回 `state=429`。
+- **logic 侧每条（批）仍走 `co_spawn`**：`postTask(packet)` 会起一层协程帧 + 完成回调 + 一次调度，而 type 1 的 `forwardHandler` 本身已是同步函数。要再省可以按"同步/协程"拆两张 handler 表，同步的走 `boost::asio::post`（每批省 10~30 ns/条）；注意协程 handler **必须被 await**，直接调用而不 `co_await` 就是上一条的坑。
