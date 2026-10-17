@@ -124,7 +124,7 @@ namespace hope {
 
 			void closeSocket();
 
-			boost::asio::awaitable<void> reviceCoroutine();
+			boost::asio::awaitable<void> receiveCoroutine();
 
 			boost::asio::awaitable<void> writerCoroutine();
 

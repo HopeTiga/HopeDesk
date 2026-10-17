@@ -209,13 +209,13 @@ namespace hope {
 
             boost::asio::co_spawn(ioContext, [this]()->boost::asio::awaitable<void> {
 
-                co_await reviceCoroutine();
+                co_await receiveCoroutine();
 
                 co_return;
 
                 }, [self = shared_from_this()](std::exception_ptr exceptionPtr) {
 
-                    self->handleCoroutineExit("ReviceCoroutine", exceptionPtr);
+                    self->handleCoroutineExit("ReceiveCoroutine", exceptionPtr);
 
                     });
 
@@ -519,12 +519,39 @@ namespace hope {
 
                 webrtcSignalPacket.packet.ranges.reserve(bucket.ranges.size());
 
-                for (const WebrtcPayloadRange & range : bucket.ranges) {
+                std::size_t index = 0;
 
-                    webrtcSignalPacket.packet.ranges.push_back(WebrtcPayloadRange{
-                        static_cast<std::uint32_t>(webrtcSignalPacket.packet.size()), range.length });
+                while (index < bucket.ranges.size()) {
 
-                    webrtcSignalPacket.packet.append(receiveBuffer.data() + range.offset, range.length);
+                    const std::size_t spanStart = index;
+
+                    std::uint32_t spanEnd = bucket.ranges[index].offset + bucket.ranges[index].length;
+
+                    ++index;
+
+                    while (index < bucket.ranges.size() && bucket.ranges[index].offset == spanEnd) {
+
+                        spanEnd = bucket.ranges[index].offset + bucket.ranges[index].length;
+
+                        ++index;
+
+                    }
+
+                    const std::uint32_t spanOffset = bucket.ranges[spanStart].offset;
+
+                    const std::uint32_t arenaOffset = static_cast<std::uint32_t>(webrtcSignalPacket.packet.size());
+
+                    webrtcSignalPacket.packet.append(receiveBuffer.data() + spanOffset,
+                        static_cast<std::size_t>(spanEnd) - spanOffset);
+
+                    for (std::size_t message = spanStart; message < index; ++message) {
+
+                        const WebrtcPayloadRange & range = bucket.ranges[message];
+
+                        webrtcSignalPacket.packet.ranges.push_back(WebrtcPayloadRange{
+                            arenaOffset + (range.offset - spanOffset), range.length });
+
+                    }
 
                 }
 
@@ -565,7 +592,7 @@ namespace hope {
 
         }
 
-        boost::asio::awaitable<void> WebrtcSignalSocket::reviceCoroutine() {
+        boost::asio::awaitable<void> WebrtcSignalSocket::receiveCoroutine() {
 
             std::string fragmentedPayload;
 
